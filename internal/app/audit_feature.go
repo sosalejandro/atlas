@@ -96,7 +96,15 @@ func (uc *AuditFeatureUseCase) Execute(registryDir, featureID string, config por
 	}
 
 	// Step 9: Analyze performance testing gaps.
-	perfGaps, perfScore := analyzePerformanceGaps(allNodes, config.ProjectRoot)
+	// If graph tracing produced nodes, check each node's test file for benchmark/race patterns.
+	// If not, fall back to scanning the feature's registered test files directly.
+	var perfGaps []domain.PerfGap
+	var perfScore *domain.PerfScore
+	if len(allNodes) > 0 {
+		perfGaps, perfScore = analyzePerformanceGaps(allNodes, config.ProjectRoot)
+	} else {
+		perfGaps, perfScore = registryBasedPerfAnalysis(feature, config.ProjectRoot)
+	}
 
 	return &domain.AuditOutput{
 		FeatureID:      feature.ID,
@@ -137,6 +145,84 @@ func registryBasedHealth(feature *domain.Feature) float64 {
 	}
 
 	return float64(covered) / float64(len(entries))
+}
+
+// registryBasedPerfAnalysis scans the feature's registered test files for
+// benchmark and race-test patterns. Used as a fallback when graph tracing
+// produces no nodes (CLI tools, libraries, event-driven apps).
+//
+// Unlike analyzePerformanceGaps which checks per-node, this scans ALL test
+// files for the feature and reports aggregate presence/absence.
+func registryBasedPerfAnalysis(feature *domain.Feature, projectRoot string) ([]domain.PerfGap, *domain.PerfScore) {
+	testFiles := collectTestFiles(feature)
+	if len(testFiles) == 0 {
+		return nil, &domain.PerfScore{}
+	}
+
+	totalFiles := len(testFiles)
+	filesWithBenchmark := 0
+	filesWithRace := 0
+
+	for _, tf := range testFiles {
+		absPath := tf
+		if !filepath.IsAbs(tf) && projectRoot != "" {
+			absPath = filepath.Join(projectRoot, tf)
+		}
+		hasBench, hasRace := scanTestFileForPerfPatterns(absPath)
+		if hasBench {
+			filesWithBenchmark++
+		}
+		if hasRace {
+			filesWithRace++
+		}
+	}
+
+	// Build gaps for files missing benchmarks or race tests.
+	var gaps []domain.PerfGap
+	for _, tf := range testFiles {
+		absPath := tf
+		if !filepath.IsAbs(tf) && projectRoot != "" {
+			absPath = filepath.Join(projectRoot, tf)
+		}
+		hasBench, hasRace := scanTestFileForPerfPatterns(absPath)
+
+		if !hasBench {
+			gaps = append(gaps, domain.PerfGap{
+				NodeID:     filepath.Base(tf),
+				Kind:       "test-file",
+				File:       tf,
+				Severity:   "medium",
+				GapType:    "no-benchmark",
+				Reason:     "test file has no Benchmark* functions",
+				Suggestion: fmt.Sprintf("Add Benchmark* functions to %s", filepath.Base(tf)),
+			})
+		}
+		if !hasRace {
+			gaps = append(gaps, domain.PerfGap{
+				NodeID:     filepath.Base(tf),
+				Kind:       "test-file",
+				File:       tf,
+				Severity:   "medium",
+				GapType:    "no-race-test",
+				Reason:     "test file has no t.Parallel() calls",
+				Suggestion: fmt.Sprintf("Add t.Parallel() to tests in %s", filepath.Base(tf)),
+			})
+		}
+	}
+
+	score := &domain.PerfScore{
+		BenchmarkedNodes:   filesWithBenchmark,
+		BenchmarkableNodes: totalFiles,
+		RaceTestedNodes:    filesWithRace,
+		ConcurrentNodes:    totalFiles,
+	}
+	if totalFiles > 0 {
+		score.BenchmarkCoverage = float64(filesWithBenchmark) / float64(totalFiles)
+		score.RaceTestCoverage = float64(filesWithRace) / float64(totalFiles)
+	}
+	score.Overall = score.BenchmarkCoverage*0.6 + score.RaceTestCoverage*0.4
+
+	return gaps, score
 }
 
 // ExecuteAll generates a summary report for all features.
