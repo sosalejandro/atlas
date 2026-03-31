@@ -10,8 +10,17 @@ features:
     coverage:
       unit:
         backend:
-          status: missing
+          status: covered
           mocked: false
+          tests:
+            - file: cmd/sprint_test.go
+              functions:
+                - name: TestNormalizeTestType
+                  run: go test -run TestNormalizeTestType ./cmd/...
+                - name: TestNormalizePerfGapType
+                  run: go test -run TestNormalizePerfGapType ./cmd/...
+                - name: TestExtractDomain
+                  run: go test -run TestExtractDomain ./cmd/...
       integration: {}
       e2e: {}
   - id: workflow.gaps
@@ -23,8 +32,19 @@ features:
     coverage:
       unit:
         backend:
-          status: missing
+          status: covered
           mocked: false
+          tests:
+            - file: cmd/gaps_test.go
+              functions:
+                - name: TestSeverityColor
+                  run: go test -run TestSeverityColor ./cmd/...
+                - name: TestTestPattern
+                  run: go test -run TestTestPattern ./cmd/...
+                - name: TestPromptActionDescription_WithFile
+                  run: go test -run TestPromptActionDescription_WithFile ./cmd/...
+                - name: TestPromptActionDescription_WithoutFile
+                  run: go test -run TestPromptActionDescription_WithoutFile ./cmd/...
       integration: {}
       e2e: {}
   - id: workflow.diff
@@ -36,8 +56,27 @@ features:
     coverage:
       unit:
         backend:
-          status: missing
+          status: covered
           mocked: false
+          tests:
+            - file: cmd/diff_test.go
+              functions:
+                - name: TestComputeDiff_ImprovedAndUnchanged
+                  run: go test -run TestComputeDiff_ImprovedAndUnchanged ./cmd/...
+                - name: TestComputeDiff_RemovedFeature
+                  run: go test -run TestComputeDiff_RemovedFeature ./cmd/...
+                - name: TestComputeDiff_NewFeature
+                  run: go test -run TestComputeDiff_NewFeature ./cmd/...
+                - name: TestComputeDiff_Regressed
+                  run: go test -run TestComputeDiff_Regressed ./cmd/...
+                - name: TestComputeDiff_MixedScenario
+                  run: go test -run TestComputeDiff_MixedScenario ./cmd/...
+                - name: TestRoundTo4
+                  run: go test -run TestRoundTo4 ./cmd/...
+                - name: TestFormatDeltaPct
+                  run: go test -run TestFormatDeltaPct ./cmd/...
+                - name: TestFormatScorePct
+                  run: go test -run TestFormatScorePct ./cmd/...
       integration: {}
       e2e: {}
   - id: workflow.run

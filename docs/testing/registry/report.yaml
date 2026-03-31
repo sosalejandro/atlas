@@ -80,8 +80,25 @@ features:
     coverage:
       unit:
         backend:
-          status: missing
+          status: covered
           mocked: false
+          tests:
+            - file: internal/adapters/terminal_reporter_test.go
+              functions:
+                - name: TestTerminalReporterRender
+                  run: go test -run TestTerminalReporterRender ./internal/adapters/...
+                - name: TestTerminalReporterRenderShowsCriticalGaps
+                  run: go test -run TestTerminalReporterRenderShowsCriticalGaps ./internal/adapters/...
+                - name: TestTerminalReporterRenderEmptyDomains
+                  run: go test -run TestTerminalReporterRenderEmptyDomains ./internal/adapters/...
+                - name: TestTerminalReporterRenderFeatureDetail
+                  run: go test -run TestTerminalReporterRenderFeatureDetail ./internal/adapters/...
+                - name: TestTerminalReporterRenderFeatureDetailFullyCovered
+                  run: go test -run TestTerminalReporterRenderFeatureDetailFullyCovered ./internal/adapters/...
+                - name: TestTerminalReporterStatusIconNoColor
+                  run: go test -run TestTerminalReporterStatusIconNoColor ./internal/adapters/...
+                - name: TestTerminalReporterFormatPercent
+                  run: go test -run TestTerminalReporterFormatPercent ./internal/adapters/...
       integration: {}
       e2e: {}
   - id: report.markdown-renderer
@@ -93,7 +110,22 @@ features:
     coverage:
       unit:
         backend:
-          status: missing
+          status: covered
           mocked: false
+          tests:
+            - file: internal/adapters/markdown_reporter_test.go
+              functions:
+                - name: TestMarkdownReporterRender
+                  run: go test -run TestMarkdownReporterRender ./internal/adapters/...
+                - name: TestMarkdownReporterRenderEmptyDomains
+                  run: go test -run TestMarkdownReporterRenderEmptyDomains ./internal/adapters/...
+                - name: TestStatusEmoji
+                  run: go test -run TestStatusEmoji ./internal/adapters/...
+                - name: TestCapitalizeFirst
+                  run: go test -run TestCapitalizeFirst ./internal/adapters/...
+                - name: TestPercent
+                  run: go test -run TestPercent ./internal/adapters/...
+                - name: TestRatio
+                  run: go test -run TestRatio ./internal/adapters/...
       integration: {}
       e2e: {}

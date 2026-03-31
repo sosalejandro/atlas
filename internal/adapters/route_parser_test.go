@@ -1,4 +1,4 @@
-// @testreg trace.route-parser
+// @testreg trace.route-parser,trace.stdlib-router
 package adapters
 
 import (
