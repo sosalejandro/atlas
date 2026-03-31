@@ -56,6 +56,84 @@ No manual wiring. testreg parsed the Go AST, resolved Wire dependency injection 
 
 ---
 
+## When testreg Works Best (and When It Doesn't)
+
+testreg is not a generic tool. It makes specific assumptions about how your codebase is structured. Understanding these assumptions upfront determines how much value you'll get.
+
+### What testreg assumes about your Go backend
+
+The Go AST scanner resolves call graphs by parsing source code structure -- it does not use the Go type checker (`go/types`). This means it relies on **naming conventions** and **struct field injection** to classify nodes and follow call chains.
+
+| Assumption | What testreg expects | What happens otherwise |
+|------------|---------------------|----------------------|
+| **Package naming** | Directories named `handler*/`, `service*/`, `repository*/`, `persistence*/` | Functions are classified as `service` (default). Health score weights may be wrong, but the graph still builds. |
+| **Struct field injection** | Dependencies stored as struct fields: `type Handler struct { service AuthService }` | Calls through constructor parameters, closures, or globals are **invisible** to the scanner. Edges are lost. |
+| **Layered architecture** | Handler -> Service -> Repository -> Query call flow | The health score weights (handler 30%, service 30%, repository 25%, query 15%) assume this layering. Flat architectures get skewed scores. |
+
+### Dependency injection support
+
+| DI Approach | Support Level | Details |
+|-------------|--------------|---------|
+| **Google Wire** | Full | Parses `wire.Bind()` and provider functions to resolve interface-to-concrete mappings |
+| **Manual wiring (struct fields)** | Full | As long as dependencies are struct fields, the AST scanner resolves them |
+| **Manual wiring (constructor params)** | Partial | The constructor call is visible, but calls inside the handler through params are not traced |
+| **Uber Dig / fx** | None | Dig uses runtime reflection. No static analysis possible. Graph still builds from struct fields, but DI bindings are invisible |
+| **No DI (closures/globals)** | None | Captured variables and global singletons cannot be traced via AST |
+
+### Router support
+
+| Router | Support Level | Details |
+|--------|--------------|---------|
+| **Chi** | Auto-detected | `r.Get()`, `r.Post()`, `r.Route()`, `r.Group()`, `r.With()` -- all parsed from router file |
+| **stdlib `net/http`** | Via annotations | Add `@api GET /path` above handler functions |
+| **Gin, Echo, Fiber, gorilla/mux** | Via annotations | Add `@api` annotations. No auto-detection for these frameworks |
+
+If you don't use Chi, omit `router_file` from `.testreg.yaml` and use `@api` annotations on all handlers. The graph works identically.
+
+### Data access support
+
+| Tool | Support Level | Details |
+|------|--------------|---------|
+| **SQLC** | Full | Maps generated Go methods to SQL source files via `sqlc.yaml` |
+| **Raw SQL / sqlx** | None | No query nodes in graph. Omit `sqlc_config` from config |
+| **GORM, ent, Bun** | None | ORM calls are too dynamic for AST analysis |
+
+### Frontend support
+
+| Framework | Support Level | Details |
+|-----------|--------------|---------|
+| **React Router + hooks** | Full | Routes, components, hooks, and API service calls traced |
+| **TanStack Query** | Full | `useQuery`/`useMutation` hooks recognized |
+| **Next.js, Remix** | None | App directory routing not supported |
+| **Vue, Svelte, Angular** | None | Only TypeScript/React patterns are parsed |
+
+Frontend scanning is entirely optional. If omitted, testreg produces backend-only graphs.
+
+### The `@api` escape hatch
+
+For any pattern testreg can't auto-detect, the `@api` annotation provides a manual override:
+
+```go
+// @api POST /api/v1/auth/login
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) { ... }
+```
+
+This works with **any** Go HTTP framework. The annotation is framework-agnostic and takes precedence over auto-detected routes.
+
+### Minimum viable setup
+
+To get value from testreg with the least effort:
+
+1. **Required:** Business features defined in registry YAML files with API surfaces
+2. **Required:** `@testreg` annotations on test files
+3. **Recommended:** Package naming that matches `handler/service/repository` conventions
+4. **Recommended:** Dependencies as struct fields (not constructor params or closures)
+5. **Optional:** Wire DI file, SQLC config, Chi router file, TypeScript scanner
+
+Without items 1-2, testreg has nothing to work with. Without 3-4, the graph builds but classifications and call chains degrade.
+
+---
+
 ## Installation
 
 ```bash
