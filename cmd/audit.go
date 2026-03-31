@@ -64,6 +64,7 @@ Gaps are prioritized by severity:
 				adapters.NewPlaywrightScanner(),
 				adapters.NewMaestroScanner(),
 				adapters.NewJestScanner(),
+				adapters.NewPythonScanner(),
 			}
 			scanUC := app.NewScanTestsUseCase(store, store, scanners)
 			if _, err := scanUC.Execute(resolvedProjectRoot(), resolvedRegistryDir()); err != nil {

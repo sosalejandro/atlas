@@ -535,7 +535,7 @@ func TestDetectLanguage(t *testing.T) {
 		{".jsx", "js"},
 		{".yaml", "maestro"},
 		{".yml", "maestro"},
-		{".py", ""},
+		{".py", "python"},
 		{".rs", ""},
 		{"", ""},
 	}

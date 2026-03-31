@@ -861,9 +861,32 @@ appId: com.example.app
 - tapOn: "Login"
 ```
 
+**Python (pytest):**
+
+```python
+# @testreg auth.login #real
+def test_login_success(client):
+    response = client.post("/api/v1/auth/login", json={"email": "user@example.com"})
+    assert response.status_code == 200
+
+# @testreg auth.login #real
+class TestLoginFlow:
+    def test_valid_credentials(self, client):
+        ...
+    def test_invalid_password(self, client):
+        ...
+```
+
 **Multiple features:** Comma-separate IDs: `@testreg auth.login,auth.session`
 
 **Flags:** Add hash-prefixed flags: `@testreg auth.login #flaky #slow`
+
+**Comment syntax by language:**
+
+| Language | Annotation syntax |
+|----------|-------------------|
+| Go, TypeScript, JavaScript | `// @testreg auth.login #real` |
+| Python, YAML (Maestro flows) | `# @testreg auth.login #real` |
 
 ### `@api` -- Map handlers to HTTP endpoints
 
@@ -1148,6 +1171,7 @@ Both scanners produce nodes and edges that are merged into a single unified `Gra
 | Playwright | `*.spec.ts` | Web E2E |
 | Jest | `__tests__/**` | Mobile |
 | Maestro | `*.yaml` (in e2e dirs) | Mobile E2E |
+| pytest | `test_*.py`, `*_test.py` | Backend |
 
 ---
 
@@ -1230,6 +1254,59 @@ testreg gaps --priority critical -n 5 --format prompt > gaps.md
 #   - The @testreg annotation to add
 #   - The test pattern to follow (table-driven, TestMain, etc.)
 ```
+
+### AI-Assisted Gap Fixing with --format prompt
+
+The `testreg gaps --format prompt` command generates structured output designed specifically for AI coding agents. Each gap includes the source file, line number, what test to write, where to put it, and the exact `@testreg` annotation to add. This makes it straightforward to hand off gap-fixing work to an AI agent without any manual reformatting.
+
+**Single feature workflow:**
+
+```bash
+# Extract gaps for a single feature
+testreg gaps --feature auth.login --format prompt
+```
+
+Example output:
+
+```
+## Feature: auth.login
+Priority: critical | Health: 74% | Target: 100%
+
+### Gaps (3):
+1. CRITICAL: authService.Login has no unit test for service method
+   - Source: src/application/services/auth_service.go:172
+   - Write: Write unit test for authService.Login in src/application/services/auth_service_test.go
+   - Annotation: // @testreg auth.login #real
+```
+
+**Batch workflow -- extract gaps, dispatch to parallel agents:**
+
+```bash
+# Save prompt for top 5 critical features
+testreg gaps --priority critical -n 5 --format prompt > /tmp/test-gaps.md
+
+# Feed to an AI agent (example using Claude Code):
+# "Read /tmp/test-gaps.md. For each gap, write the missing test following
+#  the source file patterns. Add the @testreg annotation shown. Run
+#  testreg scan after writing to verify the tests are picked up."
+```
+
+**Verification loop -- after agent writes tests:**
+
+```bash
+testreg scan                    # Pick up new test files
+testreg audit --priority critical  # Verify health improved
+testreg diff                    # Measure improvement vs baseline
+```
+
+**Format comparison:**
+
+| Format | Use case | Output |
+|--------|----------|--------|
+| `terminal` | Human reading in terminal | Color-coded severity + file locations |
+| `json` | CI pipelines, scripting | Structured JSON array |
+| `actionable` | Human following step-by-step | Per-gap fix instructions with test patterns |
+| `prompt` | AI agent input | Markdown with source, write target, and annotation |
 
 ### Before/After Sprint Tracking
 

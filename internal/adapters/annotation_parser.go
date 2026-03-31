@@ -57,6 +57,8 @@ type apiAnnotation struct {
 // Regex patterns for extracting test functions across languages.
 var (
 	goTestFuncRe       = regexp.MustCompile(`^func\s+(Test\w+|Benchmark\w+)\s*\(`)
+	pyTestFuncRe       = regexp.MustCompile(`^(?:def|async\s+def)\s+(test_\w+)\s*\(`)
+	pyClassRe          = regexp.MustCompile(`^class\s+(Test\w+)`)
 	jsTestRe           = regexp.MustCompile(`(?:^|\s)test\(\s*['"](.+?)['"]`)
 	jsTestDescribeRe   = regexp.MustCompile(`(?:^|\s)test\.describe\(\s*['"](.+?)['"]`)
 	jsItRe             = regexp.MustCompile(`(?:^|\s)it\(\s*['"](.+?)['"]`)
@@ -310,6 +312,8 @@ func detectLanguage(ext string) string {
 		return "go"
 	case ".ts", ".tsx", ".js", ".jsx":
 		return "js" // covers TS/JS/JSX/TSX
+	case ".py":
+		return "python"
 	case ".yaml", ".yml":
 		return "maestro"
 	default:
@@ -369,6 +373,8 @@ func extractFunctions(line string, lineNum int, lang string) []ExtractedFunction
 		return extractGoFunctions(line, lineNum)
 	case "js":
 		return extractJSFunctions(line, lineNum)
+	case "python":
+		return extractPythonFunctions(line, lineNum)
 	case "maestro":
 		// Maestro YAML: filename is the test name, no function extraction
 		return nil
@@ -412,6 +418,20 @@ func extractJSFunctions(line string, lineNum int) []ExtractedFunction {
 	}
 
 	return fns
+}
+
+// extractPythonFunctions extracts Python test function and class names.
+// Matches: def test_something(), async def test_something(), class TestSomething
+func extractPythonFunctions(line string, lineNum int) []ExtractedFunction {
+	// Try def test_*() or async def test_*()
+	if match := pyTestFuncRe.FindStringSubmatch(line); match != nil {
+		return []ExtractedFunction{{Name: match[1], Line: lineNum}}
+	}
+	// Try class Test*
+	if match := pyClassRe.FindStringSubmatch(line); match != nil {
+		return []ExtractedFunction{{Name: match[1], Line: lineNum}}
+	}
+	return nil
 }
 
 // buildAnnotatedResult creates an AnnotatedTest from parsed annotations and functions.
@@ -575,6 +595,15 @@ func classifyFromPath(relPath, lang string, hasE2EBuildTag bool) (string, string
 		// Default for JS
 		return "unit", "web"
 
+	case "python":
+		if strings.Contains(lower, "e2e") || strings.Contains(lower, "integration") {
+			if strings.Contains(lower, "e2e") {
+				return "e2e", "backend"
+			}
+			return "integration", "backend"
+		}
+		return "unit", "backend"
+
 	case "maestro":
 		return "e2e", "mobile"
 	}
@@ -600,6 +629,8 @@ func frameworkFromLang(lang, relPath string) string {
 		}
 		// Web test files = Vitest
 		return "vitest"
+	case "python":
+		return "pytest"
 	case "maestro":
 		return "maestro"
 	}

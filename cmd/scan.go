@@ -28,6 +28,7 @@ The registry YAML files are updated with new file references and status changes.
 			adapters.NewPlaywrightScanner(),
 			adapters.NewMaestroScanner(),
 			adapters.NewJestScanner(),
+			adapters.NewPythonScanner(),
 		}
 
 		useCase := app.NewScanTestsUseCase(store, store, scanners)
