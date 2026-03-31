@@ -160,6 +160,9 @@ type scanContext struct {
 	// Endpoints discovered via @api annotations (takes precedence over route parser).
 	apiAnnotatedEndpoints map[string]bool
 
+	// DI bindings: short interface name → InterfaceMapping (from Wire and/or Fx resolvers).
+	interfaceBindings map[string]InterfaceMapping
+
 	// Ignore patterns (pre-compiled).
 	ignorePackages  map[string]bool
 	ignoreFuncGlobs []string
@@ -188,6 +191,7 @@ func (s *GoASTScanner) newScanContext(projectRoot string, config ports.GraphConf
 		structFields:          make(map[string]map[string]string),
 		sqlcMethods:           make(map[string]SQLCMapping),
 		apiAnnotatedEndpoints: make(map[string]bool),
+		interfaceBindings:     make(map[string]InterfaceMapping),
 		ignorePackages:        ignorePkgs,
 		ignoreFuncGlobs:       config.IgnoreFunctions,
 	}, nil
@@ -198,16 +202,49 @@ func (s *GoASTScanner) newScanContext(projectRoot string, config ports.GraphConf
 // ---------------------------------------------------------------------------
 
 func (s *GoASTScanner) preResolve(ctx *scanContext, projectRoot string, config ports.GraphConfig) error {
-	if config.SQLCConfig == "" {
-		return nil
+	// SQLC pre-resolution.
+	if config.SQLCConfig != "" {
+		mappings, err := s.sqlcMapper.Map(projectRoot, config.SQLCConfig)
+		if err != nil {
+			return err
+		}
+		ctx.sqlcMethods = mappings
 	}
 
-	mappings, err := s.sqlcMapper.Map(projectRoot, config.SQLCConfig)
-	if err != nil {
-		return err
+	// Wire DI pre-resolution.
+	if config.WireFile != "" {
+		wirePath := config.WireFile
+		if !filepath.IsAbs(wirePath) {
+			wirePath = filepath.Join(projectRoot, wirePath)
+		}
+		wireResolver := NewWireResolver()
+		bindings, err := wireResolver.Resolve(wirePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: wire resolution failed: %v\n", err)
+		} else {
+			for k, v := range bindings {
+				ctx.interfaceBindings[k] = v
+			}
+		}
 	}
 
-	ctx.sqlcMethods = mappings
+	// Uber Fx/Dig DI pre-resolution.
+	if config.FxDir != "" {
+		fxDir := config.FxDir
+		if !filepath.IsAbs(fxDir) {
+			fxDir = filepath.Join(projectRoot, fxDir)
+		}
+		fxResolver := NewFxResolver()
+		bindings, err := fxResolver.Resolve(fxDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: fx resolution failed: %v\n", err)
+		} else {
+			for k, v := range bindings {
+				ctx.interfaceBindings[k] = v
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -1016,12 +1053,27 @@ func (s *GoASTScanner) resolveFieldType(ctx *scanContext, receiverType, receiver
 // implementation. For example, fieldType="services.AuthService" and
 // methodName="Login" → searches funcLookup for any "XxxImpl.Login" where
 // Xxx relates to the interface name. Returns the resolved callee ID or "".
+//
+// Resolution priority:
+//  1. DI bindings (Wire/Fx) — if an explicit interface→concrete mapping exists, use it
+//  2. Fuzzy name matching — fall back to matching type names heuristically
 func (s *GoASTScanner) fuzzyResolveMethod(ctx *scanContext, fieldType, methodName string) string {
 	// Extract the short interface name: "services.AuthService" → "AuthService"
 	shortIface := fieldType
 	if idx := strings.LastIndex(fieldType, "."); idx >= 0 {
 		shortIface = fieldType[idx+1:]
 	}
+
+	// Priority 1: Check DI bindings (Wire/Fx) for explicit resolution.
+	if binding, ok := ctx.interfaceBindings[shortIface]; ok {
+		concreteShort := shortTypeName(binding.Concrete)
+		calleeID := concreteShort + "." + methodName
+		if _, exists := ctx.funcLookup[calleeID]; exists {
+			return calleeID
+		}
+	}
+
+	// Priority 2: Fuzzy name matching.
 	// Lowercase for fuzzy matching
 	lowerIface := strings.ToLower(shortIface)
 

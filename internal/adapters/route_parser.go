@@ -173,6 +173,8 @@ func extractRoutesFromExpr(fset *token.FileSet, expr ast.Expr, prefix, filePath 
 		return extractNestedRoute(fset, call, prefix, filePath)
 	case "Group":
 		return extractGroup(fset, call, prefix, filePath)
+	case "HandleFunc", "Handle":
+		return extractStdlibRoute(fset, call, prefix, filePath)
 	}
 
 	return nil
@@ -349,6 +351,78 @@ func exprToString(expr ast.Expr) string {
 		return exprToString(e.X) + "[" + exprToString(e.Index) + "]"
 	}
 	return "<unknown>"
+}
+
+// extractStdlibRoute handles stdlib patterns:
+//
+//	mux.HandleFunc("/path", handler)
+//	mux.Handle("/path", handler)
+//	http.HandleFunc("/path", handler)
+//	mux.HandleFunc("GET /path", handler)  — Go 1.22+ pattern
+func extractStdlibRoute(fset *token.FileSet, call *ast.CallExpr, prefix, filePath string) []RouteMapping {
+	if len(call.Args) < 2 {
+		return nil
+	}
+
+	pathLit, ok := call.Args[0].(*ast.BasicLit)
+	if !ok {
+		return nil
+	}
+	pattern := strings.Trim(pathLit.Value, `"`)
+
+	// Parse Go 1.22 method+path pattern: "POST /path" or just "/path"
+	method, path := parseMethodPath(pattern)
+	fullPath := joinPath(prefix, path)
+	handler := resolveHandlerArg(call.Args[1])
+	line := fset.Position(call.Pos()).Line
+
+	return []RouteMapping{{
+		Method:  method,
+		Path:    fullPath,
+		Handler: handler,
+		File:    filePath,
+		Line:    line,
+	}}
+}
+
+// parseMethodPath splits a Go 1.22+ routing pattern like "POST /api/v1/users"
+// into method and path components. Patterns without a method prefix (e.g. "/healthz")
+// return an empty method string, meaning all methods are accepted.
+func parseMethodPath(pattern string) (method, path string) {
+	parts := strings.SplitN(pattern, " ", 2)
+	if len(parts) == 2 && isHTTPMethod(parts[0]) {
+		return parts[0], parts[1]
+	}
+	return "", pattern
+}
+
+// isHTTPMethod returns true if s is a standard HTTP method name.
+func isHTTPMethod(s string) bool {
+	switch s {
+	case "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "CONNECT", "TRACE":
+		return true
+	}
+	return false
+}
+
+// resolveHandlerArg unwraps common handler wrapper patterns to extract the
+// underlying handler reference. For example:
+//
+//	chain(uploadHandler)                        → "uploadHandler"
+//	chain(http.HandlerFunc(fileHandler.Handle))  → "fileHandler.Handle"
+//	http.HandlerFunc(handler)                    → "handler"
+func resolveHandlerArg(expr ast.Expr) string {
+	if call, ok := expr.(*ast.CallExpr); ok {
+		// If it's a single-arg wrapper like chain(x) or http.HandlerFunc(x),
+		// try to unwrap and return the inner expression.
+		if len(call.Args) == 1 {
+			inner := resolveHandlerArg(call.Args[0])
+			if inner != "<unknown>" {
+				return inner
+			}
+		}
+	}
+	return exprToString(expr)
 }
 
 // joinPath joins two path segments, avoiding double slashes and handling the

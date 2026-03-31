@@ -75,9 +75,9 @@ The Go AST scanner resolves call graphs by parsing source code structure -- it d
 | DI Approach | Support Level | Details |
 |-------------|--------------|---------|
 | **Google Wire** | Full | Parses `wire.Bind()` and provider functions to resolve interface-to-concrete mappings |
+| **Uber Fx / Dig** | Full | Parses `fx.Provide()`, `fx.Options()`, `fx.Invoke()`, and `dig.Provide()` to resolve provider return types |
 | **Manual wiring (struct fields)** | Full | As long as dependencies are struct fields, the AST scanner resolves them |
 | **Manual wiring (constructor params)** | Partial | The constructor call is visible, but calls inside the handler through params are not traced |
-| **Uber Dig / fx** | None | Dig uses runtime reflection. No static analysis possible. Graph still builds from struct fields, but DI bindings are invisible |
 | **No DI (closures/globals)** | None | Captured variables and global singletons cannot be traced via AST |
 
 ### Router support
@@ -85,7 +85,7 @@ The Go AST scanner resolves call graphs by parsing source code structure -- it d
 | Router | Support Level | Details |
 |--------|--------------|---------|
 | **Chi** | Auto-detected | `r.Get()`, `r.Post()`, `r.Route()`, `r.Group()`, `r.With()` -- all parsed from router file |
-| **stdlib `net/http`** | Via annotations | Add `@api GET /path` above handler functions |
+| **stdlib `net/http`** | Auto-detected | `mux.HandleFunc()`, `mux.Handle()`, Go 1.22+ pattern routing (`"POST /path"`) |
 | **Gin, Echo, Fiber, gorilla/mux** | Via annotations | Add `@api` annotations. No auto-detection for these frameworks |
 
 If you don't use Chi, omit `router_file` from `.testreg.yaml` and use `@api` annotations on all handlers. The graph works identically.
@@ -414,6 +414,7 @@ The `.testreg.yaml` file at the project root controls the graph scanner:
 | `graph.backend_root` | string | `"src"` | Every `trace`/`graph`/`audit` — where to find Go source files |
 | `graph.router_file` | string | `""` | `trace`/`graph` — file or directory with HTTP route registrations |
 | `graph.wire_file` | string | `""` | `trace`/`graph` — Wire DI file for interface→concrete resolution |
+| `graph.fx_dir` | string | `""` | `trace`/`graph` — Directory with Uber Fx/Dig provider modules for DI resolution |
 | `graph.sqlc_config` | string | `""` | `trace`/`graph` — SQLC config for query→SQL file mapping |
 | `graph.frontend_roots` | []string | `[]` | `trace`/`graph`/`audit` — directories to scan for React/TS code |
 | `graph.ignore_packages` | []string | `[]` | `trace`/`graph` — Go packages to skip (e.g., logging, middleware) |
@@ -902,6 +903,11 @@ graph:
   # Path to the Wire dependency injection file.
   # Used to resolve interface-to-concrete bindings automatically.
   wire_file: src/infrastructure/config/wire.go
+
+  # Directory containing Uber Fx/Dig provider modules.
+  # Scans for fx.Provide(), fx.Options(), dig.Provide() calls to resolve DI bindings.
+  # Mutually exclusive with wire_file — use whichever DI framework your project uses.
+  fx_dir: src/pkg/application/common
 
   # Path to sqlc.yaml config. Used to map generated Go methods to SQL source files.
   sqlc_config: sqlc.yaml

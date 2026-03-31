@@ -6,6 +6,7 @@ type GraphConfig struct {
 	BackendRoot     string
 	RouterFile      string
 	WireFile        string
+	FxDir           string // Directory containing Uber Fx/Dig provider modules
 	SQLCConfig      string
 	FrontendRoots   []string
 	IgnorePackages  []string

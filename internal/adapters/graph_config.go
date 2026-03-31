@@ -19,6 +19,7 @@ type GraphSection struct {
 	BackendRoot     string   `yaml:"backend_root"`
 	RouterFile      string   `yaml:"router_file"`
 	WireFile        string   `yaml:"wire_file"`
+	FxDir           string   `yaml:"fx_dir"`
 	SQLCConfig      string   `yaml:"sqlc_config"`
 	FrontendRoots   []string `yaml:"frontend_roots"`
 	IgnorePackages  []string `yaml:"ignore_packages"`
@@ -62,6 +63,7 @@ func (s *GraphSection) ToPortsConfig() ports.GraphConfig {
 		BackendRoot:     s.BackendRoot,
 		RouterFile:      s.RouterFile,
 		WireFile:        s.WireFile,
+		FxDir:           s.FxDir,
 		SQLCConfig:      s.SQLCConfig,
 		FrontendRoots:   s.FrontendRoots,
 		IgnorePackages:  s.IgnorePackages,

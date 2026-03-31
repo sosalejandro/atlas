@@ -536,6 +536,273 @@ func RegisterRoutes(router *chi.Mux) {
 	}
 }
 
+func TestParseStdlibHandleFunc(t *testing.T) {
+	t.Parallel()
+
+	src := `package handlers
+
+import "net/http"
+
+func RegisterRoutes() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", healthHandler.Liveness)
+	mux.HandleFunc("/readyz", healthHandler.Readiness)
+}
+`
+	path := writeGoRouterFile(t, src)
+	parser := NewRouteParser()
+	routes, err := parser.Parse(path)
+	if err != nil {
+		t.Fatalf("Parse() returned unexpected error: %v", err)
+	}
+
+	expected := []struct {
+		method  string
+		path    string
+		handler string
+	}{
+		{"", "/healthz", "healthHandler.Liveness"},
+		{"", "/readyz", "healthHandler.Readiness"},
+	}
+
+	if len(routes) != len(expected) {
+		t.Fatalf("expected %d routes, got %d: %+v", len(expected), len(routes), routes)
+	}
+
+	for i, want := range expected {
+		got := routes[i]
+		if got.Method != want.method {
+			t.Errorf("route[%d] Method: got %q, want %q", i, got.Method, want.method)
+		}
+		if got.Path != want.path {
+			t.Errorf("route[%d] Path: got %q, want %q", i, got.Path, want.path)
+		}
+		if got.Handler != want.handler {
+			t.Errorf("route[%d] Handler: got %q, want %q", i, got.Handler, want.handler)
+		}
+	}
+}
+
+func TestParseStdlibHandle(t *testing.T) {
+	t.Parallel()
+
+	src := `package handlers
+
+import "net/http"
+
+func chain(h http.Handler) http.Handler { return h }
+
+func RegisterRoutes() {
+	mux := http.NewServeMux()
+	mux.Handle("/api/v1/files/upload", chain(uploadHandler))
+	mux.Handle("/api/v1/files", chain(http.HandlerFunc(fileHandler.HandleList)))
+}
+`
+	path := writeGoRouterFile(t, src)
+	parser := NewRouteParser()
+	routes, err := parser.Parse(path)
+	if err != nil {
+		t.Fatalf("Parse() returned unexpected error: %v", err)
+	}
+
+	expected := []struct {
+		method  string
+		path    string
+		handler string
+	}{
+		{"", "/api/v1/files/upload", "uploadHandler"},
+		{"", "/api/v1/files", "fileHandler.HandleList"},
+	}
+
+	if len(routes) != len(expected) {
+		t.Fatalf("expected %d routes, got %d: %+v", len(expected), len(routes), routes)
+	}
+
+	for i, want := range expected {
+		got := routes[i]
+		if got.Method != want.method {
+			t.Errorf("route[%d] Method: got %q, want %q", i, got.Method, want.method)
+		}
+		if got.Path != want.path {
+			t.Errorf("route[%d] Path: got %q, want %q", i, got.Path, want.path)
+		}
+		if got.Handler != want.handler {
+			t.Errorf("route[%d] Handler: got %q, want %q", i, got.Handler, want.handler)
+		}
+	}
+}
+
+func TestParseGo122PatternRouting(t *testing.T) {
+	t.Parallel()
+
+	src := `package handlers
+
+import "net/http"
+
+type UserHandler struct{}
+
+func (h *UserHandler) RegisterRoutes() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/users", h.ListUsers)
+	mux.HandleFunc("POST /api/v1/users", h.CreateUser)
+	mux.HandleFunc("DELETE /api/v1/users/{id}", h.DeleteUser)
+	mux.HandleFunc("PUT /api/v1/users/{id}", h.UpdateUser)
+	mux.HandleFunc("PATCH /api/v1/users/{id}", h.PatchUser)
+}
+
+func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {}
+func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {}
+func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {}
+func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {}
+func (h *UserHandler) PatchUser(w http.ResponseWriter, r *http.Request) {}
+`
+	path := writeGoRouterFile(t, src)
+	parser := NewRouteParser()
+	routes, err := parser.Parse(path)
+	if err != nil {
+		t.Fatalf("Parse() returned unexpected error: %v", err)
+	}
+
+	expected := []struct {
+		method  string
+		path    string
+		handler string
+	}{
+		{"GET", "/api/v1/users", "h.ListUsers"},
+		{"POST", "/api/v1/users", "h.CreateUser"},
+		{"DELETE", "/api/v1/users/{id}", "h.DeleteUser"},
+		{"PUT", "/api/v1/users/{id}", "h.UpdateUser"},
+		{"PATCH", "/api/v1/users/{id}", "h.PatchUser"},
+	}
+
+	if len(routes) != len(expected) {
+		t.Fatalf("expected %d routes, got %d: %+v", len(expected), len(routes), routes)
+	}
+
+	for i, want := range expected {
+		got := routes[i]
+		if got.Method != want.method {
+			t.Errorf("route[%d] Method: got %q, want %q", i, got.Method, want.method)
+		}
+		if got.Path != want.path {
+			t.Errorf("route[%d] Path: got %q, want %q", i, got.Path, want.path)
+		}
+		if got.Handler != want.handler {
+			t.Errorf("route[%d] Handler: got %q, want %q", i, got.Handler, want.handler)
+		}
+	}
+}
+
+func TestParseStdlibPackageLevel(t *testing.T) {
+	t.Parallel()
+
+	src := `package handlers
+
+import "net/http"
+
+func RegisterRoutes() {
+	http.HandleFunc("/health", healthCheck)
+	http.Handle("/static", fileServer)
+}
+
+func healthCheck(w http.ResponseWriter, r *http.Request) {}
+`
+	path := writeGoRouterFile(t, src)
+	parser := NewRouteParser()
+	routes, err := parser.Parse(path)
+	if err != nil {
+		t.Fatalf("Parse() returned unexpected error: %v", err)
+	}
+
+	expected := []struct {
+		method  string
+		path    string
+		handler string
+	}{
+		{"", "/health", "healthCheck"},
+		{"", "/static", "fileServer"},
+	}
+
+	if len(routes) != len(expected) {
+		t.Fatalf("expected %d routes, got %d: %+v", len(expected), len(routes), routes)
+	}
+
+	for i, want := range expected {
+		got := routes[i]
+		if got.Method != want.method {
+			t.Errorf("route[%d] Method: got %q, want %q", i, got.Method, want.method)
+		}
+		if got.Path != want.path {
+			t.Errorf("route[%d] Path: got %q, want %q", i, got.Path, want.path)
+		}
+		if got.Handler != want.handler {
+			t.Errorf("route[%d] Handler: got %q, want %q", i, got.Handler, want.handler)
+		}
+	}
+}
+
+func TestParseHandlerUnwrapping(t *testing.T) {
+	t.Parallel()
+
+	src := `package handlers
+
+import "net/http"
+
+func chain(h http.Handler) http.Handler { return h }
+func wrap(h http.Handler) http.Handler { return h }
+
+func RegisterRoutes() {
+	mux := http.NewServeMux()
+
+	// chain(handler) → unwrap to handler
+	mux.Handle("/a", chain(myHandler))
+
+	// chain(http.HandlerFunc(x.Method)) → unwrap to x.Method
+	mux.Handle("/b", chain(http.HandlerFunc(svc.DoStuff)))
+
+	// double wrapping: wrap(chain(handler)) → unwrap to handler
+	mux.Handle("/c", wrap(chain(innerHandler)))
+
+	// inline func literal → <func>
+	mux.HandleFunc("/d", func(w http.ResponseWriter, r *http.Request) {})
+
+	// http.HandlerFunc wrapping inline func → <func>
+	mux.Handle("/e", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+}
+`
+	path := writeGoRouterFile(t, src)
+	parser := NewRouteParser()
+	routes, err := parser.Parse(path)
+	if err != nil {
+		t.Fatalf("Parse() returned unexpected error: %v", err)
+	}
+
+	expected := []struct {
+		path    string
+		handler string
+	}{
+		{"/a", "myHandler"},
+		{"/b", "svc.DoStuff"},
+		{"/c", "innerHandler"},
+		{"/d", "<func>"},
+		{"/e", "<func>"},
+	}
+
+	if len(routes) != len(expected) {
+		t.Fatalf("expected %d routes, got %d: %+v", len(expected), len(routes), routes)
+	}
+
+	for i, want := range expected {
+		got := routes[i]
+		if got.Path != want.path {
+			t.Errorf("route[%d] Path: got %q, want %q", i, got.Path, want.path)
+		}
+		if got.Handler != want.handler {
+			t.Errorf("route[%d] Handler: got %q, want %q", i, got.Handler, want.handler)
+		}
+	}
+}
+
 func TestJoinPath(t *testing.T) {
 	t.Parallel()
 
