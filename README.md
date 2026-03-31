@@ -1430,6 +1430,65 @@ The project uses only the Go standard library plus `cobra` and `yaml.v3` -- no h
 
 ---
 
+## Performance
+
+testreg is a single static binary (6.5 MB) with only two dependencies: `cobra` and `yaml.v3`. All AST parsing uses the Go standard library. No heavy frameworks, no runtime overhead.
+
+### Benchmarks
+
+Measured on a real production monorepo (nutrition-project-v2: 184 features, 771 test files, full-stack Go + React + TypeScript).
+
+**Per-command timing:**
+
+| Command | Wall Time | What it does |
+|---------|-----------|-------------|
+| `testreg scan` | **0.5s** | Discover 771 test files across 8 parallel scanners |
+| `testreg trace auth.login` | **0.7s** | Build full-stack call graph (React → Go → SQL), trace 16 nodes |
+| `testreg audit auth.login` | **0.7s** | Trace + annotate + health score for one feature |
+| `testreg audit --all` | **13s** | Audit all 184 features (graph built once, traced 184 times) |
+| `testreg sprint -n 10` | **10s** | Rank all 184 features by priority-weighted gap score |
+| `testreg audit --rescan --summary` | **10s** | Full pipeline: scan + graph + audit all + summary |
+
+**Memory usage:**
+
+| Scenario | Peak RSS |
+|----------|----------|
+| Small project (41 features, 42 test files) | **17 MB** |
+| Large monorepo (184 features, 771 test files) | **153 MB** |
+| Single feature trace | **153 MB** (graph is the same size regardless) |
+
+The graph is the dominant memory consumer. It holds all parsed Go AST nodes, edges, struct field maps, and SQLC mappings in memory. Memory scales with codebase size, not feature count.
+
+### Parallelism
+
+testreg uses Go goroutines for concurrent scanning:
+
+- **Test scanners**: All 8 scanners (Go, Vitest, Playwright, Jest, Maestro, Python) run concurrently
+- **Frontend scanning**: Each `frontend_root` gets its own goroutine + Node.js subprocess, running concurrently with Go AST phases
+- **Graph building**: Built once for `audit --all` / `sprint` — not rebuilt per feature
+- **Tracing**: Each feature's `TraceFrom()` is a DFS on a cached adjacency list (milliseconds)
+
+### Key optimization
+
+`ExecuteAll` (used by `audit --all`, `sprint`, `gaps`, `diff`) builds the full call graph once via `Build()`, then traces each feature against the shared graph. Before this optimization, it rebuilt the graph per feature:
+
+| | Before | After |
+|--|--------|-------|
+| `sprint` (184 features) | 1m52s | **14s** |
+| Graph builds | 184 | **1** |
+| Speedup | | **7.9x** |
+
+### Binary size and dependencies
+
+```
+Binary:       6.5 MB (static, single file)
+Source:       15,207 lines (production code)
+Tests:        12,694 lines (371 tests)
+Dependencies: 2 direct (cobra, yaml.v3) + 2 indirect
+```
+
+---
+
 ## License
 
 MIT
