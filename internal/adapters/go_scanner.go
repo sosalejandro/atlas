@@ -77,10 +77,9 @@ func classifyGoTest(filename, relPath string) string {
 		return "e2e"
 	}
 
-	// Integration tests: explicitly named or in integration/handlers directories
+	// Integration tests: explicitly named or in integration directories
 	if strings.Contains(lower, "_integration_test.go") ||
-		strings.Contains(relPath, "/integration/") ||
-		strings.Contains(relPath, "/handlers/") {
+		strings.Contains(relPath, "/integration/") {
 		return "integration"
 	}
 

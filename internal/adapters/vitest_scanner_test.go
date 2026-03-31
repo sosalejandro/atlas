@@ -144,6 +144,93 @@ func TestVitestScannerSetsPlatformAndFramework(t *testing.T) {
 	}
 }
 
+func TestVitestScannerDiscoversClientPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "client/src/features/foo"), 0o755)
+
+	if err := os.WriteFile(
+		filepath.Join(tmpDir, "client/src/features/foo/foo.test.tsx"),
+		[]byte("import { describe } from 'vitest'"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+
+	scanner := NewVitestScanner()
+	tests, err := scanner.Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	if len(tests) != 1 {
+		t.Fatalf("Scan() found %d tests, want 1", len(tests))
+	}
+
+	if tests[0].FilePath != "client/src/features/foo/foo.test.tsx" {
+		t.Errorf("FilePath = %q, want %q", tests[0].FilePath, "client/src/features/foo/foo.test.tsx")
+	}
+	if tests[0].Platform != "web" {
+		t.Errorf("Platform = %q, want %q", tests[0].Platform, "web")
+	}
+	if tests[0].Framework != "vitest" {
+		t.Errorf("Framework = %q, want %q", tests[0].Framework, "vitest")
+	}
+}
+
+func TestVitestScannerDiscoversFrontendPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "frontend/src"), 0o755)
+
+	if err := os.WriteFile(
+		filepath.Join(tmpDir, "frontend/src/foo.test.ts"),
+		[]byte("import { describe } from 'vitest'"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+
+	scanner := NewVitestScanner()
+	tests, err := scanner.Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	if len(tests) != 1 {
+		t.Fatalf("Scan() found %d tests, want 1", len(tests))
+	}
+
+	if tests[0].FilePath != "frontend/src/foo.test.ts" {
+		t.Errorf("FilePath = %q, want %q", tests[0].FilePath, "frontend/src/foo.test.ts")
+	}
+}
+
+func TestVitestScannerDiscoversAppPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "app/src"), 0o755)
+
+	if err := os.WriteFile(
+		filepath.Join(tmpDir, "app/src/foo.test.tsx"),
+		[]byte("import { describe } from 'vitest'"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+
+	scanner := NewVitestScanner()
+	tests, err := scanner.Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	if len(tests) != 1 {
+		t.Fatalf("Scan() found %d tests, want 1", len(tests))
+	}
+
+	if tests[0].FilePath != "app/src/foo.test.tsx" {
+		t.Errorf("FilePath = %q, want %q", tests[0].FilePath, "app/src/foo.test.tsx")
+	}
+}
+
 func TestVitestScannerIgnoresExcludedDirs(t *testing.T) {
 	tmpDir := t.TempDir()
 

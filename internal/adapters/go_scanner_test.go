@@ -74,7 +74,7 @@ func TestGoScannerScan(t *testing.T) {
 	expectations := map[string]string{
 		"auth_test.go":             "unit",
 		"user_test.go":             "unit",
-		"auth_handler_test.go":     "integration",
+		"auth_handler_test.go":     "unit",
 		"auth_e2e_test.go":         "e2e",
 		"auth_integration_test.go": "integration",
 	}
@@ -85,6 +85,114 @@ func TestGoScannerScan(t *testing.T) {
 		} else if got != expectedType {
 			t.Errorf("%s classified as %q, want %q", file, got, expectedType)
 		}
+	}
+}
+
+func TestGoScannerClassifiesHandlerAsUnit(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "server/handlers/health"), 0o755)
+
+	if err := os.WriteFile(
+		filepath.Join(tmpDir, "server/handlers/health/health_test.go"),
+		[]byte("package health"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+
+	scanner := NewGoScanner()
+	tests, err := scanner.Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	if len(tests) != 1 {
+		t.Fatalf("Scan() found %d tests, want 1", len(tests))
+	}
+
+	if tests[0].TestType != "unit" {
+		t.Errorf("handlers/health/health_test.go classified as %q, want %q", tests[0].TestType, "unit")
+	}
+}
+
+func TestGoScannerClassifiesIntegrationByName(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "tests/integration"), 0o755)
+
+	if err := os.WriteFile(
+		filepath.Join(tmpDir, "tests/integration/auth_test.go"),
+		[]byte("package integration"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+
+	scanner := NewGoScanner()
+	tests, err := scanner.Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	if len(tests) != 1 {
+		t.Fatalf("Scan() found %d tests, want 1", len(tests))
+	}
+
+	if tests[0].TestType != "integration" {
+		t.Errorf("tests/integration/auth_test.go classified as %q, want %q", tests[0].TestType, "integration")
+	}
+}
+
+func TestGoScannerClassifiesE2EBySuffix(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "server/auth"), 0o755)
+
+	if err := os.WriteFile(
+		filepath.Join(tmpDir, "server/auth/login_e2e_test.go"),
+		[]byte("package auth"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+
+	scanner := NewGoScanner()
+	tests, err := scanner.Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	if len(tests) != 1 {
+		t.Fatalf("Scan() found %d tests, want 1", len(tests))
+	}
+
+	if tests[0].TestType != "e2e" {
+		t.Errorf("login_e2e_test.go classified as %q, want %q", tests[0].TestType, "e2e")
+	}
+}
+
+func TestGoScannerDefaultsToUnit(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "server/modules/auth"), 0o755)
+
+	if err := os.WriteFile(
+		filepath.Join(tmpDir, "server/modules/auth/auth_test.go"),
+		[]byte("package auth"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+
+	scanner := NewGoScanner()
+	tests, err := scanner.Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	if len(tests) != 1 {
+		t.Fatalf("Scan() found %d tests, want 1", len(tests))
+	}
+
+	if tests[0].TestType != "unit" {
+		t.Errorf("server/modules/auth/auth_test.go classified as %q, want %q", tests[0].TestType, "unit")
 	}
 }
 

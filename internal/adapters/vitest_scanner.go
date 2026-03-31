@@ -49,11 +49,6 @@ func (s *VitestScanner) Scan(rootDir string) ([]ports.DiscoveredTest, error) {
 		}
 		relPath = filepath.ToSlash(relPath)
 
-		// Only match files in web-related directories
-		if !isWebPath(relPath) {
-			return nil
-		}
-
 		testType := classifyVitestFile(name, relPath)
 
 		tests = append(tests, ports.DiscoveredTest{
@@ -73,14 +68,7 @@ func (s *VitestScanner) Scan(rootDir string) ([]ports.DiscoveredTest, error) {
 	return tests, nil
 }
 
-func isWebPath(relPath string) bool {
-	return strings.HasPrefix(relPath, "web/") ||
-		strings.HasPrefix(relPath, "apps/web/") ||
-		strings.Contains(relPath, "/web/") ||
-		strings.HasPrefix(relPath, "src/") // standalone web projects
-}
-
-func classifyVitestFile(filename, relPath string) string {
+func classifyVitestFile(filename, _ string) string {
 	lower := strings.ToLower(filename)
 
 	if strings.Contains(lower, ".integration.test.") {
