@@ -1,0 +1,13 @@
+graph:
+  # testreg is a CLI tool, not an HTTP service.
+  # The graph scanner won't find handlers/routes, but annotation-based
+  # coverage tracking works fully.
+  backend_root: internal
+  cache_dir: .testreg-cache
+  max_depth: 10
+  ignore_packages:
+    - node_modules
+    - vendor
+  ignore_functions:
+    - "String"
+    - "Error"

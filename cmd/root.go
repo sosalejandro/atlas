@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	registryDir string
-	projectRoot string
+	registryDir    string
+	projectRoot    string
+	metricsEnabled bool
 )
 
 var rootCmd = &cobra.Command{
@@ -26,6 +27,7 @@ ingests test results, and generates coverage dashboards.`,
 func init() {
 	rootCmd.PersistentFlags().StringVar(&registryDir, "registry-dir", "docs/testing/registry", "Path to registry YAML files")
 	rootCmd.PersistentFlags().StringVar(&projectRoot, "project-root", "", "Project root (auto-detected from git root if empty)")
+	rootCmd.PersistentFlags().BoolVar(&metricsEnabled, "metrics", false, "Show performance metrics after command execution")
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		if projectRoot == "" {

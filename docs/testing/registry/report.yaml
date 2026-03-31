@@ -1,0 +1,99 @@
+domain: report
+description: Coverage reporting and status display
+features:
+  - id: report.generate
+    name: Report Generator
+    description: Generate comprehensive coverage reports in markdown, JSON, and terminal
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/app/generate_report_test.go
+              functions:
+                - name: TestGenerateReportExecute
+                  run: go test -run TestGenerateReportExecute ./internal/app/...
+                - name: TestGenerateReportEmptyRegistry
+                  run: go test -run TestGenerateReportEmptyRegistry ./internal/app/...
+          files:
+            - internal/app/generate_report_test.go
+      integration: {}
+      e2e: {}
+  - id: report.status
+    name: Status Dashboard
+    description: Coverage dashboard filtered by domain and priority
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/app/get_status_test.go
+              functions:
+                - name: TestGetStatusExecuteNoFilter
+                  run: go test -run TestGetStatusExecuteNoFilter ./internal/app/...
+                - name: TestGetStatusFilterByDomain
+                  run: go test -run TestGetStatusFilterByDomain ./internal/app/...
+                - name: TestGetStatusFilterByPriority
+                  run: go test -run TestGetStatusFilterByPriority ./internal/app/...
+                - name: TestGetStatusNonExistentDomain
+                  run: go test -run TestGetStatusNonExistentDomain ./internal/app/...
+          files:
+            - internal/app/get_status_test.go
+      integration: {}
+      e2e: {}
+  - id: report.check
+    name: Feature Check
+    description: Detailed coverage check for a single feature
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/app/check_feature_test.go
+              functions:
+                - name: TestCheckFeatureExecute
+                  run: go test -run TestCheckFeatureExecute ./internal/app/...
+                - name: TestCheckFeatureEntries
+                  run: go test -run TestCheckFeatureEntries ./internal/app/...
+          files:
+            - internal/app/check_feature_test.go
+      integration: {}
+      e2e: {}
+  - id: report.terminal-renderer
+    name: Terminal Renderer
+    description: Render coverage tables with color and alignment to terminal
+    roles: []
+    priority: medium
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration: {}
+      e2e: {}
+  - id: report.markdown-renderer
+    name: Markdown Renderer
+    description: Render coverage reports as markdown files
+    roles: []
+    priority: low
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration: {}
+      e2e: {}

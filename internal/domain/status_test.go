@@ -1,3 +1,4 @@
+// @testreg registry.domain-model
 package domain
 
 import "testing"

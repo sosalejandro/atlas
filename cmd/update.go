@@ -2,17 +2,21 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/sosalejandro/testreg/internal/adapters"
 	"github.com/sosalejandro/testreg/internal/app"
+	"github.com/sosalejandro/testreg/internal/domain"
 	"github.com/sosalejandro/testreg/internal/ports"
 	"github.com/spf13/cobra"
 )
 
 var (
-	updatePlaywright string
-	updateGotest     string
-	updateMaestro    string
+	updatePlaywright  string
+	updateGotest      string
+	updateMaestro     string
+	updateWithMetrics bool
 )
 
 var updateCmd = &cobra.Command{
@@ -22,6 +26,9 @@ var updateCmd = &cobra.Command{
 and updates the registry YAML files with pass/fail status, pass rates, and
 last-run dates.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		metrics := adapters.NewMetrics(metricsEnabled)
+		defer metrics.Print(os.Stderr)
+
 		store := adapters.NewYAMLStore()
 		useCase := app.NewUpdateCoverageUseCase(store, store)
 
@@ -81,13 +88,76 @@ last-run dates.`,
 			fmt.Println()
 		}
 
+		// Optionally capture metrics from the test results.
+		if updateWithMetrics {
+			metricsRun, metricsErr := parseMetricsFromResults(resultPath, platform)
+			if metricsErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not parse metrics: %s\n", metricsErr)
+			} else if metricsRun != nil {
+				metricsStore := adapters.NewMetricsStore()
+				if appendErr := metricsStore.Append(resolvedProjectRoot(), metricsRun); appendErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: could not save metrics: %s\n", appendErr)
+				} else {
+					fmt.Printf("  Metrics captured: %d tests, %d passed, %d failed, %d skipped\n",
+						metricsRun.TotalTests, metricsRun.Passed, metricsRun.Failed, metricsRun.Skipped)
+					fmt.Println()
+				}
+			}
+		}
+
 		return nil
 	},
+}
+
+// parseMetricsFromResults dispatches to the correct metrics parser based on
+// the platform/framework that produced the results.
+func parseMetricsFromResults(resultPath, platform string) (*domain.TestRunMetrics, error) {
+	switch platform {
+	case "backend":
+		data, err := os.ReadFile(resultPath)
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", resultPath, err)
+		}
+		return adapters.ParseGoTestMetrics(data)
+
+	case "web":
+		data, err := readResultFile(resultPath)
+		if err != nil {
+			return nil, err
+		}
+		return adapters.ParsePlaywrightMetrics(data)
+
+	default:
+		return nil, fmt.Errorf("metrics parsing not supported for platform %q", platform)
+	}
+}
+
+// readResultFile reads a JSON result file, handling both direct file paths and
+// directories (looking for results.json, report.json, or test-results.json).
+func readResultFile(resultPath string) ([]byte, error) {
+	info, err := os.Stat(resultPath)
+	if err != nil {
+		return nil, fmt.Errorf("accessing %s: %w", resultPath, err)
+	}
+
+	if !info.IsDir() {
+		return os.ReadFile(resultPath)
+	}
+
+	for _, name := range []string{"results.json", "report.json", "test-results.json"} {
+		candidate := filepath.Join(resultPath, name)
+		if data, readErr := os.ReadFile(candidate); readErr == nil {
+			return data, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no JSON result file found in %s", resultPath)
 }
 
 func init() {
 	updateCmd.Flags().StringVar(&updatePlaywright, "playwright", "", "Path to Playwright JSON results directory or file")
 	updateCmd.Flags().StringVar(&updateGotest, "gotest", "", "Path to go test -json output file")
 	updateCmd.Flags().StringVar(&updateMaestro, "maestro", "", "Path to Maestro output directory")
+	updateCmd.Flags().BoolVar(&updateWithMetrics, "with-metrics", false, "Also capture test metrics into history")
 	rootCmd.AddCommand(updateCmd)
 }

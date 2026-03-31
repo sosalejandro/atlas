@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/sosalejandro/testreg/internal/adapters"
 	"github.com/sosalejandro/testreg/internal/app"
@@ -15,6 +16,9 @@ var initCmd = &cobra.Command{
 containing feature definitions. If files already exist, new features are
 merged without overwriting manual edits. This operation is idempotent.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		metrics := adapters.NewMetrics(metricsEnabled)
+		defer metrics.Print(os.Stderr)
+
 		store := adapters.NewYAMLStore()
 		useCase := app.NewInitRegistryUseCase(store, store)
 

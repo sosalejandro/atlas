@@ -1,3 +1,4 @@
+// @testreg scan.orchestration
 package app
 
 import (

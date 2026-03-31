@@ -20,6 +20,9 @@ including all test entries, gaps, and actionable suggestions for
 improving coverage.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		metrics := adapters.NewMetrics(metricsEnabled)
+		defer metrics.Print(os.Stderr)
+
 		featureID := args[0]
 
 		store := adapters.NewYAMLStore()

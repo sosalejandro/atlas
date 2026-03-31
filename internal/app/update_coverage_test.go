@@ -1,3 +1,4 @@
+// @testreg workflow.update
 package app
 
 import (

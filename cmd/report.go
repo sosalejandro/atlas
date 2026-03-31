@@ -23,6 +23,9 @@ var reportCmd = &cobra.Command{
 Outputs markdown (default) or JSON format. Markdown reports are written to
 a file (default: docs/testing/COVERAGE.md).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		metrics := adapters.NewMetrics(metricsEnabled)
+		defer metrics.Print(os.Stderr)
+
 		store := adapters.NewYAMLStore()
 		useCase := app.NewGenerateReportUseCase(store)
 

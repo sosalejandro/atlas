@@ -1,0 +1,103 @@
+domain: registry
+description: YAML registry storage and initialization
+features:
+  - id: registry.yaml-store
+    name: YAML Store
+    description: Read/write registry YAML files with file locking
+    roles: []
+    priority: critical
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/adapters/yaml_store_test.go
+              functions:
+                - name: TestYAMLStoreRoundTrip
+                  run: go test -run TestYAMLStoreRoundTrip ./internal/adapters/...
+                - name: TestYAMLStoreLoadAllMultipleFiles
+                  run: go test -run TestYAMLStoreLoadAllMultipleFiles ./internal/adapters/...
+                - name: TestYAMLStoreLoadAllEmptyDir
+                  run: go test -run TestYAMLStoreLoadAllEmptyDir ./internal/adapters/...
+                - name: TestYAMLStoreLoadAllNonExistentDir
+                  run: go test -run TestYAMLStoreLoadAllNonExistentDir ./internal/adapters/...
+                - name: TestYAMLStoreValidationRejectsMissingDomain
+                  run: go test -run TestYAMLStoreValidationRejectsMissingDomain ./internal/adapters/...
+                - name: TestYAMLStoreValidationRejectsInvalidPriority
+                  run: go test -run TestYAMLStoreValidationRejectsInvalidPriority ./internal/adapters/...
+                - name: TestYAMLStoreSaveAllAndLoadAll
+                  run: go test -run TestYAMLStoreSaveAllAndLoadAll ./internal/adapters/...
+          files:
+            - internal/adapters/yaml_store_test.go
+      integration: {}
+      e2e: {}
+  - id: registry.init
+    name: Registry Init
+    description: Bootstrap registry with template domain files
+    roles: []
+    priority: medium
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/app/init_registry_test.go
+              functions:
+                - name: TestInitRegistryExecute
+                  run: go test -run TestInitRegistryExecute ./internal/app/...
+                - name: TestInitRegistryIdempotent
+                  run: go test -run TestInitRegistryIdempotent ./internal/app/...
+          files:
+            - internal/app/init_registry_test.go
+      integration: {}
+      e2e: {}
+  - id: registry.domain-model
+    name: Domain Model
+    description: Feature, Registry, Status types and business rules
+    roles: []
+    priority: critical
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/domain/feature_test.go
+              functions:
+                - name: TestFeatureAllCoverageEntries
+                  run: go test -run TestFeatureAllCoverageEntries ./internal/domain/...
+                - name: TestFeatureGaps
+                  run: go test -run TestFeatureGaps ./internal/domain/...
+            - file: internal/domain/registry_test.go
+              functions:
+                - name: TestRegistryGetFeature
+                  run: go test -run TestRegistryGetFeature ./internal/domain/...
+                - name: TestRegistryGetDomain
+                  run: go test -run TestRegistryGetDomain ./internal/domain/...
+                - name: TestRegistryAllFeatures
+                  run: go test -run TestRegistryAllFeatures ./internal/domain/...
+                - name: TestRegistryAllFeaturesEmpty
+                  run: go test -run TestRegistryAllFeaturesEmpty ./internal/domain/...
+                - name: TestRegistryComputeMetrics
+                  run: go test -run TestRegistryComputeMetrics ./internal/domain/...
+                - name: TestRegistryComputeMetricsEmpty
+                  run: go test -run TestRegistryComputeMetricsEmpty ./internal/domain/...
+            - file: internal/domain/status_test.go
+              functions:
+                - name: TestStatusValidate
+                  run: go test -run TestStatusValidate ./internal/domain/...
+                - name: TestStatusPredicates
+                  run: go test -run TestStatusPredicates ./internal/domain/...
+                - name: TestPriorityValidate
+                  run: go test -run TestPriorityValidate ./internal/domain/...
+          files:
+            - internal/domain/feature_test.go
+            - internal/domain/registry_test.go
+            - internal/domain/status_test.go
+      integration: {}
+      e2e: {}

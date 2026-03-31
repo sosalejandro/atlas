@@ -1,3 +1,4 @@
+// @testreg report.status
 package app
 
 import (

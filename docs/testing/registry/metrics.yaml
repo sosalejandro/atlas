@@ -1,0 +1,142 @@
+domain: metrics
+description: Test metrics parsing, storage, and quality signals
+features:
+  - id: metrics.go-parser
+    name: Go Metrics Parser
+    description: Parse Go benchmark and test output for metrics
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/adapters/metrics_go_parser_test.go
+              functions:
+                - name: TestParseGoTestMetrics_BasicPassFail
+                  run: go test -run TestParseGoTestMetrics_BasicPassFail ./internal/adapters/...
+                - name: TestParseGoTestMetrics_SkippedTests
+                  run: go test -run TestParseGoTestMetrics_SkippedTests ./internal/adapters/...
+                - name: TestParseGoTestMetrics_BenchmarkStats
+                  run: go test -run TestParseGoTestMetrics_BenchmarkStats ./internal/adapters/...
+                - name: TestParseGoTestMetrics_RaceDetection
+                  run: go test -run TestParseGoTestMetrics_RaceDetection ./internal/adapters/...
+                - name: TestParseGoTestMetrics_WallTime
+                  run: go test -run TestParseGoTestMetrics_WallTime ./internal/adapters/...
+                - name: TestParseGoTestMetrics_EmptyInput
+                  run: go test -run TestParseGoTestMetrics_EmptyInput ./internal/adapters/...
+                - name: TestParseGoTestMetrics_NonJSONLines
+                  run: go test -run TestParseGoTestMetrics_NonJSONLines ./internal/adapters/...
+          files:
+            - internal/adapters/metrics_go_parser_test.go
+      integration: {}
+      e2e: {}
+  - id: metrics.playwright-parser
+    name: Playwright Metrics Parser
+    description: Parse Playwright test result JSON for metrics
+    roles: []
+    priority: medium
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/adapters/metrics_playwright_parser_test.go
+              functions:
+                - name: TestParsePlaywrightMetrics_BasicPassFail
+                  run: go test -run TestParsePlaywrightMetrics_BasicPassFail ./internal/adapters/...
+                - name: TestParsePlaywrightMetrics_FlakyWithRetries
+                  run: go test -run TestParsePlaywrightMetrics_FlakyWithRetries ./internal/adapters/...
+                - name: TestParsePlaywrightMetrics_NestedSuites
+                  run: go test -run TestParsePlaywrightMetrics_NestedSuites ./internal/adapters/...
+                - name: TestParsePlaywrightMetrics_EmptySuites
+                  run: go test -run TestParsePlaywrightMetrics_EmptySuites ./internal/adapters/...
+                - name: TestParsePlaywrightMetrics_InvalidJSON
+                  run: go test -run TestParsePlaywrightMetrics_InvalidJSON ./internal/adapters/...
+          files:
+            - internal/adapters/metrics_playwright_parser_test.go
+      integration: {}
+      e2e: {}
+  - id: metrics.vitest-parser
+    name: Vitest Metrics Parser
+    description: Parse Vitest output for test metrics
+    roles: []
+    priority: medium
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/adapters/metrics_vitest_parser_test.go
+              functions:
+                - name: TestParseVitestMetrics_BasicPassFail
+                  run: go test -run TestParseVitestMetrics_BasicPassFail ./internal/adapters/...
+                - name: TestParseVitestMetrics_SkippedTests
+                  run: go test -run TestParseVitestMetrics_SkippedTests ./internal/adapters/...
+                - name: TestParseVitestMetrics_EmptyResults
+                  run: go test -run TestParseVitestMetrics_EmptyResults ./internal/adapters/...
+                - name: TestParseVitestMetrics_InvalidJSON
+                  run: go test -run TestParseVitestMetrics_InvalidJSON ./internal/adapters/...
+          files:
+            - internal/adapters/metrics_vitest_parser_test.go
+      integration: {}
+      e2e: {}
+  - id: metrics.store
+    name: Metrics Store
+    description: Load and save test metrics history
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/adapters/metrics_store_test.go
+              functions:
+                - name: TestMetricsStoreAppendAndLoad
+                  run: go test -run TestMetricsStoreAppendAndLoad ./internal/adapters/...
+                - name: TestMetricsStoreLoadHistoryEmpty
+                  run: go test -run TestMetricsStoreLoadHistoryEmpty ./internal/adapters/...
+                - name: TestMetricsStoreFIFOEviction
+                  run: go test -run TestMetricsStoreFIFOEviction ./internal/adapters/...
+                - name: TestMetricsStoreGetQualitySignals_Slowest
+                  run: go test -run TestMetricsStoreGetQualitySignals_Slowest ./internal/adapters/...
+                - name: TestMetricsStoreGetQualitySignals_Flaky
+                  run: go test -run TestMetricsStoreGetQualitySignals_Flaky ./internal/adapters/...
+                - name: TestMetricsStoreGetQualitySignals_MemoryHogs
+                  run: go test -run TestMetricsStoreGetQualitySignals_MemoryHogs ./internal/adapters/...
+                - name: TestMetricsStoreGetQualitySignals_RaceConditions
+                  run: go test -run TestMetricsStoreGetQualitySignals_RaceConditions ./internal/adapters/...
+                - name: TestMetricsStoreGetQualitySignals_EmptyHistory
+                  run: go test -run TestMetricsStoreGetQualitySignals_EmptyHistory ./internal/adapters/...
+                - name: TestMetricsStoreGetQualitySignals_NilHistory
+                  run: go test -run TestMetricsStoreGetQualitySignals_NilHistory ./internal/adapters/...
+                - name: TestMetricsStoreGetFeatureHealthTrend
+                  run: go test -run TestMetricsStoreGetFeatureHealthTrend ./internal/adapters/...
+                - name: TestMetricsStoreGetFeatureHealthTrend_NoData
+                  run: go test -run TestMetricsStoreGetFeatureHealthTrend_NoData ./internal/adapters/...
+          files:
+            - internal/adapters/metrics_store_test.go
+      integration: {}
+      e2e: {}
+  - id: metrics.renderer
+    name: Metrics Renderer
+    description: Render quality signals (slow, flaky, race, memory) to terminal
+    roles: []
+    priority: low
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration: {}
+      e2e: {}

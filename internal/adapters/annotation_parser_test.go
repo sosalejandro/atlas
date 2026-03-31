@@ -1,3 +1,4 @@
+// @testreg scan.annotation-parser
 package adapters
 
 import (
@@ -660,6 +661,354 @@ func TestDedup(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// @api annotation parsing tests
+// ---------------------------------------------------------------------------
+
+func TestParseAnnotatedSource_SingleAPI(t *testing.T) {
+	dir := t.TempDir()
+	content := `package handlers
+
+// @api POST /api/v1/auth/login
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	// handler body
+}
+`
+	path := writeTestFile(t, dir, "auth_handler.go", content)
+	result, err := ParseAnnotatedSource(path, "src/handlers/auth_handler.go")
+	if err != nil {
+		t.Fatalf("ParseAnnotatedSource() error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result for file with @api annotation")
+	}
+
+	apis, ok := result.FuncAPIs["AuthHandler.Login"]
+	if !ok {
+		t.Fatalf("Expected FuncAPIs to contain AuthHandler.Login, got keys: %v", funcAPIKeys(result))
+	}
+	if len(apis) != 1 {
+		t.Fatalf("Expected 1 API annotation, got %d", len(apis))
+	}
+	if apis[0].Method != "POST" {
+		t.Errorf("Method = %q, want POST", apis[0].Method)
+	}
+	if apis[0].Path != "/api/v1/auth/login" {
+		t.Errorf("Path = %q, want /api/v1/auth/login", apis[0].Path)
+	}
+}
+
+func TestParseAnnotatedSource_MultipleAPIsOnOneFunction(t *testing.T) {
+	dir := t.TempDir()
+	content := `package handlers
+
+// @api GET /api/v1/subjects
+// @api GET /api/v1/subjects/{id}
+func (h *SubjectHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+	// handler body
+}
+`
+	path := writeTestFile(t, dir, "subject_handler.go", content)
+	result, err := ParseAnnotatedSource(path, "src/handlers/subject_handler.go")
+	if err != nil {
+		t.Fatalf("ParseAnnotatedSource() error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+
+	apis, ok := result.FuncAPIs["SubjectHandler.GetByID"]
+	if !ok {
+		t.Fatalf("Expected FuncAPIs to contain SubjectHandler.GetByID, got keys: %v", funcAPIKeys(result))
+	}
+	if len(apis) != 2 {
+		t.Fatalf("Expected 2 API annotations, got %d", len(apis))
+	}
+	if apis[0].Method != "GET" || apis[0].Path != "/api/v1/subjects" {
+		t.Errorf("apis[0] = %+v, want GET /api/v1/subjects", apis[0])
+	}
+	if apis[1].Method != "GET" || apis[1].Path != "/api/v1/subjects/{id}" {
+		t.Errorf("apis[1] = %+v, want GET /api/v1/subjects/{id}", apis[1])
+	}
+}
+
+func TestParseAnnotatedSource_MixedTestregAndAPI(t *testing.T) {
+	// This tests that @api annotations on a source file don't interfere with
+	// @testreg parsing (they're separate parsers). The @api parser only looks
+	// for @api and function declarations.
+	dir := t.TempDir()
+	content := `package handlers
+
+// @api POST /api/v1/auth/login
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {}
+
+// @api DELETE /api/v1/auth/session
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {}
+`
+	path := writeTestFile(t, dir, "auth_handler.go", content)
+	result, err := ParseAnnotatedSource(path, "src/handlers/auth_handler.go")
+	if err != nil {
+		t.Fatalf("ParseAnnotatedSource() error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+
+	if len(result.FuncAPIs) != 2 {
+		t.Fatalf("Expected 2 functions with APIs, got %d: %v", len(result.FuncAPIs), funcAPIKeys(result))
+	}
+
+	loginAPIs := result.FuncAPIs["AuthHandler.Login"]
+	if len(loginAPIs) != 1 || loginAPIs[0].Method != "POST" {
+		t.Errorf("Login APIs = %+v, want [{POST /api/v1/auth/login}]", loginAPIs)
+	}
+
+	logoutAPIs := result.FuncAPIs["AuthHandler.Logout"]
+	if len(logoutAPIs) != 1 || logoutAPIs[0].Method != "DELETE" {
+		t.Errorf("Logout APIs = %+v, want [{DELETE /api/v1/auth/session}]", logoutAPIs)
+	}
+}
+
+func TestParseAnnotatedSource_AllHTTPMethods(t *testing.T) {
+	methods := []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			dir := t.TempDir()
+			content := `package handlers
+
+// @api ` + method + ` /api/v1/resource
+func (h *Handler) Do(w http.ResponseWriter, r *http.Request) {}
+`
+			path := writeTestFile(t, dir, "handler.go", content)
+			result, err := ParseAnnotatedSource(path, "src/handlers/handler.go")
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if result == nil {
+				t.Fatal("Expected non-nil result")
+			}
+			apis := result.FuncAPIs["Handler.Do"]
+			if len(apis) != 1 || apis[0].Method != method {
+				t.Errorf("Method = %q, want %q", apis[0].Method, method)
+			}
+		})
+	}
+}
+
+func TestParseAnnotatedSource_PlainFunction(t *testing.T) {
+	dir := t.TempDir()
+	content := `package handlers
+
+// @api GET /api/v1/health
+func HealthCheck(w http.ResponseWriter, r *http.Request) {}
+`
+	path := writeTestFile(t, dir, "health.go", content)
+	result, err := ParseAnnotatedSource(path, "src/handlers/health.go")
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+
+	apis, ok := result.FuncAPIs["HealthCheck"]
+	if !ok {
+		t.Fatalf("Expected FuncAPIs to contain HealthCheck, got keys: %v", funcAPIKeys(result))
+	}
+	if len(apis) != 1 || apis[0].Method != "GET" || apis[0].Path != "/api/v1/health" {
+		t.Errorf("apis = %+v, want [{GET /api/v1/health}]", apis)
+	}
+}
+
+func TestParseAnnotatedSource_PointerReceiver(t *testing.T) {
+	dir := t.TempDir()
+	content := `package handlers
+
+// @api PUT /api/v1/users/{id}
+func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {}
+`
+	path := writeTestFile(t, dir, "user_handler.go", content)
+	result, err := ParseAnnotatedSource(path, "src/handlers/user_handler.go")
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+
+	apis, ok := result.FuncAPIs["UserHandler.Update"]
+	if !ok {
+		t.Fatalf("Expected FuncAPIs to contain UserHandler.Update, got keys: %v", funcAPIKeys(result))
+	}
+	if len(apis) != 1 || apis[0].Method != "PUT" {
+		t.Errorf("apis = %+v, want [{PUT /api/v1/users/{id}}]", apis)
+	}
+}
+
+func TestParseAnnotatedSource_NoAPIAnnotations(t *testing.T) {
+	dir := t.TempDir()
+	content := `package handlers
+
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {}
+`
+	path := writeTestFile(t, dir, "auth_handler.go", content)
+	result, err := ParseAnnotatedSource(path, "src/handlers/auth_handler.go")
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if result != nil {
+		t.Error("Expected nil result for file without @api annotations")
+	}
+}
+
+func TestParseAnnotatedSource_NonGoFile(t *testing.T) {
+	dir := t.TempDir()
+	content := `// @api GET /api/v1/test
+test('something', () => {});`
+	path := writeTestFile(t, dir, "handler.ts", content)
+	result, err := ParseAnnotatedSource(path, "src/handlers/handler.ts")
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if result != nil {
+		t.Error("Expected nil result for non-Go file")
+	}
+}
+
+func TestParseAnnotatedSource_APINotInComment(t *testing.T) {
+	dir := t.TempDir()
+	content := `package handlers
+
+var route = "@api GET /api/v1/test"
+
+func (h *Handler) Do(w http.ResponseWriter, r *http.Request) {}
+`
+	path := writeTestFile(t, dir, "handler.go", content)
+	result, err := ParseAnnotatedSource(path, "src/handlers/handler.go")
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if result != nil {
+		t.Error("Expected nil result when @api is not in a comment")
+	}
+}
+
+func TestParseAnnotatedSource_OrphanedAPIAnnotation(t *testing.T) {
+	dir := t.TempDir()
+	// @api annotation followed by a non-func line (type declaration) should be discarded.
+	content := `package handlers
+
+// @api GET /api/v1/orphan
+type Handler struct{}
+
+// @api POST /api/v1/real
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {}
+`
+	path := writeTestFile(t, dir, "handler.go", content)
+	result, err := ParseAnnotatedSource(path, "src/handlers/handler.go")
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+
+	// Only Handler.Create should have an API annotation.
+	if len(result.FuncAPIs) != 1 {
+		t.Fatalf("Expected 1 function with APIs, got %d: %v", len(result.FuncAPIs), funcAPIKeys(result))
+	}
+	apis, ok := result.FuncAPIs["Handler.Create"]
+	if !ok {
+		t.Fatalf("Expected Handler.Create, got keys: %v", funcAPIKeys(result))
+	}
+	if apis[0].Method != "POST" {
+		t.Errorf("Method = %q, want POST", apis[0].Method)
+	}
+}
+
+func TestParseAPIAnnotationLine(t *testing.T) {
+	tests := []struct {
+		name       string
+		line       string
+		wantNil    bool
+		wantMethod string
+		wantPath   string
+	}{
+		{
+			name:       "basic GET",
+			line:       "// @api GET /api/v1/users",
+			wantMethod: "GET",
+			wantPath:   "/api/v1/users",
+		},
+		{
+			name:       "POST with path params",
+			line:       "// @api POST /api/v1/auth/login",
+			wantMethod: "POST",
+			wantPath:   "/api/v1/auth/login",
+		},
+		{
+			name:       "DELETE with braces",
+			line:       "// @api DELETE /api/v1/users/{id}",
+			wantMethod: "DELETE",
+			wantPath:   "/api/v1/users/{id}",
+		},
+		{
+			name:    "not in comment",
+			line:    `@api GET /api/v1/users`,
+			wantNil: true,
+		},
+		{
+			name:    "unsupported method",
+			line:    "// @api CONNECT /api/v1/tunnel",
+			wantNil: true,
+		},
+		{
+			name:    "no path",
+			line:    "// @api GET",
+			wantNil: true,
+		},
+		{
+			name:       "block comment",
+			line:       "* @api PATCH /api/v1/users/{id}",
+			wantMethod: "PATCH",
+			wantPath:   "/api/v1/users/{id}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := parseAPIAnnotationLine(tt.line, 1)
+			if tt.wantNil {
+				if api != nil {
+					t.Errorf("Expected nil, got %+v", api)
+				}
+				return
+			}
+			if api == nil {
+				t.Fatal("Expected non-nil result")
+			}
+			if api.method != tt.wantMethod {
+				t.Errorf("method = %q, want %q", api.method, tt.wantMethod)
+			}
+			if api.path != tt.wantPath {
+				t.Errorf("path = %q, want %q", api.path, tt.wantPath)
+			}
+		})
+	}
+}
+
+// funcAPIKeys returns the function IDs from an AnnotatedSource for test diagnostics.
+func funcAPIKeys(src *AnnotatedSource) []string {
+	if src == nil {
+		return nil
+	}
+	keys := make([]string, 0, len(src.FuncAPIs))
+	for k := range src.FuncAPIs {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func TestAnnotationNotInComment(t *testing.T) {

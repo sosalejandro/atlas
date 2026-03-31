@@ -28,6 +28,9 @@ them sequentially. Supports filtering by platform, test type, and
 priority level. Use --dry-run to preview commands without executing.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		metrics := adapters.NewMetrics(metricsEnabled)
+		defer metrics.Print(os.Stderr)
+
 		if len(args) == 0 && !runFailing && runPriority == "" {
 			return fmt.Errorf("specify a feature-id, --failing, or --priority")
 		}

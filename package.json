@@ -1,0 +1,24 @@
+{
+  "name": "testreg",
+  "version": "1.0.0",
+  "description": "A CLI tool for tracking test coverage across Go, TypeScript, Playwright, Jest, and Maestro. Maintains a YAML registry mapping features to test files and generates coverage dashboards.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sosalejandro/testreg.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sosalejandro/testreg/issues"
+  },
+  "homepage": "https://github.com/sosalejandro/testreg#readme",
+  "devDependencies": {
+    "typescript": "^6.0.2"
+  }
+}

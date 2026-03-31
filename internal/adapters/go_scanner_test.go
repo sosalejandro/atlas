@@ -1,3 +1,4 @@
+// @testreg scan.go-scanner
 package adapters
 
 import (

@@ -36,3 +36,5 @@ Thumbs.db
 # Build output
 /dist/
 /bin/
+.testreg-cache/
+node_modules/

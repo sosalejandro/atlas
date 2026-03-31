@@ -1,3 +1,4 @@
+// @testreg report.generate
 package app
 
 import (

@@ -1,3 +1,4 @@
+// @testreg registry.yaml-store
 package adapters
 
 import (

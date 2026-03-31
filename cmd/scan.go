@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/sosalejandro/testreg/internal/adapters"
 	"github.com/sosalejandro/testreg/internal/app"
@@ -17,6 +18,9 @@ Playwright, Maestro, Jest) and maps discovered test files to features in
 the registry. Unmapped tests are saved to _unmapped.yaml for manual review.
 The registry YAML files are updated with new file references and status changes.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		metrics := adapters.NewMetrics(metricsEnabled)
+		defer metrics.Print(os.Stderr)
+
 		store := adapters.NewYAMLStore()
 		scanners := []ports.TestScanner{
 			adapters.NewGoScanner(),

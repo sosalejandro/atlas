@@ -1,3 +1,4 @@
+// @testreg registry.init
 package app
 
 import (

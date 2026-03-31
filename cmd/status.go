@@ -24,6 +24,9 @@ var statusCmd = &cobra.Command{
 and platforms. Supports filtering by domain and priority, and can output
 as a table or JSON.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		metrics := adapters.NewMetrics(metricsEnabled)
+		defer metrics.Print(os.Stderr)
+
 		store := adapters.NewYAMLStore()
 		useCase := app.NewGetStatusUseCase(store)
 

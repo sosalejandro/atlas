@@ -1,0 +1,123 @@
+domain: audit
+description: Feature health auditing and gap analysis
+features:
+  - id: audit.health-report
+    name: Health Report
+    description: Generate per-feature health reports with layer coverage and gap analysis
+    roles: []
+    priority: critical
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/app/audit_feature_test.go
+              functions:
+                - name: TestAuditGapSeverity
+                  run: go test -run TestAuditGapSeverity ./internal/app/...
+                - name: TestAuditGapReason
+                  run: go test -run TestAuditGapReason ./internal/app/...
+                - name: TestAuditDeduplicateNodes
+                  run: go test -run TestAuditDeduplicateNodes ./internal/app/...
+                - name: TestAuditDeduplicateNodes_Empty
+                  run: go test -run TestAuditDeduplicateNodes_Empty ./internal/app/...
+                - name: TestAuditDeduplicateNodes_NoDuplicates
+                  run: go test -run TestAuditDeduplicateNodes_NoDuplicates ./internal/app/...
+                - name: TestAuditCalculateHealthScore
+                  run: go test -run TestAuditCalculateHealthScore ./internal/app/...
+                - name: TestAuditIdentifyGaps
+                  run: go test -run TestAuditIdentifyGaps ./internal/app/...
+                - name: TestAuditIdentifyGaps_AllTested
+                  run: go test -run TestAuditIdentifyGaps_AllTested ./internal/app/...
+                - name: TestAuditIdentifyGaps_Empty
+                  run: go test -run TestAuditIdentifyGaps_Empty ./internal/app/...
+                - name: TestAuditExecute_SingleFeature
+                  run: go test -run TestAuditExecute_SingleFeature ./internal/app/...
+                - name: TestAuditExecute_FeatureNotFound
+                  run: go test -run TestAuditExecute_FeatureNotFound ./internal/app/...
+                - name: TestAuditExecute_VerifyLayerCoverage
+                  run: go test -run TestAuditExecute_VerifyLayerCoverage ./internal/app/...
+                - name: TestAuditExecute_VerifyGapSeverities
+                  run: go test -run TestAuditExecute_VerifyGapSeverities ./internal/app/...
+                - name: TestAuditExecute_VerifyActions
+                  run: go test -run TestAuditExecute_VerifyActions ./internal/app/...
+                - name: TestAuditExecuteAll
+                  run: go test -run TestAuditExecuteAll ./internal/app/...
+                - name: TestAuditExecuteAll_SortOrder
+                  run: go test -run TestAuditExecuteAll_SortOrder ./internal/app/...
+                - name: TestAuditComputeLayerCoverage
+                  run: go test -run TestAuditComputeLayerCoverage ./internal/app/...
+                - name: TestAuditComputeLayerCoverage_UnknownKindSkipped
+                  run: go test -run TestAuditComputeLayerCoverage_UnknownKindSkipped ./internal/app/...
+                - name: TestAuditSuggestTestFile
+                  run: go test -run TestAuditSuggestTestFile ./internal/app/...
+                - name: TestAuditExtractFuncName
+                  run: go test -run TestAuditExtractFuncName ./internal/app/...
+                - name: TestAuditSuggestTestFileName
+                  run: go test -run TestAuditSuggestTestFileName ./internal/app/...
+                - name: TestAuditSuggestPackageDir
+                  run: go test -run TestAuditSuggestPackageDir ./internal/app/...
+                - name: TestAuditPerfBenchmarkReason
+                  run: go test -run TestAuditPerfBenchmarkReason ./internal/app/...
+                - name: TestAuditExecute_PerfScore
+                  run: go test -run TestAuditExecute_PerfScore ./internal/app/...
+                - name: TestAuditExecute_PerfGaps
+                  run: go test -run TestAuditExecute_PerfGaps ./internal/app/...
+                - name: TestAuditExecute_EmptyGraph
+                  run: go test -run TestAuditExecute_EmptyGraph ./internal/app/...
+      integration: {}
+      e2e: {}
+  - id: audit.renderer
+    name: Audit Renderer
+    description: Render audit output to terminal, JSON, and markdown
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration: {}
+      e2e: {}
+  - id: audit.priority-filter
+    name: Priority Filter
+    description: Filter audit results by priority level
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration: {}
+      e2e: {}
+  - id: audit.sort
+    name: Audit Sorting
+    description: Sort audit results by health, priority-score, or name
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration: {}
+      e2e: {}
+  - id: audit.summary
+    name: Audit Summary
+    description: Aggregate counts per priority tier with progress bars
+    roles: []
+    priority: medium
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration: {}
+      e2e: {}

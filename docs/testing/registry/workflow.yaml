@@ -1,0 +1,146 @@
+domain: workflow
+description: Sprint planning, gap extraction, and diff tracking
+features:
+  - id: workflow.sprint
+    name: Sprint Planning
+    description: Priority-weighted gap ranking for sprint planning
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration: {}
+      e2e: {}
+  - id: workflow.gaps
+    name: Gap Extraction
+    description: Actionable gap export in terminal, JSON, actionable, and prompt formats
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration: {}
+      e2e: {}
+  - id: workflow.diff
+    name: Health Diff
+    description: Compare health snapshots across sprints with save/load support
+    roles: []
+    priority: medium
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration: {}
+      e2e: {}
+  - id: workflow.run
+    name: Run Commands
+    description: Generate and execute test run commands per feature and platform
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/domain/run_command_test.go
+              functions:
+                - name: TestGenerateRunCommand
+                  run: go test -run TestGenerateRunCommand ./internal/domain/...
+                - name: TestGoPackagePath
+                  run: go test -run TestGoPackagePath ./internal/domain/...
+                - name: TestEscapeRegex
+                  run: go test -run TestEscapeRegex ./internal/domain/...
+                - name: TestCollectRunCommands
+                  run: go test -run TestCollectRunCommands ./internal/domain/...
+                - name: TestHasFlag
+                  run: go test -run TestHasFlag ./internal/domain/...
+          files:
+            - internal/domain/run_command_test.go
+      integration: {}
+      e2e: {}
+  - id: workflow.update
+    name: Update Coverage
+    description: Ingest test results from Playwright, Go test, and Maestro
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/adapters/go_test_results_test.go
+              functions:
+                - name: TestGoTestResultParserParse
+                  run: go test -run TestGoTestResultParserParse ./internal/adapters/...
+                - name: TestGoTestResultParserEmptyFile
+                  run: go test -run TestGoTestResultParserEmptyFile ./internal/adapters/...
+                - name: TestSplitCamelToLower
+                  run: go test -run TestSplitCamelToLower ./internal/adapters/...
+                - name: TestPackageToFilePath
+                  run: go test -run TestPackageToFilePath ./internal/adapters/...
+            - file: internal/adapters/playwright_results_test.go
+              functions:
+                - name: TestPlaywrightResultParserParse
+                  run: go test -run TestPlaywrightResultParserParse ./internal/adapters/...
+                - name: TestPlaywrightResultParserParseDirectory
+                  run: go test -run TestPlaywrightResultParserParseDirectory ./internal/adapters/...
+                - name: TestPlaywrightResultParserNoJsonFile
+                  run: go test -run TestPlaywrightResultParserNoJsonFile ./internal/adapters/...
+                - name: TestInferFeatureFromPath
+                  run: go test -run TestInferFeatureFromPath ./internal/adapters/...
+            - file: internal/app/update_coverage_test.go
+              functions:
+                - name: TestUpdateCoverageExecute
+                  run: go test -run TestUpdateCoverageExecute ./internal/app/...
+                - name: TestUpdateCoverageFailingTests
+                  run: go test -run TestUpdateCoverageFailingTests ./internal/app/...
+                - name: TestUpdateCoverageUnmappedResults
+                  run: go test -run TestUpdateCoverageUnmappedResults ./internal/app/...
+                - name: TestUpdateCoverageIdempotent
+                  run: go test -run TestUpdateCoverageIdempotent ./internal/app/...
+          files:
+            - internal/app/update_coverage_test.go
+      integration: {}
+      e2e: {}
+  - id: workflow.diagnose
+    name: Diagnose Failures
+    description: Match error symptoms to dependency graph layers for triage
+    roles: []
+    priority: medium
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/app/diagnose_feature_test.go
+              functions:
+                - name: TestDiagnoseExecute_401Symptom
+                  run: go test -run TestDiagnoseExecute_401Symptom ./internal/app/...
+                - name: TestDiagnoseExecute_500Symptom
+                  run: go test -run TestDiagnoseExecute_500Symptom ./internal/app/...
+                - name: TestDiagnoseExecute_TimeoutSymptom
+                  run: go test -run TestDiagnoseExecute_TimeoutSymptom ./internal/app/...
+                - name: TestDiagnoseExecute_NoMatchingSymptom
+                  run: go test -run TestDiagnoseExecute_NoMatchingSymptom ./internal/app/...
+                - name: TestDiagnoseExecute_NoAPISurfaces
+                  run: go test -run TestDiagnoseExecute_NoAPISurfaces ./internal/app/...
+                - name: TestDiagnoseExecute_NonExistentFeature
+                  run: go test -run TestDiagnoseExecute_NonExistentFeature ./internal/app/...
+                - name: TestDiagnoseExecute_CheckFilesRemainder
+                  run: go test -run TestDiagnoseExecute_CheckFilesRemainder ./internal/app/...
+      integration: {}
+      e2e: {}

@@ -1,3 +1,4 @@
+// @testreg workflow.run
 package domain
 
 import (

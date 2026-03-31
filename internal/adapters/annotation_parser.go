@@ -27,11 +27,31 @@ type ExtractedFunction struct {
 	Flags      []string
 }
 
+// APIAnnotation represents an @api annotation on a handler function.
+type APIAnnotation struct {
+	Method string // GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
+	Path   string // /api/v1/auth/login
+}
+
+// AnnotatedSource represents a non-test Go source file parsed for @api annotations.
+// Functions with @api annotations are discovered and associated with their endpoints.
+type AnnotatedSource struct {
+	FilePath      string
+	FuncAPIs      map[string][]APIAnnotation // funcName -> list of API annotations
+}
+
 // annotation holds a parsed @testreg line with its position.
 type annotation struct {
 	line       int
 	featureIDs []string
 	flags      []string
+}
+
+// apiAnnotation holds a parsed @api line with its position.
+type apiAnnotation struct {
+	line   int
+	method string
+	path   string
 }
 
 // Regex patterns for extracting test functions across languages.
@@ -41,8 +61,15 @@ var (
 	jsTestDescribeRe   = regexp.MustCompile(`(?:^|\s)test\.describe\(\s*['"](.+?)['"]`)
 	jsItRe             = regexp.MustCompile(`(?:^|\s)it\(\s*['"](.+?)['"]`)
 	annotationRe       = regexp.MustCompile(`@testreg\s+(.+)`)
+	apiAnnotationRe    = regexp.MustCompile(`@api\s+(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(\S+)`)
 	goBuildTagE2ERe    = regexp.MustCompile(`//go:build\s+e2e`)
 	goBuildTagOldE2ERe = regexp.MustCompile(`\+build\s+e2e`)
+
+	// goFuncDeclRe matches Go function/method declarations (exported and unexported).
+	// Used by ParseAnnotatedSource to associate @api annotations with handler functions.
+	goFuncDeclRe = regexp.MustCompile(`^func\s+(?:\([^)]+\)\s+)?(\w+)\s*\(`)
+	// goMethodDeclRe extracts receiver type and method name from a Go method declaration.
+	goMethodDeclRe = regexp.MustCompile(`^func\s+\(\s*\w+\s+\*?(\w+)\s*\)\s+(\w+)\s*\(`)
 )
 
 // ParseAnnotatedFile reads a file and extracts @testreg annotations and test functions.
@@ -164,6 +191,116 @@ func ParseAnnotatedFileForUnmapped(filePath string, relPath string) (*AnnotatedT
 	}
 
 	return buildUnmappedResult(relPath, lang, functions, hasE2EBuildTag), nil
+}
+
+// ParseAnnotatedSource reads a Go source file and extracts @api annotations,
+// associating each with the next function declaration. This is used by the
+// GoASTScanner to discover endpoint-to-handler mappings without a route parser.
+// Returns nil if the file has no @api annotations.
+func ParseAnnotatedSource(filePath string, relPath string) (*AnnotatedSource, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	ext := strings.ToLower(filepath.Ext(filePath))
+	if ext != ".go" {
+		return nil, nil
+	}
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+
+	var (
+		pendingAPIs []apiAnnotation
+		funcAPIs    = make(map[string][]APIAnnotation)
+		lineNum     int
+	)
+
+	for scanner.Scan() {
+		lineNum++
+		line := scanner.Text()
+
+		// Check for @api annotations in comments.
+		if api := parseAPIAnnotationLine(line, lineNum); api != nil {
+			pendingAPIs = append(pendingAPIs, *api)
+			continue
+		}
+
+		// Check for function/method declarations to associate pending @api annotations.
+		if len(pendingAPIs) > 0 {
+			if match := goMethodDeclRe.FindStringSubmatch(line); match != nil {
+				// Method declaration: match[1] = receiver type, match[2] = method name.
+				funcID := match[1] + "." + match[2]
+				for _, api := range pendingAPIs {
+					funcAPIs[funcID] = append(funcAPIs[funcID], APIAnnotation{
+						Method: api.method,
+						Path:   api.path,
+					})
+				}
+				pendingAPIs = nil
+				continue
+			}
+			if match := goFuncDeclRe.FindStringSubmatch(line); match != nil {
+				// Plain function declaration.
+				funcID := match[1]
+				for _, api := range pendingAPIs {
+					funcAPIs[funcID] = append(funcAPIs[funcID], APIAnnotation{
+						Method: api.method,
+						Path:   api.path,
+					})
+				}
+				pendingAPIs = nil
+				continue
+			}
+
+			// If we hit a non-comment, non-blank line that isn't a func decl,
+			// the pending annotations are orphaned — discard them.
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" && !strings.HasPrefix(trimmed, "//") && !strings.HasPrefix(trimmed, "/*") && !strings.HasPrefix(trimmed, "*") {
+				pendingAPIs = nil
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(funcAPIs) == 0 {
+		return nil, nil
+	}
+
+	return &AnnotatedSource{
+		FilePath: relPath,
+		FuncAPIs: funcAPIs,
+	}, nil
+}
+
+// parseAPIAnnotationLine checks if a line contains an @api annotation and parses it.
+func parseAPIAnnotationLine(line string, lineNum int) *apiAnnotation {
+	match := apiAnnotationRe.FindStringSubmatch(line)
+	if match == nil {
+		return nil
+	}
+
+	// Verify this is in a comment.
+	trimmed := strings.TrimSpace(line)
+	isComment := strings.HasPrefix(trimmed, "//") ||
+		strings.HasPrefix(trimmed, "#") ||
+		strings.HasPrefix(trimmed, "/*") ||
+		strings.HasPrefix(trimmed, "*")
+
+	if !isComment {
+		return nil
+	}
+
+	return &apiAnnotation{
+		line:   lineNum,
+		method: match[1],
+		path:   match[2],
+	}
 }
 
 // detectLanguage returns the language identifier based on file extension.

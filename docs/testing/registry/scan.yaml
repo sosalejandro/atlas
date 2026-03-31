@@ -1,0 +1,283 @@
+domain: scan
+description: Test file discovery and annotation parsing
+features:
+  - id: scan.annotation-parser
+    name: Annotation Parser
+    description: Parse @testreg and @api annotations from source files
+    roles: []
+    priority: critical
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: true
+          tests:
+            - file: internal/adapters/annotation_parser_test.go
+              functions:
+                - name: TestParseAnnotatedFile_GoFileLevel
+                  run: go test -run TestParseAnnotatedFile_GoFileLevel ./internal/adapters/...
+                - name: TestLoginSuccess
+                  run: go test -run TestLoginSuccess ./internal/adapters/...
+                - name: TestLoginFailure
+                  run: go test -run TestLoginFailure ./internal/adapters/...
+                - name: TestParseAnnotatedFile_GoTestLevel
+                  run: go test -run TestParseAnnotatedFile_GoTestLevel ./internal/adapters/...
+                - name: TestLoginSuccess
+                  run: go test -run TestLoginSuccess ./internal/adapters/...
+                - name: TestRegisterUser
+                  run: go test -run TestRegisterUser ./internal/adapters/...
+                - name: TestParseAnnotatedFile_GoE2EBuildTag
+                  run: go test -run TestParseAnnotatedFile_GoE2EBuildTag ./internal/adapters/...
+                - name: TestLoginE2E
+                  run: go test -run TestLoginE2E ./internal/adapters/...
+                - name: TestParseAnnotatedFile_TypeScript
+                  run: go test -run TestParseAnnotatedFile_TypeScript ./internal/adapters/...
+                - name: TestParseAnnotatedFile_PlaywrightSpec
+                  run: go test -run TestParseAnnotatedFile_PlaywrightSpec ./internal/adapters/...
+                - name: TestParseAnnotatedFile_JestIt
+                  run: go test -run TestParseAnnotatedFile_JestIt ./internal/adapters/...
+                - name: TestParseAnnotatedFile_MobileIntegration
+                  run: go test -run TestParseAnnotatedFile_MobileIntegration ./internal/adapters/...
+                - name: TestParseAnnotatedFile_MaestroYAML
+                  run: go test -run TestParseAnnotatedFile_MaestroYAML ./internal/adapters/...
+                - name: TestParseAnnotatedFile_NoAnnotations
+                  run: go test -run TestParseAnnotatedFile_NoAnnotations ./internal/adapters/...
+                - name: TestSomeFunction
+                  run: go test -run TestSomeFunction ./internal/adapters/...
+                - name: TestParseAnnotatedFile_EmptyFile
+                  run: go test -run TestParseAnnotatedFile_EmptyFile ./internal/adapters/...
+                - name: TestParseAnnotatedFile_BinaryFile
+                  run: go test -run TestParseAnnotatedFile_BinaryFile ./internal/adapters/...
+                - name: TestParseAnnotatedFile_MultipleFeatureIDs
+                  run: go test -run TestParseAnnotatedFile_MultipleFeatureIDs ./internal/adapters/...
+                - name: TestLoginWithSession
+                  run: go test -run TestLoginWithSession ./internal/adapters/...
+                - name: TestParseAnnotatedFile_MixedAnnotations
+                  run: go test -run TestParseAnnotatedFile_MixedAnnotations ./internal/adapters/...
+                - name: TestLoginSuccess
+                  run: go test -run TestLoginSuccess ./internal/adapters/...
+                - name: TestLoginFailure
+                  run: go test -run TestLoginFailure ./internal/adapters/...
+                - name: TestRegisterUser
+                  run: go test -run TestRegisterUser ./internal/adapters/...
+                - name: TestParseAnnotatedFileForUnmapped
+                  run: go test -run TestParseAnnotatedFileForUnmapped ./internal/adapters/...
+                - name: TestSomething
+                  run: go test -run TestSomething ./internal/adapters/...
+                - name: TestOther
+                  run: go test -run TestOther ./internal/adapters/...
+                - name: TestParseAnnotatedFileForUnmapped_HasAnnotation
+                  run: go test -run TestParseAnnotatedFileForUnmapped_HasAnnotation ./internal/adapters/...
+                - name: TestLogin
+                  run: go test -run TestLogin ./internal/adapters/...
+                - name: TestClassifyFromPath
+                  run: go test -run TestClassifyFromPath ./internal/adapters/...
+                - name: TestDetectLanguage
+                  run: go test -run TestDetectLanguage ./internal/adapters/...
+                - name: TestParseAnnotationPayload
+                  run: go test -run TestParseAnnotationPayload ./internal/adapters/...
+                - name: TestFrameworkFromLang
+                  run: go test -run TestFrameworkFromLang ./internal/adapters/...
+                - name: TestDedup
+                  run: go test -run TestDedup ./internal/adapters/...
+                - name: TestParseAnnotatedSource_SingleAPI
+                  run: go test -run TestParseAnnotatedSource_SingleAPI ./internal/adapters/...
+                - name: TestParseAnnotatedSource_MultipleAPIsOnOneFunction
+                  run: go test -run TestParseAnnotatedSource_MultipleAPIsOnOneFunction ./internal/adapters/...
+                - name: TestParseAnnotatedSource_MixedTestregAndAPI
+                  run: go test -run TestParseAnnotatedSource_MixedTestregAndAPI ./internal/adapters/...
+                - name: TestParseAnnotatedSource_AllHTTPMethods
+                  run: go test -run TestParseAnnotatedSource_AllHTTPMethods ./internal/adapters/...
+                - name: TestParseAnnotatedSource_PlainFunction
+                  run: go test -run TestParseAnnotatedSource_PlainFunction ./internal/adapters/...
+                - name: TestParseAnnotatedSource_PointerReceiver
+                  run: go test -run TestParseAnnotatedSource_PointerReceiver ./internal/adapters/...
+                - name: TestParseAnnotatedSource_NoAPIAnnotations
+                  run: go test -run TestParseAnnotatedSource_NoAPIAnnotations ./internal/adapters/...
+                - name: TestParseAnnotatedSource_NonGoFile
+                  run: go test -run TestParseAnnotatedSource_NonGoFile ./internal/adapters/...
+                - name: TestParseAnnotatedSource_APINotInComment
+                  run: go test -run TestParseAnnotatedSource_APINotInComment ./internal/adapters/...
+                - name: TestParseAnnotatedSource_OrphanedAPIAnnotation
+                  run: go test -run TestParseAnnotatedSource_OrphanedAPIAnnotation ./internal/adapters/...
+                - name: TestParseAPIAnnotationLine
+                  run: go test -run TestParseAPIAnnotationLine ./internal/adapters/...
+                - name: TestAnnotationNotInComment
+                  run: go test -run TestAnnotationNotInComment ./internal/adapters/...
+                - name: TestSomething
+                  run: go test -run TestSomething ./internal/adapters/...
+                - name: TestParseAnnotatedFile_GoIntegrationPath
+                  run: go test -run TestParseAnnotatedFile_GoIntegrationPath ./internal/adapters/...
+                - name: TestLoginIntegration
+                  run: go test -run TestLoginIntegration ./internal/adapters/...
+                - name: TestParseAnnotatedFile_BenchmarkFunction
+                  run: go test -run TestParseAnnotatedFile_BenchmarkFunction ./internal/adapters/...
+                - name: BenchmarkLogin
+                  run: go test -run BenchmarkLogin ./internal/adapters/...
+          files:
+            - internal/adapters/annotation_parser_test.go
+      integration: {}
+      e2e: {}
+  - id: scan.go-scanner
+    name: Go Test Scanner
+    description: Discover *_test.go files and extract test functions
+    roles: []
+    priority: high
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/adapters/go_scanner_test.go
+              functions:
+                - name: TestGoScannerScan
+                  run: go test -run TestGoScannerScan ./internal/adapters/...
+                - name: TestGoScannerEmptyDir
+                  run: go test -run TestGoScannerEmptyDir ./internal/adapters/...
+          files:
+            - internal/adapters/go_scanner_test.go
+      integration: {}
+      e2e: {}
+  - id: scan.vitest-scanner
+    name: Vitest Scanner
+    description: Discover *.test.ts and *.test.tsx files
+    roles: []
+    priority: medium
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/adapters/vitest_scanner_test.go
+              functions:
+                - name: TestVitestScannerDiscoversTsAndTsxFiles
+                  run: go test -run TestVitestScannerDiscoversTsAndTsxFiles ./internal/adapters/...
+                - name: TestVitestScannerClassifiesTestTypes
+                  run: go test -run TestVitestScannerClassifiesTestTypes ./internal/adapters/...
+                - name: TestVitestScannerSetsPlatformAndFramework
+                  run: go test -run TestVitestScannerSetsPlatformAndFramework ./internal/adapters/...
+                - name: TestVitestScannerIgnoresExcludedDirs
+                  run: go test -run TestVitestScannerIgnoresExcludedDirs ./internal/adapters/...
+                - name: TestVitestScannerEmptyDir
+                  run: go test -run TestVitestScannerEmptyDir ./internal/adapters/...
+                - name: TestVitestScannerNoMatchingFiles
+                  run: go test -run TestVitestScannerNoMatchingFiles ./internal/adapters/...
+      integration: {}
+      e2e: {}
+  - id: scan.playwright-scanner
+    name: Playwright Scanner
+    description: Discover *.spec.ts files
+    roles: []
+    priority: medium
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/adapters/playwright_scanner_test.go
+              functions:
+                - name: TestPlaywrightScannerDiscoversSpecTsFiles
+                  run: go test -run TestPlaywrightScannerDiscoversSpecTsFiles ./internal/adapters/...
+                - name: TestPlaywrightScannerSetsTypeAndPlatformAndFramework
+                  run: go test -run TestPlaywrightScannerSetsTypeAndPlatformAndFramework ./internal/adapters/...
+                - name: TestPlaywrightScannerIgnoresNodeModules
+                  run: go test -run TestPlaywrightScannerIgnoresNodeModules ./internal/adapters/...
+                - name: TestPlaywrightScannerEmptyDir
+                  run: go test -run TestPlaywrightScannerEmptyDir ./internal/adapters/...
+                - name: TestPlaywrightScannerNoSpecTsFiles
+                  run: go test -run TestPlaywrightScannerNoSpecTsFiles ./internal/adapters/...
+      integration: {}
+      e2e: {}
+  - id: scan.jest-scanner
+    name: Jest Scanner
+    description: Discover __tests__/** files
+    roles: []
+    priority: low
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/adapters/jest_scanner_test.go
+              functions:
+                - name: TestJestScannerDiscoversMobileTestFiles
+                  run: go test -run TestJestScannerDiscoversMobileTestFiles ./internal/adapters/...
+                - name: TestJestScannerClassifiesTestType
+                  run: go test -run TestJestScannerClassifiesTestType ./internal/adapters/...
+                - name: TestJestScannerSetsPlatformAndFramework
+                  run: go test -run TestJestScannerSetsPlatformAndFramework ./internal/adapters/...
+                - name: TestJestScannerIgnoresNodeModules
+                  run: go test -run TestJestScannerIgnoresNodeModules ./internal/adapters/...
+                - name: TestJestScannerEmptyDir
+                  run: go test -run TestJestScannerEmptyDir ./internal/adapters/...
+      integration: {}
+      e2e: {}
+  - id: scan.maestro-scanner
+    name: Maestro Scanner
+    description: Discover *.yaml Maestro flow files
+    roles: []
+    priority: low
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: internal/adapters/maestro_scanner_test.go
+              functions:
+                - name: TestMaestroScannerDiscoversFlowFiles
+                  run: go test -run TestMaestroScannerDiscoversFlowFiles ./internal/adapters/...
+                - name: TestMaestroScannerSetsFieldsCorrectly
+                  run: go test -run TestMaestroScannerSetsFieldsCorrectly ./internal/adapters/...
+                - name: TestMaestroScannerIgnoresNonMaestroPaths
+                  run: go test -run TestMaestroScannerIgnoresNonMaestroPaths ./internal/adapters/...
+                - name: TestMaestroScannerEmptyDir
+                  run: go test -run TestMaestroScannerEmptyDir ./internal/adapters/...
+                - name: TestMaestroScannerNoMatchingYAMLInMatchingDirs
+                  run: go test -run TestMaestroScannerNoMatchingYAMLInMatchingDirs ./internal/adapters/...
+      integration: {}
+      e2e: {}
+  - id: scan.orchestration
+    name: Scan Orchestration
+    description: ScanTestsUseCase coordinates all scanners and updates registry
+    roles: []
+    priority: critical
+    surfaces: {}
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: true
+          tests:
+            - file: internal/app/scan_tests_test.go
+              functions:
+                - name: TestScanTestsExecute
+                  run: go test -run TestScanTestsExecute ./internal/app/...
+                - name: TestLoginSuccess
+                  run: go test -run TestLoginSuccess ./internal/app/...
+                - name: TestLoginFailure
+                  run: go test -run TestLoginFailure ./internal/app/...
+                - name: TestSomething
+                  run: go test -run TestSomething ./internal/app/...
+                - name: TestScanTestsSavesUnmapped
+                  run: go test -run TestScanTestsSavesUnmapped ./internal/app/...
+                - name: TestSomething
+                  run: go test -run TestSomething ./internal/app/...
+                - name: TestScanTestsUpdatesCoverageFromAnnotations
+                  run: go test -run TestScanTestsUpdatesCoverageFromAnnotations ./internal/app/...
+                - name: TestLoginSuccess
+                  run: go test -run TestLoginSuccess ./internal/app/...
+          files:
+            - internal/app/scan_tests_test.go
+      integration: {}
+      e2e: {}
