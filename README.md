@@ -1569,4 +1569,6 @@ Dependencies: 3 direct (cobra, yaml.v3, x/tools) + transitive
 
 ## License
 
-MIT
+[AGPL-3.0](LICENSE) — Free to use, modify, and distribute. Any modified version must also be released under AGPL-3.0, including when offered as a network service.
+
+Copyright (c) 2026 Alejandro Sosa. All rights reserved.
