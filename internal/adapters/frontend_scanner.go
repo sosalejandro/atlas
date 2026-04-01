@@ -74,6 +74,7 @@ func (s *FrontendScanner) Scan(projectRoot string) (*FrontendScanResult, error) 
 	}
 
 	cmd := exec.Command("node", "--experimental-strip-types", scannerPath, projectRoot)
+	cmd.Dir = projectRoot
 	output, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

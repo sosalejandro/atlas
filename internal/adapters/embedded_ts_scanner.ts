@@ -11,9 +11,37 @@
  * Outputs JSON graph to stdout; warnings/errors to stderr.
  */
 
-import * as ts from 'typescript';
+import { createRequire } from 'node:module';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+
+// Resolve 'typescript' from the PROJECT's node_modules, searching multiple
+// locations for monorepo compatibility (root, workspaces, subdirectories).
+const projectRoot = process.argv[2] || process.cwd();
+
+function findTypeScript(): typeof import('typescript') {
+  // Try multiple locations where typescript might be installed
+  const candidates = [
+    projectRoot,
+    ...fs.readdirSync(projectRoot, { withFileTypes: true })
+      .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
+      .map(d => path.join(projectRoot, d.name)),
+  ];
+
+  for (const dir of candidates) {
+    try {
+      const req = createRequire(path.join(dir, 'package.json'));
+      return req('typescript');
+    } catch { /* try next */ }
+  }
+
+  throw new Error(
+    `Cannot find 'typescript' package. Install it: npm install -D typescript\n` +
+    `Searched from: ${projectRoot}`
+  );
+}
+
+const ts = findTypeScript();
 
 // ---------------------------------------------------------------------------
 // Types
