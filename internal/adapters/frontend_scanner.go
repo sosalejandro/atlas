@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,12 @@ import (
 
 	"github.com/sosalejandro/testreg/internal/domain"
 )
+
+// embeddedScanner holds the ts-scanner.ts source, embedded at compile time.
+// This eliminates the need to install ts-scanner.ts separately.
+//
+//go:embed embedded_ts_scanner.ts
+var embeddedScanner string
 
 // FrontendScanResult is the JSON output from ts-scanner.ts.
 type FrontendScanResult struct {
@@ -87,30 +94,55 @@ func (s *FrontendScanner) Scan(projectRoot string) (*FrontendScanResult, error) 
 	return &result, nil
 }
 
-// findScanner looks for ts-scanner.ts in known locations.
+// findScanner looks for ts-scanner.ts in known locations, falling back
+// to extracting the embedded scanner to a temp file.
 func (s *FrontendScanner) findScanner() string {
-	candidates := []string{}
-
-	// Highest priority: explicit environment variable.
+	// Priority 1: explicit environment variable.
 	if envPath := os.Getenv("TESTREG_TS_SCANNER"); envPath != "" {
-		candidates = append(candidates, envPath)
-	}
-
-	// Same directory as the testreg binary.
-	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
-		candidates = append(candidates,
-			filepath.Join(dir, "ts-scanner.ts"),
-			filepath.Join(dir, "..", "ts-scanner.ts"),
-		)
-	}
-
-	for _, path := range candidates {
-		if _, err := os.Stat(path); err == nil {
-			return path
+		if _, err := os.Stat(envPath); err == nil {
+			return envPath
 		}
 	}
-	return ""
+
+	// Priority 2: same directory as the testreg binary.
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		for _, candidate := range []string{
+			filepath.Join(dir, "ts-scanner.ts"),
+			filepath.Join(dir, "..", "ts-scanner.ts"),
+		} {
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+		}
+	}
+
+	// Priority 3: extract the embedded scanner to a temp file.
+	return s.extractEmbeddedScanner()
+}
+
+// extractEmbeddedScanner writes the compiled-in ts-scanner.ts to a
+// stable temp file and returns its path. The file is reused across
+// invocations within the same OS temp directory.
+func (s *FrontendScanner) extractEmbeddedScanner() string {
+	if embeddedScanner == "" {
+		return ""
+	}
+
+	// Use a stable path so we don't create a new file every run.
+	tmpPath := filepath.Join(os.TempDir(), "testreg-ts-scanner.ts")
+
+	// If it already exists and matches our version, reuse it.
+	if _, err := os.Stat(tmpPath); err == nil {
+		return tmpPath
+	}
+
+	if err := os.WriteFile(tmpPath, []byte(embeddedScanner), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to extract embedded ts-scanner: %v\n", err)
+		return ""
+	}
+
+	return tmpPath
 }
 
 // MergeIntoGraph takes the frontend scan result and adds its nodes and edges
