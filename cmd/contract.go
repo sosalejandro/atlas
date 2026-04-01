@@ -31,7 +31,6 @@ signatures but not struct field tables (those require go/types).`,
 
 		featureID := args[0]
 
-		// Load graph configuration.
 		graphSection, err := adapters.LoadGraphConfig(resolvedProjectRoot())
 		if err != nil {
 			return fmt.Errorf("loading graph config: %w", err)
@@ -40,30 +39,26 @@ signatures but not struct field tables (those require go/types).`,
 		config := graphSection.ToPortsConfig()
 		config.ProjectRoot = resolvedProjectRoot()
 
-		// Create dependencies — use NewGraphBuilder to respect type_checking config.
 		store := adapters.NewYAMLStore()
 		builder := adapters.NewGraphBuilder(config)
 		traceUC := app.NewTraceFeatureUseCase(store, builder)
 		contractUC := app.NewContractFeatureUseCase(traceUC, store)
 
-		// If go/types is available (type_checking: true), create a TypeExtractor
-		// so contract layers get enriched with struct field tables.
-		if typed, ok := builder.(*adapters.TypedScanner); ok {
-			// Build once to populate the package cache.
-			_, buildErr := typed.Build(resolvedProjectRoot(), config)
-			if buildErr == nil {
-				if pkgs := typed.LoadedPackages(); pkgs != nil {
-					contractUC.SetTypeExtractor(adapters.NewTypeExtractor(pkgs))
-				}
-			}
-		}
-
+		// If type_checking is on, set up the type extractor AFTER the trace
+		// runs (the trace populates the TypedScanner cache).
 		result, err := contractUC.Execute(resolvedRegistryDir(), featureID, config)
 		if err != nil {
 			return fmt.Errorf("building contract for feature %q: %w", featureID, err)
 		}
 
-		// Render in the requested format.
+		// Post-trace: enrich with struct fields if TypedScanner cached packages.
+		if typed, ok := builder.(*adapters.TypedScanner); ok {
+			if pkgs := typed.LoadedPackages(); pkgs != nil {
+				extractor := adapters.NewTypeExtractor(pkgs)
+				result.EnrichWithTypes(extractor)
+			}
+		}
+
 		switch contractFormat {
 		case "json":
 			renderer := adapters.NewContractRendererToWriter(os.Stdout, false)

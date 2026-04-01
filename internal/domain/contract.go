@@ -38,6 +38,42 @@ type ContractField struct {
 	Required bool   `json:"required" yaml:"required"`
 }
 
+// TypeExtractor is the interface for extracting struct field information.
+// Implemented by adapters.TypeExtractor when go/types is available.
+type TypeExtractor interface {
+	ExtractContractTypes(nodeID string) (signature string, input *ContractType, output *ContractType)
+}
+
+// EnrichWithTypes populates InputType/OutputType on each layer using
+// the type extractor. Layers that already have types (from GraphQL schema
+// parsing) are skipped.
+func (c *ContractOutput) EnrichWithTypes(extractor TypeExtractor) {
+	if extractor == nil {
+		return
+	}
+	for i := range c.Layers {
+		layer := &c.Layers[i]
+		if layer.NodeID == "" {
+			continue
+		}
+		// Skip layers that already have types from schema parsing.
+		if layer.InputType != nil && len(layer.InputType.Fields) > 0 {
+			continue
+		}
+
+		sig, inputType, outputType := extractor.ExtractContractTypes(layer.NodeID)
+		if sig != "" && layer.Signature == "" {
+			layer.Signature = sig
+		}
+		if inputType != nil {
+			layer.InputType = inputType
+		}
+		if outputType != nil {
+			layer.OutputType = outputType
+		}
+	}
+}
+
 // ContractTestEntry links a test file to a specific layer.
 type ContractTestEntry struct {
 	File   string `json:"file" yaml:"file"`
