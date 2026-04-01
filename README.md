@@ -53,6 +53,11 @@ No manual wiring. testreg parsed the Go AST, resolved Wire dependency injection 
 - **Framework-agnostic annotations** -- `@api` and `@testreg` annotations work with any Go HTTP router
 - **Wire and SQLC integration** -- resolves dependency injection bindings and generated query mappings automatically
 - **TypeScript AST scanning** -- parses React Router, TanStack Query hooks, and API service files via `ts.createSourceFile`
+- **API contract extraction** -- `testreg contract` shows full input/output types from GraphQL schema to SQL query
+- **Auto-scaffolding** -- `testreg init --discover` creates features from actual routes (Chi, Echo, stdlib)
+- **GraphQL support** -- traces GraphQL resolvers (Mutation/Query) through the full call chain
+- **Optional go/types** -- opt-in full type resolution for exact cross-package call tracing
+- **Python/pytest support** -- annotation-based coverage tracking for Python test files
 
 ---
 
@@ -62,7 +67,7 @@ testreg is not a generic tool. It makes specific assumptions about how your code
 
 ### What testreg assumes about your Go backend
 
-The Go AST scanner resolves call graphs by parsing source code structure -- it does not use the Go type checker (`go/types`). This means it relies on **naming conventions** and **struct field injection** to classify nodes and follow call chains.
+The Go AST scanner resolves call graphs by parsing source code structure. By default it does not use the Go type checker (`go/types`), relying instead on **naming conventions** and **struct field injection** to classify nodes and follow call chains. With `type_checking: true` in `.testreg.yaml`, it uses `go/types` for exact cross-package resolution (requires a buildable project).
 
 | Assumption | What testreg expects | What happens otherwise |
 |------------|---------------------|----------------------|
@@ -427,6 +432,9 @@ The `.testreg.yaml` file at the project root controls the graph scanner:
 | `graph.ignore_functions` | []string | `[]` | `trace`/`graph` — function glob patterns to skip (e.g., `*.String`) |
 | `graph.cache_dir` | string | `".testreg-cache"` | All graph commands — where to cache parsed AST results |
 | `graph.max_depth` | int | `10` | `trace`/`graph`/`audit` — how deep to traverse the call graph |
+| `graph.type_checking` | bool | `false` | All graph commands — enable go/types for exact cross-package resolution |
+| `graph.graphql.schema_dirs` | []string | `[]` | `contract` — directories containing .graphqls schema files |
+| `graph.concurrency` | int | `4` | All graph commands — max parallel goroutines for scanning |
 
 ### Environment Variables
 
@@ -581,6 +589,29 @@ Example output:
 ```
 
 Built-in symptom patterns include: `401/unauthorized`, `403/forbidden`, `404/not found`, `500/internal server error`, `timeout/deadline exceeded`, `connection refused`, `selector not found`, `empty response`, and more.
+
+### `testreg contract <feature>`
+
+Show the full API contract and implementation chain for a feature. Traces from the API entry point (REST or GraphQL) through each layer, showing function signatures, data types, and test coverage.
+
+```bash
+testreg contract auth.login                           # Terminal output (default)
+testreg contract auth.login --format json             # JSON for programmatic use
+testreg contract auth.login --format markdown         # Markdown for docs/PRs
+testreg contract auth.login --layer 2                 # Show only first 2 layers
+testreg contract training.record-exercise             # GraphQL feature contract
+```
+
+With `type_checking: true` in `.testreg.yaml`, the contract includes struct field tables at each layer showing exact input/output types with required/optional markers.
+
+### `testreg init --discover`
+
+Auto-scaffold features from actual routes. Parses the project's router file (Chi, Echo, stdlib) to discover HTTP endpoints, groups them by module into domains, and generates registry YAML with real API surfaces.
+
+```bash
+testreg init --discover                               # Discover routes and create features
+testreg init                                          # Create generic templates (original behavior)
+```
 
 ### `testreg audit <feature>`
 
@@ -964,6 +995,17 @@ graph:
   # Maximum call graph traversal depth.
   # Default: 10
   max_depth: 10
+
+  # Enable go/types for full type resolution (opt-in).
+  # Resolves cross-package calls exactly. Requires buildable project.
+  # Default: false (uses go/ast heuristic, faster, works on any source)
+  type_checking: false
+
+  # GraphQL schema directories for contract command.
+  graphql:
+    schema_dirs:
+      - src/training/pkg/schema
+      - src/nutrition/pkg/schema
 ```
 
 ---
@@ -1041,7 +1083,7 @@ TS AST scanner ──┘       │                          │
 | `@api` annotations | Handler-to-endpoint mappings | Deterministic -- regex extraction from comments |
 | Test result output | Pass/fail, duration, retries | Deterministic -- parsed from `go test -json`, Playwright JSON, Maestro XML |
 
-The graph scanner is real static analysis (`go/ast` + `go/parser`), not text search. But it does not use type checking (`go/types`), so it resolves method calls via struct field type maps and Wire bindings rather than full type inference.
+The graph scanner is real static analysis (`go/ast` + `go/parser`), not text search. By default it resolves method calls via struct field type maps and Wire bindings rather than full type inference. With `type_checking: true`, it uses `go/types` for exact cross-package call resolution.
 
 ### Test Coverage Detection
 
@@ -1090,7 +1132,7 @@ This is pattern matching, not AST analysis. A commented-out `func BenchmarkFoo` 
 - **Gap severity is fixed by architectural layer.** There is no risk-based or complexity-based weighting.
 - **Performance gap detection is text pattern matching** (`func Benchmark*`, `t.Parallel()`), not semantic analysis.
 - **Confidence measures graph completeness, not coverage.** It starts at 1.0 and degrades by 0.9x per unresolved edge. A fully-traced graph with 0% test coverage still has confidence 1.0.
-- **The Go AST scanner does not use `go/types`**, so it cannot resolve interface implementations beyond Wire bindings. Calls through non-Wire interfaces appear as missing edges (lowering confidence).
+- **The Go AST scanner defaults to `go/ast` without `go/types`**, so it cannot resolve interface implementations beyond Wire bindings. Calls through non-Wire interfaces appear as missing edges (lowering confidence). Enable `type_checking: true` in `.testreg.yaml` for exact cross-package resolution (requires a buildable project).
 - **Feature ID inference** from `go test -json` output is a best-guess heuristic based on package paths and test names.
 
 ---
@@ -1122,7 +1164,7 @@ ts-scanner.ts        TypeScript AST scanner (ts.createSourceFile)
 
 ### How the Graph Scanner Works
 
-The Go AST scanner (`go_ast_scanner.go`) builds call graphs in four phases using only the standard library `go/ast` and `go/parser` packages -- no `go/types` or `golang.org/x/tools` required:
+The Go AST scanner (`go_ast_scanner.go`) builds call graphs in four phases. By default it uses only `go/ast` and `go/parser` (no `go/types` required). With `type_checking: true`, it additionally uses `go/types` via `golang.org/x/tools` for exact cross-package resolution:
 
 1. **Pre-resolution** -- Parse `sqlc.yaml` to build a map of generated Go methods to their SQL source files and line numbers.
 
@@ -1149,6 +1191,7 @@ Both scanners produce nodes and edges that are merged into a single unified `Gra
 | Framework | Discovery Method |
 |-----------|-----------------|
 | Chi | Router file parsing (auto) |
+| Echo | Route file parsing (auto) |
 | stdlib `net/http` | Router file parsing (auto) |
 | Gin | `@api` annotations |
 | Any Go HTTP framework | `@api` annotations |
@@ -1166,6 +1209,7 @@ Both scanners produce nodes and edges that are merged into a single unified `Gra
 | Tool | Integration |
 |------|------------|
 | Wire | Automatic binding resolution from `wire.go` |
+| Uber Fx / Dig | Automatic provider resolution from `fx.Provide()`, `fx.Options()`, `dig.Provide()` |
 | SQLC | Automatic method-to-SQL mapping from `sqlc.yaml` |
 
 ### Test Runners
@@ -1314,6 +1358,37 @@ testreg diff                    # Measure improvement vs baseline
 | `actionable` | Human following step-by-step | Per-gap fix instructions with test patterns |
 | `prompt` | AI agent input | Markdown with source, write target, and annotation |
 
+### API Contract Exploration
+
+```bash
+# See the full implementation chain for a feature
+testreg contract auth.login
+
+# Generate API documentation from source code
+testreg contract auth.login --format markdown > docs/api/auth-login.md
+
+# Extract contract for AI agent to implement frontend
+testreg contract training.record-exercise --format json
+
+# With type_checking: full struct field tables at every layer
+# (add type_checking: true to .testreg.yaml first)
+testreg contract training.record-exercise
+```
+
+### Zero-Config Project Onboarding
+
+```bash
+# Auto-discover routes and scaffold features (no annotations needed)
+testreg init --discover
+
+# Scan with auto-mapping (test files matched to features by directory proximity)
+testreg scan
+
+# See coverage immediately
+testreg status
+testreg audit --summary
+```
+
 ### Before/After Sprint Tracking
 
 ```bash
@@ -1427,13 +1502,13 @@ go build -o testreg .
 go install .
 ```
 
-The project uses only the Go standard library plus `cobra` and `yaml.v3` -- no heavy dependencies. The TypeScript scanner requires only `typescript` as a dev dependency.
+The project uses the Go standard library plus `cobra`, `yaml.v3`, and `golang.org/x/tools` (for optional `go/types` support). The TypeScript scanner requires only `typescript` as a dev dependency.
 
 ---
 
 ## Performance
 
-testreg is a single static binary (6.5 MB) with only two dependencies: `cobra` and `yaml.v3`. All AST parsing uses the Go standard library. No heavy frameworks, no runtime overhead.
+testreg is a single static binary (~12 MB) with three direct dependencies: `cobra`, `yaml.v3`, and `golang.org/x/tools`. All AST parsing uses the Go standard library (`go/ast`, `go/parser`), with optional `go/types` support via `x/tools` for exact type resolution. No heavy frameworks, no runtime overhead.
 
 ### Benchmarks
 
@@ -1482,11 +1557,13 @@ testreg uses Go goroutines for concurrent scanning:
 ### Binary size and dependencies
 
 ```
-Binary:       6.5 MB (static, single file)
+Binary:       ~12 MB (with go/types support, static, single file)
 Source:       15,207 lines (production code)
 Tests:        12,694 lines (371 tests)
-Dependencies: 2 direct (cobra, yaml.v3) + 2 indirect
+Dependencies: 3 direct (cobra, yaml.v3, x/tools) + transitive
 ```
+
+> **Note:** Enabling `type_checking: true` in `.testreg.yaml` uses `go/types` for full type resolution. This requires the project to be buildable (`go build` must succeed) and increases scan time roughly 2-3x compared to the default `go/ast` heuristic mode. The binary size increase (~5.5 MB) is due to the `golang.org/x/tools` dependency.
 
 ---
 
