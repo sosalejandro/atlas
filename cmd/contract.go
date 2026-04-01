@@ -40,11 +40,23 @@ signatures but not struct field tables (those require go/types).`,
 		config := graphSection.ToPortsConfig()
 		config.ProjectRoot = resolvedProjectRoot()
 
-		// Create dependencies.
+		// Create dependencies — use NewGraphBuilder to respect type_checking config.
 		store := adapters.NewYAMLStore()
-		builder := adapters.NewGoASTScanner()
+		builder := adapters.NewGraphBuilder(config)
 		traceUC := app.NewTraceFeatureUseCase(store, builder)
 		contractUC := app.NewContractFeatureUseCase(traceUC, store)
+
+		// If go/types is available (type_checking: true), create a TypeExtractor
+		// so contract layers get enriched with struct field tables.
+		if typed, ok := builder.(*adapters.TypedScanner); ok {
+			// Build once to populate the package cache.
+			_, buildErr := typed.Build(resolvedProjectRoot(), config)
+			if buildErr == nil {
+				if pkgs := typed.LoadedPackages(); pkgs != nil {
+					contractUC.SetTypeExtractor(adapters.NewTypeExtractor(pkgs))
+				}
+			}
+		}
 
 		result, err := contractUC.Execute(resolvedRegistryDir(), featureID, config)
 		if err != nil {

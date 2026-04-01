@@ -10,11 +10,22 @@ import (
 	"github.com/sosalejandro/testreg/internal/ports"
 )
 
+// ContractTypeExtractor abstracts struct field extraction from go/types
+// so the contract use case can optionally enrich layers with type information.
+// The method returns the resolved signature and input/output contract types.
+type ContractTypeExtractor interface {
+	// ExtractContractTypes extracts the function signature, first struct input
+	// parameter (skipping context.Context), and first struct return value
+	// (skipping error) for the given node ID.
+	ExtractContractTypes(nodeID string) (signature string, input *domain.ContractType, output *domain.ContractType)
+}
+
 // ContractFeatureUseCase builds a full API contract for a feature by
 // combining trace data, registry information, and optional GraphQL schema.
 type ContractFeatureUseCase struct {
-	traceUC  *TraceFeatureUseCase
-	registry ports.RegistryReader
+	traceUC       *TraceFeatureUseCase
+	registry      ports.RegistryReader
+	typeExtractor ContractTypeExtractor // nil when type_checking is off
 }
 
 // NewContractFeatureUseCase creates a new ContractFeatureUseCase.
@@ -23,6 +34,13 @@ func NewContractFeatureUseCase(traceUC *TraceFeatureUseCase, registry ports.Regi
 		traceUC:  traceUC,
 		registry: registry,
 	}
+}
+
+// SetTypeExtractor attaches a ContractTypeExtractor for enriching contract
+// layers with struct field information from go/types. When nil, layers show
+// signatures but no field tables.
+func (uc *ContractFeatureUseCase) SetTypeExtractor(te ContractTypeExtractor) {
+	uc.typeExtractor = te
 }
 
 // Execute builds the contract output for a feature.
@@ -79,7 +97,12 @@ func (uc *ContractFeatureUseCase) Execute(registryDir, featureID string, config 
 		}
 	}
 
-	// Step 5: Collect test file information.
+	// Step 5: Enrich layers with type information (Phase 2) if available.
+	if uc.typeExtractor != nil {
+		uc.enrichLayersWithTypes(layers)
+	}
+
+	// Step 6: Collect test file information.
 	testFiles := uc.collectContractTestEntries(feature, layers)
 
 	return &domain.ContractOutput{
@@ -147,6 +170,35 @@ func (uc *ContractFeatureUseCase) buildLayersFromTrace(root *domain.TraceNode) [
 	}
 
 	return layers
+}
+
+// enrichLayersWithTypes populates InputType and OutputType on each layer
+// by extracting the function's parameter and return struct fields via go/types.
+func (uc *ContractFeatureUseCase) enrichLayersWithTypes(layers []domain.ContractLayer) {
+	for i := range layers {
+		layer := &layers[i]
+
+		if layer.NodeID == "" {
+			continue
+		}
+
+		// Skip layers that already have types (e.g., from GraphQL schema parsing).
+		if layer.InputType != nil || layer.OutputType != nil {
+			continue
+		}
+
+		sig, input, output := uc.typeExtractor.ExtractContractTypes(layer.NodeID)
+
+		if sig != "" {
+			layer.Signature = sig
+		}
+		if input != nil {
+			layer.InputType = input
+		}
+		if output != nil {
+			layer.OutputType = output
+		}
+	}
 }
 
 // buildGraphQLSchemaLayer parses GraphQL schema files and builds a Layer 1

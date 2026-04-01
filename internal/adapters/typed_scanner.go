@@ -22,10 +22,15 @@ import (
 //
 // If type checking fails (missing deps, broken build), it falls back silently
 // to GoASTScanner with a warning on stderr.
+//
+// Loaded packages are cached so that repeated Build/BuildFrom calls for the same
+// project root reuse the type-checked ASTs without re-invoking packages.Load.
 type TypedScanner struct {
 	fallback        *GoASTScanner
 	frontendScanner *FrontendScanner
 	sqlcMapper      *SQLCMapper
+	cachedPkgs      []*packages.Package
+	cachedFor       string // backendAbs path the cache was built for
 }
 
 // NewTypedScanner creates a TypedScanner with its fallback pre-wired.
@@ -35,6 +40,13 @@ func NewTypedScanner() *TypedScanner {
 		frontendScanner: NewFrontendScanner(),
 		sqlcMapper:      NewSQLCMapper(),
 	}
+}
+
+// LoadedPackages returns the cached type-checked packages, or nil if no
+// packages have been loaded yet. This is used by the TypeExtractor to
+// extract struct field information from Go types.
+func (s *TypedScanner) LoadedPackages() []*packages.Package {
+	return s.cachedPkgs
 }
 
 // Build constructs the full call graph using go/types for exact resolution.
@@ -68,28 +80,38 @@ func (s *TypedScanner) BuildFrom(projectRoot string, entryPoints []string, confi
 
 // loadAndBuild is the core implementation shared by Build and BuildFrom.
 // If fallback is true, the caller should delegate to GoASTScanner.
+// Loaded packages are cached so that subsequent calls for the same backend
+// root reuse the type-checked ASTs without re-invoking packages.Load.
 func (s *TypedScanner) loadAndBuild(projectRoot string, config ports.GraphConfig, entryPoints []string) (graph *domain.Graph, fallback bool, err error) {
 	backendAbs := filepath.Join(projectRoot, config.BackendRoot)
 
-	cfg := &packages.Config{
-		Mode: packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo |
-			packages.NeedName | packages.NeedFiles | packages.NeedImports | packages.NeedDeps,
-		Dir: backendAbs,
-	}
+	// Reuse cached packages if available for the same backend root.
+	pkgs := s.cachedPkgs
+	if pkgs == nil || s.cachedFor != backendAbs {
+		cfg := &packages.Config{
+			Mode: packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo |
+				packages.NeedName | packages.NeedFiles | packages.NeedImports | packages.NeedDeps,
+			Dir: backendAbs,
+		}
 
-	pkgs, err := packages.Load(cfg, "./...")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: type checking failed, falling back to AST scanner: %v\n", err)
-		return nil, true, nil
-	}
-
-	// Check for package-level errors. If any package has errors, fall back.
-	for _, pkg := range pkgs {
-		if len(pkg.Errors) > 0 {
-			fmt.Fprintf(os.Stderr, "warning: type errors in %s, falling back to AST scanner: %v\n",
-				pkg.PkgPath, pkg.Errors[0])
+		pkgs, err = packages.Load(cfg, "./...")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: type checking failed, falling back to AST scanner: %v\n", err)
 			return nil, true, nil
 		}
+
+		// Check for package-level errors. If any package has errors, fall back.
+		for _, pkg := range pkgs {
+			if len(pkg.Errors) > 0 {
+				fmt.Fprintf(os.Stderr, "warning: type errors in %s, falling back to AST scanner: %v\n",
+					pkg.PkgPath, pkg.Errors[0])
+				return nil, true, nil
+			}
+		}
+
+		// Cache the successfully loaded packages.
+		s.cachedPkgs = pkgs
+		s.cachedFor = backendAbs
 	}
 
 	graph = domain.NewGraph()
