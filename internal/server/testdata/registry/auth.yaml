@@ -1,0 +1,81 @@
+domain: auth
+description: Authentication and authorization features
+features:
+  - id: auth.login
+    name: Login
+    description: Email and password login with JWT issuance
+    roles: []
+    priority: critical
+    surfaces:
+      web:
+        route: /login
+        component: LoginPage
+      api:
+        - method: POST
+          path: /api/v1/auth/login
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: true
+          tests:
+            - file: src/auth/auth_test.go
+              functions:
+                - name: TestLoginSuccess
+                  run: go test ./src/auth/...
+                - name: TestLoginBadPassword
+                  run: go test ./src/auth/...
+      integration:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: src/auth/integration_test.go
+              functions:
+                - name: TestLoginIntegration
+                  run: go test -tags integration ./src/auth/...
+      e2e:
+        web:
+          status: covered
+          tests:
+            - file: e2e/auth.spec.ts
+              functions:
+                - name: login flow
+                  run: playwright test auth.spec.ts
+  - id: auth.logout
+    name: Logout
+    description: Session invalidation and token revocation
+    roles: []
+    priority: high
+    surfaces:
+      api:
+        - method: POST
+          path: /api/v1/auth/logout
+    coverage:
+      unit:
+        backend:
+          status: covered
+          mocked: false
+          tests:
+            - file: src/auth/logout_test.go
+              functions:
+                - name: TestLogout
+                  run: go test ./src/auth/...
+      integration: {}
+      e2e: {}
+  - id: auth.refresh
+    name: Token Refresh
+    description: JWT refresh token rotation
+    roles: []
+    priority: high
+    surfaces:
+      api:
+        - method: POST
+          path: /api/v1/auth/refresh
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration: {}
+      e2e: {}

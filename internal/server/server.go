@@ -27,6 +27,7 @@ type Server struct {
 	config      ports.GraphConfig
 	store       *adapters.YAMLStore
 	statusUC    *app.GetStatusUseCase
+	traceUC     *app.TraceFeatureUseCase
 	diagnoseUC  *app.DiagnoseFeatureUseCase
 	contractUC  *app.ContractFeatureUseCase
 	auditUC     *app.AuditFeatureUseCase
@@ -34,20 +35,25 @@ type Server struct {
 
 // New creates and configures the HTTP server.
 func New(registryDir, projectRoot, projectName string) (*Server, error) {
-	// Parse all templates.
+	graphSection, _ := adapters.LoadGraphConfig(projectRoot)
+	config := graphSection.ToPortsConfig()
+	config.ProjectRoot = projectRoot
+	return newWithBuilder(registryDir, projectRoot, projectName, config, adapters.NewGraphBuilder(config))
+}
+
+// NewForTesting creates a Server with an injected GraphBuilder.
+// Use adapters.NewStubGraphBuilder() to avoid real AST scanning in tests.
+func NewForTesting(registryDir, projectRoot, projectName string, builder ports.GraphBuilder) (*Server, error) {
+	return newWithBuilder(registryDir, projectRoot, projectName, ports.GraphConfig{ProjectRoot: projectRoot}, builder)
+}
+
+func newWithBuilder(registryDir, projectRoot, projectName string, config ports.GraphConfig, builder ports.GraphBuilder) (*Server, error) {
 	tmpl, err := parseTemplates()
 	if err != nil {
 		return nil, fmt.Errorf("parsing templates: %w", err)
 	}
 
-	// Build use case dependencies.
 	store := adapters.NewYAMLStore()
-
-	graphSection, _ := adapters.LoadGraphConfig(projectRoot)
-	config := graphSection.ToPortsConfig()
-	config.ProjectRoot = projectRoot
-
-	builder := adapters.NewGraphBuilder(config)
 	traceUC := app.NewTraceFeatureUseCase(store, builder)
 
 	s := &Server{
@@ -59,6 +65,7 @@ func New(registryDir, projectRoot, projectName string) (*Server, error) {
 		config:      config,
 		store:       store,
 		statusUC:    app.NewGetStatusUseCase(store),
+		traceUC:     traceUC,
 		diagnoseUC:  app.NewDiagnoseFeatureUseCase(traceUC),
 		contractUC:  app.NewContractFeatureUseCase(traceUC, store),
 		auditUC:     app.NewAuditFeatureUseCase(traceUC, store),
@@ -87,6 +94,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/sprint", s.handleSprint)
 	s.mux.HandleFunc("/metrics", s.handleMetrics)
 	s.mux.HandleFunc("/diff", s.handleDiff)
+	s.mux.HandleFunc("/graph", s.handleGraph)
 
 	// htmx partial routes (navigation swaps into #page-content).
 	s.mux.HandleFunc("/pages/overview", s.handleOverviewPartial)
@@ -96,16 +104,22 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/pages/sprint", s.handleSprintPartial)
 	s.mux.HandleFunc("/pages/metrics", s.handleMetricsPartial)
 	s.mux.HandleFunc("/pages/diff", s.handleDiffPartial)
+	s.mux.HandleFunc("/pages/graph", s.handleGraphPartial)
+	s.mux.HandleFunc("/pages/scan-modal", s.handleScanModal)
 
 	// API endpoints.
 	s.mux.HandleFunc("/api/scan", s.handleScan)
+	s.mux.HandleFunc("/api/feature/", s.handleFeatureDetail)
+	s.mux.HandleFunc("/api/diff/snapshot", s.handleDiffSnapshot)
+	s.mux.HandleFunc("/api/diff/compare", s.handleDiffCompare)
 }
 
 // parseTemplates loads and parses all HTML templates.
 func parseTemplates() (*template.Template, error) {
 	funcMap := template.FuncMap{
-		"add": func(a, b int) int { return a + b },
-		"mul": func(a, b float64) float64 { return a * b },
+		"add":     func(a, b int) int { return a + b },
+		"mul":     func(a, b float64) float64 { return a * b },
+		"float64": func(a int) float64 { return float64(a) },
 		"slice": func(rules []*domain.SymptomRule, start, end int) []*domain.SymptomRule {
 			if start < 0 {
 				start = 0

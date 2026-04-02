@@ -1,0 +1,43 @@
+domain: billing
+description: Billing and payment processing
+features:
+  - id: billing.checkout
+    name: Checkout
+    description: Payment processing and order creation
+    roles: []
+    priority: critical
+    surfaces:
+      api:
+        - method: POST
+          path: /api/v1/billing/checkout
+    coverage:
+      unit:
+        backend:
+          status: missing
+          mocked: false
+      integration:
+        backend:
+          status: missing
+          mocked: false
+      e2e: {}
+  - id: billing.refund
+    name: Refund
+    description: Payment refund processing
+    roles: []
+    priority: medium
+    surfaces:
+      api:
+        - method: POST
+          path: /api/v1/billing/refund
+    coverage:
+      unit:
+        backend:
+          status: partial
+          mocked: false
+          tests:
+            - file: src/billing/refund_test.go
+              functions:
+                - name: TestRefundValidation
+                  run: go test ./src/billing/...
+      integration: {}
+      e2e: {}
