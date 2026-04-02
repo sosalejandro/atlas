@@ -477,10 +477,63 @@ func TestClassifyNodeKind(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got := classifyNodeKind(tc.pkgDir)
+		got := classifyNodeKind(tc.pkgDir, ports.LayerRules{})
 		if got != tc.want {
 			t.Errorf("classifyNodeKind(%q) = %s, want %s", tc.pkgDir, got, tc.want)
 		}
+	}
+}
+
+func TestClassifyNodeKind_CustomRules(t *testing.T) {
+	rules := ports.LayerRules{
+		Handler:    []string{"controladores", "controllers", "api"},
+		Repository: []string{"dao", "store", "repositorios"},
+		Service:    []string{"usecase", "interactor"},
+		Query:      []string{"queries"},
+	}
+
+	tests := []struct {
+		pkgDir string
+		want   domain.NodeKind
+	}{
+		// Custom rules should match.
+		{"src/controladores/auth", domain.NodeHandler},
+		{"internal/controllers", domain.NodeHandler},
+		{"pkg/api/v1", domain.NodeHandler},
+		{"internal/dao/user", domain.NodeRepository},
+		{"src/store", domain.NodeRepository},
+		{"src/repositorios/usuario", domain.NodeRepository},
+		{"application/usecase/auth", domain.NodeService},
+		{"domain/interactor", domain.NodeService},
+		{"db/queries", domain.NodeQuery},
+
+		// Built-in defaults should still work.
+		{"infrastructure/http/handlers", domain.NodeHandler},
+		{"application/services", domain.NodeService},
+		{"infrastructure/persistence", domain.NodeRepository},
+
+		// Unknown should default to service.
+		{"pkg/util", domain.NodeService},
+	}
+
+	for _, tc := range tests {
+		got := classifyNodeKind(tc.pkgDir, rules)
+		if got != tc.want {
+			t.Errorf("classifyNodeKind(%q, customRules) = %s, want %s", tc.pkgDir, got, tc.want)
+		}
+	}
+}
+
+func TestClassifyNodeKind_CustomRulesPriority(t *testing.T) {
+	// Custom rules should take priority over built-in defaults.
+	// For example, if "service" directory should be treated as handler.
+	rules := ports.LayerRules{
+		Handler: []string{"service"},
+	}
+
+	got := classifyNodeKind("application/services", rules)
+	if got != domain.NodeHandler {
+		t.Errorf("custom rule should override built-in: got %s, want handler", got)
 	}
 }
 

@@ -29,6 +29,16 @@ type GraphSection struct {
 	Concurrency     int            `yaml:"concurrency"`
 	TypeChecking    bool           `yaml:"type_checking"`
 	GraphQL         *GraphQLConfig `yaml:"graphql,omitempty"`
+	LayerRules      *LayerRules    `yaml:"layer_rules,omitempty"`
+}
+
+// LayerRules allows custom directory name patterns for layer classification.
+// These extend (not replace) the built-in defaults.
+type LayerRules struct {
+	Handler    []string `yaml:"handler,omitempty"`
+	Service    []string `yaml:"service,omitempty"`
+	Repository []string `yaml:"repository,omitempty"`
+	Query      []string `yaml:"query,omitempty"`
 }
 
 // GraphQLConfig holds GraphQL-specific configuration.
@@ -83,6 +93,14 @@ func (s *GraphSection) ToPortsConfig() ports.GraphConfig {
 	}
 	if s.GraphQL != nil {
 		cfg.GraphQLSchemaDirs = s.GraphQL.SchemaDirs
+	}
+	if s.LayerRules != nil {
+		cfg.LayerRules = ports.LayerRules{
+			Handler:    s.LayerRules.Handler,
+			Service:    s.LayerRules.Service,
+			Repository: s.LayerRules.Repository,
+			Query:      s.LayerRules.Query,
+		}
 	}
 	return cfg
 }

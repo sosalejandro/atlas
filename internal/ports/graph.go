@@ -16,4 +16,15 @@ type GraphConfig struct {
 	Concurrency       int
 	TypeChecking      bool
 	GraphQLSchemaDirs []string
+	LayerRules        LayerRules
+}
+
+// LayerRules holds custom directory name patterns for layer classification.
+// These extend the built-in defaults (handler, resolver, service, repository,
+// persistence, generated).
+type LayerRules struct {
+	Handler    []string
+	Service    []string
+	Repository []string
+	Query      []string
 }

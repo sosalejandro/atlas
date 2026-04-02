@@ -432,6 +432,11 @@ graph:
   graphql:
     schema_dirs:
       - src/training/pkg/schema
+  layer_rules:
+    handler: ["controladores", "controllers", "api"]
+    repository: ["dao", "store", "repositorios"]
+    service: ["usecase", "interactor"]
+    query: ["queries"]
 ```
 
 ### Field reference
@@ -451,6 +456,10 @@ graph:
 | `type_checking` | bool | `false` | **Experimental — not recommended.** Enables `go/types` for exact cross-package type resolution. See the warning in the Performance section. |
 | `concurrency` | int | `4` | Maximum parallel goroutines for AST scanning. Increase on machines with many cores for faster graph building. |
 | `graphql.schema_dirs` | []string | `[]` | Directories containing `.graphqls` schema files. Used by `testreg contract` to show GraphQL mutation/query definitions as the first layer in the contract chain. |
+| `layer_rules.handler` | []string | `[]` | Additional directory name patterns classified as `handler`. Extends the built-in defaults (`handler`, `resolver`). Example: `["controladores", "controllers", "api"]` |
+| `layer_rules.service` | []string | `[]` | Additional directory name patterns classified as `service`. Extends the built-in defaults (`service`). Example: `["usecase", "interactor"]` |
+| `layer_rules.repository` | []string | `[]` | Additional directory name patterns classified as `repository`. Extends the built-in defaults (`repository`, `persistence`). Example: `["dao", "store", "repositorios"]` |
+| `layer_rules.query` | []string | `[]` | Additional directory name patterns classified as `query`. Extends the built-in defaults (`generated`). Example: `["queries"]` |
 
 ### Minimal configs by project type
 
@@ -551,9 +560,21 @@ src/
 - Gap severity may be wrong (a handler gap reported as service-level)
 - The trace tree still works correctly (edges are based on AST, not naming)
 
-**To fix misclassified layers**, you have two options:
-1. **Rename directories** to include `handler`, `service`, `repository`, or `persistence`
-2. **Accept the default** — the graph and traces are still accurate, only health scores and gap severity are affected
+**To fix misclassified layers**, you have three options:
+1. **Add `layer_rules`** to `.testreg.yaml` to teach testreg your naming conventions (recommended)
+2. **Rename directories** to include `handler`, `service`, `repository`, or `persistence`
+3. **Accept the default** — the graph and traces are still accurate, only health scores and gap severity are affected
+
+**Example — non-English codebase:**
+```yaml
+graph:
+  layer_rules:
+    handler: ["controladores", "controllers"]
+    repository: ["repositorios", "dao", "store"]
+    service: ["servicios", "usecase"]
+```
+
+Custom rules are checked **before** the built-in defaults. They extend the defaults, so the built-in patterns (`handler`, `service`, `repository`, `persistence`, `generated`) still work alongside your custom ones.
 
 ### Common directory structures that work
 
@@ -578,19 +599,27 @@ src/auth/             → service (default)
 src/meals/            → service (default)
 ```
 
-### Structures that DON'T work for auto-classification
+### Structures that DON'T work without `layer_rules`
 
 ```
 # No naming convention — everything becomes "service"
 src/auth/auth.go          → service (should be handler? service? unknown)
 src/auth/auth_db.go       → service (should be repository)
 
-# Non-English naming
-src/controladores/        → service (testreg doesn't recognize "controladores")
-src/repositorios/         → service (testreg doesn't recognize "repositorios")
+# Non-English naming — defaults don't recognize these
+src/controladores/        → service (should be handler)
+src/repositorios/         → service (should be repository)
 ```
 
-In these cases, use `@api` annotations to identify handlers and accept that health scores will be approximate.
+**Fix with `layer_rules`:**
+```yaml
+graph:
+  layer_rules:
+    handler: ["controladores"]
+    repository: ["repositorios"]
+```
+
+For flat structures without any naming convention (`src/auth/auth.go`), use `@api` annotations to identify handlers and accept that health scores will be approximate.
 
 ---
 

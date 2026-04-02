@@ -663,7 +663,7 @@ func (s *GoASTScanner) registerFunction(
 		id = file.Name.Name + "." + funcName
 	}
 
-	kind := classifyNodeKind(pkgDir)
+	kind := classifyNodeKind(pkgDir, ctx.config.LayerRules)
 	line := fset.Position(fn.Pos()).Line
 
 	doc := ""
@@ -715,9 +715,33 @@ func receiverTypeName(fn *ast.FuncDecl) string {
 }
 
 // classifyNodeKind maps a package directory path to a domain.NodeKind.
-func classifyNodeKind(pkgDir string) domain.NodeKind {
+// Custom layer rules extend the built-in defaults.
+func classifyNodeKind(pkgDir string, rules ports.LayerRules) domain.NodeKind {
 	lower := strings.ToLower(pkgDir)
 
+	// Check custom rules first (higher priority than defaults).
+	for _, pattern := range rules.Handler {
+		if strings.Contains(lower, strings.ToLower(pattern)) {
+			return domain.NodeHandler
+		}
+	}
+	for _, pattern := range rules.Repository {
+		if strings.Contains(lower, strings.ToLower(pattern)) {
+			return domain.NodeRepository
+		}
+	}
+	for _, pattern := range rules.Service {
+		if strings.Contains(lower, strings.ToLower(pattern)) {
+			return domain.NodeService
+		}
+	}
+	for _, pattern := range rules.Query {
+		if strings.Contains(lower, strings.ToLower(pattern)) {
+			return domain.NodeQuery
+		}
+	}
+
+	// Built-in defaults.
 	switch {
 	case strings.Contains(lower, "handler") || strings.Contains(lower, "resolver"):
 		return domain.NodeHandler

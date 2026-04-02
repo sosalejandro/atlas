@@ -240,7 +240,7 @@ func (s *TypedScanner) loadAndBuild(projectRoot string, config ports.GraphConfig
 				pkgDir, _ := filepath.Rel(projectRoot, filepath.Dir(fileName))
 				pkgDir = filepath.ToSlash(pkgDir)
 
-				kind := classifyNodeKind(pkgDir)
+				kind := classifyNodeKind(pkgDir, config.LayerRules)
 				line := fset.Position(fn.Pos()).Line
 
 				doc := ""
