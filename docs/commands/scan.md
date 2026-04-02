@@ -20,12 +20,12 @@ No additional flags — scan discovers and maps everything automatically.
 $ testreg scan
 
 Scan complete.
-  Total test files: 247
-  Mapped:           198
-  Unmapped:         49
+  Total test files: 1103
+  Mapped:           995
+  Unmapped:         108
 ```
 
-*Output from nutrition-project-v2 — 184 features across Go, Vitest, Playwright, Jest, and Maestro.*
+*Output from nutrition-project-v2 — 184 features across 16 domains.*
 
 ### First scan on a new project (with --discover)
 

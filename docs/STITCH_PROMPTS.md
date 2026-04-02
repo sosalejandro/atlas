@@ -71,7 +71,7 @@ STRUCTURE:
   - Fixed header (48px height): Logo (circle icon ◉) + "testreg" text left, project name center-left, [Scan] primary button + [☀/🌙] theme toggle + [⚙] settings right
   - Fixed sidebar (200px, left): 8 navigation items with icons + labels. Active item has left 3px accent border + bg-tertiary. Collapsible to 48px (icons only) via toggle at bottom.
   - Main content area: fills remaining space, independently scrollable
-  - Fixed status bar (32px, bottom): shows "184 features • 771 tests • 18% at target • Last scan: 10.2s" in monospace, subtle top border
+  - Fixed status bar (32px, bottom): shows "184 features • 1103 tests • 42% at target • Last scan: 10.2s" in monospace, subtle top border
 
 SIDEBAR ITEMS (with icons):
   1. Overview (dashboard grid icon)
@@ -108,14 +108,14 @@ CARD 1 — Health by Priority (full width):
   4 donut charts side by side, each showing:
     - Priority label (CRITICAL / HIGH / MEDIUM / LOW)
     - 64px donut chart with percentage in center
-    - "17/23 at target" below
-  Below the 4 donuts: full-width progress bar showing overall: "33 of 184 features at target (18%)"
+    - "31/36 at target" below
+  Below the 4 donuts: full-width progress bar showing overall: "77 of 184 features at target (42%)"
 
 CARD 2 — Coverage Matrix (left column):
   3 horizontal bars:
-    - "Unit    ████░░░░░░  49%" (yellow fill — between 50-79 would be yellow, below 50 is red)
-    - "Integ   █░░░░░░░░░  10%" (red fill)
-    - "E2E     ██░░░░░░░░  16%" (red fill)
+    - "Unit    ██████░░░░  66%" (yellow fill — between 50-79 is yellow)
+    - "Integ   █████░░░░░  51%" (yellow fill)
+    - "E2E     ████░░░░░░  37%" (red fill — below 50 is red)
 
 CARD 3 — Performance Score (right column):
   3 horizontal bars:
@@ -127,8 +127,9 @@ CARD 4 — Top Sprint Priorities (full width):
   5-row table showing:
     Score | Priority dot + label | Feature name | Health bar (current → target)
   Example rows:
-    3.00  ● critical  training.end-session       ██░░░░░ 25% → 100%
-    2.40  ● high      plans-nutri.meal-option    ░░░░░░░  0% →  80%
+    2.40  ● high      shopping.create             ░░░░░░░  0% →  80%
+    2.40  ● high      plans-patient.list         ░░░░░░░  0% →  80%
+    1.65  ● high      auth.biometric-login       ██░░░░░ 25% →  80%
   Footer link: "→ View all sprint priorities"
 
 CARD 5 — Domains (full width):
@@ -364,10 +365,10 @@ Export buttons: [JSON] [Prompt for AI] [Copy]
 Main table:
   Score | Priority (colored dot + label) | Feature name | Health bar (current → target)
   
-  3.00  ● critical  training.end-session      ██░░░░░░░ 25% → 100%
-  2.40  ● high      plans-nutri.meal-option   ░░░░░░░░░  0% →  80%
-  2.40  ● high      shopping.generate         ░░░░░░░░░  0% →  80%
-  2.40  ● high      billing.update-payment    ░░░░░░░░░  0% →  80%
+  2.40  ● high      shopping.create            ░░░░░░░░░  0% →  80%
+  2.40  ● high      plans-patient.list        ░░░░░░░░░  0% →  80%
+  1.65  ● high      auth.biometric-login      ██░░░░░░░ 25% →  80%
+  1.65  ● high      training.session-indicator██░░░░░░░ 25% →  80%
 
   Health bars show TWO segments: filled (current) and ghost (target).
   Gap between current and target is the visual representation of work needed.

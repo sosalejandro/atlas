@@ -17,7 +17,7 @@ Trace the entire dependency chain for a login feature in one command:
 ```
 $ testreg trace auth.login
 
-  Feature: User Login (auth.login)
+  Feature: Login (auth.login)
   Priority: critical
   API Surfaces:
     POST /api/v1/auth/login
@@ -39,7 +39,7 @@ route:/login                                              apps/web/src/router.ts
   Confidence: 100%  |  Nodes: 11  |  Depth: 7
 ```
 
-*Output from [nutrition-project-v2](https://github.com/sosalejandro/nutrition-project-v2) — a full-stack Go + React monorepo with 184 features, 771 test files, and 2,122 source files.*
+*Output from [nutrition-project-v2](https://github.com/sosalejandro/nutrition-project-v2) — a full-stack Go + React monorepo with 184 features, 1103 test files, and 2,122 source files.*
 
 No manual wiring. testreg parsed the Go AST, resolved Wire dependency injection bindings, mapped SQLC-generated methods to their SQL source files, and ran the TypeScript scanner against the frontend -- automatically.
 
@@ -773,11 +773,11 @@ The TypeScript scanner runs as a Node.js subprocess using `ts.createSourceFile` 
 
 ## Performance
 
-Measured on a real production monorepo (nutrition-project-v2: 184 features, 771 test files, full-stack Go + React + TypeScript).
+Measured on a real production monorepo (nutrition-project-v2: 184 features, 1103 test files, full-stack Go + React + TypeScript).
 
 | Command | Wall Time | What it does |
 |---------|-----------|-------------|
-| `testreg scan` | **0.5s** | Discover 771 test files across 8 parallel scanners |
+| `testreg scan` | **0.5s** | Discover 1103 test files across 8 parallel scanners |
 | `testreg trace auth.login` | **0.7s** | Build full-stack call graph, trace 16 nodes |
 | `testreg audit auth.login` | **0.7s** | Trace + annotate + health score for one feature |
 | `testreg audit --all` | **13s** | Audit all 184 features (graph built once) |
@@ -786,7 +786,7 @@ Measured on a real production monorepo (nutrition-project-v2: 184 features, 771 
 | Scenario | Peak RSS |
 |----------|----------|
 | Small project (41 features, 42 test files) | **17 MB** |
-| Large monorepo (184 features, 771 test files) | **153 MB** |
+| Large monorepo (184 features, 1103 test files) | **153 MB** |
 
 ```
 Binary:       ~12 MB (static, single file)

@@ -39,21 +39,20 @@ testreg sprint [flags]
 ```
 $ testreg sprint
 
-Sprint Priorities (20 features, sorted by priority score):
+Sprint Priorities (10 features, sorted by priority score):
 
-  Score  Priority   Health  Target  Feature
+   Score  Priority   Health  Target  Feature
   ──────────────────────────────────────────────────────────────────────
-   4.00  critical      0%    100%  auth.login
-   4.00  critical      0%    100%  auth.register
-   3.00  critical     25%    100%  auth.token-refresh
-   2.40  high         20%     80%  recipes.create
-
-  By Fix Type:
-    unit tests:          34 features
-    integration tests:   18 features
-    e2e tests:            6 features
-    benchmarks:          12 features
-    race tests:           8 features
+    2.40  high          0%     80%  shopping.create
+    2.40  high          0%     80%  plans-patient.list
+    1.65  high         25%     80%  auth.biometric-login
+    1.65  high         25%     80%  training.session-indicator
+    1.20  high         40%     80%  settings.account
+    1.20  high         40%     80%  settings.privacy
+    1.20  high         40%     80%  recovery.score
+    1.20  high         40%     80%  recovery.readiness
+    1.20  medium        0%     60%  shopping.recipe-from-inventory
+    1.20  medium        0%     60%  admin.api-docs
 ```
 
 ### Group by domain
