@@ -464,15 +464,25 @@ PAGE 2 — DIAGNOSE:
 Input section (card):
   Feature dropdown: [auth.login ▼]
   Symptom text input: [401 Unauthorized_____] with [🔍 Diagnose] button
-  Quick symptom chips below input: clickable pills
-    [401] [403] [404] [500] [timeout] [connection refused] [empty response]
+  Quick symptom chips below input (3 rows of clickable pills):
+    Row 1 (HTTP): [401] [403] [404] [500] [409] [422] [429] [502] [503]
+    Row 2 (Data/Infra): [timeout] [connection refused] [unique constraint]
+                        [deadlock] [json unmarshal] [CORS] [EOF] [TLS]
+    Row 3 (Frontend): [TypeError] [selector not found] [hydration mismatch]
   Clicking a chip fills the input field
 
 Results (appears after submitting):
-  Matched Rule card:
-    "Authentication failure"
+
+  Best Match card (primary, prominent):
     Layer: backend-auth
-    "Request lacks valid credentials or session has expired"
+    Confidence: 70% with a colored progress bar (70% fill, accent blue)
+    "Authentication failure — request lacks valid credentials or session has expired"
+    Check order: handler → service → external
+
+  Also Matched section (secondary, smaller, below best match):
+    List of additional matching rules, each showing:
+      "55% backend-routing — Not found: endpoint or resource missing"
+    (Only visible when multiple rules match the same symptom)
 
   Files to Check (ordered list, each in a subtle card row):
     1. src/infrastructure/http/handlers/auth_handler.go
@@ -506,6 +516,11 @@ SECTION 1 — "Always Run" (3 checkboxes, all checked, slightly muted to show th
   ☑ Discover test files (Go, TypeScript, Python, Playwright, Maestro)
   ☑ Build dependency graph (Go AST + TypeScript)
   ☑ Audit all features (health scores, gaps, performance)
+
+SECTION 1b — "Advanced" (collapsed by default, toggleable):
+  ☐ Enable type checking (go/types) — ⚠ Experimental, buggy, ~4GB RAM
+  Layer rules: link to settings page for custom layer_rules configuration
+    (e.g., "controladores" → handler, "dao" → repository)
 
 SECTION 2 — "Import Test Results" (optional, unchecked by default):
   Each option is a checkbox + file path input + helper command:
@@ -565,7 +580,7 @@ CONTROLS BAR (top, inside a subtle card):
 
 ENTRY POINT BANNER (below controls):
   "Entry: GRAPHQL Mutation.trainingLogSet" in monospace
-  Small info chip: "4 layers | type_checking: on"
+  Small info chip: "4 layers | type_checking: on ⚠ experimental"
 
 LAYER CARDS (stacked vertically, the core of the page):
   Each layer is a card (#161b22 background, 1px #30363d border, 8px radius, 16px padding).
@@ -647,6 +662,8 @@ RESPONSIVE:
 
 Show the page with all 4 layers expanded, the training.record-exercise feature selected,
 type_checking enabled (so struct field tables are visible), Terminal format active.
+Note: type_checking is experimental and buggy. Show a small warning banner when enabled:
+"⚠ type_checking is experimental — struct field tables may be incomplete"
 The page should feel like reading an API specification — clean, precise, layered.
 ```
 

@@ -533,17 +533,27 @@ Mobile (<768px):    No sidebar (bottom tab bar), single column, simplified graph
 │  │  Feature: [auth.login                    ▼]                  │  │
 │  │  Symptom: [401 Unauthorized                 ]  [🔍 Diagnose] │  │
 │  │                                                               │  │
-│  │  Quick symptoms: [401] [403] [404] [500] [timeout] [empty]   │  │
+│  │  Quick symptoms (clickable chips):                            │  │
+│  │  [401] [403] [404] [500] [timeout] [connection refused]      │  │
+│  │  [unique constraint] [json unmarshal] [CORS] [EOF]           │  │
+│  │  [deadlock] [sql: no rows] [TypeError] [hydration mismatch] │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │                                                                     │
 │  ┌─── Diagnosis ────────────────────────────────────────────────┐  │
 │  │                                                               │  │
-│  │  Matched Rule                                                 │  │
+│  │  Best Match                                                   │  │
 │  │  ┌──────────────────────────────────────────────────────────┐│  │
-│  │  │  Pattern: Authentication failure                         ││  │
-│  │  │  Layer:   backend-auth                                   ││  │
-│  │  │  Desc:    Request lacks valid credentials or session     ││  │
-│  │  │           has expired                                    ││  │
+│  │  │  Layer:       backend-auth                               ││  │
+│  │  │  Confidence:  70%  ████████░░░░                          ││  │
+│  │  │  Description: Authentication failure — request lacks     ││  │
+│  │  │               valid credentials or session has expired   ││  │
+│  │  │  Check order: handler → service → external               ││  │
+│  │  └──────────────────────────────────────────────────────────┘│  │
+│  │                                                               │  │
+│  │  Also Matched (secondary rules, lower confidence):            │  │
+│  │  ┌──────────────────────────────────────────────────────────┐│  │
+│  │  │  55% backend-routing — Not found: endpoint does not      ││  │
+│  │  │                        exist or resource is missing      ││  │
 │  │  └──────────────────────────────────────────────────────────┘│  │
 │  │                                                               │  │
 │  │  Files to check (ordered by likelihood):                     │  │
@@ -558,7 +568,7 @@ Mobile (<768px):    No sidebar (bottom tab bar), single column, simplified graph
 │  │  │     └─ JWTGenerator.GenerateTokenPair (line 70)          ││  │
 │  │  └──────────────────────────────────────────────────────────┘│  │
 │  │                                                               │  │
-│  │  ┌─ Graph (nodes highlighted) ──────────────────────────────┐│  │
+│  │  ┌─ Graph (diagnosed nodes highlighted) ────────────────────┐│  │
 │  │  │  route:/login                                             ││  │
 │  │  │  └─ LoginPage                                             ││  │
 │  │  │     └─ useAuth                                            ││  │
@@ -576,7 +586,11 @@ Mobile (<768px):    No sidebar (bottom tab bar), single column, simplified graph
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Quick symptom chips:** Clickable chips that populate the input field. Common error patterns at a glance.
+**Quick symptom chips:** Clickable chips that populate the input field. Organized in 3 rows: HTTP status codes, database/serialization errors, and frontend errors. Covers all 26 built-in symptom rules.
+
+**Confidence scoring:** Each matched rule shows a confidence percentage (0-100%) indicating how diagnostic the pattern is. High confidence (85-95%) means the pattern almost certainly identifies the correct layer (e.g., `unique constraint` → data layer). Lower confidence (50-70%) means the error could originate in multiple layers (e.g., generic `500`).
+
+**Multi-match:** When a symptom matches multiple rules, the best match is shown prominently and secondary matches are listed below with their confidence and layer. For example, `"500 internal server error: context deadline exceeded"` matches both the 500 rule and the timeout rule.
 
 **Graph with highlights:** The dependency tree is shown with diagnosed nodes highlighted (★ star + different border/background). The visual immediately shows WHERE in the call chain to look.
 

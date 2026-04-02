@@ -346,7 +346,7 @@ This is the ONE page that needs client-side JavaScript beyond htmx — graph lay
 
 ### Page 7: Diagnose (interactive)
 
-**What it shows:** Enter a symptom, get a diagnosis with files to check.
+**What it shows:** Enter a symptom, get a diagnosis with confidence scoring, multi-match results, and files to check.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -355,10 +355,21 @@ This is the ONE page that needs client-side JavaScript beyond htmx — graph lay
 │  Feature: [auth.login ▼]                                    │
 │  Symptom: [401 Unauthorized________]  [Diagnose]            │
 │                                                              │
+│  Quick symptoms:                                             │
+│  [401] [403] [404] [500] [timeout] [connection refused]     │
+│  [unique constraint] [json unmarshal] [CORS] [deadlock]     │
+│  [sql: no rows] [TypeError] [hydration mismatch] [EOF]     │
+│                                                              │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │  Matched Rule: Authentication failure                 │   │
+│  │  Best Match                                           │   │
 │  │  Layer: backend-auth                                  │   │
-│  │  Description: Request lacks valid credentials         │   │
+│  │  Confidence: 70%  ████████░░░░                        │   │
+│  │  Description: Authentication failure — request lacks  │   │
+│  │               valid credentials or session expired    │   │
+│  │  Check order: handler → service → external            │   │
+│  │                                                       │   │
+│  │  Also Matched:                                        │   │
+│  │  55% backend-routing — endpoint or resource not found │   │
 │  │                                                       │   │
 │  │  Files to check (ordered by likelihood):              │   │
 │  │   1. src/infrastructure/http/handlers/auth_handler.go │   │
@@ -370,9 +381,17 @@ This is the ONE page that needs client-side JavaScript beyond htmx — graph lay
 
 **Data source:** `diagnose <feature> --symptom "..." --json`
 
+**Key elements:**
+- **26 quick symptom chips** — clickable, organized in rows: HTTP codes, DB/serialization, frontend errors
+- **Confidence bar** — visual indicator next to percentage. High (85-95%): almost certainly correct. Low (50-70%): directional hint.
+- **Multi-match** — "Also Matched" shows secondary rules when a symptom hits multiple patterns (e.g., `"500: deadline exceeded"` matches both 500 and timeout)
+- **Graph highlights** — dependency tree with ★ on diagnosed nodes
+
 ### Page 8: Contract View
 
 **What it shows:** Full API contract for a feature, rendered as layered cards from entry point down to SQL. Each layer shows the function signature, file location, inputs/outputs, and (when `type_checking: true`) exact struct field tables. Test coverage is shown per layer at the bottom.
+
+> **Note:** `type_checking: true` is experimental and buggy. The GUI should show a warning banner when this option is enabled, and struct field tables should be labeled as "(experimental)" to set expectations.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -460,8 +479,8 @@ The top bar has a **[Scan]** button that opens a checklist of what to scan:
 │  ☑ Build frontend graph (TypeScript)     │
 │  ☑ Audit all features (health scores)    │
 │  ☐ Enable type checking (go/types)       │
-│    Resolves cross-package calls exactly.  │
-│    Slower, requires buildable project.   │
+│    ⚠ Experimental — not recommended.     │
+│    Buggy, uses ~4GB RAM, incomplete.     │
 │  ☐ Import Go test results                │
 │     Path: [test-output.json______]       │
 │  ☐ Import Playwright results             │
@@ -480,6 +499,10 @@ The top bar has a **[Scan]** button that opens a checklist of what to scan:
 ```
 
 Each checkbox adds a step to the pipeline. The first 4 are default (always run). The import steps are optional — enabled when the user has test output files to enrich the report.
+
+**Settings (accessible via ⚙ in header):** The settings page should expose `.testreg.yaml` configuration, including:
+- `layer_rules` — custom directory name patterns for layer classification (e.g., `controladores` → handler, `dao` → repository). This allows non-English codebases and alternative naming conventions to get accurate health scores without renaming directories.
+- All `graph.*` fields — backend_root, router_file, wire_file, fx_dir, etc.
 
 **htmx behavior:** POST to `/scan/run` with the selected options. Server runs each step sequentially, streaming progress via SSE (Server-Sent Events). Each completed step pushes a partial HTML update to the progress bar and enables the corresponding data pages.
 
