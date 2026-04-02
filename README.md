@@ -410,33 +410,187 @@ func (s *OrderService) PlaceOrder(...) { ... }
 
 ## Configuration
 
-`.testreg.yaml` at the project root:
+testreg reads its configuration from `.testreg.yaml` at the project root. All fields are optional — sensible defaults are applied when the file is absent or fields are omitted.
+
+### Full example
 
 ```yaml
 graph:
-  backend_root: src                                    # Go source root (default: "src")
-  router_file: src/infrastructure/http/router.go       # Router file for route auto-discovery
-  wire_file: src/infrastructure/config/wire.go         # Wire DI file
-  fx_dir: src/pkg/application/common                   # Uber Fx/Dig provider directory
-  sqlc_config: sqlc.yaml                               # SQLC config for query mapping
-  frontend_roots:                                      # TypeScript scanner roots
+  backend_root: src
+  router_file: src/infrastructure/http/router.go
+  wire_file: src/infrastructure/config/wire.go
+  fx_dir: src/pkg/application/common
+  sqlc_config: sqlc.yaml
+  frontend_roots:
     - apps/web/src
-  ignore_packages: [vendor, testutil]                  # Packages to skip
-  ignore_functions: ["String", "Error", "MarshalJSON"] # Functions to skip (glob)
-  cache_dir: .testreg-cache                            # AST cache directory
-  max_depth: 10                                        # Max call graph depth
-  type_checking: false                                 # Experimental — not recommended (see below)
-  concurrency: 4                                       # Max parallel goroutines
+  ignore_packages: [vendor, testutil]
+  ignore_functions: ["String", "Error", "MarshalJSON"]
+  cache_dir: .testreg-cache
+  max_depth: 10
+  type_checking: false
+  concurrency: 4
   graphql:
-    schema_dirs:                                       # GraphQL schema directories
+    schema_dirs:
       - src/training/pkg/schema
 ```
 
-All fields are optional. Sensible defaults are applied when the file is absent.
+### Field reference
 
-| Environment Variable | Purpose |
-|---------------------|---------|
-| `TESTREG_TS_SCANNER` | Path to the TypeScript scanner script |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `backend_root` | string | `"src"` | Root directory where Go source files live. testreg walks this directory recursively to discover all `.go` files for AST parsing. Set this to wherever your Go packages start (e.g., `"."` if packages are at the repo root, `"src"` for monorepos). |
+| `router_file` | string | `""` | Path to the Go file (or directory) containing HTTP route registrations. Used for auto-discovery of routes with Chi, Echo, and stdlib routers. If omitted, only `@api` annotations are used to map endpoints. Can be a single file (`router.go`) or a directory (scans all `.go` files in it). |
+| `wire_file` | string | `""` | Path to a Google Wire DI file. testreg parses `wire.Bind()` calls and provider functions to resolve interface-to-concrete type mappings. This allows the call graph to follow calls through interfaces (e.g., `h.service.Login()` where `service` is an interface bound to a concrete type via Wire). |
+| `fx_dir` | string | `""` | Directory containing Uber Fx or Dig provider modules. testreg scans for `fx.Provide()`, `fx.Options()`, `fx.Invoke()`, and `dig.Provide()` calls to resolve DI bindings. Mutually exclusive with `wire_file` — use whichever DI framework your project uses. |
+| `sqlc_config` | string | `""` | Path to `sqlc.yaml`. testreg parses this to map SQLC-generated Go methods to their original `.sql` source files and line numbers. Without this, SQL query nodes won't appear in the graph. |
+| `frontend_roots` | []string | `[]` | Directories to scan for TypeScript/React source code. Each directory is scanned for React Router route definitions, component imports, hook usage, and API service calls. Requires `TESTREG_TS_SCANNER` environment variable and `npm install` in the testreg directory. |
+| `ignore_packages` | []string | `[]` | Go package directory names to skip during AST scanning. Useful for excluding `vendor/`, `testutil/`, `mocks/`, or other directories that add noise to the call graph. |
+| `ignore_functions` | []string | `[]` | Function name glob patterns to exclude from the graph. Common exclusions: `"String"`, `"Error"`, `"MarshalJSON"` — utility methods that clutter the trace without adding insight. |
+| `cache_dir` | string | `".testreg-cache"` | Directory for caching parsed AST data, snapshots, and metrics history. |
+| `max_depth` | int | `10` | Maximum call graph traversal depth. Prevents infinite recursion in deeply nested call chains. Can be overridden per-command with `--depth`. |
+| `type_checking` | bool | `false` | **Experimental — not recommended.** Enables `go/types` for exact cross-package type resolution. See the warning in the Performance section. |
+| `concurrency` | int | `4` | Maximum parallel goroutines for AST scanning. Increase on machines with many cores for faster graph building. |
+| `graphql.schema_dirs` | []string | `[]` | Directories containing `.graphqls` schema files. Used by `testreg contract` to show GraphQL mutation/query definitions as the first layer in the contract chain. |
+
+### Minimal configs by project type
+
+**Go backend only (Chi router, Wire DI, SQLC):**
+```yaml
+graph:
+  backend_root: src
+  router_file: src/infrastructure/http/router.go
+  wire_file: src/infrastructure/config/wire.go
+  sqlc_config: sqlc.yaml
+```
+
+**Go backend only (Echo router, Uber Fx):**
+```yaml
+graph:
+  backend_root: .
+  router_file: internal/server/routes.go
+  fx_dir: internal/providers
+```
+
+**Go backend only (no DI framework, no SQLC):**
+```yaml
+graph:
+  backend_root: .
+```
+In this case, use `@api` annotations on handlers and `@calls` annotations for any calls through interfaces.
+
+**Full-stack Go + React:**
+```yaml
+graph:
+  backend_root: src
+  router_file: src/infrastructure/http/router.go
+  wire_file: src/infrastructure/config/wire.go
+  sqlc_config: sqlc.yaml
+  frontend_roots:
+    - apps/web/src
+```
+
+**No config file at all:**
+testreg still works — it scans from `src/` by default, uses only `@api` annotations for routing, and relies on directory naming for layer classification.
+
+### Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `TESTREG_TS_SCANNER` | Path to the TypeScript scanner script. Set this to enable frontend graph scanning. Without it, only the Go backend is traced. |
+
+---
+
+## Layer Recognition
+
+testreg classifies every function in the call graph into an architectural layer (`handler`, `service`, `repository`, `query`, `external`). This classification drives the health score weights and gap severity. Understanding how it works helps you structure your project so testreg produces accurate results.
+
+### How layers are assigned
+
+**Backend (Go)** — classification is based on the **directory name** containing the Go file:
+
+| Directory contains | Assigned layer | Examples |
+|-------------------|---------------|---------|
+| `handler` or `resolver` | `handler` | `handlers/`, `http/handler/`, `resolvers/` |
+| `repository` or `persistence` | `repository` | `repositories/`, `persistence/`, `repo/` |
+| `service` | `service` | `services/`, `application/services/` |
+| `generated` | `query` | `generated/` (SQLC output) |
+| *(anything else)* | `service` (default) | `utils/`, `pkg/`, `internal/` |
+
+The match is case-insensitive and uses `strings.Contains`, so `my_handlers/` and `UserHandler/` both match `handler`. Nested paths work too — `src/infrastructure/http/handlers/auth_handler.go` matches because the path contains `handler`.
+
+**SQLC queries** — methods generated by SQLC are classified as `query` and linked to their `.sql` source file. This happens through `sqlc_config` parsing, not directory naming.
+
+**External calls** — calls to Go standard library packages (`http.`, `fmt.`, `json.`, `context.`, `strings.`, etc.) are classified as `external` and excluded from health scoring.
+
+**Frontend (TypeScript)** — the TypeScript scanner emits explicit kind labels:
+
+| Kind | What it matches |
+|------|----------------|
+| `component` | React page/component files imported from route definitions |
+| `hook` | React hooks (`use*` functions) |
+| `endpoint` | API route paths (URL strings in API service files) |
+
+### What this means for your project
+
+**If your directories follow the convention**, everything works automatically:
+
+```
+src/
+├── infrastructure/
+│   └── http/
+│       └── handlers/          ← classified as "handler"
+├── application/
+│   └── services/              ← classified as "service"
+├── domain/
+│   └── repositories/          ← classified as "repository"
+└── generated/                 ← classified as "query" (SQLC)
+```
+
+**If your directories don't match**, testreg still builds the graph — but everything defaults to `service`. This means:
+- Health scores are skewed (all weight goes to the service layer)
+- Gap severity may be wrong (a handler gap reported as service-level)
+- The trace tree still works correctly (edges are based on AST, not naming)
+
+**To fix misclassified layers**, you have two options:
+1. **Rename directories** to include `handler`, `service`, `repository`, or `persistence`
+2. **Accept the default** — the graph and traces are still accurate, only health scores and gap severity are affected
+
+### Common directory structures that work
+
+```
+# Clean architecture
+src/handlers/         → handler
+src/services/         → service
+src/repositories/     → repository
+
+# Hexagonal architecture
+src/infrastructure/http/handlers/   → handler
+src/application/services/           → service
+src/domain/repositories/            → repository
+
+# Domain-driven (with convention)
+src/auth/handler/     → handler
+src/auth/service/     → service
+src/auth/persistence/ → repository
+
+# Flat structure (everything defaults to service)
+src/auth/             → service (default)
+src/meals/            → service (default)
+```
+
+### Structures that DON'T work for auto-classification
+
+```
+# No naming convention — everything becomes "service"
+src/auth/auth.go          → service (should be handler? service? unknown)
+src/auth/auth_db.go       → service (should be repository)
+
+# Non-English naming
+src/controladores/        → service (testreg doesn't recognize "controladores")
+src/repositorios/         → service (testreg doesn't recognize "repositorios")
+```
+
+In these cases, use `@api` annotations to identify handlers and accept that health scores will be approximate.
 
 ---
 
