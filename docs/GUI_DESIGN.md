@@ -389,75 +389,83 @@ This is the ONE page that needs client-side JavaScript beyond htmx — graph lay
 
 ### Page 8: Contract View
 
-**What it shows:** Full API contract for a feature, rendered as layered cards from entry point down to SQL. Each layer shows the function signature, file location, inputs/outputs, and (when `type_checking: true`) exact struct field tables. Test coverage is shown per layer at the bottom.
-
-> **Note:** `type_checking: true` is experimental and buggy. The GUI should show a warning banner when this option is enabled, and struct field tables should be labeled as "(experimental)" to set expectations.
+**What it shows:** Full API contract for a feature, rendered as layered cards from frontend entry point through backend to SQL. Each layer shows the function signature, file location, and delegation chain. Test coverage listed at the bottom.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Contract: [training.record-exercise ▼]    [Terminal] [JSON] [MD]  │
+│  Contract: [auth.login ▼]               [Terminal] [JSON] [MD]     │
 │                                                                     │
-│  Entry: GRAPHQL Mutation.trainingLogSet                            │
+│  Entry: POST /api/v1/auth/login                   8 layers         │
 │                                                                     │
-│  ┌─── Layer 1: GraphQL API ─────────────────────────────────────┐  │
-│  │  mutation { trainingLogSet(input: TrainingLogSetInput!): ... } │  │
-│  │                                                               │  │
-│  │  Input: TrainingLogSetInput                                   │  │
-│  │  ┌──────────────┬──────────┬──────────┐                      │  │
-│  │  │ Field        │ Type     │ Required │                      │  │
-│  │  ├──────────────┼──────────┼──────────┤                      │  │
-│  │  │ sessionId    │ UUID     │ yes      │                      │  │
-│  │  │ exerciseId   │ UUID     │ yes      │                      │  │
-│  │  │ reps         │ Int      │ no       │                      │  │
-│  │  │ weight       │ Float    │ no       │                      │  │
-│  │  └──────────────┴──────────┴──────────┘                      │  │
-│  └───────────────────────────────────────────────────────────────┘  │
+│  ┌─── Layer 1: Endpoint ────────────── apps/web/src/router.tsx:142 ┐│
+│  │  Delegates to: LoginPage                                        ││
+│  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  ┌─── Layer 2: Gateway Resolver ────────────────────────────────┐  │
-│  │  mutationResolver.TrainingLogSet()                            │  │
-│  │  File: src/cmd/graphql/resolvers/training.resolvers.go:60     │  │
-│  │  Delegates to: r.Training.LogSet()                            │  │
-│  │                                                               │  │
-│  │  Input: generated.TrainingLogSetInput  (struct field table)   │  │
-│  │  Output: *generated.TrainingExerciseSet                       │  │
-│  └───────────────────────────────────────────────────────────────┘  │
+│  ┌─── Layer 2: Component ──── apps/web/src/pages/auth/LoginPage:13 ┐│
+│  │  Delegates to: useAuth                                          ││
+│  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  ┌─── Layer 3: Service ─────────────────────────────────────────┐  │
-│  │  SessionLifecycleService.LogSet()                             │  │
-│  │  File: session_lifecycle_service.go:141                        │  │
-│  │                                                               │  │
-│  │  Calls:                                                       │  │
-│  │  ├─ aggregates.NewExerciseSet()                               │  │
-│  │  ├─ setRepo.Create()                                          │  │
-│  │  └─ eventPublisher.PublishSetLogged()                         │  │
-│  └───────────────────────────────────────────────────────────────┘  │
+│  ┌─── Layer 3: Hook ────────── apps/web/src/hooks/useAuth.ts:19  ──┐│
+│  │  Delegates to: authApi.login                                    ││
+│  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  ┌─── Layer 4: Repository / SQL ────────────────────────────────┐  │
-│  │  setRepo.Create()                                             │  │
-│  │  File: exercise_set_repository.go:28                          │  │
-│  │                                                               │  │
-│  │  SQL: InsertExerciseSet                                       │  │
-│  │  File: queries/exercise_sets.sql:12                           │  │
-│  └───────────────────────────────────────────────────────────────┘  │
+│  ┌─── Layer 4: Service ── apps/web/src/services/api/auth.ts:46  ───┐│
+│  │  Delegates to: POST /api/v1/auth/login                          ││
+│  └─────────────────────────────────────────────────────────────────┘│
 │                                                                     │
-│  ┌─── Test Coverage ────────────────────────────────────────────┐  │
-│  │  Layer 1 (GraphQL):     ✘ NO TEST                             │  │
-│  │  Layer 2 (Resolver):    ✘ NO TEST                             │  │
-│  │  Layer 3 (Service):     ✓ event_publisher_test.go             │  │
-│  │  Layer 4 (Repository):  ✓ exercise_set_test.go                │  │
-│  │                                                               │  │
-│  │  Coverage: 2/4 layers │ Missing: resolver, GraphQL schema     │  │
-│  └───────────────────────────────────────────────────────────────┘  │
+│  ┌─── Layer 5: Endpoint ── src/.../handlers/auth_handler.go:576  ──┐│
+│  │  Delegates to: AuthHandler.Login                                ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                     │
+│  ┌─── Layer 6: Handler ─── src/.../handlers/auth_handler.go:249  ──┐│
+│  │  func (*AuthHandler) Login(w http.ResponseWriter, r *Request)   ││
+│  │  Delegates to: authService.Login                                ││
+│  │  → Login handles POST /api/v1/auth/login                        ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                     │
+│  ┌─── Layer 7: Service ── src/.../services/auth_service.go:172  ───┐│
+│  │  func (*authService) Login(ctx context.Context, email string,   ││
+│  │       password string) (*AuthResponse, error)                   ││
+│  │  Delegates to: Argon2Hasher.Verify                              ││
+│  │  → Login authenticates a user and returns tokens.               ││
+│  │                                                                 ││
+│  │  Also calls:                                                    ││
+│  │  ├─ JWTGenerator.GenerateTokenPair                              ││
+│  │  ├─ JWTGenerator.GetRefreshTokenExpiry                          ││
+│  │  ├─ NoOpLogger.Warn                                             ││
+│  │  ├─ authRepository.StoreRefreshToken                            ││
+│  │  ├─ repositories.HashToken                                      ││
+│  │  └─ sql:GetUserByEmail                                          ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                     │
+│  ┌─── Layer 8: Service ── src/.../auth/password.go:68  ────────────┐│
+│  │  func (*Argon2Hasher) Verify(password string,                   ││
+│  │       encodedHash string) (bool, error)                         ││
+│  │  → Verify checks if a password matches a hash                   ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                     │
+│  ┌─── Test Coverage ───────────────────────────────────────────────┐│
+│  │  ✓ auth_service_test.go (Service)                               ││
+│  │  ✓ contracts_test.go (Service)                                  ││
+│  │  ✓ auth_repository_test.go (Service)                            ││
+│  │  ✓ jwt_generator_bench_test.go (Service)                        ││
+│  │  ✓ useAuth.test.ts (Hook)                                      ││
+│  │  ✓ auth.spec.ts (Service)                                      ││
+│  │  ✓ login-valid.yaml (unknown)                                   ││
+│  │  ... 32 test files total                                        ││
+│  └─────────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+*Real output from nutrition-project-v2 — `testreg contract auth.login` with type_checking off (default).*
+
 **Visual design details:**
-- Each layer card has a colored left border gradient indicating its kind:
-  - Blue (#58a6ff) for handler/resolver layers
-  - Green (#3fb950) for service layers
+- Each layer card has a colored left border indicating its kind:
+  - Cyan (#58a6ff) for endpoint/handler/component layers
+  - Green (#3fb950) for service/hook layers
   - Yellow (#d29922) for repository layers
   - Purple (#bc8cff) for SQL/query layers
-- Struct field tables appear inside layer cards when `type_checking: true` is enabled in the project config. The `TypeExtractor` (backed by go/types) resolves exact field names, types, and tags across packages.
+- Layers show function signatures (when available) and delegation chains. No struct field tables — `type_checking` is out of scope.
 - Format toggle buttons (Terminal / JSON / MD) switch between a styled terminal view, raw JSON output, and rendered markdown. The markdown view includes a "Copy as markdown" button for pasting contract summaries into PR descriptions.
 - The feature selector dropdown is populated from the registry. Selecting a feature triggers `hx-get="/contract/{id}"` to fetch the layered card layout.
 

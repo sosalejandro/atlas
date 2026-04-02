@@ -568,104 +568,117 @@ The progress bar inside step 3 is the same accent blue (#58a6ff).
 ```
 Design a full-page "Contract View" for a developer dashboard called "testreg."
 
-This page shows the full API contract for a feature, rendered as stacked layer cards from entry point down to SQL. It answers: "What does this feature touch, end to end?"
+This page shows the full API contract for a feature, rendered as stacked layer cards 
+from frontend entry point down to SQL. It answers: "What does this feature touch, 
+end to end?" Shows function signatures and delegation chains at each layer.
 
 Dark mode. Background: #0d1117. Cards: #161b22. Text: #e6edf3 primary, #8b949e secondary.
-Font: Inter for UI, JetBrains Mono for code and field tables. Accent: #58a6ff.
+Font: Inter for UI, JetBrains Mono for code. Accent: #58a6ff.
 
 CONTROLS BAR (top, inside a subtle card):
-  Feature selector dropdown: [training.record-exercise ▼]
+  Feature selector dropdown: [auth.login ▼]
     Populated from registry. Selecting a feature loads the contract.
   Format toggle: radio pills [Terminal] [JSON] [Markdown]
   Action button: [Copy as markdown] — copies contract to clipboard for PR descriptions
 
 ENTRY POINT BANNER (below controls):
-  "Entry: GRAPHQL Mutation.trainingLogSet" in monospace
-  Small info chip: "4 layers | type_checking: on ⚠ experimental"
+  "Entry: POST /api/v1/auth/login" in monospace
+  Small info chip: "8 layers"
 
 LAYER CARDS (stacked vertically, the core of the page):
   Each layer is a card (#161b22 background, 1px #30363d border, 8px radius, 16px padding).
   Each card has a 4px left border colored by layer kind:
-    Blue (#58a6ff) — handler/resolver
-    Green (#3fb950) — service
-    Yellow (#d29922) — repository
-    Purple (#bc8cff) — query/SQL
+    Cyan (#58a6ff) — endpoint/handler
+    Green (#3fb950) — service/hook
+    Cyan (#58a6ff) — component
 
   CARD HEADER: uppercase label + file:line reference right-aligned in muted text
-    "LAYER 1: GRAPHQL API" with "schema.graphqls:142" right
 
-  Inside each card: Input/Output tabs. Active tab has bottom border 2px accent.
-
-  LAYER 1 — GraphQL API (blue left border):
-    Header: "LAYER 1: GRAPHQL API" | "schema.graphqls:142"
+  LAYER 1 — Endpoint (cyan left border):
+    Header: "LAYER 1: ENDPOINT" | "apps/web/src/router.tsx:142"
     Content:
-      Code block (monospace, 12px):
-        mutation { trainingLogSet(input: TrainingLogSetInput!): TrainingExerciseSet! }
-      
-      Struct field table (when type_checking enabled):
-        "Input: TrainingLogSetInput"
-        Table with columns: Field | Type | Required
-          sessionId    UUID     yes
-          exerciseId   UUID     yes
-          reps         Int      no
-          weight       Float    no
-        
-        Table styling: 40px row height, alternating bg (#161b22 / #1c2128), 
-        monospace text, header row in #8b949e uppercase 11px
+      "Delegates to: LoginPage" in monospace
 
-  LAYER 2 — Gateway Resolver (blue left border):
-    Header: "LAYER 2: GATEWAY RESOLVER" | "training.resolvers.go:60"
+  LAYER 2 — Component (cyan left border):
+    Header: "LAYER 2: COMPONENT" | "apps/web/src/pages/auth/LoginPage.tsx:13"
     Content:
-      Function: "mutationResolver.TrainingLogSet()" in monospace
-      Delegates to: "r.Training.LogSet()" — accent blue link
-      
-      Input struct table: generated.TrainingLogSetInput
-        Same table format as Layer 1, showing Go struct fields
-      Output: "*generated.TrainingExerciseSet" in monospace
+      "Delegates to: useAuth" in monospace
 
-  LAYER 3 — Service (green left border):
-    Header: "LAYER 3: SERVICE" | "session_lifecycle_service.go:141"
+  LAYER 3 — Hook (green left border):
+    Header: "LAYER 3: HOOK" | "apps/web/src/hooks/useAuth.ts:19"
     Content:
-      Function: "SessionLifecycleService.LogSet()"
+      "Delegates to: authApi.login" in monospace
+
+  LAYER 4 — Service (green left border):
+    Header: "LAYER 4: SERVICE" | "apps/web/src/services/api/auth.ts:46"
+    Content:
+      "Delegates to: POST /api/v1/auth/login" in monospace
+
+  LAYER 5 — Endpoint (cyan left border):
+    Header: "LAYER 5: ENDPOINT" | "src/infrastructure/http/handlers/auth_handler.go:576"
+    Content:
+      "Delegates to: AuthHandler.Login" in monospace
+
+  LAYER 6 — Handler (cyan left border):
+    Header: "LAYER 6: HANDLER" | "src/infrastructure/http/handlers/auth_handler.go:249"
+    Content:
+      Function signature in monospace code block:
+        func (*AuthHandler) Login(w http.ResponseWriter, r *http.Request)
+      "Delegates to: authService.Login" in monospace
+      Note: "Login handles POST /api/v1/auth/login" in muted text
+
+  LAYER 7 — Service (green left border):
+    Header: "LAYER 7: SERVICE" | "src/application/services/auth_service.go:172"
+    Content:
+      Function signature in monospace code block:
+        func (*authService) Login(ctx context.Context, email string, password string) (*AuthResponse, error)
+      "Delegates to: Argon2Hasher.Verify" in monospace
+      Note: "Login authenticates a user and returns tokens." in muted text
       
-      Calls (indented tree):
-        ├─ aggregates.NewExerciseSet()
-        ├─ setRepo.Create()
-        └─ eventPublisher.PublishSetLogged()
+      Also calls (indented tree):
+        ├─ JWTGenerator.GenerateTokenPair
+        ├─ JWTGenerator.GetRefreshTokenExpiry
+        ├─ NoOpLogger.Warn
+        ├─ authRepository.StoreRefreshToken
+        ├─ repositories.HashToken
+        └─ sql:GetUserByEmail
       
       Each call is a monospace line. Calls that link to other layers 
       are rendered as accent blue links.
 
-  LAYER 4 — Repository / SQL (yellow left border, then purple):
-    Header: "LAYER 4: REPOSITORY" | "exercise_set_repository.go:28"
+  LAYER 8 — Service (green left border):
+    Header: "LAYER 8: SERVICE" | "src/infrastructure/auth/password.go:68"
     Content:
-      Function: "setRepo.Create()"
-      SQL: "InsertExerciseSet" — purple text (#bc8cff)
-      SQL file: "queries/exercise_sets.sql:12" in muted text
+      Function signature in monospace code block:
+        func (*Argon2Hasher) Verify(password string, encodedHash string) (bool, error)
+      Note: "Verify checks if a password matches a hash" in muted text
 
 TEST COVERAGE SECTION (bottom, full-width card):
   Header: "TEST COVERAGE" uppercase
   Per-layer status list:
-    Layer 1 (GraphQL):     ✘ NO TEST          — red text (#f85149)
-    Layer 2 (Resolver):    ✘ NO TEST          — red text
-    Layer 3 (Service):     ✓ event_publisher_test.go    — green text (#3fb950)
-    Layer 4 (Repository):  ✓ exercise_set_test.go       — green text
+    ✓ src/application/services/auth_service_test.go (Service)    — green text (#3fb950)
+    ✓ src/application/services/contracts_test.go (Service)       — green text
+    ✓ src/domain/repositories/auth_repository_test.go (Service)  — green text
+    ✓ src/infrastructure/auth/jwt_generator_bench_test.go (Service) — green text
+    ✓ apps/web/tests/hooks/useAuth.test.ts (Hook)               — green text
+    ✓ apps/web/e2e/auth.spec.ts (Service)                       — green text
+    ✓ apps/mobile/e2e/flows/auth/login-valid.yaml (unknown)     — green text
+    ... and 25 more test files
   
-  Summary bar: "2/4 layers tested" with a 4-segment progress bar 
-  (2 green, 2 red segments)
-  
-  Missing coverage note in muted text: "Missing: resolver layer, GraphQL schema tests"
+  Summary: "32 test files covering this chain"
 
 RESPONSIVE:
   Desktop: single column of layer cards, max-width 900px centered
   Tablet: same layout, slightly reduced padding
-  Mobile: full width, struct field tables scroll horizontally
+  Mobile: full width
 
-Show the page with all 4 layers expanded, the training.record-exercise feature selected,
-type_checking enabled (so struct field tables are visible), Terminal format active.
-Note: type_checking is experimental and buggy. Show a small warning banner when enabled:
-"⚠ type_checking is experimental — struct field tables may be incomplete"
-The page should feel like reading an API specification — clean, precise, layered.
+Show the page with all 8 layers expanded, the auth.login feature selected,
+Terminal format active. The page should feel like reading an API specification — 
+clean, precise, layered. No struct field tables — just function signatures 
+and delegation chains.
+
+This is REAL output from a production monorepo (nutrition-project-v2: 184 features, 
+1103 test files). Use these exact layer names, file paths, and function signatures.
 ```
 
 ---
