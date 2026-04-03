@@ -1,0 +1,254 @@
+{{define "graph-content"}}
+<div class="p-6 max-w-6xl mx-auto space-y-6">
+
+    <!-- Header + Feature Selector -->
+    <div class="flex flex-col md:flex-row md:items-end gap-4">
+        <div class="flex-1">
+            <h1 class="text-2xl font-bold tracking-tight text-on-surface">Dependency Graph</h1>
+            <p class="text-on-surface-variant text-sm mt-1">Call-graph trace from feature entry points through all layers.</p>
+        </div>
+        <form hx-get="/graph"
+              hx-target="#page-content"
+              hx-swap="innerHTML"
+              hx-push-url="true"
+              class="flex gap-3 items-end">
+            <div class="space-y-1">
+                <label class="text-[10px] font-bold text-outline uppercase tracking-widest">Feature</label>
+                <div class="relative">
+                    <select name="feature"
+                        onchange="this.form.requestSubmit()"
+                        class="w-64 bg-surface-container-lowest border-none text-on-surface font-mono text-sm py-2.5 px-4 rounded focus:ring-1 focus:ring-primary/40 appearance-none">
+                        {{range .AllFeatures}}
+                        <option value="{{.}}" {{if and $.Graph (eq . $.Graph.FeatureID)}}selected{{end}}>{{.}}</option>
+                        {{end}}
+                    </select>
+                    <span class="material-symbols-outlined absolute right-3 top-2.5 text-outline pointer-events-none text-sm">expand_more</span>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {{if .Graph}}
+    {{$g := .Graph}}
+
+    <!-- Stats bar -->
+    <div class="flex flex-wrap gap-6 bg-surface-container-low px-5 py-3 rounded-lg ghost-border">
+        <div>
+            <span class="text-[10px] uppercase font-bold text-outline tracking-widest block mb-0.5">Feature</span>
+            <span class="font-mono text-sm text-primary font-bold">{{$g.FeatureID}}</span>
+        </div>
+        <div class="h-8 w-px bg-outline-variant/20 self-center hidden md:block"></div>
+        <div>
+            <span class="text-[10px] uppercase font-bold text-outline tracking-widest block mb-0.5">Nodes</span>
+            <span class="font-mono text-sm text-on-surface font-bold">{{$g.TotalNodes}}</span>
+        </div>
+        <div class="h-8 w-px bg-outline-variant/20 self-center hidden md:block"></div>
+        <div>
+            <span class="text-[10px] uppercase font-bold text-outline tracking-widest block mb-0.5">Max Depth</span>
+            <span class="font-mono text-sm text-on-surface font-bold">{{$g.MaxDepth}}</span>
+        </div>
+        <div class="h-8 w-px bg-outline-variant/20 self-center hidden md:block"></div>
+        <div>
+            <span class="text-[10px] uppercase font-bold text-outline tracking-widest block mb-0.5">Confidence</span>
+            <div class="flex items-center gap-2">
+                <span class="font-mono text-sm font-black {{if ge $g.ConfidencePct 80}}text-emerald-400{{else if ge $g.ConfidencePct 50}}text-yellow-400{{else}}text-red-400{{end}}">{{$g.ConfidencePct}}%</span>
+                <div class="w-16 bg-surface-container-highest h-1.5 rounded-full overflow-hidden">
+                    <div class="{{if ge $g.ConfidencePct 80}}bg-emerald-500{{else if ge $g.ConfidencePct 50}}bg-yellow-500{{else}}bg-red-500{{end}} h-full rounded-full" style="width:{{$g.ConfidencePct}}%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- View mode toggle + export -->
+    <div class="flex items-center justify-between">
+        <div class="flex gap-2">
+            <button class="px-3 py-1 text-xs bg-primary/15 text-primary rounded font-bold">Tree</button>
+            <button class="px-3 py-1 text-xs text-slate-500 rounded cursor-not-allowed" disabled title="Coming soon">Force</button>
+            <button class="px-3 py-1 text-xs text-slate-500 rounded cursor-not-allowed" disabled title="Coming soon">Horizontal</button>
+        </div>
+        <div class="flex gap-2">
+            <a href="/api/graph?feature={{$g.FeatureID}}&format=mermaid" target="_blank"
+               class="px-3 py-1 text-xs text-on-surface-variant bg-surface-container-low rounded ghost-border hover:bg-surface-container-high transition-colors font-mono">
+                Export Mermaid
+            </a>
+        </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="flex flex-wrap gap-4 text-[11px] font-mono">
+        <span class="flex items-center gap-1.5">
+            <svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="2" fill="none" stroke="#58a6ff" stroke-width="2"/></svg>
+            <span class="text-on-surface-variant">handler / endpoint</span>
+        </span>
+        <span class="flex items-center gap-1.5">
+            <svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="2" fill="none" stroke="#67df70" stroke-width="2"/></svg>
+            <span class="text-on-surface-variant">service / hook</span>
+        </span>
+        <span class="flex items-center gap-1.5">
+            <svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="2" fill="none" stroke="#d8baff" stroke-width="2" stroke-dasharray="3,2"/></svg>
+            <span class="text-on-surface-variant">repository</span>
+        </span>
+        <span class="flex items-center gap-1.5">
+            <svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="2" fill="none" stroke="#d8baff" stroke-width="2" stroke-dasharray="3,2"/></svg>
+            <span class="text-on-surface-variant">query</span>
+        </span>
+        <span class="flex items-center gap-1.5">
+            <svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="2" fill="none" stroke="#58a6ff" stroke-width="2"/></svg>
+            <span class="text-on-surface-variant">component</span>
+        </span>
+        <span class="flex items-center gap-1.5">
+            <svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="2" fill="none" stroke="#8b919d" stroke-width="2"/></svg>
+            <span class="text-on-surface-variant">external</span>
+        </span>
+    </div>
+
+    <!-- Traces -->
+    {{if $g.Traces}}
+    <div class="space-y-6">
+        {{range $i, $trace := $g.Traces}}
+        <section class="bg-surface-container rounded-lg ghost-border overflow-hidden">
+            <div class="flex items-center gap-3 px-5 py-3 border-b border-outline-variant/10 bg-surface-container-low">
+                <span class="material-symbols-outlined text-primary text-sm">account_tree</span>
+                <span class="text-xs font-bold text-on-surface uppercase tracking-widest">Entry Point {{add $i 1}}</span>
+                <span class="ml-auto font-mono text-[10px] text-outline">{{$trace.TotalNodes}} nodes · depth {{$trace.MaxDepth}}</span>
+            </div>
+
+            {{if $trace.SVG}}
+            <!-- SVG tree visualization -->
+            <div class="p-4 overflow-x-auto bg-surface-container-lowest min-h-[200px]">
+                <svg viewBox="0 0 {{$trace.SVG.ViewWidth}} {{$trace.SVG.ViewHeight}}"
+                     class="w-full" style="min-height: 300px; max-height: 600px;"
+                     xmlns="http://www.w3.org/2000/svg">
+                    <!-- Connector edges -->
+                    {{range $trace.SVG.Edges}}
+                    <line x1="{{.X1}}" y1="{{.Y1}}" x2="{{.X2}}" y2="{{.Y2}}"
+                          stroke="#414752" stroke-width="2"/>
+                    {{end}}
+                    <!-- Nodes -->
+                    {{range $trace.SVG.Nodes}}
+                    <g class="svg-graph-node" data-kind="{{.Kind}}" data-id="{{.ID}}" data-file="{{.File}}" data-line="{{.Line}}">
+                        <rect x="{{.X}}" y="{{.Y}}" width="{{.Width}}" height="{{.Height}}"
+                              rx="4" fill="none"
+                              stroke="{{if eq .Kind "handler"}}#58a6ff{{else if eq .Kind "endpoint"}}#58a6ff{{else if eq .Kind "service"}}#67df70{{else if eq .Kind "hook"}}#67df70{{else if eq .Kind "repository"}}#d8baff{{else if eq .Kind "query"}}#d8baff{{else if eq .Kind "component"}}#58a6ff{{else}}#8b919d{{end}}"
+                              stroke-width="2"
+                              {{if or (eq .Kind "repository") (eq .Kind "query")}}stroke-dasharray="6,3"{{end}}/>
+                        <!-- Hit area for hover (transparent fill) -->
+                        <rect x="{{.X}}" y="{{.Y}}" width="{{.Width}}" height="{{.Height}}"
+                              rx="4" fill="transparent" class="pointer-events-auto"/>
+                        <text x="{{add .X (div .Width 2)}}" y="{{add .Y 22}}"
+                              text-anchor="middle" fill="#dfe2eb"
+                              font-family="JetBrains Mono, monospace" font-size="11"
+                              pointer-events="none">{{.Label}}</text>
+                        {{if .IsCycle}}
+                        <text x="{{add .X (div .Width 2)}}" y="{{add .Y (add .Height 14)}}"
+                              text-anchor="middle" fill="#f87171"
+                              font-family="JetBrains Mono, monospace" font-size="9"
+                              pointer-events="none">cycle</text>
+                        {{end}}
+                    </g>
+                    {{end}}
+                </svg>
+            </div>
+            {{end}}
+
+            <!-- Collapsible text node list -->
+            <details class="border-t border-outline-variant/10">
+                <summary class="px-5 py-2 text-[10px] font-bold uppercase tracking-widest text-outline cursor-pointer hover:text-on-surface-variant select-none">
+                    Node list
+                </summary>
+                <div class="p-4 overflow-x-auto">
+                    {{template "graph-node" $trace.Root}}
+                </div>
+            </details>
+        </section>
+        {{end}}
+    </div>
+
+    <!-- Tooltip for SVG nodes (positioned absolutely via JS) -->
+    <div id="svg-graph-tooltip"
+         class="fixed z-50 hidden bg-surface-container-highest text-on-surface rounded-lg shadow-xl ghost-border px-4 py-3 text-xs font-mono pointer-events-none max-w-xs"
+         style="backdrop-filter: blur(8px);">
+        <div class="font-bold text-sm mb-1" id="svg-tooltip-name"></div>
+        <div class="space-y-0.5 text-on-surface-variant">
+            <div><span class="text-outline">Kind:</span> <span id="svg-tooltip-kind"></span></div>
+            <div><span class="text-outline">File:</span> <span id="svg-tooltip-file"></span></div>
+        </div>
+    </div>
+    <script>
+    (function() {
+        const tooltip = document.getElementById('svg-graph-tooltip');
+        const tipName = document.getElementById('svg-tooltip-name');
+        const tipKind = document.getElementById('svg-tooltip-kind');
+        const tipFile = document.getElementById('svg-tooltip-file');
+        if (!tooltip) return;
+
+        document.querySelectorAll('.svg-graph-node').forEach(function(g) {
+            g.style.cursor = 'pointer';
+            g.addEventListener('mouseenter', function(e) {
+                const id = g.dataset.id || '';
+                const kind = g.dataset.kind || '';
+                const file = g.dataset.file || '';
+                const line = g.dataset.line || '';
+                tipName.textContent = id;
+                tipKind.textContent = kind;
+                tipFile.textContent = file + (line && line !== '0' ? ':' + line : '');
+                tooltip.classList.remove('hidden');
+            });
+            g.addEventListener('mousemove', function(e) {
+                tooltip.style.left = (e.clientX + 12) + 'px';
+                tooltip.style.top = (e.clientY + 12) + 'px';
+            });
+            g.addEventListener('mouseleave', function() {
+                tooltip.classList.add('hidden');
+            });
+        });
+    })();
+    </script>
+    {{else}}
+    <div class="flex flex-col items-center justify-center py-24 text-center bg-grid-texture rounded-lg">
+        <span class="material-symbols-outlined text-5xl text-slate-700 mb-4">device_hub</span>
+        <h3 class="text-slate-400 font-semibold mb-2">No trace data</h3>
+        <p class="text-slate-600 text-sm max-w-sm">No entry points found for <code class="font-mono text-primary">{{$g.FeatureID}}</code>. Make sure the feature has <code class="font-mono">api_surfaces</code> defined in the registry.</p>
+    </div>
+    {{end}}
+
+    {{else}}
+    <div class="flex flex-col items-center justify-center py-24 text-center bg-grid-texture rounded-lg">
+        <span class="material-symbols-outlined text-5xl text-slate-700 mb-4">account_tree</span>
+        <h3 class="text-slate-400 font-semibold mb-2">Select a feature</h3>
+        <p class="text-slate-600 text-sm">Choose a feature above to visualize its dependency graph.</p>
+    </div>
+    {{end}}
+
+</div>
+{{end}}
+
+{{define "graph-node"}}
+{{if .}}
+<div class="flex flex-col" style="padding-left: {{mul (float64 .Depth) 24.0}}px">
+    <!-- Node card -->
+    <div class="flex items-start gap-3 mb-1">
+        {{if gt .Depth 0}}
+        <div class="flex flex-col items-center mr-1 mt-1" style="min-width:12px">
+            <div class="w-px flex-1 bg-outline-variant/30 mb-1"></div>
+            <div class="w-2 h-px bg-outline-variant/50"></div>
+        </div>
+        {{end}}
+        <div class="flex-1 bg-surface-container-low border-l-2 {{.KindBorder}} rounded px-3 py-2 min-w-0 {{if .IsCycle}}opacity-50{{end}}">
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-mono text-xs font-bold text-on-surface truncate">{{.Name}}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded font-bold {{.KindBadge}} shrink-0">{{.Kind}}</span>
+                {{if .IsCycle}}<span class="text-[10px] px-1.5 py-0.5 rounded font-bold bg-red-500/10 text-red-400 shrink-0">cycle</span>{{end}}
+            </div>
+            {{if .File}}
+            <p class="font-mono text-[10px] text-outline mt-0.5 truncate" title="{{.File}}">{{.File}}{{if .Line}}:{{.Line}}{{end}}</p>
+            {{end}}
+        </div>
+    </div>
+    <!-- Children -->
+    {{range .Children}}
+    {{template "graph-node" .}}
+    {{end}}
+</div>
+{{end}}
+{{end}}

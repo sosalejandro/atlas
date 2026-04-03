@@ -1,68 +1,268 @@
 {{define "diff-content"}}
 <div class="p-6 max-w-5xl mx-auto space-y-6">
 
-    <div class="mb-6">
-        <h1 class="text-2xl font-bold tracking-tight text-on-surface">Progress Tracking</h1>
-        <p class="text-on-surface-variant text-sm mt-1">Coverage changes between registry snapshots.</p>
+    <div class="flex flex-col md:flex-row md:items-end gap-4 mb-2">
+        <div class="flex-1">
+            <h1 class="text-2xl font-bold tracking-tight text-on-surface">Progress Tracking</h1>
+            <p class="text-on-surface-variant text-sm mt-1">Compare coverage health between registry snapshots.</p>
+        </div>
+        <!-- Save snapshot form -->
+        <form hx-post="/api/diff/snapshot"
+              hx-target="#page-content"
+              hx-swap="innerHTML"
+              class="flex gap-2 items-end shrink-0">
+            <div class="space-y-1">
+                <label class="text-[10px] font-bold text-outline uppercase tracking-widest">Snapshot name</label>
+                <input type="text" name="name"
+                    placeholder="e.g. sprint-3-start"
+                    class="bg-surface-container-lowest border-none text-on-surface font-mono text-xs py-2 px-3 rounded focus:ring-1 focus:ring-primary/40 w-44"/>
+            </div>
+            <button type="submit"
+                class="flex items-center gap-1.5 px-4 py-2 bg-surface-container-high text-on-surface text-xs font-bold rounded hover:bg-surface-container-highest transition-colors whitespace-nowrap">
+                <span class="material-symbols-outlined text-sm">bookmark_add</span>
+                Save Snapshot
+            </button>
+        </form>
     </div>
 
-    {{if .Diff}}
-    <!-- Summary Banner -->
-    <div class="bg-surface-container-low p-4 rounded-lg border border-outline-variant/10 flex flex-wrap items-center gap-6">
-        <div class="flex flex-col">
-            <span class="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Features Changed</span>
-            <span class="font-mono text-xl font-black text-on-surface">{{.Diff.Changed}}</span>
+    {{$diff := .Diff}}
+
+    {{if $diff}}
+
+    <!-- Two-column layout: snapshots left, compare right -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- Snapshots Table -->
+        <div class="lg:col-span-2 space-y-4">
+            <section class="bg-surface-container rounded-lg border border-outline-variant/10 overflow-hidden shadow-sm">
+                <div class="px-4 py-3 border-b border-outline-variant/10 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary text-sm">history</span>
+                    <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">Saved Snapshots</h2>
+                </div>
+                {{if $diff.Snapshots}}
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead>
+                            <tr class="bg-surface-container-low border-b border-outline-variant/10">
+                                <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Name</th>
+                                <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Date</th>
+                                <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Features</th>
+                                <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Avg Health</th>
+                                <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter"></th>
+                            </tr>
+                        </thead>
+                        <tbody class="font-mono divide-y divide-outline-variant/5">
+                            {{range $diff.Snapshots}}
+                            <tr class="hover:bg-slate-800/30 transition-colors {{if and $.Diff (eq .Name $.Diff.FromLabel)}}bg-primary/5{{end}}">
+                                <td class="px-4 py-3 text-slate-100 font-semibold">{{.Name}}</td>
+                                <td class="px-4 py-3 text-slate-400">{{.Date}}</td>
+                                <td class="px-4 py-3 text-slate-400 text-right">{{.Features}}</td>
+                                <td class="px-4 py-3 text-right font-bold {{if ge .HealthPct 70}}text-emerald-400{{else if ge .HealthPct 30}}text-yellow-400{{else}}text-red-400{{end}}">{{.HealthPct}}%</td>
+                                <td class="px-4 py-3">
+                                    <a class="text-[10px] text-primary font-bold hover:underline cursor-pointer"
+                                       hx-get="/api/diff/compare?from={{.Name}}&to=current"
+                                       hx-target="#diff-result-area"
+                                       hx-swap="innerHTML">vs current</a>
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{else}}
+                <div class="flex flex-col items-center justify-center py-16 text-center px-6">
+                    <span class="material-symbols-outlined text-5xl text-slate-700 mb-4">bookmark</span>
+                    <h3 class="text-slate-400 font-semibold mb-2">No snapshots yet</h3>
+                    <p class="text-slate-600 text-sm max-w-xs">Save a snapshot above to start tracking progress across sprints. Each snapshot captures current feature health scores.</p>
+                </div>
+                {{end}}
+            </section>
+
+            <!-- Diff Results -->
+            <div id="diff-result-area">
+                {{if $diff.Result}}
+                {{template "diff-result" $diff.Result}}
+                {{end}}
+            </div>
         </div>
-        <div class="flex flex-col">
-            <span class="text-[10px] uppercase font-bold text-emerald-500 tracking-widest">Improved</span>
-            <span class="font-mono text-xl font-black text-emerald-400">+{{.Diff.Improved}}</span>
+
+        <!-- Right sidebar: metric summary -->
+        <div class="space-y-4">
+            {{if $diff.Result}}
+            <div class="bg-surface-container-low rounded-lg p-5 border border-outline-variant/10 space-y-4">
+                <div class="text-center">
+                    <span class="text-[10px] uppercase font-bold text-outline tracking-widest block mb-1">{{$diff.FromLabel}} → current</span>
+                    <div class="font-mono text-3xl font-black {{if $diff.Result.Improved}}text-emerald-400{{else}}text-slate-400{{end}}">
+                        {{$diff.Result.AvgDelta}}
+                    </div>
+                    <p class="text-[10px] text-outline mt-1">avg health delta</p>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center">
+                    <div class="bg-emerald-500/10 rounded p-2">
+                        <span class="font-mono text-lg font-black text-emerald-400">{{$diff.Result.Improved}}</span>
+                        <p class="text-[9px] text-emerald-500 uppercase font-bold mt-0.5">improved</p>
+                    </div>
+                    <div class="bg-red-500/10 rounded p-2">
+                        <span class="font-mono text-lg font-black text-red-400">{{$diff.Result.Regressed}}</span>
+                        <p class="text-[9px] text-red-500 uppercase font-bold mt-0.5">regressed</p>
+                    </div>
+                    <div class="bg-primary/10 rounded p-2">
+                        <span class="font-mono text-lg font-black text-primary">{{$diff.Result.Added}}</span>
+                        <p class="text-[9px] text-primary uppercase font-bold mt-0.5">new</p>
+                    </div>
+                </div>
+                <div class="text-center text-[10px] text-slate-500 font-mono pt-1 border-t border-outline-variant/10">
+                    {{$diff.Result.Unchanged}} features unchanged
+                </div>
+            </div>
+            {{else}}
+            <div class="bg-surface-container-low rounded-lg p-5 border border-outline-variant/10 text-center">
+                <span class="material-symbols-outlined text-3xl text-slate-700 mb-2 block">compare_arrows</span>
+                <p class="text-slate-500 text-xs">Click "vs current" next to a snapshot to compare</p>
+            </div>
+            {{end}}
         </div>
-        <div class="flex flex-col">
-            <span class="text-[10px] uppercase font-bold text-red-500 tracking-widest">Regressed</span>
-            <span class="font-mono text-xl font-black text-red-400">-{{.Diff.Regressed}}</span>
-        </div>
-        <div class="flex flex-col">
-            <span class="text-[10px] uppercase font-bold text-slate-500 tracking-widest">New Features</span>
-            <span class="font-mono text-xl font-black text-primary">{{.Diff.Added}}</span>
-        </div>
+
     </div>
 
-    <!-- Changes Table -->
+    {{else}}
+    <div class="flex flex-col items-center justify-center py-24 text-center">
+        <span class="material-symbols-outlined text-5xl text-slate-700 mb-4">difference</span>
+        <h3 class="text-slate-400 font-semibold mb-2">No diff data available</h3>
+        <p class="text-slate-600 text-sm max-w-sm">Save a snapshot above, then compare it against a future state to track progress.</p>
+    </div>
+    {{end}}
+
+</div>
+{{end}}
+
+{{define "diff-result"}}
+{{if .Rows}}
+<div class="space-y-6">
+
+    <!-- Executive Summary -->
     <section class="bg-surface-container rounded-lg border border-outline-variant/10 overflow-hidden shadow-sm">
+        <div class="px-4 py-3 border-b border-outline-variant/10 flex items-center gap-3">
+            <span class="material-symbols-outlined text-primary text-sm">analytics</span>
+            <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">Executive Summary</h2>
+        </div>
+        <div class="p-5">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                <div class="bg-emerald-500/10 rounded-lg p-3">
+                    <span class="font-mono text-xl font-black text-emerald-400">{{.Improved}}</span>
+                    <p class="text-[10px] text-emerald-500 uppercase font-bold mt-1">improved</p>
+                </div>
+                <div class="bg-red-500/10 rounded-lg p-3">
+                    <span class="font-mono text-xl font-black text-red-400">{{.Regressed}}</span>
+                    <p class="text-[10px] text-red-500 uppercase font-bold mt-1">regressed</p>
+                </div>
+                <div class="bg-primary/10 rounded-lg p-3">
+                    <span class="font-mono text-xl font-black text-primary">{{.Added}}</span>
+                    <p class="text-[10px] text-primary uppercase font-bold mt-1">new</p>
+                </div>
+                <div class="bg-slate-700/30 rounded-lg p-3">
+                    <span class="font-mono text-xl font-black text-slate-300">{{.AvgDelta}}</span>
+                    <p class="text-[10px] text-slate-500 uppercase font-bold mt-1">avg change</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Improved Section -->
+    {{if gt .Improved 0}}
+    <section class="bg-surface-container rounded-lg border border-outline-variant/10 overflow-hidden shadow-sm">
+        <div class="px-4 py-3 border-b border-outline-variant/10 flex items-center gap-3">
+            <span class="material-symbols-outlined text-emerald-400 text-sm">trending_up</span>
+            <h2 class="text-xs font-bold uppercase tracking-widest text-emerald-400">Improved</h2>
+            <span class="ml-auto font-mono text-[10px] text-slate-500">{{.Improved}} features</span>
+        </div>
+        <div class="p-4 flex flex-wrap gap-2">
+            {{range .Rows}}{{if eq .Change "improved"}}
+            <div class="flex items-center gap-2 bg-emerald-500/10 rounded-md px-3 py-2">
+                <span class="text-xs font-mono font-bold text-emerald-400">{{.Delta}}</span>
+                <span class="text-xs text-slate-200">{{.ID}}</span>
+                <span class="text-[10px] font-mono text-slate-500">{{.Before}} → {{.After}}</span>
+            </div>
+            {{end}}{{end}}
+        </div>
+    </section>
+    {{end}}
+
+    <!-- Regressed Section -->
+    {{if gt .Regressed 0}}
+    <section class="bg-surface-container rounded-lg border border-outline-variant/10 overflow-hidden shadow-sm">
+        <div class="px-4 py-3 border-b border-outline-variant/10 flex items-center gap-3">
+            <span class="material-symbols-outlined text-red-400 text-sm">trending_down</span>
+            <h2 class="text-xs font-bold uppercase tracking-widest text-red-400">Regressed</h2>
+            <span class="ml-auto font-mono text-[10px] text-slate-500">{{.Regressed}} features</span>
+        </div>
+        <div class="p-4 flex flex-wrap gap-2">
+            {{range .Rows}}{{if eq .Change "regressed"}}
+            <div class="flex items-center gap-2 bg-red-500/10 rounded-md px-3 py-2">
+                <span class="text-xs font-mono font-bold text-red-400">{{.Delta}}</span>
+                <span class="text-xs text-slate-200">{{.ID}}</span>
+                <span class="text-[10px] font-mono text-slate-500">{{.Before}} → {{.After}}</span>
+            </div>
+            {{end}}{{end}}
+        </div>
+    </section>
+    {{end}}
+
+    <!-- New Features Section -->
+    {{if gt .Added 0}}
+    <section class="bg-surface-container rounded-lg border border-outline-variant/10 overflow-hidden shadow-sm">
+        <div class="px-4 py-3 border-b border-outline-variant/10 flex items-center gap-3">
+            <span class="material-symbols-outlined text-primary text-sm">add_circle</span>
+            <h2 class="text-xs font-bold uppercase tracking-widest text-primary">New Features</h2>
+            <span class="ml-auto font-mono text-[10px] text-slate-500">{{.Added}} features</span>
+        </div>
+        <div class="p-4 flex flex-wrap gap-2">
+            {{range .Rows}}{{if eq .Change "new"}}
+            <div class="flex items-center gap-2 bg-primary/10 rounded-md px-3 py-2">
+                <span class="text-xs font-mono font-bold text-primary">new</span>
+                <span class="text-xs text-slate-200">{{.ID}}</span>
+                <span class="text-[10px] font-mono text-slate-500">→ {{.After}}</span>
+            </div>
+            {{end}}{{end}}
+        </div>
+    </section>
+    {{end}}
+
+    <!-- Full Comparison Table -->
+    <section class="bg-surface-container rounded-lg border border-outline-variant/10 overflow-hidden shadow-sm">
+        <div class="px-4 py-3 border-b border-outline-variant/10 flex items-center gap-3">
+            <span class="material-symbols-outlined text-primary text-sm">compare_arrows</span>
+            <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">All Changes</h2>
+            <span class="ml-auto font-mono text-[10px] text-slate-500">{{.Changed}} changed</span>
+        </div>
         <div class="overflow-x-auto">
             <table class="w-full text-left text-xs border-collapse">
                 <thead>
                     <tr class="bg-surface-container-low border-b border-outline-variant/10">
                         <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Feature</th>
                         <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Change</th>
-                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Before</th>
-                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">After</th>
-                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Delta</th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Before</th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">After</th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Delta</th>
                     </tr>
                 </thead>
                 <tbody class="font-mono divide-y divide-outline-variant/5">
-                    {{range .Diff.Rows}}
+                    {{range .Rows}}
                     <tr class="hover:bg-slate-800/30 transition-colors">
                         <td class="px-4 py-3 text-slate-100">{{.ID}}</td>
                         <td class="px-4 py-3">
                             <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase {{.ChangeClass}}">{{.Change}}</span>
                         </td>
-                        <td class="px-4 py-3 text-slate-400">{{.Before}}</td>
-                        <td class="px-4 py-3 text-slate-300">{{.After}}</td>
-                        <td class="px-4 py-3 {{.DeltaClass}} font-bold">{{.Delta}}</td>
+                        <td class="px-4 py-3 text-slate-400 text-right">{{.Before}}</td>
+                        <td class="px-4 py-3 text-slate-300 text-right">{{.After}}</td>
+                        <td class="px-4 py-3 {{.DeltaClass}} font-bold text-right">{{.Delta}}</td>
                     </tr>
                     {{end}}
                 </tbody>
             </table>
         </div>
     </section>
-    {{else}}
-    <div class="flex flex-col items-center justify-center py-24 text-center">
-        <span class="material-symbols-outlined text-5xl text-slate-700 mb-4">difference</span>
-        <h3 class="text-slate-400 font-semibold mb-2">No diff data available</h3>
-        <p class="text-slate-600 text-sm max-w-sm">Run <code class="font-mono text-primary">testreg diff</code> to generate a comparison between registry states.</p>
-    </div>
-    {{end}}
 
 </div>
+{{end}}
 {{end}}

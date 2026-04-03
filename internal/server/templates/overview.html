@@ -59,34 +59,39 @@
             </div>
         </section>
 
-        <!-- Domain Summary -->
-        <section class="bg-surface-container rounded-lg border border-outline-variant/10 overflow-hidden shadow-sm">
-            <div class="px-4 py-3 border-b border-outline-variant/10">
-                <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">By Domain</h2>
+        <!-- Performance Score -->
+        <section class="bg-surface-container rounded-lg overflow-hidden shadow-sm">
+            <div class="px-4 py-3">
+                <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">Performance Score</h2>
             </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left font-sans text-xs border-collapse">
-                    <thead>
-                        <tr class="bg-surface-container-low border-b border-outline-variant/10">
-                            <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Domain</th>
-                            <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Features</th>
-                            <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Unit</th>
-                            <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Integ</th>
-                            <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">E2E</th>
-                        </tr>
-                    </thead>
-                    <tbody class="font-mono divide-y divide-outline-variant/5">
-                        {{range .Status.DomainData}}
-                        <tr class="hover:bg-slate-800/30 transition-colors">
-                            <td class="px-4 py-2 text-slate-100">{{.Domain}}</td>
-                            <td class="px-4 py-2 text-slate-400 text-right">{{.Total}}</td>
-                            <td class="px-4 py-2 text-right {{if gt .UnitCovered 0}}text-emerald-400{{else}}text-red-400{{end}}">{{.UnitCovered}}</td>
-                            <td class="px-4 py-2 text-right {{if gt .IntegrationCovered 0}}text-emerald-400{{else}}text-slate-500{{end}}">{{.IntegrationCovered}}</td>
-                            <td class="px-4 py-2 text-right {{if gt .E2ECovered 0}}text-emerald-400{{else}}text-slate-500{{end}}">{{.E2ECovered}}</td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
+            <div class="p-5 space-y-5">
+                <div class="space-y-1.5">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-medium text-slate-300">Benchmarks</span>
+                        <span class="text-xs font-mono text-red-500">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-2 rounded-sm overflow-hidden">
+                        <div class="bg-red-500 h-full" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="space-y-1.5">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-medium text-slate-300">Race tests</span>
+                        <span class="text-xs font-mono text-red-500">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-2 rounded-sm overflow-hidden">
+                        <div class="bg-red-500 h-full" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="space-y-1.5">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-medium text-slate-300">Overall</span>
+                        <span class="text-xs font-mono text-red-500">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-2 rounded-sm overflow-hidden">
+                        <div class="bg-red-500 h-full" style="width: 0%"></div>
+                    </div>
+                </div>
             </div>
         </section>
     </div>
@@ -142,6 +147,37 @@
                 hx-target="#page-content"
                 hx-swap="innerHTML"
                 hx-push-url="/sprint">→ View all sprint priorities</a>
+        </div>
+    </section>
+
+    <!-- Row 4: By Domain -->
+    <section class="bg-surface-container rounded-lg border border-outline-variant/10 overflow-hidden shadow-sm">
+        <div class="px-4 py-3 border-b border-outline-variant/10">
+            <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">By Domain</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left font-sans text-xs border-collapse">
+                <thead>
+                    <tr class="bg-surface-container-low border-b border-outline-variant/10">
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Domain</th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Features</th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Unit</th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Integ</th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">E2E</th>
+                    </tr>
+                </thead>
+                <tbody class="font-mono divide-y divide-outline-variant/5">
+                    {{range .Status.DomainData}}
+                    <tr class="hover:bg-slate-800/30 transition-colors">
+                        <td class="px-4 py-2 text-slate-100">{{.Domain}}</td>
+                        <td class="px-4 py-2 text-slate-400 text-right">{{.Total}}</td>
+                        <td class="px-4 py-2 text-right {{if gt .UnitCovered 0}}text-emerald-400{{else}}text-red-400{{end}}">{{.UnitCovered}}</td>
+                        <td class="px-4 py-2 text-right {{if gt .IntegrationCovered 0}}text-emerald-400{{else}}text-slate-500{{end}}">{{.IntegrationCovered}}</td>
+                        <td class="px-4 py-2 text-right {{if gt .E2ECovered 0}}text-emerald-400{{else}}text-slate-500{{end}}">{{.E2ECovered}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
         </div>
     </section>
 

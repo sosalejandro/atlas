@@ -2,7 +2,7 @@
 <div class="p-6 max-w-5xl mx-auto space-y-6">
 
     <!-- Input Card -->
-    <section class="bg-surface-container-low p-6 rounded-lg shadow-sm border border-outline-variant/10">
+    <section class="bg-surface-container-low p-6 rounded-lg shadow-sm ghost-border">
         <form hx-post="/pages/diagnose"
             hx-target="#diagnose-results"
             hx-swap="innerHTML"
@@ -101,7 +101,7 @@
                     <div class="bg-primary h-full rounded-full" style="width: {{printf "%.0f" (mul .Rule.Confidence 100)}}%"></div>
                 </div>
                 <p class="text-base leading-relaxed text-on-surface mb-6">{{.Rule.Description}}</p>
-                <div class="flex items-center gap-4 py-3 px-4 bg-surface-container-lowest rounded border border-outline-variant/20">
+                <div class="flex items-center gap-4 py-3 px-4 bg-surface-container-lowest rounded ghost-border">
                     <span class="text-[10px] font-bold text-outline uppercase tracking-widest">Check Order</span>
                     <div class="flex items-center gap-2 flex-wrap">
                         {{range $i, $step := .Rule.CheckOrder}}
@@ -133,7 +133,7 @@
     </div>
 
     <!-- Files to Check -->
-    <div class="bg-surface-container-low p-6 rounded-lg shadow-sm border border-outline-variant/10">
+    <div class="bg-surface-container-low p-6 rounded-lg shadow-sm ghost-border">
         <h3 class="text-xs font-bold text-outline uppercase tracking-[0.2em] mb-6">Files to Check</h3>
         <div class="space-y-3">
             {{range .CheckFiles}}
@@ -150,7 +150,7 @@
     </div>
 </div>
 {{else}}
-<div class="bg-surface-container-low rounded-lg p-8 text-center border border-outline-variant/10">
+<div class="bg-surface-container-low rounded-lg p-8 text-center ghost-border">
     <span class="material-symbols-outlined text-4xl text-slate-600 mb-3 block">troubleshoot</span>
     <p class="text-slate-400">No matching diagnostic rule found for: <code class="font-mono text-primary">{{.Symptom}}</code></p>
     <p class="text-slate-600 text-sm mt-2">Try a different symptom or check the raw trace output.</p>

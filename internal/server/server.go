@@ -112,6 +112,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/feature/", s.handleFeatureDetail)
 	s.mux.HandleFunc("/api/diff/snapshot", s.handleDiffSnapshot)
 	s.mux.HandleFunc("/api/diff/compare", s.handleDiffCompare)
+	s.mux.HandleFunc("/api/sprint", s.handleSprintAPI)
 }
 
 // parseTemplates loads and parses all HTML templates.
@@ -134,6 +135,9 @@ func parseTemplates() (*template.Template, error) {
 		},
 		"layerBorderClass": layerBorderClass,
 		"layerLabelClass":  layerLabelClass,
+		"dec":              func(a int) int { return a - 1 },
+		"inc":              func(a int) int { return a + 1 },
+		"div":              func(a, b int) int { if b == 0 { return 0 }; return a / b },
 	}
 
 	tmpl := template.New("").Funcs(funcMap)

@@ -20,7 +20,7 @@
                     hx-target="#feature-table-body"
                     hx-swap="innerHTML"
                     name="q"
-                    hx-include="[name='priority'],[name='q']"/>
+                    hx-include="[name='priority'],[name='q'],[name='health']"/>
             </div>
             <select name="priority"
                 class="bg-surface-container-lowest border-none text-on-surface-variant text-xs py-2 px-3 rounded focus:ring-1 focus:ring-primary/40"
@@ -28,16 +28,28 @@
                 hx-trigger="change"
                 hx-target="#feature-table-body"
                 hx-swap="innerHTML"
-                hx-include="[name='q'],[name='priority']">
+                hx-include="[name='q'],[name='priority'],[name='health']">
                 <option value="">All Priorities</option>
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
             </select>
+            <select name="health"
+                class="bg-surface-container-lowest border-none text-on-surface-variant text-xs py-2 px-3 rounded focus:ring-1 focus:ring-primary/40"
+                hx-get="/pages/features"
+                hx-trigger="change"
+                hx-target="#feature-table-body"
+                hx-swap="innerHTML"
+                hx-include="[name='q'],[name='priority'],[name='health']">
+                <option value="">All Health</option>
+                <option value="healthy">Healthy (80%+)</option>
+                <option value="at-risk">At Risk (50-79%)</option>
+                <option value="critical">Critical (&lt;50%)</option>
+            </select>
         </div>
         <div class="text-[11px] font-mono text-slate-500">
-            {{len .Features.Rows}} features
+            {{.Features.TotalFeatures}} features
         </div>
     </div>
 
@@ -49,11 +61,17 @@
                     <tr class="bg-surface-container-low border-b border-outline-variant/10">
                         <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Feature</th>
                         <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Priority</th>
-                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Status</th>
-                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Unit</th>
-                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">Integ</th>
-                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">E2E</th>
-                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter">Actions</th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-center">
+                            Health
+                            <span class="material-symbols-outlined text-[12px] text-slate-600 cursor-help align-middle" title="Coverage health: percentage of registry test slots filled. Click a feature row for chain-level health from dependency tracing.">info</span>
+                        </th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-center">Perf</th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-right">
+                            Gaps
+                            <span class="material-symbols-outlined text-[12px] text-slate-600 cursor-help align-middle" title="Registry gaps: missing coverage slots. Click a feature row for detailed dependency chain gaps.">info</span>
+                        </th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-center">E2E</th>
+                        <th class="px-4 py-2 font-bold text-slate-500 uppercase tracking-tighter text-center">Unit</th>
                     </tr>
                 </thead>
                 <tbody id="feature-table-body" class="font-mono divide-y divide-outline-variant/5">
@@ -63,12 +81,41 @@
         </div>
     </section>
 
+    <!-- Pagination -->
+    {{if gt .Features.TotalPages 1}}
+    <div class="mt-6 flex justify-end">
+        <div class="flex items-center gap-2 text-sm font-mono">
+            {{if gt .Features.Page 1}}
+            <button hx-get="/pages/features?page={{dec .Features.Page}}"
+                hx-target="#page-content"
+                hx-swap="innerHTML"
+                class="w-8 h-8 flex items-center justify-center rounded bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high transition-colors text-xs">&#9664;</button>
+            {{end}}
+            {{range .Features.Pages}}
+            <button hx-get="/pages/features?page={{.}}"
+                hx-target="#page-content"
+                hx-swap="innerHTML"
+                class="w-8 h-8 flex items-center justify-center rounded text-xs transition-colors {{if eq . $.Features.Page}}bg-primary text-on-primary font-bold{{else}}bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high{{end}}">{{.}}</button>
+            {{end}}
+            {{if lt .Features.Page .Features.TotalPages}}
+            <button hx-get="/pages/features?page={{inc .Features.Page}}"
+                hx-target="#page-content"
+                hx-swap="innerHTML"
+                class="w-8 h-8 flex items-center justify-center rounded bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high transition-colors text-xs">&#9654;</button>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+
 </div>
 {{end}}
 
 {{define "feature-rows"}}
 {{range .Rows}}
-<tr class="hover:bg-slate-800/30 transition-colors group">
+<tr class="hover:bg-slate-800/40 transition-colors group cursor-pointer"
+    hx-get="/api/feature/{{.ID}}"
+    hx-target="#detail-panel"
+    hx-swap="innerHTML">
     <td class="px-4 py-3">
         <div class="flex flex-col">
             <span class="text-slate-100 font-semibold">{{.ID}}</span>
@@ -81,34 +128,38 @@
             <span class="{{.PriorityText}} text-[11px] font-bold uppercase">{{.Priority}}</span>
         </div>
     </td>
-    <td class="px-4 py-3">
-        <span class="px-2 py-0.5 rounded-sm text-[10px] font-bold uppercase {{.StatusClass}}">{{.Status}}</span>
+    <td class="px-4 py-3 text-center">
+        {{if ge .HealthPct 80}}
+        <span class="bg-emerald-500/10 text-emerald-500 px-3 py-0.5 rounded-full text-[11px] font-bold border border-emerald-500/20 tabular-nums">{{.HealthPct}}%</span>
+        {{else if ge .HealthPct 50}}
+        <span class="bg-yellow-500/10 text-yellow-500 px-3 py-0.5 rounded-full text-[11px] font-bold border border-yellow-500/20 tabular-nums">{{.HealthPct}}%</span>
+        {{else}}
+        <span class="bg-red-500/10 text-red-500 px-3 py-0.5 rounded-full text-[11px] font-bold border border-red-500/20 tabular-nums">{{.HealthPct}}%</span>
+        {{end}}
     </td>
-    <td class="px-4 py-3 text-right {{if .UnitCovered}}text-emerald-400{{else}}text-slate-600{{end}}">
-        {{if .UnitCovered}}✓{{else}}—{{end}}
+    <td class="px-4 py-3 text-center">
+        {{if ge .PerfPct 80}}
+        <span class="bg-emerald-500/10 text-emerald-500 px-3 py-0.5 rounded-full text-[11px] font-bold border border-emerald-500/20 tabular-nums">{{.PerfPct}}%</span>
+        {{else if ge .PerfPct 50}}
+        <span class="bg-yellow-500/10 text-yellow-500 px-3 py-0.5 rounded-full text-[11px] font-bold border border-yellow-500/20 tabular-nums">{{.PerfPct}}%</span>
+        {{else if gt .PerfPct 0}}
+        <span class="bg-red-500/10 text-red-500 px-3 py-0.5 rounded-full text-[11px] font-bold border border-red-500/20 tabular-nums">{{.PerfPct}}%</span>
+        {{else}}
+        <span class="text-slate-600 text-[11px]">--</span>
+        {{end}}
     </td>
-    <td class="px-4 py-3 text-right {{if .IntegCovered}}text-emerald-400{{else}}text-slate-600{{end}}">
-        {{if .IntegCovered}}✓{{else}}—{{end}}
+    <td class="px-4 py-3 text-right font-mono text-xs">
+        {{if gt .GapCount 0}}
+        <span class="text-red-400">{{.GapCount}}</span>
+        {{else}}
+        <span class="text-emerald-400">0</span>
+        {{end}}
     </td>
-    <td class="px-4 py-3 text-right {{if .E2ECovered}}text-emerald-400{{else}}text-slate-600{{end}}">
-        {{if .E2ECovered}}✓{{else}}—{{end}}
+    <td class="px-4 py-3 text-center">
+        <span class="material-symbols-outlined text-lg {{if .HasE2E}}text-tertiary{{else}}text-error/70{{end}}">{{if .HasE2E}}check_circle{{else}}cancel{{end}}</span>
     </td>
-    <td class="px-4 py-3">
-        <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <a href="/contract?feature={{.ID}}"
-                class="text-[10px] text-primary hover:text-blue-300 font-bold"
-                hx-get="/pages/contract?feature={{.ID}}"
-                hx-target="#page-content"
-                hx-swap="innerHTML"
-                hx-push-url="/contract?feature={{.ID}}">Contract</a>
-            <span class="text-slate-700">·</span>
-            <a href="/diagnose?feature={{.ID}}"
-                class="text-[10px] text-secondary hover:text-purple-300 font-bold"
-                hx-get="/pages/diagnose?feature={{.ID}}"
-                hx-target="#page-content"
-                hx-swap="innerHTML"
-                hx-push-url="/diagnose?feature={{.ID}}">Diagnose</a>
-        </div>
+    <td class="px-4 py-3 text-center">
+        <span class="material-symbols-outlined text-lg {{if .HasUnit}}text-tertiary{{else}}text-error/70{{end}}">{{if .HasUnit}}check_circle{{else}}cancel{{end}}</span>
     </td>
 </tr>
 {{else}}

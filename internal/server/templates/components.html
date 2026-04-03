@@ -57,7 +57,7 @@
      Usage: {{template "stat-card" .}}
      ----------------------------------------------------------- */}}
 {{define "stat-card"}}
-<div class="bg-surface-container p-4 rounded-lg border border-outline-variant/10">
+<div class="bg-surface-container p-4 rounded-lg ghost-border">
     <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{{.Label}}</p>
     <p class="font-mono text-2xl font-black {{if .ValueClass}}{{.ValueClass}}{{else}}text-on-surface{{end}}">{{.Value}}</p>
     {{if .Sub}}<p class="text-[11px] text-slate-500 mt-1">{{.Sub}}</p>{{end}}

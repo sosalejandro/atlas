@@ -4,6 +4,7 @@ features:
   - id: server.http-handlers
     name: HTTP Handlers
     description: Full-page and htmx partial route handlers, API endpoints (scan, feature detail, diff snapshot/compare)
+    roles: []
     priority: high
     surfaces:
       api:
@@ -37,6 +38,7 @@ features:
       unit:
         backend:
           status: covered
+          mocked: false
           tests:
             - file: internal/server/server_test.go
               functions:
@@ -90,15 +92,19 @@ features:
                   run: go test ./internal/server/...
                 - name: TestOverviewPage_StatusBarHasFeatureCount
                   run: go test ./internal/server/...
-
+      integration: {}
+      e2e: {}
   - id: server.view-model-builders
     name: View Model Builders
     description: Pure functions transforming domain types into template view models (featureHealth, buildPriorityRings, buildCoverageBars, buildGraphVM, computeDiff, etc.)
+    roles: []
     priority: high
+    surfaces: {}
     coverage:
       unit:
         backend:
           status: covered
+          mocked: false
           tests:
             - file: internal/server/builders_test.go
               functions:
@@ -166,3 +172,5 @@ features:
                   run: go test ./internal/server/...
                 - name: TestKindBadgeClass_AllKinds
                   run: go test ./internal/server/...
+      integration: {}
+      e2e: {}

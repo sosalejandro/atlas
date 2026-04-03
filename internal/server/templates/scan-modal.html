@@ -1,0 +1,86 @@
+{{define "scan-modal"}}
+<div id="scan-modal-overlay"
+     class="fixed inset-0 bg-black/60 backdrop-blur-[12px] z-[100] flex items-center justify-center p-4"
+     onclick="if(event.target===this)closeScanModal()">
+
+    <div class="bg-surface-container w-full max-w-lg rounded-xl shadow-2xl border border-outline-variant/20 overflow-hidden"
+         onclick="event.stopPropagation()">
+
+        <!-- Header -->
+        <div class="flex items-center gap-3 px-6 py-4 bg-surface-container-low border-b border-outline-variant/15">
+            <span class="material-symbols-outlined text-primary">radar</span>
+            <div class="flex-1">
+                <h2 class="text-sm font-bold text-on-surface">Scan & Import</h2>
+                <p class="text-[11px] text-on-surface-variant">Discover tests, build graph, audit features</p>
+            </div>
+            <button onclick="closeScanModal()"
+                    class="p-1 rounded hover:bg-surface-container-high transition-colors">
+                <span class="material-symbols-outlined text-on-surface-variant text-lg">close</span>
+            </button>
+        </div>
+
+        <!-- Body -->
+        <div class="px-6 py-5 space-y-5">
+
+            <!-- Always Run -->
+            <div>
+                <p class="text-[10px] font-bold text-outline uppercase tracking-widest mb-3">Always Run</p>
+                <div class="space-y-2">
+                    <label class="flex items-center gap-3 p-3 bg-surface-container-low rounded cursor-not-allowed opacity-80">
+                        <input type="checkbox" checked disabled class="accent-primary">
+                        <span class="text-xs text-on-surface">Discover test files (Go · TypeScript · Python · Playwright · Maestro)</span>
+                    </label>
+                    <label class="flex items-center gap-3 p-3 bg-surface-container-low rounded cursor-not-allowed opacity-80">
+                        <input type="checkbox" checked disabled class="accent-primary">
+                        <span class="text-xs text-on-surface">Build dependency graph (Go AST + TypeScript)</span>
+                    </label>
+                    <label class="flex items-center gap-3 p-3 bg-surface-container-low rounded cursor-not-allowed opacity-80">
+                        <input type="checkbox" checked disabled class="accent-primary">
+                        <span class="text-xs text-on-surface">Audit all features — health scores, gaps, coverage</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Progress area (hidden until scan starts) -->
+            <div id="scan-progress" class="hidden space-y-2">
+                <p class="text-[10px] font-bold text-outline uppercase tracking-widest mb-2">Progress</p>
+            </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="flex justify-end gap-3 px-6 py-4 border-t border-outline-variant/15 bg-surface-container-low">
+            <button onclick="closeScanModal()"
+                    class="px-4 py-2 text-xs font-bold text-outline hover:text-on-surface transition-colors rounded">
+                Cancel
+            </button>
+            <button id="scan-run-btn"
+                    hx-post="/api/scan"
+                    hx-target="#scan-progress"
+                    hx-swap="innerHTML"
+                    hx-indicator="#scan-spinner"
+                    hx-on::after-request="onScanComplete(event)"
+                    onclick="document.getElementById('scan-progress').classList.remove('hidden'); document.getElementById('scan-run-btn').disabled=true; document.getElementById('scan-run-btn').classList.add('opacity-50')"
+                    class="flex items-center gap-2 px-5 py-2 bg-gradient-to-b from-primary to-primary-container text-on-primary-container font-bold text-xs rounded hover:opacity-90 transition-all">
+                <span class="material-symbols-outlined text-sm">play_arrow</span>
+                Run Scan
+                <span id="scan-spinner" class="htmx-indicator text-[10px]">…</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+function closeScanModal() {
+    const el = document.getElementById('scan-modal-overlay');
+    if (el) el.remove();
+}
+function onScanComplete(evt) {
+    // After scan, refresh status bar and close modal after short delay.
+    setTimeout(() => {
+        htmx.ajax('POST', '/api/scan', {target: '#status-bar', swap: 'outerHTML'});
+        setTimeout(closeScanModal, 800);
+    }, 1200);
+}
+</script>
+{{end}}

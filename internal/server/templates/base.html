@@ -68,7 +68,34 @@ tailwind.config = {
 <link rel="stylesheet" href="/static/style.css"/>
 <style>
 body { background-color: #10141a; color: #dfe2eb; font-family: 'Inter', sans-serif; }
+.mermaid svg { max-width: 100%; height: auto; }
 </style>
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+        primaryColor: '#1e3a5f',
+        primaryTextColor: '#93c5fd',
+        primaryBorderColor: '#3b82f6',
+        lineColor: '#475569',
+        background: '#10141a',
+        mainBkg: '#1e293b',
+        nodeBorder: '#475569',
+        clusterBkg: '#1e293b',
+        titleColor: '#dfe2eb',
+        edgeLabelBackground: '#1e293b',
+        fontFamily: 'JetBrains Mono, monospace',
+        fontSize: '13px',
+    },
+    flowchart: { curve: 'basis', padding: 24, useMaxWidth: true },
+});
+// Re-render diagrams after every htmx swap.
+document.addEventListener('htmx:afterSwap', () => {
+    mermaid.run({ querySelector: '.mermaid' });
+});
+</script>
 </head>
 <body class="overflow-hidden">
 
@@ -84,19 +111,14 @@ body { background-color: #10141a; color: #dfe2eb; font-family: 'Inter', sans-ser
     </div>
     <div class="flex items-center gap-2">
         <button id="scan-btn"
-            class="bg-primary-container text-on-primary-container px-3 py-1 rounded-sm text-xs font-bold uppercase tracking-wider hover:brightness-110 transition-all flex items-center gap-2"
-            hx-post="/api/scan"
-            hx-target="#status-bar"
-            hx-swap="outerHTML"
-            hx-indicator="#scan-btn">
-            <span class="material-symbols-outlined !text-[14px]">scan</span>
+            class="btn-gradient text-on-primary-container px-3 py-1 rounded-sm text-xs font-bold uppercase tracking-wider hover:brightness-110 transition-all flex items-center gap-2"
+            hx-get="/pages/scan-modal"
+            hx-target="#modal-container"
+            hx-swap="innerHTML">
+            <span class="material-symbols-outlined !text-[14px]">radar</span>
             <span>Scan</span>
-            <span class="htmx-indicator ml-1 text-[10px]">...</span>
         </button>
         <div class="flex items-center ml-2 space-x-1">
-            <button class="w-8 h-8 flex items-center justify-center text-slate-400 hover:bg-slate-800 transition-colors rounded">
-                <span class="material-symbols-outlined">dark_mode</span>
-            </button>
             <button class="w-8 h-8 flex items-center justify-center text-slate-400 hover:bg-slate-800 transition-colors rounded">
                 <span class="material-symbols-outlined">settings</span>
             </button>
@@ -131,11 +153,17 @@ body { background-color: #10141a; color: #dfe2eb; font-family: 'Inter', sans-ser
 </aside>
 
 <!-- Main Content -->
-<main class="pl-[200px] pt-12 pb-8 h-screen w-full bg-surface-container-lowest overflow-y-auto">
+<main class="pl-[200px] pt-12 pb-10 h-screen w-full bg-surface-container-lowest overflow-y-auto">
     <div id="page-content">
         {{.Content}}
     </div>
 </main>
+
+<!-- Modal container (scan modal, etc.) -->
+<div id="modal-container"></div>
+
+<!-- Feature detail slide-over -->
+<div id="detail-panel"></div>
 
 <!-- Status Bar (32px) -->
 <footer id="status-bar" class="fixed bottom-0 w-full h-8 z-[60] flex items-center px-4 bg-slate-900 font-mono text-[11px] tabular-nums">
@@ -143,21 +171,21 @@ body { background-color: #10141a; color: #dfe2eb; font-family: 'Inter', sans-ser
         <div class="flex items-center gap-4">
             <div class="flex items-center gap-1.5">
                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span class="text-slate-400">Ready</span>
+                <span class="text-slate-300">System Ready</span>
             </div>
             <div class="h-3 w-[1px] bg-slate-800"></div>
             <div class="flex items-center gap-3 text-slate-300">
                 <span>{{.Status.TotalFeatures}} features</span>
-                <span class="text-slate-600">•</span>
+                <span class="text-slate-600">&bull;</span>
                 <span>{{.Status.TotalTests}} tests</span>
-                <span class="text-slate-600">•</span>
+                <span class="text-slate-600">&bull;</span>
                 <span class="text-emerald-400">{{.Status.AtTargetPct}}% at target</span>
+                <span class="text-slate-600">&bull;</span>
+                <span class="text-slate-500">Last scan: &mdash;</span>
             </div>
         </div>
         <div class="flex items-center gap-4">
-            <a href="/docs" class="text-slate-500 hover:text-white transition-colors">Docs</a>
-            <div class="h-3 w-[1px] bg-slate-800"></div>
-            <span class="text-slate-500">v{{.Version}}</span>
+            <span class="text-slate-500">v{{.Version}}-stable</span>
         </div>
     </div>
 </footer>

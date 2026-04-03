@@ -2,7 +2,7 @@
 <div class="p-6 max-w-5xl mx-auto">
 
     <!-- Controls Bar -->
-    <div class="flex flex-wrap items-center justify-between mb-8 bg-surface-container-low p-3 rounded-lg gap-3 border border-outline-variant/10">
+    <div class="flex flex-wrap items-center justify-between mb-8 bg-surface-container-low p-3 rounded-lg gap-3 ghost-border">
         <div class="flex items-center gap-4">
             <!-- Feature Selector -->
             <form hx-get="/pages/contract"
@@ -10,7 +10,7 @@
                 hx-swap="innerHTML"
                 hx-push-url="true"
                 class="flex items-center gap-3">
-                <div class="bg-surface-container-highest px-4 py-1.5 rounded flex items-center gap-2 border border-outline-variant/30">
+                <div class="bg-surface-container-highest px-4 py-1.5 rounded flex items-center gap-2 ghost-border">
                     <select name="feature"
                         class="bg-transparent border-none text-primary font-mono text-sm focus:ring-0 pr-6 appearance-none"
                         onchange="this.form.submit()">
@@ -22,13 +22,28 @@
                 </div>
             </form>
         </div>
-        <div class="flex items-center gap-2 bg-surface-container-highest px-3 py-1.5 rounded border border-outline-variant/20">
+        <div class="flex items-center gap-2 bg-surface-container-highest px-3 py-1.5 rounded ghost-border">
             <span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
             <span class="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">{{.Contract.LayerCount}} layers detected</span>
         </div>
     </div>
 
     {{if .Contract}}
+    <!-- View Mode Tabs + Copy -->
+    <div class="flex items-center justify-between mb-4">
+        <div class="flex gap-1">
+            <button class="px-3 py-1.5 text-xs font-bold bg-primary-container text-on-primary-container rounded">Terminal</button>
+            <button onclick="window.open('/api/contract?feature={{.Contract.FeatureID}}&format=json','_blank')"
+                    class="px-3 py-1.5 text-xs text-slate-400 rounded hover:bg-surface-container-high transition-colors">JSON</button>
+            <button onclick="window.open('/api/contract?feature={{.Contract.FeatureID}}&format=markdown','_blank')"
+                    class="px-3 py-1.5 text-xs text-slate-400 rounded hover:bg-surface-container-high transition-colors">Markdown</button>
+        </div>
+        <button onclick="window.open('/api/contract?feature={{.Contract.FeatureID}}&format=markdown','_blank')"
+                class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-surface-container-lowest rounded hover:bg-surface-container-high transition-colors text-on-surface-variant">
+            <span class="material-symbols-outlined text-sm">content_copy</span> Copy as markdown
+        </button>
+    </div>
+
     <!-- Entry Point Banner -->
     <div class="mb-8">
         <div class="bg-primary/10 border-l-4 border-primary p-4 rounded-r-lg flex items-center justify-between">
@@ -81,7 +96,7 @@
 
     {{else}}
     <!-- Empty state -->
-    <div class="flex flex-col items-center justify-center py-24 text-center">
+    <div class="flex flex-col items-center justify-center py-24 text-center bg-grid-texture rounded-lg">
         <span class="material-symbols-outlined text-5xl text-slate-700 mb-4">description</span>
         <h3 class="text-slate-400 font-semibold mb-2">Select a feature</h3>
         <p class="text-slate-600 text-sm">Choose a feature from the selector above to view its contract trace.</p>

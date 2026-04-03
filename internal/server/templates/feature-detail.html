@@ -1,0 +1,141 @@
+{{define "feature-detail"}}
+<div id="feature-detail-panel"
+     class="fixed top-0 right-0 h-full w-[420px] bg-surface-container z-50 ambient-shadow border-l border-outline-variant/20 flex flex-col overflow-hidden"
+     style="animation: slideIn 200ms ease-out;">
+    <style>
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
+
+    <!-- Panel header -->
+    <div class="flex items-start justify-between px-5 py-4 border-b border-outline-variant/15 bg-surface-container-low shrink-0">
+        <div class="min-w-0">
+            <div class="flex items-center gap-2 mb-1">
+                <span class="w-2 h-2 rounded-full {{.PriorityDot}} shrink-0"></span>
+                <span class="font-mono text-xs font-bold {{.PriorityText}} uppercase">{{.Priority}}</span>
+            </div>
+            <h2 class="font-mono text-sm font-bold text-on-surface truncate">{{.FeatureID}}</h2>
+            {{if .FeatureName}}<p class="text-xs text-on-surface-variant mt-0.5">{{.FeatureName}}</p>{{end}}
+        </div>
+        <div class="flex items-center gap-3 shrink-0 ml-4">
+            <!-- Health badge -->
+            <div class="text-center">
+                <span class="font-mono text-xl font-black {{if ge .HealthPct 70}}text-emerald-400{{else if ge .HealthPct 30}}text-yellow-400{{else}}text-red-400{{end}}">{{.HealthPct}}%</span>
+                <p class="text-[9px] text-outline font-bold uppercase tracking-widest">health</p>
+            </div>
+            <button onclick="document.getElementById('feature-detail-panel').remove()"
+                    class="p-1 rounded hover:bg-surface-container-high transition-colors">
+                <span class="material-symbols-outlined text-on-surface-variant text-lg">close</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex border-b border-outline-variant/15 shrink-0 bg-surface-container-low" x-data="{tab:'layers'}">
+        <button onclick="showTab('layers')" id="tab-layers"
+            class="flex-1 py-2.5 text-[11px] font-bold uppercase tracking-widest text-primary border-b-2 border-primary transition-all">Layers</button>
+        <button onclick="showTab('gaps')" id="tab-gaps"
+            class="flex-1 py-2.5 text-[11px] font-bold uppercase tracking-widest text-outline border-b-2 border-transparent transition-all">Gaps {{if .Gaps}}({{len .Gaps}}){{end}}</button>
+        <button onclick="showTab('tests')" id="tab-tests"
+            class="flex-1 py-2.5 text-[11px] font-bold uppercase tracking-widest text-outline border-b-2 border-transparent transition-all">Tests</button>
+    </div>
+
+    <script>
+    function showTab(name) {
+        ['layers','gaps','tests'].forEach(t => {
+            const btn = document.getElementById('tab-' + t);
+            const pane = document.getElementById('pane-' + t);
+            const active = t === name;
+            btn.className = btn.className.replace(/text-(primary|outline)/g, active ? 'text-primary' : 'text-outline')
+                                         .replace(/border-(primary|transparent)/g, active ? 'border-primary' : 'border-transparent');
+            pane.classList.toggle('hidden', !active);
+        });
+    }
+    </script>
+
+    <!-- Content area -->
+    <div class="flex-1 overflow-y-auto">
+
+        <!-- Layers tab -->
+        <div id="pane-layers" class="p-5 space-y-3">
+            {{if .LayerCoverage}}
+            {{range .LayerCoverage}}
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-xs font-medium capitalize text-on-surface">{{.Layer}}</span>
+                    <span class="font-mono text-xs font-bold {{if ge .Pct 70}}text-emerald-400{{else if ge .Pct 30}}text-yellow-400{{else}}text-red-400{{end}}">{{.Pct}}%</span>
+                </div>
+                <div class="w-full bg-surface-container-highest h-2 rounded-full overflow-hidden">
+                    <div class="{{.BarClass}} h-full rounded-full transition-all duration-500" style="width:{{.Pct}}%"></div>
+                </div>
+                <p class="text-[10px] text-outline mt-0.5 font-mono">{{.Tested}}/{{.Total}} nodes tested</p>
+            </div>
+            {{end}}
+            {{else}}
+            <p class="text-slate-500 text-sm py-4 text-center">No layer data. Run a scan first.</p>
+            {{end}}
+        </div>
+
+        <!-- Gaps tab -->
+        <div id="pane-gaps" class="hidden p-5 space-y-2">
+            {{if .Gaps}}
+            {{range .Gaps}}
+            <div class="bg-surface-container-low p-3 rounded border-l-2 border-red-500/50">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 uppercase">{{.Kind}}</span>
+                    <span class="font-mono text-xs text-on-surface truncate">{{.NodeID}}</span>
+                </div>
+                {{if .File}}<p class="font-mono text-[10px] text-outline truncate">{{.File}}{{if .Line}}:{{.Line}}{{end}}</p>{{end}}
+                {{if .Reason}}<p class="text-[11px] text-on-surface-variant mt-1">{{.Reason}}</p>{{end}}
+            </div>
+            {{end}}
+            {{else}}
+            <div class="flex flex-col items-center py-12 text-center">
+                <span class="material-symbols-outlined text-4xl text-emerald-500/50 mb-3">check_circle</span>
+                <p class="text-slate-400 text-sm font-semibold">No coverage gaps</p>
+                <p class="text-slate-600 text-xs mt-1">All traced nodes have test coverage.</p>
+            </div>
+            {{end}}
+        </div>
+
+        <!-- Tests tab -->
+        <div id="pane-tests" class="hidden p-5 space-y-2">
+            {{if .TestFiles}}
+            {{range .TestFiles}}
+            <div class="flex items-start gap-3 p-2.5 bg-surface-container-low rounded hover:bg-surface-container-high transition-colors">
+                <span class="material-symbols-outlined text-primary text-sm mt-0.5 shrink-0">description</span>
+                <p class="font-mono text-[11px] text-on-surface break-all">{{.}}</p>
+            </div>
+            {{end}}
+            {{else}}
+            <p class="text-slate-500 text-sm py-4 text-center">No test files registered for this feature.</p>
+            {{end}}
+        </div>
+
+    </div>
+
+    <!-- Footer: view in graph -->
+    <div class="px-5 py-3 border-t border-outline-variant/15 bg-surface-container-low shrink-0">
+        <a hx-get="/pages/graph?feature={{.FeatureID}}"
+           hx-target="#page-content"
+           hx-push-url="/graph?feature={{.FeatureID}}"
+           class="flex items-center justify-center gap-2 w-full py-2 bg-primary/10 text-primary rounded text-xs font-bold hover:bg-primary/20 transition-colors cursor-pointer">
+            <span class="material-symbols-outlined text-sm">account_tree</span>
+            View Dependency Graph
+        </a>
+    </div>
+</div>
+{{end}}
+
+{{define "feature-detail-empty"}}
+<div id="feature-detail-panel"
+     class="fixed top-0 right-0 h-full w-[420px] bg-surface-container z-50 ambient-shadow border-l border-outline-variant/20 flex flex-col items-center justify-center"
+     style="animation: slideIn 200ms ease-out;">
+    <span class="material-symbols-outlined text-4xl text-slate-600 mb-3">error_outline</span>
+    <p class="text-slate-400 text-sm font-semibold">Could not load feature</p>
+    <p class="font-mono text-xs text-slate-600 mt-1">{{.FeatureID}}</p>
+    <button onclick="document.getElementById('feature-detail-panel').remove()"
+            class="mt-6 px-4 py-2 text-xs font-bold text-outline hover:text-on-surface transition-colors">
+        Close
+    </button>
+</div>
+{{end}}

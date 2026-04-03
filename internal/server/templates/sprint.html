@@ -6,7 +6,99 @@
         <p class="text-on-surface-variant text-sm mt-1">Priority-weighted gap scores for test coverage sprint planning.</p>
     </div>
 
-    <section class="bg-surface-container rounded-lg border border-outline-variant/10 overflow-hidden shadow-sm">
+    <div class="bg-surface-container-low p-3 rounded-lg flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-400 font-bold uppercase tracking-wider">Show</span>
+                <select name="limit" class="bg-surface-container-lowest border-none text-on-surface-variant text-xs py-1.5 px-2 rounded focus:ring-1 focus:ring-primary/40 font-mono"
+                    hx-get="/pages/sprint" hx-trigger="change" hx-target="#page-content" hx-swap="innerHTML"
+                    hx-include="[name='limit'],[name='priority'],[name='group']">
+                    <option value="20" {{if eq .Sprint.Limit 20}}selected{{end}}>20</option>
+                    <option value="50" {{if eq .Sprint.Limit 50}}selected{{end}}>50</option>
+                    <option value="100" {{if eq .Sprint.Limit 100}}selected{{end}}>100</option>
+                </select>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-400 font-bold uppercase tracking-wider">Priority</span>
+                <select name="priority" class="bg-surface-container-lowest border-none text-on-surface-variant text-xs py-1.5 px-2 rounded focus:ring-1 focus:ring-primary/40 font-mono"
+                    hx-get="/pages/sprint" hx-trigger="change" hx-target="#page-content" hx-swap="innerHTML"
+                    hx-include="[name='limit'],[name='priority'],[name='group']">
+                    <option value="" {{if eq .Sprint.Priority ""}}selected{{end}}>All</option>
+                    <option value="critical" {{if eq .Sprint.Priority "critical"}}selected{{end}}>Critical</option>
+                    <option value="high" {{if eq .Sprint.Priority "high"}}selected{{end}}>High</option>
+                    <option value="medium" {{if eq .Sprint.Priority "medium"}}selected{{end}}>Medium</option>
+                    <option value="low" {{if eq .Sprint.Priority "low"}}selected{{end}}>Low</option>
+                </select>
+            </div>
+            <div class="flex items-center gap-1 ml-2">
+                <span class="text-xs text-slate-400 font-bold uppercase tracking-wider mr-1">Group-by</span>
+                <input type="hidden" name="group" value="{{.Sprint.GroupBy}}"/>
+                <button hx-get="/pages/sprint?group=" hx-target="#page-content" hx-swap="innerHTML"
+                    hx-include="[name='limit'],[name='priority']"
+                    class="px-2.5 py-1 text-xs rounded transition-colors {{if eq .Sprint.GroupBy ""}}bg-primary-container text-on-primary-container font-bold{{else}}text-slate-400 hover:bg-surface-container-high{{end}}">None</button>
+                <button hx-get="/pages/sprint?group=type" hx-target="#page-content" hx-swap="innerHTML"
+                    hx-include="[name='limit'],[name='priority']"
+                    class="px-2.5 py-1 text-xs rounded transition-colors {{if eq .Sprint.GroupBy "type"}}bg-primary-container text-on-primary-container font-bold{{else}}text-slate-400 hover:bg-surface-container-high{{end}}">Fix Type</button>
+                <button hx-get="/pages/sprint?group=domain" hx-target="#page-content" hx-swap="innerHTML"
+                    hx-include="[name='limit'],[name='priority']"
+                    class="px-2.5 py-1 text-xs rounded transition-colors {{if eq .Sprint.GroupBy "domain"}}bg-primary-container text-on-primary-container font-bold{{else}}text-slate-400 hover:bg-surface-container-high{{end}}">Domain</button>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="window.open('/api/sprint?format=json','_blank')" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-surface-container-lowest rounded hover:bg-surface-container-high transition-colors text-on-surface-variant">
+                <span class="material-symbols-outlined text-sm">download</span> JSON
+            </button>
+            <button onclick="window.open('/api/sprint?format=prompt','_blank')" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-surface-container-lowest rounded hover:bg-surface-container-high transition-colors text-primary">
+                <span class="material-symbols-outlined text-sm">bolt</span> PROMPT FOR AI
+            </button>
+            <button onclick="navigator.clipboard.writeText(document.querySelector('#sprint-table')?.innerText||'').then(()=>{const b=this;b.innerHTML='<span class=\'material-symbols-outlined text-sm\'>check</span> Copied!';b.classList.add('text-tertiary');setTimeout(()=>{b.innerHTML='<span class=\'material-symbols-outlined text-sm\'>content_copy</span> COPY';b.classList.remove('text-tertiary')},1500)})" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-surface-container-lowest rounded hover:bg-surface-container-high transition-colors text-on-surface-variant">
+                <span class="material-symbols-outlined text-sm">content_copy</span> COPY
+            </button>
+        </div>
+    </div>
+
+    <section id="sprint-table" class="bg-surface-container rounded-lg overflow-hidden shadow-sm">
+        {{if .Sprint.Groups}}
+        <!-- Grouped view -->
+        {{range .Sprint.Groups}}
+        <div class="mb-4">
+            <div class="px-4 py-2 bg-surface-container-low flex items-center justify-between">
+                <h3 class="text-xs font-bold uppercase tracking-widest text-primary">{{.Label}}</h3>
+                <span class="text-[10px] font-mono text-slate-500">{{len .Items}} features</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs border-collapse">
+                    <tbody class="font-mono divide-y divide-outline-variant/5">
+                        {{range .Items}}
+                        <tr class="hover:bg-slate-800/30 transition-colors cursor-pointer"
+                            hx-get="/pages/features?feature={{.ID}}"
+                            hx-target="#page-content" hx-swap="innerHTML" hx-push-url="/features">
+                            <td class="px-4 py-3 text-slate-300 font-bold w-16">{{printf "%.2f" .Score}}</td>
+                            <td class="px-4 py-3 w-24">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full {{.PriorityDot}}"></span>
+                                    <span class="{{.PriorityText}} font-bold">{{.Priority}}</span>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 text-slate-100">{{.ID}}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-32 bg-slate-800 h-1.5 rounded-full overflow-hidden relative">
+                                        <div class="{{.TargetBg}} h-full absolute top-0 left-0" style="width: {{.TargetPct}}%"></div>
+                                        <div class="{{.HealthBg}} h-full relative z-10" style="width: {{.HealthPct}}%"></div>
+                                    </div>
+                                    <span class="text-[10px] text-slate-400">{{.HealthPct}}% → {{.TargetPct}}%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+        {{else}}
+        <!-- Flat view -->
         <div class="overflow-x-auto">
             <table class="w-full text-left text-xs border-collapse">
                 <thead>
@@ -23,9 +115,7 @@
                     {{range $i, $item := .Sprint.Items}}
                     <tr class="hover:bg-slate-800/30 transition-colors cursor-pointer"
                         hx-get="/pages/features?feature={{$item.ID}}"
-                        hx-target="#page-content"
-                        hx-swap="innerHTML"
-                        hx-push-url="/features">
+                        hx-target="#page-content" hx-swap="innerHTML" hx-push-url="/features">
                         <td class="px-4 py-3 text-slate-600">{{add $i 1}}</td>
                         <td class="px-4 py-3 text-slate-300 font-bold">{{printf "%.2f" $item.Score}}</td>
                         <td class="px-4 py-3">
@@ -48,11 +138,34 @@
                     </tr>
                     {{else}}
                     <tr>
-                        <td colspan="6" class="px-4 py-8 text-center text-slate-500">All features are at or above target. Great work!</td>
+                        <td colspan="6" class="px-4 py-8 text-center text-slate-500">All features are at or above target.</td>
                     </tr>
                     {{end}}
                 </tbody>
             </table>
+        </div>
+        {{end}}
+    </section>
+
+    <section class="mt-8">
+        <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">Targets by Fix Type</h3>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-surface-container p-4 rounded-lg">
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Unit Tests</p>
+                <p class="font-mono text-xl font-black text-on-surface tabular-nums">&mdash;<span class="text-xs text-slate-500 ml-1">features</span></p>
+            </div>
+            <div class="bg-surface-container p-4 rounded-lg">
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Integration</p>
+                <p class="font-mono text-xl font-black text-on-surface tabular-nums">&mdash;<span class="text-xs text-slate-500 ml-1">features</span></p>
+            </div>
+            <div class="bg-surface-container p-4 rounded-lg">
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">E2E Tests</p>
+                <p class="font-mono text-xl font-black text-on-surface tabular-nums">&mdash;<span class="text-xs text-slate-500 ml-1">features</span></p>
+            </div>
+            <div class="bg-surface-container p-4 rounded-lg">
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Benchmarks</p>
+                <p class="font-mono text-xl font-black text-on-surface tabular-nums">&mdash;<span class="text-xs text-slate-500 ml-1">features</span></p>
+            </div>
         </div>
     </section>
 

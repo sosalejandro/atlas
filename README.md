@@ -10,6 +10,39 @@ testreg maintains a YAML registry of business features mapped to their tests acr
 
 ---
 
+## Web Dashboard
+
+testreg includes an embedded web console (`testreg serve`) for visual exploration of test coverage, health scores, dependency graphs, and sprint planning. Screenshots from [nutrition-project-v2](https://github.com/sosalejandro/nutrition-project-v2) — a full-stack Go + React + React Native monorepo with 184 features across 16 domains.
+
+### Overview — Health at a Glance
+![Overview Dashboard](docs/screenshots/01-overview.png)
+
+### Features Analysis — Per-Feature Health, Perf, and Gaps
+![Features Table](docs/screenshots/02-features.png)
+
+### Sprint Planning — Priority-Weighted Gap Scoring
+![Sprint Planning](docs/screenshots/03-sprint.png)
+
+### Sprint — Grouped by Domain
+![Sprint Grouped](docs/screenshots/04-sprint-grouped.png)
+
+### Dependency Graph — Full-Stack Call Chain Visualization
+![Dependency Graph](docs/screenshots/05-graph.png)
+
+### Quality Signals — Test Metrics and Health Trends
+![Metrics](docs/screenshots/06-metrics.png)
+
+### Progress Tracking — Coverage Diff Between Sprints
+![Diff Tracking](docs/screenshots/07-diff.png)
+
+### Diagnose — Error Symptom to Dependency Layer Matching
+![Diagnose](docs/screenshots/08-diagnose.png)
+
+### Contract View — API Layer Signatures
+![Contract](docs/screenshots/09-contract.png)
+
+---
+
 ## Quick Example
 
 Trace the entire dependency chain for a login feature in one command:
