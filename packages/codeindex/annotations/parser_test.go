@@ -424,3 +424,135 @@ func TestParseBytes_EDA_NoIDForSagaIsRejected(t *testing.T) {
 		t.Fatalf("expected saga without id to be rejected; got %+v", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Issue #15 — strict-kind id regex must accept dashes.
+//
+// The nutrition-v2-go cutover corpus uses kebab-style segments
+// (`plans-patient.export-pdf`, `email-relay.dlq`, `batch-sessions.cook`) for
+// ~149 of its 1,110 testreg annotations. Pre-fix, those would be silently
+// dropped at parse time. These tests cover:
+//   - round-trip preservation of dashed ids across every strict kind
+//   - mixed dash + underscore in a single id
+//   - underscore-only ids still parse (backward compat)
+//   - shapes the regex must still reject (uppercase, spaces, dot collisions)
+// ---------------------------------------------------------------------------
+
+func TestParseBytes_DashedIDs_AllStrictKindsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	content := []byte(`// @atlas:feature plans-patient.export-pdf #real
+// @atlas:contract email-relay.dlq
+// @atlas:bc email-relay
+// @atlas:aggregate batch-sessions.cook
+// @atlas:aggregate-service measurements-nutritionist.analytics-summary
+// @atlas:saga email-relay.poll-startup step=1
+// @atlas:event-emit batch-sessions.cooked
+// @atlas:outbox-publish email-relay.dlq-event
+`)
+	got := ParseBytes("x.go", content, styleGoTS)
+
+	wantIDs := []string{
+		"plans-patient.export-pdf",
+		"email-relay.dlq",
+		"email-relay",
+		"batch-sessions.cook",
+		"measurements-nutritionist.analytics-summary",
+		"email-relay.poll-startup",
+		"batch-sessions.cooked",
+		"email-relay.dlq-event",
+	}
+	if len(got) != len(wantIDs) {
+		t.Fatalf("expected %d annotations; got %d (%+v)", len(wantIDs), len(got), got)
+	}
+	for i, ann := range got {
+		if len(ann.IDs) == 0 || ann.IDs[0] != wantIDs[i] {
+			t.Fatalf("ann[%d] (kind=%s) IDs = %v; want first id = %q", i, ann.Kind, ann.IDs, wantIDs[i])
+		}
+		if ann.Source != shared.SourceAtlas {
+			t.Fatalf("ann[%d].Source = %s; want atlas", i, ann.Source)
+		}
+	}
+
+	// Tag preservation on the dashed-feature row.
+	feature := got[0]
+	if !reflect.DeepEqual(feature.Tags, []string{"#real"}) {
+		t.Fatalf("feature.Tags = %v; want [#real]", feature.Tags)
+	}
+}
+
+func TestParseBytes_DashedIDs_MixedWithUnderscore(t *testing.T) {
+	t.Parallel()
+
+	// One id may carry both dashes and underscores — the regex is
+	// character-class permissive, dot is the only segment separator.
+	content := []byte(`// @atlas:feature plans-patient.export_v2
+// @atlas:feature meal_prep.batch-session
+// @atlas:aggregate email-relay.dlq_table
+`)
+	got := ParseBytes("x.go", content, styleGoTS)
+	wantIDs := []string{
+		"plans-patient.export_v2",
+		"meal_prep.batch-session",
+		"email-relay.dlq_table",
+	}
+	if len(got) != len(wantIDs) {
+		t.Fatalf("expected %d annotations; got %d (%+v)", len(wantIDs), len(got), got)
+	}
+	for i, ann := range got {
+		if ann.IDs[0] != wantIDs[i] {
+			t.Fatalf("ann[%d] id = %q; want %q", i, ann.IDs[0], wantIDs[i])
+		}
+	}
+}
+
+func TestParseBytes_DashedIDs_UnderscoreOnlyBackCompat(t *testing.T) {
+	t.Parallel()
+
+	// Backward compat: the pre-#15 underscore-only style continues to
+	// parse identically. This is a regression guard — if a future change
+	// over-tightens the regex (e.g. requiring at least one dash), we
+	// lose every existing canonical id.
+	content := []byte(`// @atlas:feature auth.login
+// @atlas:contract meal_prep.batch_session
+// @atlas:aggregate meal_prep.batch_session
+// @atlas:bc identity
+`)
+	got := ParseBytes("x.go", content, styleGoTS)
+	if len(got) != 4 {
+		t.Fatalf("expected 4 underscore-only ids accepted; got %d (%+v)", len(got), got)
+	}
+	for _, ann := range got {
+		if strings.ContainsRune(ann.IDs[0], '-') {
+			t.Fatalf("unexpected dash in id %q", ann.IDs[0])
+		}
+	}
+}
+
+func TestParseBytes_DashedIDs_NegativeShapesStillRejected(t *testing.T) {
+	t.Parallel()
+
+	// Pressure dim: data shape. The fix narrows by ADDING `-` to the
+	// character class — it does NOT loosen the anchored dot-segment
+	// structure. These shapes must still be rejected at parse time:
+	//   - uppercase segment        (`Plans-patient.export-pdf`)
+	//   - whitespace inside the id (`plans-patient. export-pdf`)
+	//   - consecutive dots         (`plans-patient..export-pdf`)
+	//   - leading dot              (`.plans-patient.export-pdf`)
+	//   - trailing dot             (`plans-patient.export-pdf.`)
+	content := []byte(`// @atlas:feature Plans-patient.export-pdf
+// @atlas:feature plans-patient. export-pdf
+// @atlas:feature plans-patient..export-pdf
+// @atlas:feature .plans-patient.export-pdf
+// @atlas:feature plans-patient.export-pdf.
+`)
+	got := ParseBytes("x.go", content, styleGoTS)
+	// The "whitespace inside" line will not produce a malformed id — the
+	// space splits into ids=[plans-patient.], tags=nothing-special. The
+	// first id `plans-patient.` has a trailing dot and is rejected by
+	// validateAtlasIDs, so the whole annotation is dropped. Net: 0
+	// annotations from any of these 5 lines.
+	if len(got) != 0 {
+		t.Fatalf("expected all 5 malformed shapes rejected; got %d (%+v)", len(got), got)
+	}
+}

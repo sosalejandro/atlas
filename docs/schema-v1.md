@@ -197,7 +197,7 @@ CREATE TABLE features (
 
 | Column             | Type      | Notes                                                                                                            |
 | ------------------ | --------- | ---------------------------------------------------------------------------------------------------------------- |
-| `id`               | TEXT PK   | Dotted lower-snake-case, e.g. `auth.login`, `meals.create`. Stable across rescans; what annotations refer to.    |
+| `id`               | TEXT PK   | Dotted lowercase, e.g. `auth.login`, `meals.create`, `plans-patient.export-pdf`. Grammar `[a-z0-9_-]+(\.[a-z0-9_-]+)*` — both snake (`meal_prep.batch_session`) and kebab (`email-relay.dlq`) segments are valid; dot is the segment separator. Stable across rescans; what annotations refer to. |
 | `title`            | TEXT      | Human-readable label. From `@atlas:feature <id> title="…"` or the YAML import. Falls back to a humanised `id`.   |
 | `owner`            | TEXT      | Optional. From `@atlas:owner` annotation or YAML. Typically a team handle or maintainer name.                    |
 | `kind`             | TEXT      | `feature` (default) — testable product behaviour. `contract` — an API contract surface (no separate test cycle). |

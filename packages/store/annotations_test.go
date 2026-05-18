@@ -80,3 +80,54 @@ func TestAnnotations_DeleteByFile(t *testing.T) {
 		t.Errorf("DeleteByFile left rows: %+v", out)
 	}
 }
+
+// TestAnnotations_DashedIDs_RoundTrip — issue #15. End-to-end coverage that
+// kebab-style ids survive ingest → query unchanged. This is what Phase 9
+// will actually exercise on the 149 dashed annotations in the
+// nutrition-v2-go cutover corpus.
+func TestAnnotations_DashedIDs_RoundTrip(t *testing.T) {
+	a := openTestStore(t).Annotations()
+	ctx := context.Background()
+
+	wantValues := []string{
+		"plans-patient.export-pdf",
+		"email-relay.dlq",
+		"batch-sessions.cook",
+		"measurements-nutritionist.analytics-summary",
+	}
+	for i, v := range wantValues {
+		if err := a.Upsert(ctx, AnnotationRow{
+			FilePath: "src/dashed.go",
+			Line:     i + 1,
+			Kind:     shared.AnnFeature,
+			Value:    v,
+			Source:   shared.SourceAtlas,
+		}); err != nil {
+			t.Fatalf("Upsert %q: %v", v, err)
+		}
+	}
+
+	out, err := a.ListByFile(ctx, "src/dashed.go")
+	if err != nil {
+		t.Fatalf("ListByFile: %v", err)
+	}
+	if len(out) != len(wantValues) {
+		t.Fatalf("ListByFile rows = %d; want %d (%+v)", len(out), len(wantValues), out)
+	}
+	got := make([]string, 0, len(out))
+	for _, r := range out {
+		got = append(got, r.Value)
+	}
+	for _, want := range wantValues {
+		var found bool
+		for _, g := range got {
+			if g == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("dashed id %q not round-tripped; got values=%v", want, got)
+		}
+	}
+}
