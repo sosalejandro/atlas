@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
 
 // ConfigEntry is a single row from the `config` table.
@@ -30,13 +31,12 @@ type Config interface {
 var _ Config = (*configStore)(nil)
 
 // Config returns the Store's Config port.
-func (s *Store) Config() Config { return &configStore{db: s} }
+func (s *Store) Config() Config { return &configStore{q: s.queries()} }
 
-type configStore struct{ db *Store }
+type configStore struct{ q *sqlc.Queries }
 
 func (c *configStore) Get(ctx context.Context, key string) (string, error) {
-	var v string
-	err := c.db.sqlDB().QueryRowContext(ctx, `SELECT value FROM config WHERE key = ?`, key).Scan(&v)
+	v, err := c.q.GetConfig(ctx, key)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", shared.ErrNotFound
 	}
@@ -47,40 +47,26 @@ func (c *configStore) Get(ctx context.Context, key string) (string, error) {
 }
 
 func (c *configStore) Set(ctx context.Context, key, value string) error {
-	_, err := c.db.sqlDB().ExecContext(ctx, `
-		INSERT INTO config (key, value, updated_at)
-		VALUES (?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(key) DO UPDATE SET
-		  value      = excluded.value,
-		  updated_at = CURRENT_TIMESTAMP
-	`, key, value)
-	if err != nil {
+	if err := c.q.SetConfig(ctx, sqlc.SetConfigParams{Key: key, Value: value}); err != nil {
 		return fmt.Errorf("config set %q: %w", key, err)
 	}
 	return nil
 }
 
 func (c *configStore) All(ctx context.Context) ([]ConfigEntry, error) {
-	rows, err := c.db.sqlDB().QueryContext(ctx, `SELECT key, value, updated_at FROM config ORDER BY key`)
+	rows, err := c.q.ListConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("config all: %w", err)
 	}
-	defer rows.Close()
-
-	var out []ConfigEntry
-	for rows.Next() {
-		var e ConfigEntry
-		if err := rows.Scan(&e.Key, &e.Value, &e.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("config scan: %w", err)
-		}
-		out = append(out, e)
+	out := make([]ConfigEntry, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ConfigEntry{Key: r.Key, Value: r.Value, UpdatedAt: r.UpdatedAt})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (c *configStore) Delete(ctx context.Context, key string) error {
-	_, err := c.db.sqlDB().ExecContext(ctx, `DELETE FROM config WHERE key = ?`, key)
-	if err != nil {
+	if err := c.q.DeleteConfig(ctx, key); err != nil {
 		return fmt.Errorf("config delete %q: %w", key, err)
 	}
 	return nil

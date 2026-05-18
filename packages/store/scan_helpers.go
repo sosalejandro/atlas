@@ -1,56 +1,14 @@
 package store
 
-import (
-	"database/sql"
-	"time"
-)
+import "database/sql"
 
-// Helpers shared by all adapters for null-column scanning + writing.
-// Same conventions as bmad-story-runner-cli's infrastructure/state/sqlite/scan.go.
+// Tiny pointer-conversion helpers used by the few adapters that still issue
+// raw SQL (Features.List with an IDs filter, Symbols.List with dynamic
+// WHERE, the recursive CTE in Edges.Walk). sqlc handles nullable scans via
+// pointer types on its own; these helpers cover the remaining raw-SELECT
+// rows where Scan still pulls into sql.Null* values.
 
-func nullString(s string) sql.NullString {
-	if s == "" {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: s, Valid: true}
-}
-
-func nullStringPtr(p *string) sql.NullString {
-	if p == nil {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: *p, Valid: true}
-}
-
-func nullInt(p *int) sql.NullInt64 {
-	if p == nil {
-		return sql.NullInt64{}
-	}
-	return sql.NullInt64{Int64: int64(*p), Valid: true}
-}
-
-func nullInt64(p *int64) sql.NullInt64 {
-	if p == nil {
-		return sql.NullInt64{}
-	}
-	return sql.NullInt64{Int64: *p, Valid: true}
-}
-
-func nullTime(t time.Time) sql.NullTime {
-	if t.IsZero() {
-		return sql.NullTime{}
-	}
-	return sql.NullTime{Time: t, Valid: true}
-}
-
-func nullTimePtr(p *time.Time) sql.NullTime {
-	if p == nil {
-		return sql.NullTime{}
-	}
-	return sql.NullTime{Time: *p, Valid: true}
-}
-
-func ptrString(ns sql.NullString) *string {
+func nullStringToPtr(ns sql.NullString) *string {
 	if !ns.Valid {
 		return nil
 	}
@@ -58,7 +16,7 @@ func ptrString(ns sql.NullString) *string {
 	return &v
 }
 
-func ptrInt(ni sql.NullInt64) *int {
+func nullInt64ToIntPtr(ni sql.NullInt64) *int {
 	if !ni.Valid {
 		return nil
 	}
@@ -66,10 +24,24 @@ func ptrInt(ni sql.NullInt64) *int {
 	return &v
 }
 
-func ptrTime(nt sql.NullTime) *time.Time {
-	if !nt.Valid {
+// int64PtrToIntPtr narrows a *int64 (returned by sqlc with
+// emit_pointers_for_null_types) to a *int for the store-facing domain
+// types. Returns nil when the source is nil.
+func int64PtrToIntPtr(p *int64) *int {
+	if p == nil {
 		return nil
 	}
-	v := nt.Time
+	v := int(*p)
+	return &v
+}
+
+// intPtrToInt64Ptr widens *int → *int64 for the inverse direction, used
+// when handing values back to the sqlc layer (which expects *int64 for the
+// `end_line` column).
+func intPtrToInt64Ptr(p *int) *int64 {
+	if p == nil {
+		return nil
+	}
+	v := int64(*p)
 	return &v
 }

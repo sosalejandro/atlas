@@ -49,8 +49,8 @@ func TestReopen_IdempotentNoNewRows(t *testing.T) {
 		t.Fatalf("Open #1: %v", err)
 	}
 	var beforeCount int
-	if err := s1.sqlDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_version`).Scan(&beforeCount); err != nil {
-		t.Fatalf("count schema_version: %v", err)
+	if err := s1.sqlDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&beforeCount); err != nil {
+		t.Fatalf("count schema_migrations: %v", err)
 	}
 	if err := s1.Close(); err != nil {
 		t.Fatalf("Close #1: %v", err)
@@ -63,11 +63,11 @@ func TestReopen_IdempotentNoNewRows(t *testing.T) {
 	defer s2.Close()
 
 	var afterCount int
-	if err := s2.sqlDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_version`).Scan(&afterCount); err != nil {
-		t.Fatalf("count schema_version #2: %v", err)
+	if err := s2.sqlDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&afterCount); err != nil {
+		t.Fatalf("count schema_migrations #2: %v", err)
 	}
 	if afterCount != beforeCount {
-		t.Fatalf("schema_version row count changed across reopens: before=%d after=%d", beforeCount, afterCount)
+		t.Fatalf("schema_migrations row count changed across reopens: before=%d after=%d", beforeCount, afterCount)
 	}
 }
 
@@ -78,7 +78,7 @@ func TestOpen_AllTablesCreated(t *testing.T) {
 	want := []string{
 		"config", "features", "symbols", "edges", "feature_symbols",
 		"file_hashes", "coverage_runs", "coverage_results",
-		"audit_snapshots", "annotations", "schema_version",
+		"audit_snapshots", "annotations", "schema_migrations",
 	}
 
 	rows, err := s.sqlDB().QueryContext(ctx,

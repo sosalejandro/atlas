@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
 
 // FeatureSymbolRole matches the CHECK constraint on `feature_symbols.role`.
@@ -54,24 +55,19 @@ type FeatureSymbols interface {
 var _ FeatureSymbols = (*featureSymbolsStore)(nil)
 
 // FeatureSymbols returns the Store's FeatureSymbols port.
-func (s *Store) FeatureSymbols() FeatureSymbols { return &featureSymbolsStore{db: s} }
+func (s *Store) FeatureSymbols() FeatureSymbols {
+	return &featureSymbolsStore{q: s.queries()}
+}
 
-type featureSymbolsStore struct{ db *Store }
+type featureSymbolsStore struct{ q *sqlc.Queries }
 
-const featureSymbolsSelectCols = `feature_id, symbol_id, role, source`
-
-func scanFeatureSymbolLink(row interface{ Scan(...any) error }) (FeatureSymbolLink, error) {
-	var (
-		l      FeatureSymbolLink
-		role   string
-		source string
-	)
-	if err := row.Scan(&l.FeatureID, &l.SymbolID, &role, &source); err != nil {
-		return FeatureSymbolLink{}, err
+func fromSQLCFeatureSymbol(r sqlc.FeatureSymbol) FeatureSymbolLink {
+	return FeatureSymbolLink{
+		FeatureID: shared.FeatureID(r.FeatureID),
+		SymbolID:  r.SymbolID,
+		Role:      FeatureSymbolRole(r.Role),
+		Source:    FeatureSymbolSource(r.Source),
 	}
-	l.Role = FeatureSymbolRole(role)
-	l.Source = FeatureSymbolSource(source)
-	return l, nil
 }
 
 func (s *featureSymbolsStore) Link(ctx context.Context, l FeatureSymbolLink) error {
@@ -88,10 +84,12 @@ func (s *featureSymbolsStore) Link(ctx context.Context, l FeatureSymbolLink) err
 		l.Source = SourceAnnotation
 	}
 
-	_, err := s.db.sqlDB().ExecContext(ctx, `
-		INSERT OR IGNORE INTO feature_symbols (feature_id, symbol_id, role, source)
-		VALUES (?, ?, ?, ?)
-	`, string(l.FeatureID), l.SymbolID, string(l.Role), string(l.Source))
+	err := s.q.LinkFeatureSymbol(ctx, sqlc.LinkFeatureSymbolParams{
+		FeatureID: string(l.FeatureID),
+		SymbolID:  l.SymbolID,
+		Role:      string(l.Role),
+		Source:    string(l.Source),
+	})
 	if err != nil {
 		return fmt.Errorf("feature_symbols link: %w", err)
 	}
@@ -99,53 +97,38 @@ func (s *featureSymbolsStore) Link(ctx context.Context, l FeatureSymbolLink) err
 }
 
 func (s *featureSymbolsStore) ListByFeature(ctx context.Context, featureID shared.FeatureID) ([]FeatureSymbolLink, error) {
-	rows, err := s.db.sqlDB().QueryContext(ctx,
-		`SELECT `+featureSymbolsSelectCols+` FROM feature_symbols
-		 WHERE feature_id = ? ORDER BY role, symbol_id`, string(featureID))
+	rows, err := s.q.ListFeatureSymbolsByFeature(ctx, string(featureID))
 	if err != nil {
 		return nil, fmt.Errorf("feature_symbols by-feature: %w", err)
 	}
-	defer rows.Close()
-
-	var out []FeatureSymbolLink
-	for rows.Next() {
-		l, err := scanFeatureSymbolLink(rows)
-		if err != nil {
-			return nil, fmt.Errorf("feature_symbols scan: %w", err)
-		}
-		out = append(out, l)
+	out := make([]FeatureSymbolLink, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, fromSQLCFeatureSymbol(r))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *featureSymbolsStore) ListBySymbol(ctx context.Context, symbolID int64) ([]FeatureSymbolLink, error) {
-	rows, err := s.db.sqlDB().QueryContext(ctx,
-		`SELECT `+featureSymbolsSelectCols+` FROM feature_symbols
-		 WHERE symbol_id = ? ORDER BY feature_id, role`, symbolID)
+	rows, err := s.q.ListFeatureSymbolsBySymbol(ctx, symbolID)
 	if err != nil {
 		return nil, fmt.Errorf("feature_symbols by-symbol: %w", err)
 	}
-	defer rows.Close()
-
-	var out []FeatureSymbolLink
-	for rows.Next() {
-		l, err := scanFeatureSymbolLink(rows)
-		if err != nil {
-			return nil, fmt.Errorf("feature_symbols scan: %w", err)
-		}
-		out = append(out, l)
+	out := make([]FeatureSymbolLink, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, fromSQLCFeatureSymbol(r))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *featureSymbolsStore) Unlink(ctx context.Context, featureID shared.FeatureID, symbolID int64, role FeatureSymbolRole) error {
-	res, err := s.db.sqlDB().ExecContext(ctx,
-		`DELETE FROM feature_symbols WHERE feature_id = ? AND symbol_id = ? AND role = ?`,
-		string(featureID), symbolID, string(role))
+	n, err := s.q.UnlinkFeatureSymbol(ctx, sqlc.UnlinkFeatureSymbolParams{
+		FeatureID: string(featureID),
+		SymbolID:  symbolID,
+		Role:      string(role),
+	})
 	if err != nil {
 		return fmt.Errorf("feature_symbols unlink: %w", err)
 	}
-	n, _ := res.RowsAffected()
 	if n == 0 {
 		return shared.ErrNotFound
 	}

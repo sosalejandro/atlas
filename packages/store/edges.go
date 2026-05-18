@@ -2,11 +2,11 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
 
 // EdgeKind matches the CHECK constraint on `edges.kind`.
@@ -24,13 +24,13 @@ const (
 // from/to are surrogate INTEGER FKs into symbols. Callers that want to
 // work with qualified names use Edges.OutByName / Edges.InByName instead.
 type EdgeRow struct {
-	ID         int64     `json:"id"`
-	FromID     int64     `json:"from_symbol_id"`
-	ToID       int64     `json:"to_symbol_id"`
-	Kind       EdgeKind  `json:"kind"`
-	FilePath   string    `json:"file_path"`
-	Line       int       `json:"line"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID        int64     `json:"id"`
+	FromID    int64     `json:"from_symbol_id"`
+	ToID      int64     `json:"to_symbol_id"`
+	Kind      EdgeKind  `json:"kind"`
+	FilePath  string    `json:"file_path"`
+	Line      int       `json:"line"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // WalkResult is one node visited by Edges.Walk — produced by the recursive
@@ -70,22 +70,23 @@ type Edges interface {
 var _ Edges = (*edgesStore)(nil)
 
 // Edges returns the Store's Edges port.
-func (s *Store) Edges() Edges { return &edgesStore{db: s} }
+func (s *Store) Edges() Edges { return &edgesStore{db: s, q: s.queries()} }
 
-type edgesStore struct{ db *Store }
+type edgesStore struct {
+	db *Store
+	q  *sqlc.Queries
+}
 
-const edgesSelectCols = `id, from_symbol_id, to_symbol_id, kind, file_path, line, created_at`
-
-func scanEdgeRow(row interface{ Scan(...any) error }) (EdgeRow, error) {
-	var (
-		r    EdgeRow
-		kind string
-	)
-	if err := row.Scan(&r.ID, &r.FromID, &r.ToID, &kind, &r.FilePath, &r.Line, &r.CreatedAt); err != nil {
-		return EdgeRow{}, err
+func fromSQLCEdge(r sqlc.Edge) EdgeRow {
+	return EdgeRow{
+		ID:        r.ID,
+		FromID:    r.FromSymbolID,
+		ToID:      r.ToSymbolID,
+		Kind:      EdgeKind(r.Kind),
+		FilePath:  r.FilePath,
+		Line:      int(r.Line),
+		CreatedAt: r.CreatedAt,
 	}
-	r.Kind = EdgeKind(kind)
-	return r, nil
 }
 
 func (s *edgesStore) Insert(ctx context.Context, e EdgeRow) (int64, error) {
@@ -99,11 +100,13 @@ func (s *edgesStore) Insert(ctx context.Context, e EdgeRow) (int64, error) {
 		return 0, fmt.Errorf("edges insert: file_path required")
 	}
 
-	res, err := s.db.sqlDB().ExecContext(ctx, `
-		INSERT OR IGNORE INTO edges
-		  (from_symbol_id, to_symbol_id, kind, file_path, line)
-		VALUES (?, ?, ?, ?, ?)
-	`, e.FromID, e.ToID, string(e.Kind), e.FilePath, e.Line)
+	res, err := s.q.InsertEdge(ctx, sqlc.InsertEdgeParams{
+		FromSymbolID: e.FromID,
+		ToSymbolID:   e.ToID,
+		Kind:         string(e.Kind),
+		FilePath:     e.FilePath,
+		Line:         int64(e.Line),
+	})
 	if err != nil {
 		return 0, fmt.Errorf("edges insert: %w", err)
 	}
@@ -112,12 +115,13 @@ func (s *edgesStore) Insert(ctx context.Context, e EdgeRow) (int64, error) {
 		return id, nil
 	}
 	// Composite unique index already had this edge — look up the existing id.
-	var existing int64
-	err = s.db.sqlDB().QueryRowContext(ctx, `
-		SELECT id FROM edges
-		WHERE from_symbol_id = ? AND to_symbol_id = ? AND kind = ?
-		  AND file_path = ? AND line = ?
-	`, e.FromID, e.ToID, string(e.Kind), e.FilePath, e.Line).Scan(&existing)
+	existing, err := s.q.GetEdgeID(ctx, sqlc.GetEdgeIDParams{
+		FromSymbolID: e.FromID,
+		ToSymbolID:   e.ToID,
+		Kind:         string(e.Kind),
+		FilePath:     e.FilePath,
+		Line:         int64(e.Line),
+	})
 	if err != nil {
 		return 0, fmt.Errorf("edges insert (lookup existing): %w", err)
 	}
@@ -125,44 +129,48 @@ func (s *edgesStore) Insert(ctx context.Context, e EdgeRow) (int64, error) {
 }
 
 func (s *edgesStore) Out(ctx context.Context, fromID int64) ([]EdgeRow, error) {
-	rows, err := s.db.sqlDB().QueryContext(ctx,
-		`SELECT `+edgesSelectCols+` FROM edges WHERE from_symbol_id = ? ORDER BY file_path, line`, fromID)
+	rows, err := s.q.ListEdgesOut(ctx, fromID)
 	if err != nil {
 		return nil, fmt.Errorf("edges out: %w", err)
 	}
-	defer rows.Close()
-	return collectEdgeRows(rows)
+	out := make([]EdgeRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, fromSQLCEdge(r))
+	}
+	return out, nil
 }
 
 func (s *edgesStore) In(ctx context.Context, toID int64) ([]EdgeRow, error) {
-	rows, err := s.db.sqlDB().QueryContext(ctx,
-		`SELECT `+edgesSelectCols+` FROM edges WHERE to_symbol_id = ? ORDER BY file_path, line`, toID)
+	rows, err := s.q.ListEdgesIn(ctx, toID)
 	if err != nil {
 		return nil, fmt.Errorf("edges in: %w", err)
 	}
-	defer rows.Close()
-	return collectEdgeRows(rows)
+	out := make([]EdgeRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, fromSQLCEdge(r))
+	}
+	return out, nil
 }
 
-func collectEdgeRows(rows *sql.Rows) ([]EdgeRow, error) {
-	var out []EdgeRow
-	for rows.Next() {
-		r, err := scanEdgeRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("edges scan: %w", err)
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-func (s *edgesStore) Walk(ctx context.Context, fromID int64, maxDepth int) ([]WalkResult, error) {
-	if maxDepth <= 0 {
-		maxDepth = 50 // sane default ceiling; callers can override
-	}
-	const q = `
-WITH RECURSIVE chain(from_id, to_id, depth, path) AS (
-  SELECT e.from_symbol_id, e.to_symbol_id, 1,
+// traceCallChainSQL is the recursive CTE that walks `call` edges depth-first
+// from a root symbol up to maxDepth. It stays as raw SQL because sqlc's
+// sqlite engine (as of v1.31.1) drops the column-name binding on
+// `WITH RECURSIVE chain(...)` and rejects the recursive arm's references
+// to those columns. See packages/store/queries/edges.sql for the note.
+//
+// We column-bind the qualified names into the CTE itself rather than
+// resolving them via correlated subqueries in the outer SELECT. The CTE
+// already JOINs `symbols` for the path string, so carrying the names
+// forward as columns costs nothing extra. The alternative — two
+// `(SELECT qualified_name FROM symbols WHERE id = chain.from_id)`
+// subqueries in the final projection — issues a fresh lookup per chain row
+// (N+1 against `symbols`), which gets expensive on call graphs with
+// thousands of nodes.
+const traceCallChainSQL = `
+WITH RECURSIVE chain(from_id, to_id, from_name, to_name, depth, path) AS (
+  SELECT e.from_symbol_id, e.to_symbol_id,
+         s.qualified_name, t.qualified_name,
+         1,
          s.qualified_name || ' -> ' || t.qualified_name
   FROM edges e
   JOIN symbols s ON s.id = e.from_symbol_id
@@ -170,20 +178,24 @@ WITH RECURSIVE chain(from_id, to_id, depth, path) AS (
   WHERE e.from_symbol_id = ?
     AND e.kind = 'call'
   UNION ALL
-  SELECT c.to_id, e.to_symbol_id, c.depth + 1,
+  SELECT c.to_id, e.to_symbol_id,
+         c.to_name, t.qualified_name,
+         c.depth + 1,
          c.path || ' -> ' || t.qualified_name
   FROM chain c
   JOIN edges  e ON e.from_symbol_id = c.to_id AND e.kind = 'call'
   JOIN symbols t ON t.id = e.to_symbol_id
   WHERE c.depth < ?
 )
-SELECT depth,
-       (SELECT qualified_name FROM symbols WHERE id = chain.from_id),
-       (SELECT qualified_name FROM symbols WHERE id = chain.to_id),
-       path
+SELECT depth, from_name, to_name, path
 FROM chain ORDER BY depth, path
 `
-	rows, err := s.db.sqlDB().QueryContext(ctx, q, fromID, maxDepth)
+
+func (s *edgesStore) Walk(ctx context.Context, fromID int64, maxDepth int) ([]WalkResult, error) {
+	if maxDepth <= 0 {
+		maxDepth = 50 // sane default ceiling; callers can override
+	}
+	rows, err := s.db.sqlDB().QueryContext(ctx, traceCallChainSQL, fromID, maxDepth)
 	if err != nil {
 		return nil, fmt.Errorf("edges walk: %w", err)
 	}
@@ -207,8 +219,7 @@ func (s *edgesStore) DeleteByFile(ctx context.Context, filePath string) error {
 	if filePath == "" {
 		return fmt.Errorf("edges delete-by-file: file_path required")
 	}
-	_, err := s.db.sqlDB().ExecContext(ctx, `DELETE FROM edges WHERE file_path = ?`, filePath)
-	if err != nil {
+	if err := s.q.DeleteEdgesByFile(ctx, filePath); err != nil {
 		return fmt.Errorf("edges delete-by-file %q: %w", filePath, err)
 	}
 	return nil
