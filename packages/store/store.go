@@ -8,9 +8,13 @@ import (
 	"fmt"
 
 	"github.com/golang-migrate/migrate/v4"
+	// The modernc.org/sqlite driver is registered as a side-effect of
+	// importing migrate/v4/database/sqlite below — that package carries the
+	// same `_ "modernc.org/sqlite"` blank import. We deliberately rely on
+	// that transitive registration instead of duplicating the blank import
+	// here; keep the chain unbroken if the migrate dep is ever swapped out.
 	migratesqlite "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	_ "modernc.org/sqlite"
 
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store/sqlc"
