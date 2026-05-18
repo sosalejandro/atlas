@@ -90,6 +90,124 @@ func TestSymbols_ListFilter(t *testing.T) {
 	}
 }
 
+// TestSymbols_ListFilter_Permutations is the regression suite for the
+// sqlc-narg-style ListSymbols refactor (issue #10/finding-3). It seeds
+// a known fixture and exercises every single-field filter + a few
+// combined ones — empty fields short-circuit the predicate, populated
+// fields narrow.
+func TestSymbols_ListFilter_Permutations(t *testing.T) {
+	s := openTestStore(t)
+	syms := s.Symbols()
+	ctx := context.Background()
+
+	// Fixture: three packages × two BCs × mixed kinds across four files.
+	fixture := []SymbolRow{
+		{QualifiedName: "alpha.A1", Kind: shared.KindFunc, FilePath: "src/contexts/alpha/a.go", Line: 1, Package: mustPtr("alpha"), BCPath: mustPtr("src/contexts/alpha")},
+		{QualifiedName: "alpha.A2", Kind: shared.KindMethod, FilePath: "src/contexts/alpha/a.go", Line: 20, Package: mustPtr("alpha"), BCPath: mustPtr("src/contexts/alpha")},
+		{QualifiedName: "alpha.B1", Kind: shared.KindFunc, FilePath: "src/contexts/alpha/b.go", Line: 1, Package: mustPtr("alpha"), BCPath: mustPtr("src/contexts/alpha")},
+		{QualifiedName: "beta.C1", Kind: shared.KindFunc, FilePath: "src/contexts/beta/c.go", Line: 1, Package: mustPtr("beta"), BCPath: mustPtr("src/contexts/beta")},
+		{QualifiedName: "beta.C2", Kind: shared.KindType, FilePath: "src/contexts/beta/c.go", Line: 5, Package: mustPtr("beta"), BCPath: mustPtr("src/contexts/beta")},
+		// One row deliberately omits package + bc_path so we can verify
+		// nullable-column filters skip it when their predicate is opt-in.
+		{QualifiedName: "loose.L1", Kind: shared.KindFunc, FilePath: "src/loose.go", Line: 1},
+	}
+	for _, row := range fixture {
+		if _, err := syms.Insert(ctx, row); err != nil {
+			t.Fatalf("Insert %s: %v", row.QualifiedName, err)
+		}
+	}
+
+	cases := []struct {
+		name   string
+		filter SymbolFilter
+		wantQN []string
+	}{
+		{
+			name:   "no filters returns all rows ordered by file_path,line,qualified_name",
+			filter: SymbolFilter{},
+			wantQN: []string{"alpha.A1", "alpha.A2", "alpha.B1", "beta.C1", "beta.C2", "loose.L1"},
+		},
+		{
+			name:   "file_path only",
+			filter: SymbolFilter{FilePath: "src/contexts/alpha/a.go"},
+			wantQN: []string{"alpha.A1", "alpha.A2"},
+		},
+		{
+			name:   "package only",
+			filter: SymbolFilter{Package: "alpha"},
+			wantQN: []string{"alpha.A1", "alpha.A2", "alpha.B1"},
+		},
+		{
+			name:   "bc_path only",
+			filter: SymbolFilter{BCPath: "src/contexts/beta"},
+			wantQN: []string{"beta.C1", "beta.C2"},
+		},
+		{
+			name:   "kind only (method narrows past file boundary)",
+			filter: SymbolFilter{Kind: shared.KindMethod},
+			wantQN: []string{"alpha.A2"},
+		},
+		{
+			name:   "kind=type only",
+			filter: SymbolFilter{Kind: shared.KindType},
+			wantQN: []string{"beta.C2"},
+		},
+		{
+			name:   "package+kind composed",
+			filter: SymbolFilter{Package: "alpha", Kind: shared.KindFunc},
+			wantQN: []string{"alpha.A1", "alpha.B1"},
+		},
+		{
+			name:   "file_path+kind composed",
+			filter: SymbolFilter{FilePath: "src/contexts/alpha/a.go", Kind: shared.KindFunc},
+			wantQN: []string{"alpha.A1"},
+		},
+		{
+			name:   "bc_path+package composed",
+			filter: SymbolFilter{BCPath: "src/contexts/alpha", Package: "alpha"},
+			wantQN: []string{"alpha.A1", "alpha.A2", "alpha.B1"},
+		},
+		{
+			name:   "all four filters composed (most-specific)",
+			filter: SymbolFilter{FilePath: "src/contexts/beta/c.go", Package: "beta", BCPath: "src/contexts/beta", Kind: shared.KindType},
+			wantQN: []string{"beta.C2"},
+		},
+		{
+			name:   "no-match returns empty (not nil error)",
+			filter: SymbolFilter{Package: "does-not-exist"},
+			wantQN: []string{},
+		},
+		{
+			name:   "audit-layer kind is normalized to func before bind",
+			filter: SymbolFilter{Kind: shared.KindHandler, Package: "alpha"},
+			wantQN: []string{"alpha.A1", "alpha.B1"}, // method A2 excluded; func A1+B1 included after normalize
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := syms.List(ctx, tc.filter)
+			if err != nil {
+				t.Fatalf("List(%+v): %v", tc.filter, err)
+			}
+			gotQN := make([]string, 0, len(got))
+			for _, r := range got {
+				gotQN = append(gotQN, string(r.QualifiedName))
+			}
+			if len(gotQN) != len(tc.wantQN) {
+				t.Fatalf("List(%+v) returned %d rows, want %d\n got: %v\nwant: %v",
+					tc.filter, len(gotQN), len(tc.wantQN), gotQN, tc.wantQN)
+			}
+			for i := range gotQN {
+				if gotQN[i] != tc.wantQN[i] {
+					t.Errorf("List(%+v)[%d] = %q, want %q (got=%v want=%v)",
+						tc.filter, i, gotQN[i], tc.wantQN[i], gotQN, tc.wantQN)
+				}
+			}
+		})
+	}
+}
+
 func TestSymbols_DeleteByFile_CascadesEdges(t *testing.T) {
 	s := openTestStore(t)
 	syms := s.Symbols()

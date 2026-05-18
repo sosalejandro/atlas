@@ -58,6 +58,21 @@ type Querier interface {
 	ListFeaturesByKind(ctx context.Context, kind string) ([]Feature, error)
 	ListFileHashes(ctx context.Context) ([]FileHash, error)
 	ListSnapshotsByGitRef(ctx context.Context, gitRef string) ([]Snapshot, error)
+	// Returns rows that match every non-empty filter, ordered deterministically.
+	// Each filter is opt-in via the sentinel-empty-string idiom: pass the empty
+	// string for a column to disable that predicate; pass a value to match it
+	// exactly. We use sentinels instead of sqlc.narg because as of sqlc v1.31.1
+	// the sqlite engine ANTLR grammar rejects the post-substituted placeholders
+	// the narg lowering emits (see sqlc-dev/sqlc#1881, #3508).
+	//
+	// None of these columns store the empty value as a legitimate row: the
+	// parser layer always populates file_path + kind, and package / bc_path
+	// are either non-empty or NULL.
+	//
+	// Callers must normalize Kind to the closed schema-v1 set BEFORE binding
+	// (see normalizeKind) so the equality match never silently misses an
+	// audit-layer value that would have collapsed at insert time.
+	ListSymbols(ctx context.Context, arg ListSymbolsParams) ([]Symbol, error)
 	// Resolves an annotation at file:line to the symbol it attaches to. Atlas
 	// annotations sit in the comment block immediately above their target
 	// (Go: doc comment above the func decl). The "nearest symbol at or after

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/shared"
@@ -225,55 +224,29 @@ func (s *symbolsStore) FindByQualifiedName(ctx context.Context, qn shared.Symbol
 	return fromSQLCSymbol(row), nil
 }
 
-// List uses raw SQL because the filter set is genuinely dynamic
-// (file_path, package, bc_path, kind — each optional). sqlc's sqlite engine
-// does not express conditional WHERE clauses well; the alternative is a 16x
-// query-variant explosion. The raw query stays trivial: one prepared SELECT
-// with a per-field placeholder.
+// List delegates to the sqlc-generated ListSymbols query. Each filter
+// field is opt-in via empty-string sentinels — the query short-circuits
+// the predicate for any arg that's the zero value. See queries/symbols.sql
+// for the rationale (TL;DR: sqlc v1.31.1 sqlite engine rejects sqlc.narg
+// post-substitution, so we encode the IS-NULL-OR-EQUALS semantics with
+// '' instead of NULL).
 func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, error) {
-	var (
-		where []string
-		args  []any
-	)
-	if f.FilePath != "" {
-		where = append(where, "file_path = ?")
-		args = append(args, f.FilePath)
-	}
-	if f.Package != "" {
-		where = append(where, "package = ?")
-		args = append(args, f.Package)
-	}
-	if f.BCPath != "" {
-		where = append(where, "bc_path = ?")
-		args = append(args, f.BCPath)
-	}
+	kind := ""
 	if f.Kind != "" {
-		where = append(where, "kind = ?")
-		args = append(args, string(normalizeKind(f.Kind)))
+		kind = string(normalizeKind(f.Kind))
 	}
-
-	q := `SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches FROM symbols`
-	if len(where) > 0 {
-		q += " WHERE " + strings.Join(where, " AND ")
-	}
-	q += " ORDER BY file_path, line, qualified_name"
-
-	rows, err := s.db.sqlDB().QueryContext(ctx, q, args...)
+	rows, err := s.q.ListSymbols(ctx, sqlc.ListSymbolsParams{
+		FilePath: f.FilePath,
+		Package:  f.Package,
+		BcPath:   f.BCPath,
+		Kind:     kind,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("symbols list: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-
-	var out []SymbolRow
-	for rows.Next() {
-		row, err := scanSymbolRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("symbols rows: %w", err)
+	out := make([]SymbolRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, fromSQLCSymbol(r))
 	}
 	return out, nil
 }
