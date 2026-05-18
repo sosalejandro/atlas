@@ -11,6 +11,24 @@ instead.
 
 ---
 
+## Cutover quickstart (read this first)
+
+If you just want the happy path, this is it. Five steps, in order:
+
+1. `go install github.com/sosalejandro/atlas/cmd/atlas@latest`
+2. `cd path/to/your/repo`
+3. `atlas init` — creates `.atlas/atlas.db` and a minimal `.atlas.yaml`.
+4. `atlas audit --worst 10` — health-scored top offenders for the codebase.
+5. `atlas trace <a-feature-id>` — walk the call graph for any feature you
+   already annotated. Saga walks use the `saga:<id>` prefix:
+   `atlas trace saga:meal-prep-flow`.
+
+The sections below explain the cutover in detail: annotation grammar, what
+happens to the YAML registry, the CLI rename map, the `.atlas.yaml` schema,
+taskfile rewrites, and rollback.
+
+---
+
 ## 1. Why Atlas (one paragraph)
 
 testreg grew into a single 36k-LOC Go binary covering 8+ distinct concerns
@@ -68,22 +86,27 @@ files; every code-level membership change required a parallel YAML edit.
 This was the dominant drift source.
 
 **Atlas does not use the YAML registry as source of truth.** Feature
-membership is re-derived from code annotations on every `atlas scan`.
+membership is re-derived from code annotations on every `atlas scan`. In
+Phase 9 the source of truth is in-code annotations; the legacy YAML files
+contain no data Atlas doesn't already pick up from `@testreg` / `@atlas:*`
+comments on the symbols themselves.
 
-One-time import to seed Atlas's SQLite store from your existing YAMLs:
+There is no YAML import step. Run a normal scan and the SQLite store
+materializes from annotations alone:
 
 ```bash
-atlas init --import-yaml docs/testing/registry/
+atlas init        # creates .atlas/atlas.db + minimal .atlas.yaml
+atlas scan        # populates symbols, annotations, features
 ```
 
-After import, move the YAML directory aside so it isn't accidentally edited:
+Then move the legacy YAML directory aside so it isn't accidentally edited:
 
 ```bash
 mkdir -p docs/testing/registry/_legacy
 git mv docs/testing/registry/*.yaml docs/testing/registry/_legacy/
 ```
 
-The `_legacy/` directory is kept for:
+The `_legacy/` directory is reference-only post-cutover. It is kept for:
 
 - Rollback (see §8).
 - Historical reference — what the registry *thought* a feature contained
@@ -104,7 +127,7 @@ feature from the SQLite store at any time. The YAML format is now an
 | `testreg trace <id>`     | `atlas trace <id>`              | Same chain output; default format `text`, `--format json` stable.  |
 | `testreg audit`          | `atlas audit`                   | Same health-scoring algo (regressed within ±5%).                   |
 | `testreg sprint`         | `atlas sprint`                  | Same gap-weighted prioritization.                                  |
-| `testreg init`           | `atlas init [--import-yaml DIR]`| `--import-yaml` is new — seeds SQLite from legacy YAML.            |
+| `testreg init`           | `atlas init`                    | Creates `.atlas/atlas.db` + a minimal `.atlas.yaml`. No YAML import — annotations are the source of truth.  |
 | `testreg serve`          | **DROPPED**                     | No dashboard in v0. JSON outputs are stable; see §9.               |
 | `testreg gaps`           | `atlas cov status --uncovered`  | Subsumed under the `cov` verb namespace.                           |
 | `testreg report`         | `atlas audit --format markdown` | Or `--format json`. Same data, new flag plumbing.                  |
@@ -125,6 +148,14 @@ feature from the SQLite store at any time. The YAML format is now an
 - `atlas cov ingest` / `atlas cov status` / `atlas cov sync`
 - `atlas dump` (read-only views from SQLite store)
 
+Saga walks reuse the `trace` verb with a `saga:<id>` prefix on the argument
+(there is no separate `atlas codebase saga` verb):
+
+```bash
+# Walk a named saga's step sequence
+atlas trace saga:meal-prep-flow
+```
+
 Every subcommand has stable JSON output behind `--format json`. The schema
 is documented under `docs/api/` and is part of the v0 contract — see §9.
 
@@ -132,54 +163,59 @@ is documented under `docs/api/` and is part of the v0 contract — see §9.
 
 ## 5. Config rename — `.testreg.yaml` → `.atlas.yaml`
 
-The repo-root config file is renamed. **Same fields supported.**
+The repo-root config file is renamed. The **v0 schema is intentionally
+narrow** — Atlas only reads the fields it actively uses. Anything the binary
+doesn't consume is silently ignored, so a kitchen-sink config copied from
+testreg won't error, but it won't do anything either. The supported fields
+are defined by the `Config` struct in
+[`internal/cli/config.go`](../internal/cli/config.go).
 
-| Field             | testreg `.testreg.yaml` | Atlas `.atlas.yaml`     | Notes                              |
-| ----------------- | ----------------------- | ----------------------- | ---------------------------------- |
-| Project name      | `graph.project_name`    | `project_name`          | Promoted to top-level.             |
-| Scan roots        | `graph.backend_root`    | `scan.roots: [...]`     | List, not single string.           |
-| Ignore patterns   | `graph.ignore_packages` | `scan.ignore: [...]`    | Glob patterns supported.           |
-| Cache directory   | `graph.cache_dir`       | `cache_dir`             | Default `.atlas-cache`.            |
-| Output paths      | `report.output_dir`     | `output_dir`            | Default `.atlas-results`.          |
-| Max graph depth   | `graph.max_depth`       | `scan.max_depth`        | Same default (10).                 |
-| Ignore functions  | `graph.ignore_functions`| `scan.ignore_symbols`   | Same semantics, clearer name.      |
-| Layer rules       | `layer_rules`           | `layer_rules`           | Carried over unchanged.            |
-| Contract exempt   | `contract.exempt: [...]`| `contract.exempt: [...]`| Carried over unchanged.            |
+### Supported fields (Phase 7)
+
+| Field                            | Type        | Default                  | Purpose                                                            |
+| -------------------------------- | ----------- | ------------------------ | ------------------------------------------------------------------ |
+| `db_path`                        | string      | `.atlas/atlas.db`        | SQLite store path. Relative paths anchor at the git repo root.     |
+| `scan.skip_dirs`                 | []string    | `[vendor, node_modules, dist, build]` | Directory names skipped by the scanner.                |
+| `scan.skip_ts`                   | bool        | `false`                  | Skip the TS scanner entirely (Go-only mode).                       |
+| `audit.freshness_window_days`    | int         | `30`                     | How recently a feature must have been touched to count "fresh".    |
+| `audit.contract_drift_window_days` | int       | `30`                     | Grace window before contract drift gets flagged.                   |
+| `sprint.default_top_n`           | int         | `10`                     | Default `--top` for `atlas sprint` when the flag is omitted.       |
+
+Additional config fields will be added as new phases require them; testreg's
+broader config surface is intentionally pared back for v0. Fields the binary
+doesn't read (`scan.roots`, `scan.ignore`, `scan.max_depth`, `contract.exempt`,
+`layer_rules`, `ignore_symbols`, `project_name`, `cache_dir`, `output_dir`)
+were doc aspirations from earlier phases and are not currently honored — do
+not write them into your config.
 
 ### Transition behavior
 
-Atlas accepts both `.atlas.yaml` and `.testreg.yaml` during the transition
-window. Precedence:
+Atlas reads `.atlas.yaml` at the repo root (the directory `git rev-parse
+--show-toplevel` reports), falling back to the current working directory when
+not inside a repo. If no config file exists, the built-in defaults apply —
+running with no config is a supported workflow. Specify a non-default path
+with the global `--config <path>` flag.
 
-1. `.atlas.yaml` if present.
-2. Else `.testreg.yaml` (with a stderr deprecation notice once per run).
-3. Else built-in defaults.
-
-The `.testreg.yaml` fallback exists so a half-migrated repo isn't broken
-mid-PR. Plan to delete `.testreg.yaml` in the same commit that adds
-`.atlas.yaml` for cleanliness.
+There is no `.testreg.yaml` fallback in v0; rename the file as part of the
+cutover commit.
 
 ### Example `.atlas.yaml`
 
 ```yaml
-project_name: nutrition-v2-go
-cache_dir: .atlas-cache
-output_dir: .atlas-results
+# All fields are optional; this example shows every supported key with the
+# default value spelled out. Omit any field to take the default.
+db_path: .atlas/atlas.db
 
 scan:
-  roots: [src, apps/web-patient/src, apps/web-nutritionist/src]
-  ignore: [node_modules, vendor, "**/*_gen.go"]
-  ignore_symbols: [String, Error]
-  max_depth: 10
+  skip_dirs: [vendor, node_modules, dist, build]
+  skip_ts: false
 
-contract:
-  exempt:
-    - { feature: legacy.batch-import, reason: "external CSV pipeline; no HTTP contract" }
+audit:
+  freshness_window_days: 30
+  contract_drift_window_days: 30
 
-layer_rules:
-  - { pattern: src/contexts/*/domain/**,         layer: domain }
-  - { pattern: src/contexts/*/application/**,    layer: application }
-  - { pattern: src/contexts/*/infrastructure/**, layer: infrastructure }
+sprint:
+  default_top_n: 10
 ```
 
 ---
@@ -216,8 +252,8 @@ sync:
 ```
 
 `atlas cov sync` replaces the manual `import:go` / `import:playwright` /
-`import:vitest` chain — it walks `.atlas-results/` (or the configured
-`output_dir`), detects each framework's JSON shape, and ingests in one pass.
+`import:vitest` chain — it walks `.atlas-results/`, detects each framework's
+JSON shape, and ingests in one pass.
 
 ### Task `audit`
 
@@ -327,19 +363,24 @@ half-migrated state on `main`.
    Update `Taskfile.yml`'s `includes:` block to point at `taskfiles/atlas.yml`
    in the same commit.
 
-4. **Bulk-import the legacy YAML registry into SQLite:**
+4. **Build the SQLite store from code annotations:**
    ```bash
-   atlas init --import-yaml docs/testing/registry/
+   atlas init     # creates .atlas/atlas.db + minimal .atlas.yaml
+   atlas scan     # walks the repo, materializes features from annotations
    ```
-   First run will scan + build the SQLite store. Expect ~30–60s on a
-   1k-feature codebase; subsequent runs are incremental (~5s).
+   In Phase 9 the source of truth is in-code annotations. There is no YAML
+   import step — the 40-ish YAML files under `docs/testing/registry/`
+   contain no data atlas doesn't already pick up from the `@testreg` /
+   `@atlas:*` comments on the symbols themselves. First scan takes
+   ~30–60s on a 1k-feature codebase; subsequent runs are incremental (~5s).
 
 5. **Archive the YAML registry:**
    ```bash
    mkdir -p docs/testing/registry/_legacy
    git mv docs/testing/registry/*.yaml docs/testing/registry/_legacy/
    ```
-   Keep `_legacy/` checked in so rollback (§8) is one `git revert` away.
+   Keep `_legacy/` checked in as reference-only material so rollback (§8) is
+   one `git revert` away. Nothing in Atlas reads from `_legacy/`.
 
 6. **Verify parity vs. the last testreg sync:**
    ```bash
