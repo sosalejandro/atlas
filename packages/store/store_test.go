@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -107,6 +110,70 @@ func TestOpen_AllTablesCreated(t *testing.T) {
 		if !seen[w] {
 			t.Errorf("missing table %q", w)
 		}
+	}
+}
+
+// TestRunMigrations_DirtyStateSurfacesInError pre-seeds schema_migrations
+// with dirty=1 and asserts that Open's wrapped error includes both the
+// version number and dirty flag — the two pieces of diagnostic info that
+// tell an operator "this DB needs manual intervention" (clear the dirty
+// flag, fix the migration, or delete the DB and reopen).
+//
+// Regression guard for issue #10/finding-2: prior to that fix Open only
+// surfaced "migrate.Up: <wrapped err>" with no version/dirty context.
+func TestRunMigrations_DirtyStateSurfacesInError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atlas-state.db")
+	ctx := context.Background()
+
+	// First open creates the DB + applies migrations cleanly.
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("initial Open: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Hand-edit schema_migrations to look mid-apply: bump version one past
+	// the highest real migration and flip dirty=1. The next Open's
+	// runMigrations call will see this as "needs Up()", invoke Up(), and
+	// the sqlite driver will refuse with migrate.ErrDirty{Version=N+1} —
+	// our wrap then captures version=N+1 dirty=true in the error string.
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)", path)
+	raw, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	var current int
+	if err := raw.QueryRowContext(ctx, `SELECT version FROM schema_migrations LIMIT 1`).Scan(&current); err != nil {
+		_ = raw.Close()
+		t.Fatalf("read schema_migrations version: %v", err)
+	}
+	if _, err := raw.ExecContext(ctx, `DELETE FROM schema_migrations`); err != nil {
+		_ = raw.Close()
+		t.Fatalf("clear schema_migrations: %v", err)
+	}
+	bogus := current + 1
+	if _, err := raw.ExecContext(ctx,
+		`INSERT INTO schema_migrations (version, dirty) VALUES (?, 1)`, bogus); err != nil {
+		_ = raw.Close()
+		t.Fatalf("seed dirty schema_migrations: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("raw Close: %v", err)
+	}
+
+	_, err = Open(ctx, path)
+	if err == nil {
+		t.Fatal("Open with dirty schema_migrations: expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, fmt.Sprintf("version=%d", bogus)) {
+		t.Errorf("error string missing version=%d: %q", bogus, msg)
+	}
+	if !strings.Contains(msg, "dirty=true") {
+		t.Errorf("error string missing dirty=true: %q", msg)
 	}
 }
 

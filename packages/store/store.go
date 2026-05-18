@@ -103,6 +103,14 @@ func OpenWithLogger(ctx context.Context, path string, logger shared.Logger) (*St
 // Up-only: Atlas does NOT ship `*.down.sql` files. golang-migrate tolerates
 // their absence — it just loses the ability to step down, which Atlas
 // doesn't need (the DB is a re-derivable cache; rollback is delete + reopen).
+//
+// On Up() failure we surface the database's (version, dirty) state via
+// m.Version() — the single most useful diagnostic when a migration breaks
+// half-way through (`dirty=true` means manual intervention is required:
+// either fix the migration and clear the dirty flag, or delete the DB
+// and reopen). m.Version() returns migrate.ErrNilVersion when no
+// migration has ever been applied; that case is reported separately so
+// the wrap message stays unambiguous.
 func runMigrations(db *sql.DB, path string) error {
 	src, err := iofs.New(schemaFS, "schema")
 	if err != nil {
@@ -117,7 +125,14 @@ func runMigrations(db *sql.DB, path string) error {
 		return fmt.Errorf("migrate.NewWithInstance: %w", err)
 	}
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("migrate.Up: %w", err)
+		v, dirty, vErr := m.Version()
+		if errors.Is(vErr, migrate.ErrNilVersion) {
+			return fmt.Errorf("migrate.Up (no prior version applied): %w", err)
+		}
+		if vErr != nil {
+			return fmt.Errorf("migrate.Up (version lookup failed: %v): %w", vErr, err)
+		}
+		return fmt.Errorf("migrate.Up (version=%d dirty=%v): %w", v, dirty, err)
 	}
 	return nil
 }
