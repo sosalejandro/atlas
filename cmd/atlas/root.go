@@ -15,5 +15,6 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.AddCommand(newTraceCmd())
+	root.AddCommand(newScanCoverageCmd())
 	return root
 }
