@@ -61,7 +61,7 @@ Tokens, separated by whitespace:
    `@atlas:feature #real checkout.cart` parses incorrectly — the first
    `#tag` token terminates the ID list.
 5. **IDs are validated by kind:**
-   - `feature` / `contract` — strict regex `[a-z0-9_]+(\.[a-z0-9_]+)*`. Case-sensitive lowercase + dot-namespacing. `Auth.Login` is rejected; `auth.login` is canonical.
+   - `feature` / `contract` — strict regex `[a-z0-9_-]+(\.[a-z0-9_-]+)*`. Case-sensitive: ids may contain lowercase letters, digits, underscores, and dashes; dot is the segment separator. `Auth.Login` is rejected (uppercase); `auth.login`, `plans-patient.export-pdf`, and `email-relay.dlq` are all canonical. Both kebab (`plans-patient`) and snake (`plans_patient`) segment shapes are valid — mix them in one id if you want (`plans-patient.export_v2`).
    - `owner` / `deprecated` / `since` — relaxed, accepts any non-whitespace token. This is necessary because owners (`platform-team`, `@alice`) and versions (`v2.0`, `1.4.0-beta`) don't fit the dot-namespace shape.
    The implementation in `packages/codeindex/annotations/parser.go` enforces these two grammars per kind. New kinds added via the registration mechanism (see "Forward compatibility") choose their own validator at registration time.
 
@@ -109,8 +109,9 @@ share the same canonical grammar; per-kind notes:
   split is queryable as a single view.
 
 All EDA kinds are validated against the strict id regex
-(`[a-z0-9_]+(\.[a-z0-9_]+)*`) — unlike `owner` / `deprecated` / `since`
-which carry free-form values.
+(`[a-z0-9_-]+(\.[a-z0-9_-]+)*`) — unlike `owner` / `deprecated` / `since`
+which carry free-form values. Both snake and kebab segments are accepted:
+`meal_prep.batch_session` and `email-relay.dlq` are both well-formed.
 
 ### Future kinds
 
@@ -459,9 +460,11 @@ The extensions on top of the legacy parser:
 
 - New regex matches `@atlas:<kind>\s+(.+)` in addition to `@testreg\s+(.+)`
 - Kind dispatch via the `Kinds` map (see [Kind registration](#kind-registration))
-- Stricter ID validation (`[a-z0-9_]+(\.[a-z0-9_]+)*`) under the new grammar;
+- Stricter ID validation (`[a-z0-9_-]+(\.[a-z0-9_-]+)*`) under the new grammar;
   legacy `@testreg` IDs are not re-validated to preserve the 1,110 existing
-  annotations untouched
+  annotations untouched. Dashes were added to the char class in issue #15 to
+  cover the nutrition-v2-go cutover corpus (`plans-patient.export-pdf`,
+  `email-relay.dlq`).
 - Block-comment unwrapping for `/* ... */` and `<!-- ... -->` so block-style
   annotations parse the same as line comments
 

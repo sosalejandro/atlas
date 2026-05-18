@@ -60,7 +60,14 @@ var sagaStepTagRe = regexp.MustCompile(`^step=([0-9]+)$`)
 // Only applies to NEW-grammar (@atlas:...) annotations. Legacy @testreg
 // annotations are intentionally NOT re-validated to preserve the existing
 // 1,110 annotations in nutrition-v2-go untouched.
-var idValidationRe = regexp.MustCompile(`^[a-z0-9_]+(\.[a-z0-9_]+)*$`)
+//
+// The character class includes `-` (dash) as well as underscore so the
+// nutrition-v2-go cutover corpus (kebab-style segments like
+// `plans-patient.export-pdf`, `email-relay.dlq`, `batch-sessions.cook`)
+// imports cleanly. Dot remains the segment separator; the anchored shape
+// `^seg(.seg)*$` still rejects leading/trailing dashes or dots, consecutive
+// dots, whitespace, and uppercase letters. See issue #15.
+var idValidationRe = regexp.MustCompile(`^[a-z0-9_-]+(\.[a-z0-9_-]+)*$`)
 
 var (
 	// New canonical grammar: `@atlas:<kind> <payload>`.
