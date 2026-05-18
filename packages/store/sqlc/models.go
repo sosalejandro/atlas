@@ -27,6 +27,12 @@ type AuditSnapshot struct {
 	BlockingFindingsJson string    `db:"blocking_findings_json" json:"blocking_findings_json"`
 }
 
+type AuditSnapshotRun struct {
+	ID         int64     `db:"id" json:"id"`
+	ComputedAt time.Time `db:"computed_at" json:"computed_at"`
+	ScoreJson  string    `db:"score_json" json:"score_json"`
+}
+
 type Config struct {
 	Key       string    `db:"key" json:"key"`
 	Value     string    `db:"value" json:"value"`

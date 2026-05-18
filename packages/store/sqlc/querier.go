@@ -17,6 +17,7 @@ type Querier interface {
 	DeleteFileHash(ctx context.Context, filePath string) error
 	DeleteSnapshot(ctx context.Context, id int64) (int64, error)
 	DeleteSymbolsByFile(ctx context.Context, filePath string) error
+	GetAuditSnapshotRun(ctx context.Context, id int64) (AuditSnapshotRun, error)
 	GetConfig(ctx context.Context, key string) (string, error)
 	GetCoverageRun(ctx context.Context, id int64) (CoverageRun, error)
 	GetEdgeID(ctx context.Context, arg GetEdgeIDParams) (int64, error)
@@ -26,17 +27,21 @@ type Querier interface {
 	GetSymbolByQualifiedName(ctx context.Context, qualifiedName string) (Symbol, error)
 	GetSymbolIDByQualifiedName(ctx context.Context, qualifiedName string) (int64, error)
 	InsertAuditSnapshot(ctx context.Context, arg InsertAuditSnapshotParams) (sql.Result, error)
+	InsertAuditSnapshotRun(ctx context.Context, scoreJson string) (sql.Result, error)
+	InsertAuditSnapshotRunWithTime(ctx context.Context, arg InsertAuditSnapshotRunWithTimeParams) (sql.Result, error)
 	InsertAuditSnapshotWithTime(ctx context.Context, arg InsertAuditSnapshotWithTimeParams) (sql.Result, error)
 	InsertCoverageResult(ctx context.Context, arg InsertCoverageResultParams) error
 	InsertCoverageRun(ctx context.Context, arg InsertCoverageRunParams) (sql.Result, error)
 	InsertEdge(ctx context.Context, arg InsertEdgeParams) (sql.Result, error)
 	InsertSnapshot(ctx context.Context, arg InsertSnapshotParams) (sql.Result, error)
 	InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql.Result, error)
+	LatestAuditSnapshotRun(ctx context.Context) (AuditSnapshotRun, error)
 	LinkFeatureSymbol(ctx context.Context, arg LinkFeatureSymbolParams) error
 	ListAllCoverageRuns(ctx context.Context) ([]CoverageRun, error)
 	ListAllFeatures(ctx context.Context) ([]Feature, error)
 	ListAllSnapshots(ctx context.Context) ([]Snapshot, error)
 	ListAnnotationsByFile(ctx context.Context, filePath string) ([]Annotation, error)
+	ListAuditSnapshotRuns(ctx context.Context, limit int64) ([]AuditSnapshotRun, error)
 	ListAuditSnapshotsByFeature(ctx context.Context, arg ListAuditSnapshotsByFeatureParams) ([]AuditSnapshot, error)
 	ListConfig(ctx context.Context) ([]Config, error)
 	ListCoverageResults(ctx context.Context, runID int64) ([]CoverageResult, error)
