@@ -21,6 +21,29 @@ func (q *Queries) DeleteFeature(ctx context.Context, id string) (int64, error) {
 	return result.RowsAffected()
 }
 
+const ensureFeature = `-- name: EnsureFeature :exec
+INSERT OR IGNORE INTO features (id, title, kind)
+VALUES (?, ?, ?)
+`
+
+type EnsureFeatureParams struct {
+	ID    string `db:"id" json:"id"`
+	Title string `db:"title" json:"title"`
+	Kind  string `db:"kind" json:"kind"`
+}
+
+// Inserts a feature row from the ingest path. Pure INSERT OR IGNORE -- if
+// the row already exists with richer metadata (title/owner/kind/etc set
+// by a prior atlas migrate or test harness), the ingest pass MUST NOT
+// clobber it back to the id-as-title default.
+//
+// Re-ingest of the same annotation produces zero row changes. Use the
+// explicit UpsertFeature path when callers genuinely want to overwrite.
+func (q *Queries) EnsureFeature(ctx context.Context, arg EnsureFeatureParams) error {
+	_, err := q.db.ExecContext(ctx, ensureFeature, arg.ID, arg.Title, arg.Kind)
+	return err
+}
+
 const getFeature = `-- name: GetFeature :one
 SELECT id, title, owner, kind, deprecated_since, introduced_in, created_at, updated_at
 FROM features

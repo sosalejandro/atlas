@@ -17,6 +17,14 @@ type Querier interface {
 	DeleteFileHash(ctx context.Context, filePath string) error
 	DeleteSnapshot(ctx context.Context, id int64) (int64, error)
 	DeleteSymbolsByFile(ctx context.Context, filePath string) error
+	// Inserts a feature row from the ingest path. Pure INSERT OR IGNORE -- if
+	// the row already exists with richer metadata (title/owner/kind/etc set
+	// by a prior atlas migrate or test harness), the ingest pass MUST NOT
+	// clobber it back to the id-as-title default.
+	//
+	// Re-ingest of the same annotation produces zero row changes. Use the
+	// explicit UpsertFeature path when callers genuinely want to overwrite.
+	EnsureFeature(ctx context.Context, arg EnsureFeatureParams) error
 	GetAuditSnapshotRun(ctx context.Context, id int64) (AuditSnapshotRun, error)
 	GetConfig(ctx context.Context, key string) (string, error)
 	GetCoverageRun(ctx context.Context, id int64) (CoverageRun, error)
@@ -53,6 +61,18 @@ type Querier interface {
 	ListFeaturesByKind(ctx context.Context, kind string) ([]Feature, error)
 	ListFileHashes(ctx context.Context) ([]FileHash, error)
 	ListSnapshotsByGitRef(ctx context.Context, gitRef string) ([]Snapshot, error)
+	// Resolves an annotation at file:line to the symbol it attaches to. Atlas
+	// annotations sit in the comment block immediately above their target
+	// (Go: doc comment above the func decl). The "nearest symbol at or after
+	// the annotation line, in the same file, within `max_lookahead` rows"
+	// rule is the simplest invariant that captures both `@atlas:feature`
+	// (one line above the func) and multi-line doc-block annotations
+	// (several lines above).
+	//
+	// Bounds are deliberate: drifting more than ~30 lines past the annotation
+	// almost always indicates the annotation is orphan (comment-only file or
+	// markdown), not a legitimate attach to a faraway function.
+	LookupSymbolAtOrAfterLine(ctx context.Context, arg LookupSymbolAtOrAfterLineParams) (Symbol, error)
 	SetConfig(ctx context.Context, arg SetConfigParams) error
 	SetSymbolPatternMatches(ctx context.Context, arg SetSymbolPatternMatchesParams) error
 	SetSymbolPatternMatchesByQualifiedName(ctx context.Context, arg SetSymbolPatternMatchesByQualifiedNameParams) error

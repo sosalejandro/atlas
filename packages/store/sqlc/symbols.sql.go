@@ -82,6 +82,51 @@ func (q *Queries) InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql
 	)
 }
 
+const lookupSymbolAtOrAfterLine = `-- name: LookupSymbolAtOrAfterLine :one
+SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
+FROM symbols
+WHERE file_path = ?1
+  AND line >= ?2
+  AND line <= ?2 + ?3
+ORDER BY line ASC
+LIMIT 1
+`
+
+type LookupSymbolAtOrAfterLineParams struct {
+	FilePath     string      `db:"file_path" json:"file_path"`
+	Line         int64       `db:"line" json:"line"`
+	MaxLookahead interface{} `db:"max_lookahead" json:"max_lookahead"`
+}
+
+// Resolves an annotation at file:line to the symbol it attaches to. Atlas
+// annotations sit in the comment block immediately above their target
+// (Go: doc comment above the func decl). The "nearest symbol at or after
+// the annotation line, in the same file, within `max_lookahead` rows"
+// rule is the simplest invariant that captures both `@atlas:feature`
+// (one line above the func) and multi-line doc-block annotations
+// (several lines above).
+//
+// Bounds are deliberate: drifting more than ~30 lines past the annotation
+// almost always indicates the annotation is orphan (comment-only file or
+// markdown), not a legitimate attach to a faraway function.
+func (q *Queries) LookupSymbolAtOrAfterLine(ctx context.Context, arg LookupSymbolAtOrAfterLineParams) (Symbol, error) {
+	row := q.db.QueryRowContext(ctx, lookupSymbolAtOrAfterLine, arg.FilePath, arg.Line, arg.MaxLookahead)
+	var i Symbol
+	err := row.Scan(
+		&i.ID,
+		&i.QualifiedName,
+		&i.Kind,
+		&i.FilePath,
+		&i.Line,
+		&i.EndLine,
+		&i.Package,
+		&i.BcPath,
+		&i.CreatedAt,
+		&i.PatternMatches,
+	)
+	return i, err
+}
+
 const setSymbolPatternMatches = `-- name: SetSymbolPatternMatches :exec
 UPDATE symbols SET pattern_matches = ? WHERE id = ?
 `

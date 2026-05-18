@@ -14,12 +14,11 @@ import (
 	"github.com/sosalejandro/atlas/packages/store"
 )
 
-// newInitCmd implements `atlas init` — first-time scan that creates
+// newInitCmd implements `atlas init` -- first-time scan that creates
 // `.atlas/atlas.db`, applies migrations, and ingests the project.
 func newInitCmd() *cobra.Command {
 	var (
 		root             string
-		importYAML       string
 		hashFiles        bool
 		nodeModulesPaths []string
 	)
@@ -33,10 +32,11 @@ codeindex.Index produced by the scan.
 
 After init you can re-run incremental scans with 'atlas scan'.
 
---import-yaml is reserved for testreg compatibility: a directory of
-YAML feature definitions may be ingested alongside the AST scan once
-the import-yaml adapter lands. For now it is accepted but no-ops with
-a warning so existing scripts don't break.
+Feature membership is materialized directly from @atlas:feature /
+@atlas:contract / @testreg annotations during ingest -- no separate
+import step is required. The legacy --import-yaml flag was removed in
+this release (it had no-opped since Phase 7); to ingest YAML registries
+write a one-off importer against the Features port.
 
 --node-modules-path lets you point the TypeScript scanner at a real
 node_modules directory so it can resolve the embedded scanner.ts's
@@ -45,13 +45,11 @@ looking for a node_modules/ sibling and uses the first hit. Explicit
 values always win over the auto-detected path.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runInit(cmd, root, importYAML, hashFiles, nodeModulesPaths)
+			return runInit(cmd, root, hashFiles, nodeModulesPaths)
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "",
 		"project root to scan (default: repo root or cwd)")
-	cmd.Flags().StringVar(&importYAML, "import-yaml", "",
-		"directory of testreg-format feature YAMLs to import (no-op in v1)")
 	cmd.Flags().BoolVar(&hashFiles, "hash-files", true,
 		"compute SHA-256 of every scanned file (default: true)")
 	cmd.Flags().StringSliceVar(&nodeModulesPaths, "node-modules-path", nil,
@@ -62,19 +60,22 @@ values always win over the auto-detected path.`,
 
 // initResult is the JSON payload emitted by `atlas init`.
 type initResult struct {
-	DBPath              string `json:"db_path"`
-	Root                string `json:"root"`
-	SymbolsInserted     int    `json:"symbols_inserted"`
-	EdgesInserted       int    `json:"edges_inserted"`
-	AnnotationsInserted int    `json:"annotations_inserted"`
-	FileHashesUpserted  int    `json:"file_hashes_upserted"`
-	PatternMatchesSet   int    `json:"pattern_matches_set"`
-	FilesScanned        int    `json:"files_scanned"`
-	FilesSkipped        int    `json:"files_skipped"`
-	DurationMS          int64  `json:"duration_ms"`
+	DBPath                   string `json:"db_path"`
+	Root                     string `json:"root"`
+	SymbolsInserted          int    `json:"symbols_inserted"`
+	EdgesInserted            int    `json:"edges_inserted"`
+	AnnotationsInserted      int    `json:"annotations_inserted"`
+	FileHashesUpserted       int    `json:"file_hashes_upserted"`
+	PatternMatchesSet        int    `json:"pattern_matches_set"`
+	FeaturesMaterialized     int    `json:"features_materialized"`
+	FeatureSymbolsLinked     int    `json:"feature_symbols_linked"`
+	OrphanAnnotationsSkipped int    `json:"orphan_annotations_skipped"`
+	FilesScanned             int    `json:"files_scanned"`
+	FilesSkipped             int    `json:"files_skipped"`
+	DurationMS               int64  `json:"duration_ms"`
 }
 
-func runInit(cmd *cobra.Command, rootArg, importYAML string, hashFiles bool, nodeModulesPaths []string) error {
+func runInit(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPaths []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -105,28 +106,25 @@ func runInit(cmd *cobra.Command, rootArg, importYAML string, hashFiles bool, nod
 		return fmt.Errorf("ingest project: %w", err)
 	}
 
-	if importYAML != "" {
-		warnings = append(warnings,
-			fmt.Sprintf("--import-yaml=%s: testreg YAML import is not implemented in v1; the directory was ignored",
-				importYAML))
-	}
-
 	res := initResult{
-		DBPath:              dbPath,
-		Root:                rootDir,
-		SymbolsInserted:     stats.SymbolsInserted,
-		EdgesInserted:       stats.EdgesInserted,
-		AnnotationsInserted: stats.AnnotationsInserted,
-		FileHashesUpserted:  stats.FileHashesUpserted,
-		PatternMatchesSet:   stats.PatternMatchesSet,
-		FilesScanned:        stats.FilesScanned,
-		FilesSkipped:        stats.FilesSkipped,
-		DurationMS:          stats.Duration.Milliseconds(),
+		DBPath:                   dbPath,
+		Root:                     rootDir,
+		SymbolsInserted:          stats.SymbolsInserted,
+		EdgesInserted:            stats.EdgesInserted,
+		AnnotationsInserted:      stats.AnnotationsInserted,
+		FileHashesUpserted:       stats.FileHashesUpserted,
+		PatternMatchesSet:        stats.PatternMatchesSet,
+		FeaturesMaterialized:     stats.FeaturesMaterialized,
+		FeatureSymbolsLinked:     stats.FeatureSymbolsLinked,
+		OrphanAnnotationsSkipped: stats.OrphanAnnotationsSkipped,
+		FilesScanned:             stats.FilesScanned,
+		FilesSkipped:             stats.FilesSkipped,
+		DurationMS:               stats.Duration.Milliseconds(),
 	}
 
 	if flags.JSON {
 		return emitJSON(stdoutOrJSON(cmd), "init",
-			map[string]any{"root": rootDir, "import_yaml": importYAML, "hash_files": hashFiles},
+			map[string]any{"root": rootDir, "hash_files": hashFiles},
 			res, warnings)
 	}
 	printInitText(cmd, res, warnings)
@@ -139,6 +137,9 @@ func printInitText(cmd *cobra.Command, r initResult, warnings []string) {
 		"  symbols=%d edges=%d annotations=%d file_hashes=%d pattern_matches=%d\n",
 		r.SymbolsInserted, r.EdgesInserted, r.AnnotationsInserted,
 		r.FileHashesUpserted, r.PatternMatchesSet)
+	fmt.Fprintf(cmd.OutOrStdout(),
+		"  features=%d feature_symbols=%d orphan_annotations=%d\n",
+		r.FeaturesMaterialized, r.FeatureSymbolsLinked, r.OrphanAnnotationsSkipped)
 	fmt.Fprintf(cmd.OutOrStdout(),
 		"  files_scanned=%d files_skipped=%d duration=%dms\n",
 		r.FilesScanned, r.FilesSkipped, r.DurationMS)
