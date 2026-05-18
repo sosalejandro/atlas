@@ -1,6 +1,9 @@
 # Binaries
 testreg
 /testreg
+# Only the top-level `atlas` binary (`go build .`) — anchored so it does
+# NOT match the `cmd/atlas/` package directory.
+/atlas
 *.exe
 *.exe~
 *.dll
