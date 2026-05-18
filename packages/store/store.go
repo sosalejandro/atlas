@@ -130,7 +130,12 @@ func runMigrations(db *sql.DB, path string) error {
 			return fmt.Errorf("migrate.Up (no prior version applied): %w", err)
 		}
 		if vErr != nil {
-			return fmt.Errorf("migrate.Up (version lookup failed: %v): %w", vErr, err)
+			// Both Up() and Version() failed — join so callers / log scrapers
+			// can still match on either via errors.Is.
+			return errors.Join(
+				fmt.Errorf("migrate.Up: %w", err),
+				fmt.Errorf("migrate.Version lookup failed: %w", vErr),
+			)
 		}
 		return fmt.Errorf("migrate.Up (version=%d dirty=%v): %w", v, dirty, err)
 	}
