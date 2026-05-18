@@ -1,5 +1,8 @@
 # golangci-lint configuration for Atlas
 # https://golangci-lint.run/usage/configuration/
+# v2 schema (golangci-lint v2.x)
+
+version: "2"
 
 run:
   timeout: 5m
@@ -7,9 +10,10 @@ run:
 
 output:
   formats:
-    - format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
+    text:
+      print-issued-lines: true
+      print-linter-name: true
+      colors: true
 
 linters:
   disable-all: true
