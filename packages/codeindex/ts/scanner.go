@@ -16,6 +16,14 @@
 //     that shape; this layer only re-bases when --root is absolute.
 //   - Logging via shared.Logger / log/slog. NopLogger is the test default.
 //
+// Two entry points, mirroring packages/codeindex/go/:
+//
+//   - Scan(ctx, root, opts) — package-level convenience for one-shot
+//     callers. Internally constructs a Scanner, defers Close, runs once.
+//   - NewScanner(opts) + (*Scanner).Scan + (*Scanner).Close — for
+//     long-lived callers that invoke Scan repeatedly and want to amortise
+//     the cost of extracting / bridging scanner.ts across calls.
+//
 // Phase 2 replaces nothing in Phase 1 — Phase 1's Go AST scanner runs in
 // parallel via codeindex.IndexProject orchestration.
 package tsscan
@@ -27,12 +35,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
@@ -87,6 +97,20 @@ type Options struct {
 	// with a warning rather than failing the scan.
 	NodeModulesPaths []string
 
+	// Timeout, when > 0, bounds a single Scan call. The caller's ctx is
+	// wrapped with context.WithTimeout(ctx, Timeout) before the Node
+	// subprocess is started, so a deadlocked scanner.ts (pathological input,
+	// runaway type resolution, etc.) cannot hang atlas forever even when
+	// the caller passes context.Background().
+	//
+	// Zero value (the default) means no package-internal timeout — the scan
+	// only ends when the caller's ctx is done or scanner.ts exits. Library
+	// callers that want unbounded scans should leave this at zero and manage
+	// the deadline upstream. For very large monorepos a sensible default is
+	// 5 * time.Minute; the atlas CLI applies that default when invoking
+	// from the trace/index commands.
+	Timeout time.Duration
+
 	// Logger receives scan-time warnings. Defaults to shared.NopLogger.
 	Logger shared.Logger
 }
@@ -104,6 +128,20 @@ type Scanner struct {
 	scriptOnce sync.Once
 	scriptPath string
 	scriptErr  error
+}
+
+// Scan is a convenience wrapper for one-shot callers. It constructs a
+// Scanner with opts, defers Close, runs Scan once against rootDir, and
+// returns the Result. Use this when you only need a single scan; for
+// long-lived callers that invoke Scan multiple times (caching the
+// extracted scanner.ts + bridged typescript), use NewScanner directly.
+//
+// Mirrors the goscan.Scan API shape so callers can swap between the Go
+// and TS sub-scanners without reshaping their orchestration code.
+func Scan(ctx context.Context, rootDir string, opts Options) (*Result, error) {
+	s := NewScanner(opts)
+	defer func() { _ = s.Close() }()
+	return s.Scan(ctx, rootDir)
 }
 
 // NewScanner returns a Scanner configured with opts. The constructor does
@@ -147,6 +185,14 @@ func (s *Scanner) Scan(ctx context.Context, rootDir string) (*Result, error) {
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	// Apply package-internal timeout so a deadlocked scanner.ts can't hang
+	// atlas forever when the caller passed context.Background(). Zero =
+	// opt-out (defer to caller ctx).
+	if s.Options.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.Options.Timeout)
+		defer cancel()
 	}
 	abs, err := filepath.Abs(rootDir)
 	if err != nil {
@@ -326,9 +372,16 @@ func (s *Scanner) ensureScript() (string, error) {
 // resolution path; only if BOTH the scanner.ts dir and the project dir
 // lack a typescript module does the scan fail — at which point the user
 // sees the genuine ERR_MODULE_NOT_FOUND from Node.
-func (s *Scanner) bridgeTypescript(_ context.Context, projectRoot string) error {
+//
+// ctx is threaded through to copyDir so the (slow) Windows / no-symlink
+// fallback honours caller cancellation rather than streaming ~50MB of
+// typescript after the caller has given up on the scan.
+func (s *Scanner) bridgeTypescript(ctx context.Context, projectRoot string) error {
 	if s.scriptPath == "" {
 		return errors.New("scriptPath not set")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	scriptDir := filepath.Dir(s.scriptPath)
 	bridgeDir := filepath.Join(scriptDir, "node_modules", "typescript")
@@ -357,7 +410,7 @@ func (s *Scanner) bridgeTypescript(_ context.Context, projectRoot string) error 
 		// Symlink may fail on filesystems / platforms that disallow it (e.g.
 		// some Windows configs without admin). Fall back to a copy — slow but
 		// correct.
-		if copyErr := copyDir(source, bridgeDir); copyErr != nil {
+		if copyErr := copyDir(ctx, source, bridgeDir); copyErr != nil {
 			return fmt.Errorf("symlink typescript (%v); copy fallback: %w", err, copyErr)
 		}
 	}
@@ -366,9 +419,13 @@ func (s *Scanner) bridgeTypescript(_ context.Context, projectRoot string) error 
 
 // copyDir is a minimal recursive copier used only as a Windows fallback for
 // the typescript bridge. Skips symlinks in the source tree to avoid
-// dependency-graph cycles.
-func copyDir(src, dst string) error {
+// dependency-graph cycles. Honours ctx cancellation so a caller-cancelled
+// scan doesn't keep streaming bytes for a multi-megabyte typescript copy.
+func copyDir(ctx context.Context, src, dst string) error {
 	return filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
 		if err != nil {
 			return err
 		}
@@ -390,21 +447,15 @@ func copyDir(src, dst string) error {
 			return err
 		}
 		defer out.Close()
-		buf := make([]byte, 32*1024)
-		for {
-			n, rerr := in.Read(buf)
-			if n > 0 {
-				if _, werr := out.Write(buf[:n]); werr != nil {
-					return werr
-				}
-			}
-			if rerr != nil {
-				if rerr.Error() == "EOF" {
-					return nil
-				}
-				return rerr
-			}
+		// io.Copy handles the buffered read/write loop and the EOF
+		// terminal condition correctly. The prior hand-rolled loop
+		// compared rerr.Error() == "EOF", which is fragile against any
+		// io.Reader that wraps the EOF sentinel; errors.Is(err, io.EOF)
+		// is the idiomatic check, but io.Copy already returns nil at EOF.
+		if _, werr := io.Copy(out, in); werr != nil {
+			return werr
 		}
+		return nil
 	})
 }
 
@@ -424,7 +475,13 @@ func decodeOutput(b []byte) (*rawScannerOutput, error) {
 		// doesn't break older atlas binaries.
 		out = rawScannerOutput{}
 		if err2 := json.Unmarshal(b, &out); err2 != nil {
-			return nil, fmt.Errorf("%w (lenient: %v)", err, err2)
+			// Include a bounded prefix of the raw payload so a caller
+			// can see whether scanner.ts emitted log noise, a panic
+			// trace, or genuine-looking JSON that just didn't match the
+			// envelope. 256 bytes is enough to fingerprint the failure
+			// mode without blowing up a stderr log.
+			return nil, fmt.Errorf("%w (lenient: %v); first 256 bytes: %q",
+				err, err2, b[:min(len(b), 256)])
 		}
 	}
 	return &out, nil
