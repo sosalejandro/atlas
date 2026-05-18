@@ -181,46 +181,67 @@ type humaOperation struct {
 // for the bulk of a backend repo.
 //
 // We are intentionally generous: any "huma" string in an import path OR
-// any `Register(` / `Operation{` mention inside any func body counts as a
-// hit. False positives are cheap (we re-walk the AST) — false negatives
-// would silently drop contracts.
+// any `Register(` + `Operation{` pair mention inside any func body
+// counts as a hit. False positives are cheap (we re-walk the AST) —
+// false negatives would silently drop contracts.
 func fileMentionsHuma(file *ast.File) bool {
+	if importMentionsHuma(file) {
+		return true
+	}
+	if file.Name != nil && strings.Contains(strings.ToLower(file.Name.Name), "huma") {
+		return true
+	}
+	return bodyMentionsHumaAPI(file)
+}
+
+// importMentionsHuma returns true when any import path contains "huma".
+func importMentionsHuma(file *ast.File) bool {
 	for _, imp := range file.Imports {
 		v := strings.Trim(imp.Path.Value, `"`)
 		if strings.Contains(strings.ToLower(v), "huma") {
 			return true
 		}
 	}
-	// The package itself may BE a huma adapter (in-repo helper or fixture).
-	if file.Name != nil && strings.Contains(strings.ToLower(file.Name.Name), "huma") {
-		return true
-	}
-	// Fall through to a top-level scan for "Register(" + "Operation{" pair
-	// inside any function body.
-	hasRegister, hasOperation := false, false
+	return false
+}
+
+// bodyMentionsHumaAPI returns true when any top-level function body
+// references BOTH "Register" and "Operation" identifiers — the strong
+// signal that a huma-style API call is present even without an import
+// match (e.g. dot-imported helpers, in-package wrappers).
+func bodyMentionsHumaAPI(file *ast.File) bool {
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
 			continue
 		}
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			switch v := n.(type) {
-			case *ast.Ident:
-				switch v.Name {
-				case "huma":
-					hasRegister, hasOperation = true, true
-				case "Register":
-					hasRegister = true
-				case "Operation":
-					hasOperation = true
-				}
-			}
-			return !hasRegister || !hasOperation
-		})
-		if hasRegister && hasOperation {
+		if funcMentionsHumaAPI(fn.Body) {
 			return true
 		}
 	}
+	return false
+}
+
+// funcMentionsHumaAPI scans a single function body for Register +
+// Operation mentions. Split out from bodyMentionsHumaAPI to keep
+// cyclomatic complexity below the linter's threshold.
+func funcMentionsHumaAPI(body *ast.BlockStmt) bool {
+	hasRegister, hasOperation := false, false
+	ast.Inspect(body, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		switch id.Name {
+		case "huma":
+			hasRegister, hasOperation = true, true
+		case "Register":
+			hasRegister = true
+		case "Operation":
+			hasOperation = true
+		}
+		return !hasRegister || !hasOperation
+	})
 	return hasRegister && hasOperation
 }
 
