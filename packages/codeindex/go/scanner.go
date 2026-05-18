@@ -233,7 +233,13 @@ func (c *scanContext) discoverFunctions(ctx context.Context) error {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go") {
+		if !strings.HasSuffix(d.Name(), ".go") {
+			return nil
+		}
+		// Test files are included by default — see Options.SkipTests godoc:
+		// Atlas's feature-attribution workflow relies on `_test.go` because
+		// that's where `@atlas:feature` / `@testreg` annotations live.
+		if c.opts.SkipTests && strings.HasSuffix(d.Name(), "_test.go") {
 			return nil
 		}
 		relPath, _ := filepath.Rel(c.projectRoot, path)

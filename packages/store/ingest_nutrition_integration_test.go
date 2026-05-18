@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sosalejandro/atlas/packages/codeindex"
+	"github.com/sosalejandro/atlas/packages/shared"
 )
 
 // TestIngest_NutritionDogfood is the end-to-end smoke test that exercises
@@ -24,25 +25,21 @@ import (
 //
 //	NUTRITION_ROOT=/path/to/repo go test -tags=integration ./packages/store/...
 //
-// Acceptance bar — the wire-up:
+// Acceptance bar:
 //
 //   - codeindex.IndexProject succeeds.
-//   - Ingest succeeds and writes a non-zero count of annotations to the
-//     state DB.
-//   - At least one of {features_materialized, orphan_skipped} is non-zero,
-//     because nutrition v2 carries feature annotations in test files and
-//     production handlers — annotations of either kind exercise the
-//     materialize branch.
-//
-// Note on the orphan count: nutrition v2 carries the bulk of its
-// `@testreg`/`@atlas:feature` annotations in `_test.go` and `*.test.ts*`
-// files. The Go AST scanner deliberately excludes `_test.go`
-// (packages/codeindex/go/scanner.go) and the TS sub-scanner needs `node`
-// + the `typescript` package on the host PATH. In CI environments where
-// neither prerequisite is met, the materialize branch will produce ZERO
-// features but a high orphan count — the pipeline is still healthy. The
-// hard threshold "FeaturesMaterialized > N" only makes sense once the
-// scanner ingests test-file symbols too (out of scope for this fix).
+//   - Ingest writes a non-zero count of annotations.
+//   - FeaturesMaterialized crosses the conservative ≥500 threshold —
+//     atlas#26 regression guard. Pre-fix the count was 0 because the Go
+//     AST scanner silently skipped `_test.go` and nutrition's
+//     `@testreg` / `@atlas:feature` annotations all live in test files.
+//     Post-fix the actual count clears 900; 500 is a deliberately loose
+//     floor so churn in nutrition's annotation corpus doesn't flap the
+//     threshold.
+//   - Three spot-check feature IDs known to live exclusively in `_test.go`
+//     files materialize a feature row AND a non-empty feature_symbols
+//     link list — proving the end-to-end annotation→symbol→link path,
+//     not just the aggregate count.
 func TestIngest_NutritionDogfood(t *testing.T) {
 	nutritionRoot := os.Getenv("NUTRITION_ROOT")
 	if nutritionRoot == "" {
@@ -87,7 +84,50 @@ func TestIngest_NutritionDogfood(t *testing.T) {
 	if stats.AnnotationsInserted == 0 {
 		t.Fatal("nutrition smoke wrote zero annotations - parser or ingest regressed")
 	}
-	if stats.FeaturesMaterialized == 0 && stats.OrphanAnnotationsSkipped == 0 {
-		t.Fatal("nutrition smoke saw zero feature/contract annotations - extractFeatureIDsFromAnnotation or schemaAnnotationKinds regressed")
+	if stats.FeaturesMaterialized == 0 {
+		t.Fatal("nutrition smoke materialized zero features — atlas#26 regression: the Go scanner is skipping _test.go again")
+	}
+	// Conservative floor. Nutrition currently materialises ~970 features
+	// from its ~1100 Go-test-file annotations; 500 is the threshold below
+	// which we know something has structurally regressed (either the
+	// scanner is back to skipping tests, or a large chunk of nutrition's
+	// annotation corpus was removed). If the corpus genuinely shrinks
+	// below 500, raise the floor in the same commit that removes the
+	// annotations.
+	if stats.FeaturesMaterialized < 500 {
+		t.Fatalf("nutrition smoke materialized only %d features; want >= 500 (atlas#26 floor)",
+			stats.FeaturesMaterialized)
+	}
+
+	// Spot-check three feature IDs known to live on test functions in Go
+	// `_test.go` files. Each must produce (a) a feature row in the
+	// features table AND (b) a non-empty feature_symbols link list. The
+	// aggregate count above can be satisfied by many annotations on a
+	// few popular features; this is the structural check that arbitrary
+	// test-file annotations are correctly resolved end-to-end.
+	spotChecks := []shared.FeatureID{
+		"plans-patient.export-pdf",
+		"email-relay.delivery",
+		"batch-sessions.update",
+	}
+	for _, fid := range spotChecks {
+		feat, err := s.Features().Get(ctx, fid)
+		if err != nil {
+			t.Errorf("Features.Get(%q): %v — atlas#26 regression: this feature lives in _test.go and should have materialized",
+				fid, err)
+			continue
+		}
+		if feat.ID != fid {
+			t.Errorf("Features.Get(%q) returned feature with ID=%q", fid, feat.ID)
+		}
+		links, err := s.FeatureSymbols().ListByFeature(ctx, fid)
+		if err != nil {
+			t.Errorf("FeatureSymbols.ListByFeature(%q): %v", fid, err)
+			continue
+		}
+		if len(links) == 0 {
+			t.Errorf("FeatureSymbols.ListByFeature(%q) returned 0 links; expected at least one annotation→symbol link",
+				fid)
+		}
 	}
 }

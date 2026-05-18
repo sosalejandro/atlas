@@ -16,10 +16,15 @@
 //  2. Route discovery — also via an optional Routes hook (Phase 1 has no
 //     in-package router parser; nutrition-v2-go uses Huma + Chi which
 //     is the routeparse/ package's job).
-//  3. Function discovery — walk every .go file (excluding _test.go,
-//     vendor/, node_modules/, hidden dirs, and "generated" subtrees),
-//     register *ast.FuncDecl as Nodes, collect struct field types for
-//     call resolution.
+//  3. Function discovery — walk every .go file (including _test.go by
+//     default; see Options.SkipTests), skipping vendor/, node_modules/,
+//     hidden dirs, and "generated" subtrees. Register *ast.FuncDecl as
+//     Nodes, collect struct field types for call resolution.
+//
+//     Test files are scanned by default because Atlas's feature
+//     attribution relies on `@atlas:feature` / `@testreg` annotations
+//     that conventionally live on the test that verifies the feature.
+//     Set Options.SkipTests=true for pure production graph-only audits.
 //  4. Call graph extraction — walk function bodies; resolve each
 //     ast.CallExpr to a target Node ID (selector chain via struct
 //     fields → fieldType.MethodName; package-level call via

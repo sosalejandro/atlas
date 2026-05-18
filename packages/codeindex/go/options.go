@@ -60,6 +60,19 @@ type Options struct {
 	// Logger receives scan-time warnings (parse skips, unresolved
 	// handlers). Defaults to shared.NopLogger.
 	Logger shared.Logger
+
+	// SkipTests, when true, excludes `_test.go` files from the scan. The
+	// default (zero value: false) is to INCLUDE test files because Atlas's
+	// primary use case — annotation-driven feature attribution — relies
+	// on test files being indexed: the canonical place for
+	// `// @atlas:feature` / `// @testreg` is on the test that verifies the
+	// feature, not on the production handler it exercises.
+	//
+	// Set SkipTests=true only for pure production graph-only audits where
+	// test funcs would just be noise. Named with inverse polarity
+	// deliberately so the Go zero value (false) matches Atlas's intended
+	// default of "include tests" without requiring a constructor.
+	SkipTests bool
 }
 
 // LayerRules extends the built-in directory→SymbolKind classification.
