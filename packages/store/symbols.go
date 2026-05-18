@@ -333,7 +333,7 @@ ORDER BY file_path, line, qualified_name`
 	if err != nil {
 		return nil, fmt.Errorf("symbols find-by-pattern %q: %w", pattern, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []SymbolRow
 	for rows.Next() {
@@ -343,5 +343,8 @@ ORDER BY file_path, line, qualified_name`
 		}
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("symbols find-by-pattern %q rows: %w", pattern, err)
+	}
+	return out, nil
 }
