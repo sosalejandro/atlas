@@ -11,6 +11,7 @@ import (
 
 	"github.com/sosalejandro/atlas/packages/codeindex"
 	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
+	tsscan "github.com/sosalejandro/atlas/packages/codeindex/ts"
 	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 )
@@ -18,36 +19,44 @@ import (
 // traceEnvelope is the stable JSON contract for `atlas trace`.
 //
 // Per docs/architecture.md §6:
-//   - schema_version pinned to "v1"; additive changes within v1 do NOT bump
+//   - schema_version pinned to "v1"; additive changes within v1 do NOT bump.
+//     Phase 2 added the optional `lang` field on chain entries — that is
+//     additive, so we stay on "v1.1" to make the addition discoverable for
+//     downstream tooling without breaking older clients.
 //   - command identifies the verb so a multi-output consumer can dispatch
 //   - generated_at is UTC RFC3339
 //   - data is the payload (trace tree + chain summary)
 //
 // JSON tag names use lowerCamel per the v1 convention.
 type traceEnvelope struct {
-	SchemaVersion string          `json:"schema_version"`
-	Command       string          `json:"command"`
-	GeneratedAt   string          `json:"generated_at"`
-	Data          traceData       `json:"data"`
+	SchemaVersion string    `json:"schema_version"`
+	Command       string    `json:"command"`
+	GeneratedAt   string    `json:"generated_at"`
+	Data          traceData `json:"data"`
 }
 
 type traceData struct {
-	FeatureID   string             `json:"feature_id"`
-	Root        shared.SymbolID    `json:"root"`
-	Confidence  float64            `json:"confidence"`
-	MaxDepth    int                `json:"max_depth"`
-	TotalNodes  int                `json:"total_nodes"`
-	Cycles      []graph.Edge       `json:"cycles,omitempty"`
-	Chain       []chainEntry       `json:"chain"`
-	Warnings    []string           `json:"warnings,omitempty"`
+	FeatureID  string          `json:"feature_id"`
+	Root       shared.SymbolID `json:"root"`
+	Confidence float64         `json:"confidence"`
+	MaxDepth   int             `json:"max_depth"`
+	TotalNodes int             `json:"total_nodes"`
+	Cycles     []graph.Edge    `json:"cycles,omitempty"`
+	Chain      []chainEntry    `json:"chain"`
+	Warnings   []string        `json:"warnings,omitempty"`
 }
 
 type chainEntry struct {
-	ID    shared.SymbolID    `json:"id"`
-	Kind  shared.SymbolKind  `json:"kind"`
-	File  string             `json:"file,omitempty"`
-	Line  int                `json:"line,omitempty"`
-	Depth int                `json:"depth"`
+	ID   shared.SymbolID   `json:"id"`
+	Kind shared.SymbolKind `json:"kind"`
+	// Lang identifies the source language for this hop. Values: "go", "ts",
+	// or "" when the orchestrator couldn't classify it (this can happen for
+	// nodes that the scanner emitted as placeholders — e.g. unresolved
+	// handler references).
+	Lang  string `json:"lang,omitempty"`
+	File  string `json:"file,omitempty"`
+	Line  int    `json:"line,omitempty"`
+	Depth int    `json:"depth"`
 }
 
 // newTraceCmd builds `atlas trace --root <dir> --feature <id>`.
@@ -56,11 +65,17 @@ type chainEntry struct {
 // fuzzy suffix match against codeindex symbols. The first hit is the trace
 // root. Future phases will look up the feature via the resolver and emit a
 // trace per implementation symbol.
+//
+// Phase 2 additions: --node-modules-path lets the operator point the TS
+// sub-scanner at an external typescript install when the project being
+// traced doesn't ship its own (e.g. a minimal fixture or a backend-only
+// monorepo with TS surface borrowed from a sibling package).
 func newTraceCmd() *cobra.Command {
 	var (
-		root     string
-		feature  string
-		maxDepth int
+		root             string
+		feature          string
+		maxDepth         int
+		nodeModulesPaths []string
 	)
 	cmd := &cobra.Command{
 		Use:   "trace",
@@ -70,22 +85,35 @@ func newTraceCmd() *cobra.Command {
 			if root == "" || feature == "" {
 				return fmt.Errorf("--root and --feature are required")
 			}
-			return runTrace(cmd.Context(), cmd.OutOrStdout(), root, feature, maxDepth)
+			return runTraceWithOpts(cmd.Context(), cmd.OutOrStdout(), root, feature, maxDepth,
+				codeindex.Options{
+					GoOptions: goscan.Options{},
+					TSOptions: tsscan.Options{NodeModulesPaths: nodeModulesPaths},
+				})
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "", "project root directory (required)")
 	cmd.Flags().StringVar(&feature, "feature", "", "feature id or symbol id to trace (required)")
 	cmd.Flags().IntVar(&maxDepth, "max-depth", 10, "maximum trace depth")
+	cmd.Flags().StringSliceVar(&nodeModulesPaths, "node-modules-path", nil,
+		"absolute path to a node_modules dir the TS scanner can borrow typescript from "+
+			"(repeatable; useful when the scanned project lacks its own deps)")
 	return cmd
 }
 
+// runTrace is the simple wrapper preserved for backwards-compat with
+// existing tests. New callers should prefer runTraceWithOpts.
 func runTrace(ctx context.Context, w io.Writer, root, feature string, maxDepth int) error {
+	return runTraceWithOpts(ctx, w, root, feature, maxDepth, codeindex.Options{
+		GoOptions: goscan.Options{},
+	})
+}
+
+func runTraceWithOpts(ctx context.Context, w io.Writer, root, feature string, maxDepth int, opts codeindex.Options) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	idx, err := codeindex.IndexProject(ctx, root, codeindex.Options{
-		GoOptions: goscan.Options{},
-	})
+	idx, err := codeindex.IndexProject(ctx, root, opts)
 	if err != nil {
 		return fmt.Errorf("index project: %w", err)
 	}
@@ -97,7 +125,7 @@ func runTrace(ctx context.Context, w io.Writer, root, feature string, maxDepth i
 
 	trace := idx.Graph.TraceFrom(rootID, maxDepth)
 	env := traceEnvelope{
-		SchemaVersion: "v1",
+		SchemaVersion: "v1.1",
 		Command:       "trace",
 		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
 		Data: traceData{
@@ -107,7 +135,7 @@ func runTrace(ctx context.Context, w io.Writer, root, feature string, maxDepth i
 			MaxDepth:   trace.MaxDepth,
 			TotalNodes: trace.TotalNodes,
 			Cycles:     trace.Cycles,
-			Chain:      flatten(trace.Root),
+			Chain:      flattenWithLang(trace.Root, idx.SymbolLangs),
 			Warnings:   trace.Warnings,
 		},
 	}
@@ -140,29 +168,35 @@ func hasSuffix(s, suffix string) bool {
 	return s[len(s)-len(suffix):] == suffix
 }
 
-// flatten linearises a trace tree into a depth-first list of chain
-// entries for compact JSON.
-func flatten(n *graph.TraceNode) []chainEntry {
+// flattenWithLang linearises a trace tree into a depth-first list of chain
+// entries for compact JSON, annotating each hop with its source language.
+// langs is the orchestrator-built map idx.SymbolLangs (nil-safe).
+func flattenWithLang(n *graph.TraceNode, langs map[shared.SymbolID]string) []chainEntry {
 	if n == nil {
 		return nil
 	}
 	var out []chainEntry
-	walk(n, &out)
+	walkWithLang(n, langs, &out)
 	return out
 }
 
-func walk(n *graph.TraceNode, out *[]chainEntry) {
+func walkWithLang(n *graph.TraceNode, langs map[shared.SymbolID]string, out *[]chainEntry) {
 	if n == nil {
 		return
+	}
+	lang := ""
+	if langs != nil {
+		lang = langs[n.Node.ID]
 	}
 	*out = append(*out, chainEntry{
 		ID:    n.Node.ID,
 		Kind:  n.Node.Kind,
+		Lang:  lang,
 		File:  n.Node.Position.Path,
 		Line:  n.Node.Position.Line,
 		Depth: n.Depth,
 	})
 	for _, c := range n.Children {
-		walk(c, out)
+		walkWithLang(c, langs, out)
 	}
 }
