@@ -13,8 +13,9 @@ import (
 // the file-hash cache so unchanged files aren't re-ingested.
 func newScanCmd() *cobra.Command {
 	var (
-		root      string
-		hashFiles bool
+		root             string
+		hashFiles        bool
+		nodeModulesPaths []string
 	)
 	cmd := &cobra.Command{
 		Use:   "scan",
@@ -26,16 +27,24 @@ skipped to avoid pointless re-writes.
 
 The first scan after 'atlas init' will report files_skipped=0 because
 every file is fresh; subsequent scans become incremental as more files
-stabilise.`,
+stabilise.
+
+--node-modules-path mirrors 'atlas init': point the TypeScript scanner
+at a real node_modules directory so the embedded scanner.ts can resolve
+its 'typescript' dependency. When unset, scan walks up from --root
+looking for a node_modules/ sibling and uses the first hit.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runScan(cmd, root, hashFiles)
+			return runScan(cmd, root, hashFiles, nodeModulesPaths)
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "",
 		"project root to scan (default: repo root or cwd)")
 	cmd.Flags().BoolVar(&hashFiles, "hash-files", true,
 		"compute SHA-256 of every scanned file (default: true)")
+	cmd.Flags().StringSliceVar(&nodeModulesPaths, "node-modules-path", nil,
+		"absolute path to a node_modules dir the TS scanner can borrow typescript from "+
+			"(repeatable; auto-detected from the scan root when unset)")
 	return cmd
 }
 
@@ -44,7 +53,7 @@ stabilise.`,
 // envelope field distinguishes the two.
 type scanResult = initResult
 
-func runScan(cmd *cobra.Command, rootArg string, hashFiles bool) error {
+func runScan(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPaths []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -59,7 +68,7 @@ func runScan(cmd *cobra.Command, rootArg string, hashFiles bool) error {
 		return err
 	}
 
-	idx, warnings, err := indexProjectFromConfig(ctx, rootDir, hashFiles)
+	idx, warnings, err := indexProjectFromConfig(ctx, rootDir, hashFiles, nodeModulesPaths)
 	if err != nil {
 		return err
 	}
