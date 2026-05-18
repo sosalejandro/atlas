@@ -28,8 +28,11 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 1 {
-		t.Fatalf("schema_version = %d, want 1", v)
+	// Schema version tracks the highest applied migration. Bumped to 2 in
+	// Phase 6f when symbols.pattern_matches was added.
+	const expected = 2
+	if v != expected {
+		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}
 }
 

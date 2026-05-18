@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/codeindex"
+	"github.com/sosalejandro/atlas/packages/codeindex/patterns"
 	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 )
@@ -222,5 +223,68 @@ func TestIngest_ChangedFile_RewritesRows(t *testing.T) {
 func TestIngest_NilIndex(t *testing.T) {
 	if _, err := openTestStore(t).Ingest(context.Background(), nil); err == nil {
 		t.Fatal("Ingest(nil) expected error, got nil")
+	}
+}
+
+// TestIngest_PersistsPatternMatches covers the Phase 6f wire-up: when an
+// Index carries PatternMatches, Ingest writes them onto the corresponding
+// symbol row and FindByPattern reads them back.
+func TestIngest_PersistsPatternMatches(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	idx := buildTestIndex(t)
+	idx.PatternMatches = map[shared.SymbolID][]patterns.Match{
+		"pkg.LoginService": {
+			{
+				Pattern:    patterns.PatternCanonicalService,
+				Symbol:     "pkg.LoginService",
+				Position:   shared.FilePosition{Path: "src/service.go", Line: 20},
+				Detail:     "synthetic",
+				Confidence: 1.0,
+			},
+		},
+		"pkg.UserRepo": {
+			{
+				Pattern:    patterns.PatternOutboxAppend,
+				Symbol:     "pkg.UserRepo",
+				Position:   shared.FilePosition{Path: "src/repo.go", Line: 30},
+				Detail:     "synthetic",
+				Confidence: 1.0,
+			},
+		},
+	}
+
+	stats, err := s.Ingest(ctx, idx)
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if stats.PatternMatchesSet != 2 {
+		t.Errorf("PatternMatchesSet = %d, want 2", stats.PatternMatchesSet)
+	}
+
+	canon, err := s.Symbols().FindByPattern(ctx, patterns.PatternCanonicalService)
+	if err != nil {
+		t.Fatalf("FindByPattern canonical: %v", err)
+	}
+	if len(canon) != 1 || canon[0].QualifiedName != "pkg.LoginService" {
+		t.Fatalf("FindByPattern canonical = %+v", canon)
+	}
+	if canon[0].PatternMatches == nil {
+		t.Fatal("returned row has nil PatternMatches")
+	}
+
+	outbox, err := s.Symbols().FindByPattern(ctx, patterns.PatternOutboxAppend)
+	if err != nil {
+		t.Fatalf("FindByPattern outbox: %v", err)
+	}
+	if len(outbox) != 1 || outbox[0].QualifiedName != "pkg.UserRepo" {
+		t.Fatalf("FindByPattern outbox = %+v", outbox)
+	}
+
+	// A symbol with no matches must not surface.
+	noMatch, _ := s.Symbols().FindByPattern(ctx, patterns.PatternEventRecorderEmbed)
+	if len(noMatch) != 0 {
+		t.Errorf("FindByPattern event-recorder = %d, want 0", len(noMatch))
 	}
 }

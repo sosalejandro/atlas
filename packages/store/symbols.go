@@ -28,6 +28,16 @@ type SymbolRow struct {
 	Package       *string           `json:"package,omitempty"`
 	BCPath        *string           `json:"bc_path,omitempty"`
 	CreatedAt     time.Time         `json:"created_at"`
+
+	// PatternMatches is the JSON-encoded []patterns.Match record set
+	// produced by codeindex/patterns recognisers (Phase 6f). Nil if the
+	// symbol has no recogniser hits — the common case for non-aggregate,
+	// non-service symbols.
+	//
+	// The string form is preserved as-is so this layer does NOT take a
+	// build-time dependency on the patterns package. Consumers that need
+	// typed access decode with json.Unmarshal([]byte(*p), &out).
+	PatternMatches *string `json:"pattern_matches,omitempty"`
 }
 
 // schemaSymbolKinds is the closed set §5.4 accepts. The in-memory
@@ -83,6 +93,25 @@ type Symbols interface {
 	// edges + feature_symbols. Used by the incremental scanner before
 	// re-inserting fresh rows for a changed file.
 	DeleteByFile(ctx context.Context, filePath string) error
+
+	// SetPatternMatches replaces the JSON-encoded pattern_matches column
+	// for one symbol identified by qualified name. Passing an empty
+	// string (or "null") clears any previously-stored matches.
+	//
+	// Used by codeindex.IndexProject after running patterns.MatchAllFiles
+	// to persist recogniser hits alongside symbol metadata. Other consumers
+	// (audit/, diagnose/) should treat pattern_matches as READ-ONLY.
+	SetPatternMatches(ctx context.Context, qn shared.SymbolID, jsonValue string) error
+
+	// FindByPattern returns every symbol whose pattern_matches column
+	// contains a Match record for the given pattern name. Backed by a
+	// substring match against the stored JSON — patterns.Match.Pattern is
+	// emitted as `"pattern":"<name>"` so the substring `"pattern":"<name>"`
+	// uniquely identifies the recogniser kind.
+	//
+	// Returns an empty slice when no symbol has been recognised under that
+	// pattern; never returns an error for "no rows".
+	FindByPattern(ctx context.Context, pattern string) ([]SymbolRow, error)
 }
 
 var _ Symbols = (*symbolsStore)(nil)
@@ -97,15 +126,16 @@ type symbolsStore struct {
 
 func fromSQLCSymbol(r sqlc.Symbol) SymbolRow {
 	return SymbolRow{
-		ID:            r.ID,
-		QualifiedName: shared.SymbolID(r.QualifiedName),
-		Kind:          shared.SymbolKind(r.Kind),
-		FilePath:      r.FilePath,
-		Line:          int(r.Line),
-		EndLine:       int64PtrToIntPtr(r.EndLine),
-		Package:       r.Package,
-		BCPath:        r.BcPath,
-		CreatedAt:     r.CreatedAt,
+		ID:             r.ID,
+		QualifiedName:  shared.SymbolID(r.QualifiedName),
+		Kind:           shared.SymbolKind(r.Kind),
+		FilePath:       r.FilePath,
+		Line:           int(r.Line),
+		EndLine:        int64PtrToIntPtr(r.EndLine),
+		Package:        r.Package,
+		BCPath:         r.BcPath,
+		CreatedAt:      r.CreatedAt,
+		PatternMatches: r.PatternMatches,
 	}
 }
 
@@ -182,7 +212,7 @@ func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, e
 		args = append(args, string(normalizeKind(f.Kind)))
 	}
 
-	q := `SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at FROM symbols`
+	q := `SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches FROM symbols`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -196,33 +226,46 @@ func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, e
 
 	var out []SymbolRow
 	for rows.Next() {
-		var (
-			id        int64
-			qn        string
-			kind      string
-			filePath  string
-			line      int64
-			endLine   sql.NullInt64
-			pkg       sql.NullString
-			bc        sql.NullString
-			createdAt time.Time
-		)
-		if err := rows.Scan(&id, &qn, &kind, &filePath, &line, &endLine, &pkg, &bc, &createdAt); err != nil {
-			return nil, fmt.Errorf("symbols scan: %w", err)
+		row, err := scanSymbolRow(rows)
+		if err != nil {
+			return nil, err
 		}
-		out = append(out, SymbolRow{
-			ID:            id,
-			QualifiedName: shared.SymbolID(qn),
-			Kind:          shared.SymbolKind(kind),
-			FilePath:      filePath,
-			Line:          int(line),
-			EndLine:       nullInt64ToIntPtr(endLine),
-			Package:       nullStringToPtr(pkg),
-			BCPath:        nullStringToPtr(bc),
-			CreatedAt:     createdAt,
-		})
+		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+// scanSymbolRow extracts a SymbolRow from a *sql.Rows positioned at a row
+// whose columns match the canonical 10-column SELECT used by List and
+// FindByPattern. Centralising it here keeps the two raw-SQL readers in sync.
+func scanSymbolRow(rows *sql.Rows) (SymbolRow, error) {
+	var (
+		id             int64
+		qn             string
+		kind           string
+		filePath       string
+		line           int64
+		endLine        sql.NullInt64
+		pkg            sql.NullString
+		bc             sql.NullString
+		createdAt      time.Time
+		patternMatches sql.NullString
+	)
+	if err := rows.Scan(&id, &qn, &kind, &filePath, &line, &endLine, &pkg, &bc, &createdAt, &patternMatches); err != nil {
+		return SymbolRow{}, fmt.Errorf("symbols scan: %w", err)
+	}
+	return SymbolRow{
+		ID:             id,
+		QualifiedName:  shared.SymbolID(qn),
+		Kind:           shared.SymbolKind(kind),
+		FilePath:       filePath,
+		Line:           int(line),
+		EndLine:        nullInt64ToIntPtr(endLine),
+		Package:        nullStringToPtr(pkg),
+		BCPath:         nullStringToPtr(bc),
+		CreatedAt:      createdAt,
+		PatternMatches: nullStringToPtr(patternMatches),
+	}, nil
 }
 
 func (s *symbolsStore) DeleteByFile(ctx context.Context, filePath string) error {
@@ -233,4 +276,69 @@ func (s *symbolsStore) DeleteByFile(ctx context.Context, filePath string) error 
 		return fmt.Errorf("symbols delete-by-file %q: %w", filePath, err)
 	}
 	return nil
+}
+
+// SetPatternMatches persists the JSON-encoded recogniser hit set for a
+// symbol identified by qualified name. Empty input clears the column.
+//
+// Idempotent: re-running with the same JSON is a no-op at the row level
+// (still touches the column, but pattern_matches has no audit columns of
+// its own — last writer wins).
+func (s *symbolsStore) SetPatternMatches(ctx context.Context, qn shared.SymbolID, jsonValue string) error {
+	if qn == "" {
+		return fmt.Errorf("symbols set-pattern-matches: qualified_name required")
+	}
+	var v *string
+	if jsonValue != "" {
+		// Defensive: treat the literal "null" as "clear" so callers that
+		// json.Marshal a nil slice (→ "null") get the natural meaning.
+		if jsonValue != "null" {
+			v = &jsonValue
+		}
+	}
+	if err := s.q.SetSymbolPatternMatchesByQualifiedName(ctx, sqlc.SetSymbolPatternMatchesByQualifiedNameParams{
+		PatternMatches: v,
+		QualifiedName:  string(qn),
+	}); err != nil {
+		return fmt.Errorf("symbols set-pattern-matches %q: %w", qn, err)
+	}
+	return nil
+}
+
+// FindByPattern returns every symbol whose pattern_matches column contains
+// a Match record for the given pattern name. Uses a LIKE substring match —
+// patterns.Match.Pattern is the only JSON value that contains the
+// `"pattern":"<name>"` token, so collisions with other JSON fields are
+// impossible by construction.
+//
+// Returns rows ordered by file_path, line, qualified_name for deterministic
+// downstream diffs (audit/, diagnose/ rely on stable iteration).
+func (s *symbolsStore) FindByPattern(ctx context.Context, pattern string) ([]SymbolRow, error) {
+	if pattern == "" {
+		return nil, fmt.Errorf("symbols find-by-pattern: pattern required")
+	}
+	// The needle includes the JSON quote on both sides so we never match a
+	// pattern whose name is a substring of another (e.g. "outbox-append"
+	// would never match "outbox-append-extended" if such a name existed).
+	needle := `"pattern":"` + pattern + `"`
+	q := `SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
+FROM symbols
+WHERE pattern_matches IS NOT NULL AND pattern_matches LIKE ?
+ORDER BY file_path, line, qualified_name`
+
+	rows, err := s.db.sqlDB().QueryContext(ctx, q, "%"+needle+"%")
+	if err != nil {
+		return nil, fmt.Errorf("symbols find-by-pattern %q: %w", pattern, err)
+	}
+	defer rows.Close()
+
+	var out []SymbolRow
+	for rows.Next() {
+		row, err := scanSymbolRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }

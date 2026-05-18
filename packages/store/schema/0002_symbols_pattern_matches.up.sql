@@ -1,0 +1,11 @@
+-- Phase 6f: add pattern_matches column to the symbols table.
+--
+-- Holds the JSON-encoded []patterns.Match record set produced by the
+-- parser-based EDA pattern recognisers (codeindex/patterns). Nullable —
+-- not every symbol has a recogniser hit, and older indexes pre-Phase-6f
+-- have no matches at all.
+--
+-- The column is plain TEXT (sqlite has no native JSON type but understands
+-- json_ functions over TEXT). Length is unbounded — typical payload is
+-- < 1 KiB even for a method with five recogniser hits.
+ALTER TABLE symbols ADD COLUMN pattern_matches TEXT;
