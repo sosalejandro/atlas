@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -21,6 +22,7 @@ type IngestStats struct {
 	EdgesInserted       int           `json:"edges_inserted"`
 	AnnotationsInserted int           `json:"annotations_inserted"`
 	FileHashesUpserted  int           `json:"file_hashes_upserted"`
+	PatternMatchesSet   int           `json:"pattern_matches_set"`
 	FilesScanned        int           `json:"files_scanned"`
 	FilesSkipped        int           `json:"files_skipped"`
 	Duration            time.Duration `json:"duration"`
@@ -174,6 +176,47 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 			return nil, fmt.Errorf("store ingest annotation %q L%d: %w", path, ann.Position.Line, err)
 		}
 		stats.AnnotationsInserted++
+	}
+
+	// 4.5. Persist per-symbol pattern matches from codeindex/patterns.
+	// Matches live alongside the symbol row in the pattern_matches JSON
+	// column (Phase 6f). Skipped when the symbol lives in an unchanged file
+	// — the persisted JSON is already current.
+	for sym, matches := range idx.PatternMatches {
+		id, ok := symbolIDByQualifiedName[sym]
+		if !ok {
+			// The recogniser surfaced a hit for a symbol the Go scanner
+			// didn't emit (rare — would happen for package-scope calls
+			// using the synthetic "file:Lnnn" handle). Skip rather than
+			// fabricate a synthetic symbol row here.
+			continue
+		}
+		// Find the symbol's file via its node so we can honour the
+		// unchanged-file skip.
+		var symFile string
+		if idx.Graph != nil {
+			if node, hasNode := idx.Graph.Nodes[sym]; hasNode {
+				symFile = node.Position.Path
+			}
+		}
+		if symFile != "" && unchanged[symFile] {
+			continue
+		}
+		if len(matches) == 0 {
+			continue
+		}
+		b, jerr := json.Marshal(matches)
+		if jerr != nil {
+			return nil, fmt.Errorf("store ingest patterns marshal %q: %w", sym, jerr)
+		}
+		val := string(b)
+		if err := qtx.SetSymbolPatternMatches(ctx, sqlc.SetSymbolPatternMatchesParams{
+			PatternMatches: &val,
+			ID:             id,
+		}); err != nil {
+			return nil, fmt.Errorf("store ingest patterns %q: %w", sym, err)
+		}
+		stats.PatternMatchesSet++
 	}
 
 	// 5. Upsert file_hashes (always — even unchanged files get last_scanned

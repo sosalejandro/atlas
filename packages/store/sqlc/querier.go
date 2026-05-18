@@ -44,6 +44,8 @@ type Querier interface {
 	ListFeaturesByKind(ctx context.Context, kind string) ([]Feature, error)
 	ListFileHashes(ctx context.Context) ([]FileHash, error)
 	SetConfig(ctx context.Context, arg SetConfigParams) error
+	SetSymbolPatternMatches(ctx context.Context, arg SetSymbolPatternMatchesParams) error
+	SetSymbolPatternMatchesByQualifiedName(ctx context.Context, arg SetSymbolPatternMatchesByQualifiedNameParams) error
 	UnlinkFeatureSymbol(ctx context.Context, arg UnlinkFeatureSymbolParams) (int64, error)
 	UpsertAnnotation(ctx context.Context, arg UpsertAnnotationParams) error
 	UpsertFeature(ctx context.Context, arg UpsertFeatureParams) error

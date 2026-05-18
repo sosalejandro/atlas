@@ -28,9 +28,12 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	// Phase 6e (migration 0002) bumps to version 2.
-	if v != 2 {
-		t.Fatalf("schema_version = %d, want 2", v)
+	// Schema version tracks the highest applied migration. Bumped to 2 in
+	// Phase 6e (annotation kind set extension) and 3 in Phase 6f
+	// (symbols.pattern_matches column).
+	const expected = 3
+	if v != expected {
+		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}
 }
 

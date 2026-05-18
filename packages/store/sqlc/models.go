@@ -88,13 +88,14 @@ type FileHash struct {
 }
 
 type Symbol struct {
-	ID            int64     `db:"id" json:"id"`
-	QualifiedName string    `db:"qualified_name" json:"qualified_name"`
-	Kind          string    `db:"kind" json:"kind"`
-	FilePath      string    `db:"file_path" json:"file_path"`
-	Line          int64     `db:"line" json:"line"`
-	EndLine       *int64    `db:"end_line" json:"end_line"`
-	Package       *string   `db:"package" json:"package"`
-	BcPath        *string   `db:"bc_path" json:"bc_path"`
-	CreatedAt     time.Time `db:"created_at" json:"created_at"`
+	ID             int64     `db:"id" json:"id"`
+	QualifiedName  string    `db:"qualified_name" json:"qualified_name"`
+	Kind           string    `db:"kind" json:"kind"`
+	FilePath       string    `db:"file_path" json:"file_path"`
+	Line           int64     `db:"line" json:"line"`
+	EndLine        *int64    `db:"end_line" json:"end_line"`
+	Package        *string   `db:"package" json:"package"`
+	BcPath         *string   `db:"bc_path" json:"bc_path"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
+	PatternMatches *string   `db:"pattern_matches" json:"pattern_matches"`
 }

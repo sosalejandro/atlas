@@ -215,15 +215,16 @@ recomputed views (see §7 read patterns).
 
 ```sql
 CREATE TABLE symbols (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  qualified_name TEXT    NOT NULL UNIQUE,
-  kind           TEXT    NOT NULL,
-  file_path      TEXT    NOT NULL,
-  line           INTEGER NOT NULL,
-  end_line       INTEGER,
-  package        TEXT,
-  bc_path        TEXT,
-  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  qualified_name  TEXT    NOT NULL UNIQUE,
+  kind            TEXT    NOT NULL,
+  file_path       TEXT    NOT NULL,
+  line            INTEGER NOT NULL,
+  end_line        INTEGER,
+  package         TEXT,
+  bc_path         TEXT,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  pattern_matches TEXT,   -- Phase 6f, added in migration 0003
   CHECK (kind IN ('type', 'func', 'method', 'interface', 'var', 'const'))
 );
 
@@ -232,17 +233,18 @@ CREATE INDEX symbols_package_idx  ON symbols(package);
 CREATE INDEX symbols_bc_idx       ON symbols(bc_path);
 ```
 
-| Column           | Type    | Notes                                                                                                                          |
-| ---------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `id`             | INTEGER | Surrogate PK; lets edges + feature_symbols use compact integer FKs.                                                            |
-| `qualified_name` | TEXT    | Fully qualified, language-aware. Go: `github.com/foo/bar/pkg.Type.Method`. TS: `apps/web/src/foo.tsx::useFoo`. **UNIQUE.**     |
-| `kind`           | TEXT    | One of `type`, `func`, `method`, `interface`, `var`, `const`. Mirrors `domain.NodeKind` where applicable.                       |
-| `file_path`      | TEXT    | Path **relative to the project root** so the DB is portable across worktrees.                                                  |
-| `line`           | INTEGER | 1-based first line of the symbol's declaration.                                                                                |
-| `end_line`       | INTEGER | 1-based last line. NULL if the scanner couldn't determine it (e.g. some TS expression contexts).                                |
-| `package`        | TEXT    | Go: import path of the package. TS: the nearest `package.json`'s `name`. Optional.                                              |
-| `bc_path`        | TEXT    | Bounded context path, e.g. `src/contexts/identity`. Computed once on insert from `file_path`. Optional for non-BC code.        |
-| `created_at`     | TIMESTAMP | First time this symbol was indexed.                                                                                          |
+| Column            | Type      | Notes                                                                                                                          |
+| ----------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `id`              | INTEGER   | Surrogate PK; lets edges + feature_symbols use compact integer FKs.                                                            |
+| `qualified_name`  | TEXT      | Fully qualified, language-aware. Go: `github.com/foo/bar/pkg.Type.Method`. TS: `apps/web/src/foo.tsx::useFoo`. **UNIQUE.**     |
+| `kind`            | TEXT      | One of `type`, `func`, `method`, `interface`, `var`, `const`. Mirrors `domain.NodeKind` where applicable.                       |
+| `file_path`       | TEXT      | Path **relative to the project root** so the DB is portable across worktrees.                                                  |
+| `line`            | INTEGER   | 1-based first line of the symbol's declaration.                                                                                |
+| `end_line`        | INTEGER   | 1-based last line. NULL if the scanner couldn't determine it (e.g. some TS expression contexts).                                |
+| `package`         | TEXT      | Go: import path of the package. TS: the nearest `package.json`'s `name`. Optional.                                              |
+| `bc_path`         | TEXT      | Bounded context path, e.g. `src/contexts/identity`. Computed once on insert from `file_path`. Optional for non-BC code.        |
+| `created_at`      | TIMESTAMP | First time this symbol was indexed.                                                                                            |
+| `pattern_matches` | TEXT      | JSON-encoded `[]patterns.Match` set produced by codeindex/patterns recognisers (Phase 6f). NULL when the symbol has no hits.    |
 
 The unique constraint on `qualified_name` is the cache key. Re-scanning the
 same file yields the same qualified name, so subsequent runs `INSERT OR

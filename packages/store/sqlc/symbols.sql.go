@@ -20,7 +20,7 @@ func (q *Queries) DeleteSymbolsByFile(ctx context.Context, filePath string) erro
 }
 
 const getSymbolByQualifiedName = `-- name: GetSymbolByQualifiedName :one
-SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at
+SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
 FROM symbols
 WHERE qualified_name = ?
 `
@@ -38,6 +38,7 @@ func (q *Queries) GetSymbolByQualifiedName(ctx context.Context, qualifiedName st
 		&i.Package,
 		&i.BcPath,
 		&i.CreatedAt,
+		&i.PatternMatches,
 	)
 	return i, err
 }
@@ -79,4 +80,32 @@ func (q *Queries) InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql
 		arg.Package,
 		arg.BcPath,
 	)
+}
+
+const setSymbolPatternMatches = `-- name: SetSymbolPatternMatches :exec
+UPDATE symbols SET pattern_matches = ? WHERE id = ?
+`
+
+type SetSymbolPatternMatchesParams struct {
+	PatternMatches *string `db:"pattern_matches" json:"pattern_matches"`
+	ID             int64   `db:"id" json:"id"`
+}
+
+func (q *Queries) SetSymbolPatternMatches(ctx context.Context, arg SetSymbolPatternMatchesParams) error {
+	_, err := q.db.ExecContext(ctx, setSymbolPatternMatches, arg.PatternMatches, arg.ID)
+	return err
+}
+
+const setSymbolPatternMatchesByQualifiedName = `-- name: SetSymbolPatternMatchesByQualifiedName :exec
+UPDATE symbols SET pattern_matches = ? WHERE qualified_name = ?
+`
+
+type SetSymbolPatternMatchesByQualifiedNameParams struct {
+	PatternMatches *string `db:"pattern_matches" json:"pattern_matches"`
+	QualifiedName  string  `db:"qualified_name" json:"qualified_name"`
+}
+
+func (q *Queries) SetSymbolPatternMatchesByQualifiedName(ctx context.Context, arg SetSymbolPatternMatchesByQualifiedNameParams) error {
+	_, err := q.db.ExecContext(ctx, setSymbolPatternMatchesByQualifiedName, arg.PatternMatches, arg.QualifiedName)
+	return err
 }
