@@ -69,19 +69,48 @@ Tokens, separated by whitespace:
 
 ## Known kinds
 
-The initial closed set of `<kind>` values:
+The closed set of `<kind>` values:
 
-| Kind          | Purpose                                                          | Example                          |
-| ------------- | ---------------------------------------------------------------- | -------------------------------- |
-| `feature`     | Code (typically a test) belongs to a named feature               | `@atlas:feature auth.login`      |
-| `contract`    | Function/method is the feature's public API surface              | `@atlas:contract auth.login`     |
-| `owner`       | Team or person responsible for the code                          | `@atlas:owner platform-team`     |
-| `deprecated`  | Code scheduled for removal in the named version                  | `@atlas:deprecated v2.0`         |
-| `since`       | Version the feature was introduced                               | `@atlas:since v1.4.0`            |
+| Kind                 | Purpose                                                          | Example                                              |
+| -------------------- | ---------------------------------------------------------------- | ---------------------------------------------------- |
+| `feature`            | Code (typically a test) belongs to a named feature               | `@atlas:feature auth.login`                          |
+| `contract`           | Function/method is the feature's public API surface              | `@atlas:contract auth.login`                         |
+| `owner`              | Team or person responsible for the code                          | `@atlas:owner platform-team`                         |
+| `deprecated`         | Code scheduled for removal in the named version                  | `@atlas:deprecated v2.0`                             |
+| `since`              | Version the feature was introduced                               | `@atlas:since v1.4.0`                                |
+| `bc`                 | File / package belongs to the named bounded context              | `@atlas:bc identity`                                 |
+| `aggregate`          | Struct is an aggregate root for the named aggregate id           | `@atlas:aggregate meal_prep.batch_session`           |
+| `aggregate-service`  | Function is the canonical service helper for the named aggregate | `@atlas:aggregate-service meal_prep.batch_session`   |
+| `saga`               | Function is one step of a multi-step saga (`step=N` ordering)    | `@atlas:saga meal_prep_flow step=1`                  |
+| `consumer`           | Function subscribes to the named Redis stream                    | `@atlas:consumer stream=meal_prep_events`            |
+| `event-emit`         | Call site records a domain event by name                         | `@atlas:event-emit batch_session_started`            |
+| `outbox-publish`     | Outbox.Append site publishes the event to the bus                | `@atlas:outbox-publish batch_session_started`        |
 
 `feature` is by far the most common — most test files only ever use that one.
-The other four exist so a single grammar covers ownership, lifecycle, and API
-surface metadata without inventing new comment dialects later.
+The other annotations exist so a single grammar covers ownership, lifecycle,
+API surface, and event-driven-architecture pattern metadata without inventing
+new comment dialects later.
+
+The seven EDA-pattern kinds (`bc`, `aggregate`, `aggregate-service`, `saga`,
+`consumer`, `event-emit`, `outbox-publish`) are introduced in Phase 6e. They
+share the same canonical grammar; per-kind notes:
+
+- `bc` / `consumer` carry a single bare name. `consumer` requires a
+  `stream=<name>` tag (the id slot is empty; the stream value is promoted to
+  the annotation's IDs slice for downstream queries).
+- `aggregate` and `aggregate-service` use dot-namespaced ids
+  (`<bc>.<aggregate-root>`). A canonical service is optional — the Store's
+  `FindAggregate` returns `CanonicalService=nil` when none exists; that is
+  not an error.
+- `saga` ids carry an integer `step=N` tag. Non-numeric steps (`step=two`,
+  `step=`) are rejected at parse time.
+- `event-emit` and `outbox-publish` carry an event name. The Store's
+  `FindEventEmitters` returns both kinds side-by-side so the emit/publish
+  split is queryable as a single view.
+
+All EDA kinds are validated against the strict id regex
+(`[a-z0-9_]+(\.[a-z0-9_]+)*`) — unlike `owner` / `deprecated` / `since`
+which carry free-form values.
 
 ### Future kinds
 

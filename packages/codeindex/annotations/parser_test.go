@@ -278,3 +278,149 @@ func TestParseBytes_TagsAfterIDs(t *testing.T) {
 		t.Fatalf("expected #real tag; got %v", got[0].Tags)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// EDA-pattern annotation kinds (Phase 6e).
+// ---------------------------------------------------------------------------
+
+func TestParseBytes_EDA_AllKindsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	content := []byte(`// @atlas:bc identity
+// @atlas:aggregate meal_prep.batch_session
+// @atlas:aggregate-service meal_prep.batch_session
+// @atlas:saga meal_prep_flow step=1
+// @atlas:consumer stream=meal_prep_events
+// @atlas:event-emit batch_session_started
+// @atlas:outbox-publish batch_session_started
+`)
+	got := ParseBytes("x.go", content, styleGoTS)
+	wantKinds := []shared.AnnotationKind{
+		shared.AnnBC,
+		shared.AnnAggregate,
+		shared.AnnAggregateService,
+		shared.AnnSaga,
+		shared.AnnConsumer,
+		shared.AnnEventEmit,
+		shared.AnnOutboxPublish,
+	}
+	if len(got) != len(wantKinds) {
+		t.Fatalf("expected %d annotations, got %d: %+v", len(wantKinds), len(got), got)
+	}
+	for i, ann := range got {
+		if ann.Kind != wantKinds[i] {
+			t.Fatalf("ann[%d].Kind = %s; want %s", i, ann.Kind, wantKinds[i])
+		}
+		if ann.Source != shared.SourceAtlas {
+			t.Fatalf("ann[%d].Source = %s; want atlas", i, ann.Source)
+		}
+		if len(ann.IDs) == 0 {
+			t.Fatalf("ann[%d] (%s) has no IDs", i, ann.Kind)
+		}
+	}
+
+	// Saga step= tag must be preserved verbatim.
+	sagaAnn := got[3]
+	var sawStep bool
+	for _, tag := range sagaAnn.Tags {
+		if tag == "step=1" {
+			sawStep = true
+		}
+	}
+	if !sawStep {
+		t.Fatalf("expected step=1 tag on saga annotation; got tags=%v", sagaAnn.Tags)
+	}
+
+	// Consumer must promote stream= value to IDs.
+	consumerAnn := got[4]
+	if !reflect.DeepEqual(consumerAnn.IDs, []string{"meal_prep_events"}) {
+		t.Fatalf("expected consumer IDs=[meal_prep_events]; got %v", consumerAnn.IDs)
+	}
+}
+
+func TestParseBytes_EDA_RejectsInvalidIDFormat(t *testing.T) {
+	t.Parallel()
+
+	// Strict id-validation applies to every EDA kind.
+	content := []byte(`// @atlas:bc Identity
+// @atlas:aggregate Meal_Prep.batch_session
+// @atlas:saga MealPrepFlow step=1
+// @atlas:event-emit Batch.Session.Started
+// @atlas:outbox-publish Batch.Session.Started
+`)
+	got := ParseBytes("x.go", content, styleGoTS)
+	if len(got) != 0 {
+		t.Fatalf("expected all malformed EDA ids rejected; got %d (%+v)", len(got), got)
+	}
+}
+
+func TestParseBytes_EDA_SagaNonNumericStepRejected(t *testing.T) {
+	t.Parallel()
+
+	// Edge case (pressure dim: data shape): step= must be a non-negative
+	// integer — `step=two` and `step=` must be rejected at parse time so
+	// the saga-walk query never has to defend against them.
+	content := []byte(`// @atlas:saga meal_prep_flow step=two
+// @atlas:saga meal_prep_flow step=
+// @atlas:saga meal_prep_flow step=1
+`)
+	got := ParseBytes("x.go", content, styleGoTS)
+	if len(got) != 1 {
+		t.Fatalf("expected only well-formed step=1 to parse; got %d (%+v)", len(got), got)
+	}
+	if got[0].IDs[0] != "meal_prep_flow" {
+		t.Fatalf("expected ids=[meal_prep_flow]; got %v", got[0].IDs)
+	}
+}
+
+func TestParseBytes_EDA_ConsumerWithoutStreamRejected(t *testing.T) {
+	t.Parallel()
+
+	// Edge case (pressure dim: data shape): consumer must carry stream=.
+	// Bare `@atlas:consumer x` is rejected because the id grammar puts
+	// the stream identity in the tag, not the id slot.
+	content := []byte(`// @atlas:consumer
+// @atlas:consumer foo
+// @atlas:consumer stream=meal_prep_events
+// @atlas:consumer x stream=meal_prep_events
+`)
+	got := ParseBytes("x.go", content, styleGoTS)
+	if len(got) != 1 {
+		t.Fatalf("expected only the well-formed consumer to parse; got %d (%+v)", len(got), got)
+	}
+	if got[0].Kind != shared.AnnConsumer {
+		t.Fatalf("expected kind=consumer; got %s", got[0].Kind)
+	}
+	if got[0].IDs[0] != "meal_prep_events" {
+		t.Fatalf("expected ids=[meal_prep_events]; got %v", got[0].IDs)
+	}
+}
+
+func TestParseBytes_EDA_AggregateWithoutServiceLinkIsValid(t *testing.T) {
+	t.Parallel()
+
+	// Edge case (pressure dim: state-shape): an aggregate annotation
+	// stands on its own — there is no parser requirement that an
+	// aggregate-service annotation exist somewhere too. The store query
+	// FindAggregate handles "no canonical service" by returning a nil
+	// pointer field, not an error.
+	content := []byte(`// @atlas:aggregate meal_prep.batch_session
+`)
+	got := ParseBytes("x.go", content, styleGoTS)
+	if len(got) != 1 || got[0].Kind != shared.AnnAggregate {
+		t.Fatalf("expected aggregate annotation; got %+v", got)
+	}
+}
+
+func TestParseBytes_EDA_NoIDForSagaIsRejected(t *testing.T) {
+	t.Parallel()
+
+	// `@atlas:saga step=1` is ill-formed — saga's identity is the id
+	// slot, not a tag.
+	content := []byte(`// @atlas:saga step=1
+`)
+	got := ParseBytes("x.go", content, styleGoTS)
+	if len(got) != 0 {
+		t.Fatalf("expected saga without id to be rejected; got %+v", got)
+	}
+}
