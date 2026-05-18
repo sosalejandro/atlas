@@ -477,20 +477,5 @@ func extractFeatureIDsFromAnnotation(ann shared.Annotation) []string {
 	return out
 }
 
-// bcPathFor returns the bounded-context path prefix for a repo-relative
-// file path, or "" if the file does not live under src/contexts/<bc>/.
-//
-// The convention is fixed by docs/architecture.md §3.7 + schema-v1.md §5.4.
-// Atlas treats anything matching `src/contexts/<bc>/` as living in that BC.
-func bcPathFor(relPath string) string {
-	const prefix = "src/contexts/"
-	if !strings.HasPrefix(relPath, prefix) {
-		return ""
-	}
-	rest := relPath[len(prefix):]
-	slash := strings.IndexByte(rest, '/')
-	if slash <= 0 {
-		return ""
-	}
-	return prefix + rest[:slash]
-}
+// bcPathFor lives in paths.go — kept as a pure string helper outside this
+// transactional ingest file. See packages/store/paths.go.
