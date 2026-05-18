@@ -98,7 +98,7 @@ Gaps are prioritized by severity:
 			if err != nil {
 				return fmt.Errorf("creating output file %q: %w", auditOutput, err)
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 			out = f
 		}
 

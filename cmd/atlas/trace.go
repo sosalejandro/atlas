@@ -142,7 +142,10 @@ func runTraceWithOpts(ctx context.Context, w io.Writer, root, feature string, ma
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(env)
+	if err := enc.Encode(env); err != nil {
+		return fmt.Errorf("encode trace envelope: %w", err)
+	}
+	return nil
 }
 
 // pickEntryPoint chooses the best matching SymbolID for the requested

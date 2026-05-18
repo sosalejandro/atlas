@@ -192,7 +192,7 @@ func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, e
 	if err != nil {
 		return nil, fmt.Errorf("symbols list: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []SymbolRow
 	for rows.Next() {
@@ -222,7 +222,10 @@ func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, e
 			CreatedAt:     createdAt,
 		})
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("symbols rows: %w", err)
+	}
+	return out, nil
 }
 
 func (s *symbolsStore) DeleteByFile(ctx context.Context, filePath string) error {

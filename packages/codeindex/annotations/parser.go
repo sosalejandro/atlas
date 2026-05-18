@@ -64,7 +64,7 @@ func ParseRelative(ctx context.Context, absPath, relPath string) ([]shared.Annot
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", absPath, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	ext := strings.ToLower(filepath.Ext(absPath))
 	style := commentStyleFor(ext)
@@ -85,7 +85,7 @@ func ParseRelative(ctx context.Context, absPath, relPath string) ([]shared.Annot
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse %s: %w", absPath, err)
 	}
 
 	return ParseBytes(relPath, buf.Bytes(), style), nil

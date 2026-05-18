@@ -91,7 +91,10 @@ func init() {
 func outputTraceJSON(result *app.TraceOutput) error {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(result)
+	if err := encoder.Encode(result); err != nil {
+		return fmt.Errorf("encode trace output: %w", err)
+	}
+	return nil
 }
 
 // collectTraceNodes walks all trace trees and collects unique nodes,

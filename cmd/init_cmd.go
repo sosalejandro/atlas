@@ -93,7 +93,7 @@ func runDiscoverInit(store *adapters.YAMLStore, registryDir string) error {
 	}
 	backendAbs := filepath.Join(projectRoot, backendRoot)
 
-	filepath.WalkDir(backendAbs, func(path string, d os.DirEntry, err error) error {
+	if walkErr := filepath.WalkDir(backendAbs, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -109,7 +109,11 @@ func runDiscoverInit(store *adapters.YAMLStore, registryDir string) error {
 			}
 		}
 		return nil
-	})
+	}); walkErr != nil {
+		// Best-effort walk: if a subtree is unreadable we continue with what
+		// we have. Falling back to template init below if no routes found.
+		fmt.Fprintf(os.Stderr, "warn: route walk of %s incomplete: %v\n", backendAbs, walkErr)
+	}
 
 	if len(allRoutes) == 0 {
 		fmt.Fprintln(os.Stderr, "No routes discovered. Check that router_file is set in .testreg.yaml")
@@ -135,9 +139,7 @@ func runDiscoverInit(store *adapters.YAMLStore, registryDir string) error {
 
 	// Build registry.
 	registry := &domain.Registry{}
-	for _, df := range domains {
-		registry.Domains = append(registry.Domains, df)
-	}
+	registry.Domains = append(registry.Domains, domains...)
 
 	// Save.
 	if err := store.SaveAll(registryDir, registry); err != nil {
@@ -202,7 +204,7 @@ func groupRoutesIntoDomains(routes []adapters.RouteMapping) []domain.DomainFile 
 		fg := domainMap[d]
 		df := domain.DomainFile{
 			Domain:      d,
-			Description: fmt.Sprintf("Auto-discovered from route registrations"),
+			Description: "Auto-discovered from route registrations",
 		}
 
 		// Each route becomes a feature with its handler name as the feature name.
