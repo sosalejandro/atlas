@@ -1,6 +1,6 @@
 package ports
 
-import "github.com/sosalejandro/testreg/internal/domain"
+import "github.com/sosalejandro/atlas/internal/domain"
 
 // GraphBuilder constructs the call graph from source code.
 type GraphBuilder interface {

@@ -1,6 +1,6 @@
 package ports
 
-import "github.com/sosalejandro/testreg/internal/domain"
+import "github.com/sosalejandro/atlas/internal/domain"
 
 // RegistryReader loads registry data from persistent storage.
 type RegistryReader interface {

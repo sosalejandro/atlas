@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/testreg/internal/app"
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/app"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 // writeTestSnapshot saves a pre-built snapshotFile to the server's snapshot dir.

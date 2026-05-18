@@ -7,7 +7,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 	"gopkg.in/yaml.v3"
 )
 

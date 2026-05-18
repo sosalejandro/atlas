@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 // MarkdownReporter generates a COVERAGE.md file with GitHub-flavored markdown tables.

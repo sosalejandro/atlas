@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 // ContractRenderer renders ContractOutput in terminal, JSON, or markdown formats.

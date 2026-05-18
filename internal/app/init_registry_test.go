@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/testreg/internal/adapters"
+	"github.com/sosalejandro/atlas/internal/adapters"
 )
 
 func TestInitRegistryExecute(t *testing.T) {

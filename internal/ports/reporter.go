@@ -1,6 +1,6 @@
 package ports
 
-import "github.com/sosalejandro/testreg/internal/domain"
+import "github.com/sosalejandro/atlas/internal/domain"
 
 // Reporter renders a coverage report to an output destination.
 type Reporter interface {

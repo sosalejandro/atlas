@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 func TestMetricsStoreAppendAndLoad(t *testing.T) {

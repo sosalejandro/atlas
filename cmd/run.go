@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/sosalejandro/testreg/internal/adapters"
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/adapters"
+	"github.com/sosalejandro/atlas/internal/domain"
 	"github.com/spf13/cobra"
 )
 

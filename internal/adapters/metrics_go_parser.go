@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 // goMetricEvent mirrors the JSON structure emitted by `go test -json`.

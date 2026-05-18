@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 // vitestReport mirrors the top-level structure of Vitest's --reporter=json output.

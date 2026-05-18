@@ -1,4 +1,4 @@
-module github.com/sosalejandro/testreg
+module github.com/sosalejandro/atlas
 
 go 1.25.0
 

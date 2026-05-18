@@ -6,9 +6,9 @@ import (
 	"os"
 	"sort"
 
-	"github.com/sosalejandro/testreg/internal/adapters"
-	"github.com/sosalejandro/testreg/internal/app"
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/adapters"
+	"github.com/sosalejandro/atlas/internal/app"
+	"github.com/sosalejandro/atlas/internal/domain"
 	"github.com/spf13/cobra"
 )
 

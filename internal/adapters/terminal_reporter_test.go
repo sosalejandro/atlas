@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 // --- fixtures ---

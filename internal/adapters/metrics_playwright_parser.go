@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 // playwrightMetricsReport mirrors the top-level Playwright JSON reporter output

@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/sosalejandro/testreg/internal/domain"
-	"github.com/sosalejandro/testreg/internal/ports"
+	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/atlas/internal/ports"
 )
 
 // TypedScanner builds call graphs using golang.org/x/tools/go/packages for full
