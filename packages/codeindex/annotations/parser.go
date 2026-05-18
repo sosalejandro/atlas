@@ -24,7 +24,36 @@ var Kinds = map[string]shared.AnnotationKind{
 	"owner":      shared.AnnOwner,
 	"deprecated": shared.AnnDeprecated,
 	"since":      shared.AnnSince,
+
+	// EDA-pattern kinds (Phase 6e). Same canonical grammar
+	// (@atlas:<kind> <id> [#tags...] [key=value...]). The id is
+	// regex-validated for every EDA kind — these are NOT free-form like
+	// owner/since/deprecated.
+	"bc":                shared.AnnBC,
+	"aggregate":         shared.AnnAggregate,
+	"aggregate-service": shared.AnnAggregateService,
+	"saga":              shared.AnnSaga,
+	"consumer":          shared.AnnConsumer,
+	"event-emit":        shared.AnnEventEmit,
+	"outbox-publish":    shared.AnnOutboxPublish,
 }
+
+// edaStrictIDKinds are the EDA kinds whose ids must match idValidationRe.
+// Identical handling to feature/contract — bare lower-case dot-namespaced ids.
+var edaStrictIDKinds = map[shared.AnnotationKind]bool{
+	shared.AnnBC:               true,
+	shared.AnnAggregate:        true,
+	shared.AnnAggregateService: true,
+	shared.AnnSaga:             true,
+	shared.AnnConsumer:         true,
+	shared.AnnEventEmit:        true,
+	shared.AnnOutboxPublish:    true,
+}
+
+// sagaStepTagRe matches a well-formed `step=<N>` tag. Non-numeric step values
+// like `step=two` or empty `step=` are rejected at parse time so the saga
+// walk query never has to defend against them.
+var sagaStepTagRe = regexp.MustCompile(`^step=([0-9]+)$`)
 
 // idValidationRe is the case-sensitive ID grammar per docs/annotations.md.
 //
@@ -149,22 +178,57 @@ func parseAtlasLine(ll logicalLine, relPath string) (shared.Annotation, bool) {
 	}
 	payload := strings.TrimSpace(m[2])
 	ids, tags := splitIDsAndTags(payload, false)
+
+	// `consumer` carries its identity entirely in the `stream=` tag — the
+	// id slot is intentionally empty. Promote the stream value to the id
+	// list so downstream queries (Store.ListConsumers) can index on it
+	// uniformly. Every other kind requires at least one id.
+	if kind == shared.AnnConsumer {
+		streamVal, hasStream := findTagValue(tags, "stream")
+		if !hasStream {
+			// `@atlas:consumer` without `stream=<name>` is ill-formed.
+			return shared.Annotation{}, false
+		}
+		if !idValidationRe.MatchString(streamVal) {
+			return shared.Annotation{}, false
+		}
+		// Reject extra free-form ids — `@atlas:consumer x stream=y` is
+		// ambiguous and not part of the grammar.
+		if len(ids) > 0 {
+			return shared.Annotation{}, false
+		}
+		ids = []string{streamVal}
+	}
+
 	if len(ids) == 0 {
 		// `@atlas:feature` with no value is invalid grammar; skip.
 		return shared.Annotation{}, false
 	}
-	// Strict ID validation applies only to `feature` and `contract` kinds —
-	// those identify a feature so the dot-namespaced lower-case rule from
-	// docs/annotations.md §Parser rules #5 holds. `owner`, `deprecated`,
-	// and `since` carry free-form values (team handles, version strings,
-	// date strings) and intentionally bypass the regex.
-	if kind == shared.AnnFeature || kind == shared.AnnContract {
+
+	// Strict ID validation applies to `feature` and `contract` plus all
+	// EDA-pattern kinds (bc/aggregate/aggregate-service/saga/consumer/
+	// event-emit/outbox-publish). `owner`, `deprecated`, and `since`
+	// carry free-form values (team handles, version strings, date strings)
+	// and intentionally bypass the regex.
+	if kind == shared.AnnFeature || kind == shared.AnnContract || edaStrictIDKinds[kind] {
 		for _, id := range ids {
 			if !idValidationRe.MatchString(id) {
 				return shared.Annotation{}, false
 			}
 		}
 	}
+
+	// Per-kind tag validation (only structural validators that the parser
+	// MUST enforce — value-level semantics are still resolver-domain).
+	if kind == shared.AnnSaga {
+		if stepRaw, hasStep := findTagValue(tags, "step"); hasStep {
+			if !sagaStepTagRe.MatchString("step=" + stepRaw) {
+				// step= must be a non-negative integer; reject otherwise.
+				return shared.Annotation{}, false
+			}
+		}
+	}
+
 	return shared.Annotation{
 		Kind:     kind,
 		IDs:      ids,
@@ -218,9 +282,14 @@ func parseAPILine(ll logicalLine, relPath string) (shared.Annotation, bool) {
 	}, true
 }
 
-// splitIDsAndTags splits a whitespace-separated payload into IDs (no `#`
-// prefix) and tags (`#`-prefixed). Tags must follow IDs — the first `#`
-// token terminates the ID list (docs/annotations.md §Parser rules #4).
+// splitIDsAndTags splits a whitespace-separated payload into IDs (bare
+// tokens) and tags. Two tag shapes are accepted:
+//
+//   - `#tag`        — boolean tag (e.g. `#real`, `#flaky`)
+//   - `key=value`   — key/value tag (e.g. `step=1`, `stream=meal_prep_events`)
+//
+// Tags must follow IDs. The first tag token (either shape) terminates the
+// ID list (docs/annotations.md §Parser rules #4).
 //
 // allowCommaSplit=true honors legacy testreg semantics where IDs can be
 // comma-separated; allowCommaSplit=false enforces the new strict
@@ -229,7 +298,7 @@ func splitIDsAndTags(payload string, allowCommaSplit bool) (ids []string, tags [
 	fields := strings.Fields(payload)
 	tagsStarted := false
 	for _, f := range fields {
-		if strings.HasPrefix(f, "#") {
+		if strings.HasPrefix(f, "#") || isKVTag(f) {
 			tagsStarted = true
 			tags = append(tags, f)
 			continue
@@ -250,4 +319,36 @@ func splitIDsAndTags(payload string, allowCommaSplit bool) (ids []string, tags [
 		ids = append(ids, f)
 	}
 	return ids, tags
+}
+
+// isKVTag reports whether token has the `key=value` shape used by EDA
+// annotations (`step=1`, `stream=meal_prep_events`). It is intentionally
+// permissive on the value side — `splitIDsAndTags` only needs to classify
+// the token as "this is a tag, not an id"; per-kind tag validators run later.
+func isKVTag(token string) bool {
+	if token == "" {
+		return false
+	}
+	if strings.HasPrefix(token, "#") {
+		return false
+	}
+	idx := strings.IndexByte(token, '=')
+	if idx <= 0 {
+		// No `=` at all, or `=value` with empty key — not a kv tag.
+		return false
+	}
+	return true
+}
+
+// findTagValue returns the value of the first `key=value` tag matching the
+// given key, or "" if none. Used by per-kind validators (saga step=, consumer
+// stream=). Tag tokens must be in the form returned by splitIDsAndTags.
+func findTagValue(tags []string, key string) (value string, ok bool) {
+	prefix := key + "="
+	for _, t := range tags {
+		if strings.HasPrefix(t, prefix) {
+			return t[len(prefix):], true
+		}
+	}
+	return "", false
 }

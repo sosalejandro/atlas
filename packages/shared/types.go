@@ -102,6 +102,27 @@ const (
 	// grammar, but produced by the same parser so consumers can treat all
 	// annotations uniformly.
 	AnnAPI AnnotationKind = "api"
+
+	// EDA-pattern kinds (Phase 6e). These elevate Atlas's understanding of
+	// event-driven architectures: bounded contexts, aggregates, sagas,
+	// stream consumers, and the emit/publish split. They are pure
+	// annotation grammar extensions — Atlas does NOT autodetect these
+	// patterns from source (that is Horizon 2).
+	//
+	// ID rules:
+	//   - bc, consumer       — bare name; validated against `[a-z0-9_]+(\.[a-z0-9_]+)*`
+	//   - aggregate          — dot-namespaced (e.g. `meal-prep.batch-session`)
+	//   - aggregate-service  — dot-namespaced; references an aggregate id
+	//   - saga               — dot-namespaced; `step=N` tag carries order
+	//   - event-emit         — event name (regex-validated)
+	//   - outbox-publish     — event name (regex-validated)
+	AnnBC               AnnotationKind = "bc"
+	AnnAggregate        AnnotationKind = "aggregate"
+	AnnAggregateService AnnotationKind = "aggregate-service"
+	AnnSaga             AnnotationKind = "saga"
+	AnnConsumer         AnnotationKind = "consumer"
+	AnnEventEmit        AnnotationKind = "event-emit"
+	AnnOutboxPublish    AnnotationKind = "outbox-publish"
 )
 
 // AnnotationSource records which grammar produced the annotation.

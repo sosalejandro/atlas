@@ -28,8 +28,9 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 1 {
-		t.Fatalf("schema_version = %d, want 1", v)
+	// Phase 6e (migration 0002) bumps to version 2.
+	if v != 2 {
+		t.Fatalf("schema_version = %d, want 2", v)
 	}
 }
 
