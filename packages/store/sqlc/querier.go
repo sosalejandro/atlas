@@ -15,12 +15,14 @@ type Querier interface {
 	DeleteEdgesByFile(ctx context.Context, filePath string) error
 	DeleteFeature(ctx context.Context, id string) (int64, error)
 	DeleteFileHash(ctx context.Context, filePath string) error
+	DeleteSnapshot(ctx context.Context, id int64) (int64, error)
 	DeleteSymbolsByFile(ctx context.Context, filePath string) error
 	GetConfig(ctx context.Context, key string) (string, error)
 	GetCoverageRun(ctx context.Context, id int64) (CoverageRun, error)
 	GetEdgeID(ctx context.Context, arg GetEdgeIDParams) (int64, error)
 	GetFeature(ctx context.Context, id string) (Feature, error)
 	GetFileHash(ctx context.Context, filePath string) (FileHash, error)
+	GetSnapshot(ctx context.Context, id int64) (Snapshot, error)
 	GetSymbolByQualifiedName(ctx context.Context, qualifiedName string) (Symbol, error)
 	GetSymbolIDByQualifiedName(ctx context.Context, qualifiedName string) (int64, error)
 	InsertAuditSnapshot(ctx context.Context, arg InsertAuditSnapshotParams) (sql.Result, error)
@@ -28,10 +30,12 @@ type Querier interface {
 	InsertCoverageResult(ctx context.Context, arg InsertCoverageResultParams) error
 	InsertCoverageRun(ctx context.Context, arg InsertCoverageRunParams) (sql.Result, error)
 	InsertEdge(ctx context.Context, arg InsertEdgeParams) (sql.Result, error)
+	InsertSnapshot(ctx context.Context, arg InsertSnapshotParams) (sql.Result, error)
 	InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql.Result, error)
 	LinkFeatureSymbol(ctx context.Context, arg LinkFeatureSymbolParams) error
 	ListAllCoverageRuns(ctx context.Context) ([]CoverageRun, error)
 	ListAllFeatures(ctx context.Context) ([]Feature, error)
+	ListAllSnapshots(ctx context.Context) ([]Snapshot, error)
 	ListAnnotationsByFile(ctx context.Context, filePath string) ([]Annotation, error)
 	ListAuditSnapshotsByFeature(ctx context.Context, arg ListAuditSnapshotsByFeatureParams) ([]AuditSnapshot, error)
 	ListConfig(ctx context.Context) ([]Config, error)
@@ -43,6 +47,7 @@ type Querier interface {
 	ListFeatureSymbolsBySymbol(ctx context.Context, symbolID int64) ([]FeatureSymbol, error)
 	ListFeaturesByKind(ctx context.Context, kind string) ([]Feature, error)
 	ListFileHashes(ctx context.Context) ([]FileHash, error)
+	ListSnapshotsByGitRef(ctx context.Context, gitRef string) ([]Snapshot, error)
 	SetConfig(ctx context.Context, arg SetConfigParams) error
 	SetSymbolPatternMatches(ctx context.Context, arg SetSymbolPatternMatchesParams) error
 	SetSymbolPatternMatchesByQualifiedName(ctx context.Context, arg SetSymbolPatternMatchesByQualifiedNameParams) error
