@@ -34,10 +34,8 @@ type Querier interface {
 	GetSnapshot(ctx context.Context, id int64) (Snapshot, error)
 	GetSymbolByQualifiedName(ctx context.Context, qualifiedName string) (Symbol, error)
 	GetSymbolIDByQualifiedName(ctx context.Context, qualifiedName string) (int64, error)
-	InsertAuditSnapshot(ctx context.Context, arg InsertAuditSnapshotParams) (sql.Result, error)
 	InsertAuditSnapshotRun(ctx context.Context, scoreJson string) (sql.Result, error)
 	InsertAuditSnapshotRunWithTime(ctx context.Context, arg InsertAuditSnapshotRunWithTimeParams) (sql.Result, error)
-	InsertAuditSnapshotWithTime(ctx context.Context, arg InsertAuditSnapshotWithTimeParams) (sql.Result, error)
 	InsertCoverageResult(ctx context.Context, arg InsertCoverageResultParams) error
 	InsertCoverageRun(ctx context.Context, arg InsertCoverageRunParams) (sql.Result, error)
 	InsertEdge(ctx context.Context, arg InsertEdgeParams) (sql.Result, error)
@@ -50,7 +48,6 @@ type Querier interface {
 	ListAllSnapshots(ctx context.Context) ([]Snapshot, error)
 	ListAnnotationsByFile(ctx context.Context, filePath string) ([]Annotation, error)
 	ListAuditSnapshotRuns(ctx context.Context, limit int64) ([]AuditSnapshotRun, error)
-	ListAuditSnapshotsByFeature(ctx context.Context, arg ListAuditSnapshotsByFeatureParams) ([]AuditSnapshot, error)
 	ListConfig(ctx context.Context) ([]Config, error)
 	ListCoverageResults(ctx context.Context, runID int64) ([]CoverageResult, error)
 	ListCoverageRunsByFramework(ctx context.Context, framework string) ([]CoverageRun, error)

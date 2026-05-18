@@ -396,9 +396,20 @@ CREATE INDEX coverage_results_feature_idx ON coverage_results(feature_id);
 | `duration_ms` | INTEGER | Per-test runtime. `0` if the framework didn't report it.                                                                           |
 | `message`     | TEXT    | Failure message / skip reason. NULL for `pass`.                                                                                    |
 
-### 5.10 `audit_snapshots` — health-score history
+### 5.10 `audit_snapshots` — REMOVED (see migration 0006)
+
+> **Status:** removed by migration `0006_drop_unused_audit_snapshots` (issue
+> #21). The per-feature, per-snapshot shape this section originally described
+> never matched a real workflow — nothing in Atlas ever wrote to the table.
+> Phase 6a added `audit_snapshot_runs` (§5.12) for the whole-project JSON
+> blob the algorithm actually persists; the legacy table was dropped as
+> tech-debt cleanup in the follow-up. The original schema is preserved
+> below for historical reference and is the verbatim content of
+> `0006_drop_unused_audit_snapshots.down.sql`.
 
 ```sql
+-- Removed by migration 0006. Recreated by the down migration so a rollback
+-- restores the pre-drop schema (empty — production never wrote to it).
 CREATE TABLE audit_snapshots (
   id                      INTEGER PRIMARY KEY AUTOINCREMENT,
   taken_at                TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

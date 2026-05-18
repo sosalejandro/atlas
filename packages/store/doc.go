@@ -21,7 +21,7 @@
 //
 // The package's external surface is a *Store handle plus a set of narrow
 // "port" interfaces (Features, Symbols, Edges, FeatureSymbols, FileHashes,
-// Coverage, AuditSnapshots, Annotations, Config). Each port is satisfied
+// Coverage, AuditSnapshotRuns, Annotations, Config). Each port is satisfied
 // by a sqlite-backed implementation in this package; external consumers
 // depend on the interfaces.
 //

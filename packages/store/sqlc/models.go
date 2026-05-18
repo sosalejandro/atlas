@@ -18,15 +18,6 @@ type Annotation struct {
 	ParsedAt time.Time `db:"parsed_at" json:"parsed_at"`
 }
 
-type AuditSnapshot struct {
-	ID                   int64     `db:"id" json:"id"`
-	TakenAt              time.Time `db:"taken_at" json:"taken_at"`
-	FeatureID            string    `db:"feature_id" json:"feature_id"`
-	Score                int64     `db:"score" json:"score"`
-	LayerScoresJson      string    `db:"layer_scores_json" json:"layer_scores_json"`
-	BlockingFindingsJson string    `db:"blocking_findings_json" json:"blocking_findings_json"`
-}
-
 type AuditSnapshotRun struct {
 	ID         int64     `db:"id" json:"id"`
 	ComputedAt time.Time `db:"computed_at" json:"computed_at"`
