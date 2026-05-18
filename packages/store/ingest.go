@@ -106,19 +106,29 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 		if inserted {
 			stats.SymbolsInserted++
 		}
+		// Skip position-less symbols (id == 0). upsertSymbolTx deliberately
+		// returns (0, false, nil) for symbols without a file path — they
+		// only exist in the in-memory graph, never in the SQLite store. If
+		// we recorded their qn → 0 mapping, the edge pass would try to
+		// insert an edge with to_symbol_id = 0 → FOREIGN KEY violation.
+		if id == 0 {
+			continue
+		}
 		symbolIDByQualifiedName[sym.ID] = id
 	}
 
 	// 3. Upsert edges. Skip edges where either endpoint lives in an unchanged
-	// file — the existing rows are already authoritative.
+	// file — the existing rows are already authoritative. Also skip edges
+	// whose endpoints have a zero surrogate id (position-less symbols that
+	// got filtered above) — writing to_symbol_id = 0 is a FOREIGN KEY error.
 	if idx.Graph != nil {
 		for _, e := range idx.Graph.Edges {
 			fromID, ok := symbolIDByQualifiedName[e.From]
-			if !ok {
+			if !ok || fromID == 0 {
 				continue
 			}
 			toID, ok := symbolIDByQualifiedName[e.To]
-			if !ok {
+			if !ok || toID == 0 {
 				continue
 			}
 			fromNode, hasFrom := idx.Graph.Nodes[e.From]

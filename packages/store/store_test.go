@@ -29,9 +29,10 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
 	// Schema version tracks the highest applied migration. Bumped to 2 in
-	// Phase 6e (annotation kind set extension) and 3 in Phase 6f
-	// (symbols.pattern_matches column).
-	const expected = 3
+	// Phase 6e (annotation kind set extension), 3 in Phase 6f
+	// (symbols.pattern_matches column), and 4 in Phase 6a
+	// (audit_snapshot_runs table).
+	const expected = 4
 	if v != expected {
 		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}
@@ -82,7 +83,8 @@ func TestOpen_AllTablesCreated(t *testing.T) {
 	want := []string{
 		"config", "features", "symbols", "edges", "feature_symbols",
 		"file_hashes", "coverage_runs", "coverage_results",
-		"audit_snapshots", "annotations", "schema_migrations",
+		"audit_snapshots", "audit_snapshot_runs", "annotations",
+		"schema_migrations",
 	}
 
 	rows, err := s.sqlDB().QueryContext(ctx,

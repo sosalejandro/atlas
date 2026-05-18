@@ -11,6 +11,19 @@ import (
 	"time"
 )
 
+const getAuditSnapshotRun = `-- name: GetAuditSnapshotRun :one
+SELECT id, computed_at, score_json
+FROM audit_snapshot_runs
+WHERE id = ?
+`
+
+func (q *Queries) GetAuditSnapshotRun(ctx context.Context, id int64) (AuditSnapshotRun, error) {
+	row := q.db.QueryRowContext(ctx, getAuditSnapshotRun, id)
+	var i AuditSnapshotRun
+	err := row.Scan(&i.ID, &i.ComputedAt, &i.ScoreJson)
+	return i, err
+}
+
 const insertAuditSnapshot = `-- name: InsertAuditSnapshot :execresult
 INSERT INTO audit_snapshots (feature_id, score, layer_scores_json, blocking_findings_json)
 VALUES (?, ?, ?, ?)
@@ -30,6 +43,27 @@ func (q *Queries) InsertAuditSnapshot(ctx context.Context, arg InsertAuditSnapsh
 		arg.LayerScoresJson,
 		arg.BlockingFindingsJson,
 	)
+}
+
+const insertAuditSnapshotRun = `-- name: InsertAuditSnapshotRun :execresult
+INSERT INTO audit_snapshot_runs (score_json) VALUES (?)
+`
+
+func (q *Queries) InsertAuditSnapshotRun(ctx context.Context, scoreJson string) (sql.Result, error) {
+	return q.db.ExecContext(ctx, insertAuditSnapshotRun, scoreJson)
+}
+
+const insertAuditSnapshotRunWithTime = `-- name: InsertAuditSnapshotRunWithTime :execresult
+INSERT INTO audit_snapshot_runs (computed_at, score_json) VALUES (?, ?)
+`
+
+type InsertAuditSnapshotRunWithTimeParams struct {
+	ComputedAt time.Time `db:"computed_at" json:"computed_at"`
+	ScoreJson  string    `db:"score_json" json:"score_json"`
+}
+
+func (q *Queries) InsertAuditSnapshotRunWithTime(ctx context.Context, arg InsertAuditSnapshotRunWithTimeParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, insertAuditSnapshotRunWithTime, arg.ComputedAt, arg.ScoreJson)
 }
 
 const insertAuditSnapshotWithTime = `-- name: InsertAuditSnapshotWithTime :execresult
@@ -53,6 +87,50 @@ func (q *Queries) InsertAuditSnapshotWithTime(ctx context.Context, arg InsertAud
 		arg.LayerScoresJson,
 		arg.BlockingFindingsJson,
 	)
+}
+
+const latestAuditSnapshotRun = `-- name: LatestAuditSnapshotRun :one
+SELECT id, computed_at, score_json
+FROM audit_snapshot_runs
+ORDER BY computed_at DESC
+LIMIT 1
+`
+
+func (q *Queries) LatestAuditSnapshotRun(ctx context.Context) (AuditSnapshotRun, error) {
+	row := q.db.QueryRowContext(ctx, latestAuditSnapshotRun)
+	var i AuditSnapshotRun
+	err := row.Scan(&i.ID, &i.ComputedAt, &i.ScoreJson)
+	return i, err
+}
+
+const listAuditSnapshotRuns = `-- name: ListAuditSnapshotRuns :many
+SELECT id, computed_at, score_json
+FROM audit_snapshot_runs
+ORDER BY computed_at DESC
+LIMIT ?
+`
+
+func (q *Queries) ListAuditSnapshotRuns(ctx context.Context, limit int64) ([]AuditSnapshotRun, error) {
+	rows, err := q.db.QueryContext(ctx, listAuditSnapshotRuns, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditSnapshotRun{}
+	for rows.Next() {
+		var i AuditSnapshotRun
+		if err := rows.Scan(&i.ID, &i.ComputedAt, &i.ScoreJson); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAuditSnapshotsByFeature = `-- name: ListAuditSnapshotsByFeature :many
