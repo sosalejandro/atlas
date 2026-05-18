@@ -157,7 +157,7 @@ ORDER BY file_path, line
 	if err != nil {
 		return nil, fmt.Errorf("ListByBC %q: %w", bcName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []AnnotationRow{}
 	for rows.Next() {
 		r, err := scanAnnotationRow(rows)
@@ -228,7 +228,7 @@ ORDER BY file_path, line
 	if err != nil {
 		return nil, fmt.Errorf("WalkSaga %q: %w", id, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []SagaStep{}
 	for rows.Next() {
 		r, err := scanAnnotationRow(rows)
@@ -272,7 +272,7 @@ WHERE kind = 'consumer'
 	if err != nil {
 		return nil, fmt.Errorf("ListConsumers %q: %w", streamName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []ConsumerView{}
 	for rows.Next() {
 		r, err := scanAnnotationRow(rows)
@@ -316,7 +316,7 @@ ORDER BY file_path, line
 	if err != nil {
 		return EventEmitView{}, fmt.Errorf("FindEventEmitters %q: %w", eventName, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		r, err := scanAnnotationRow(rows)
 		if err != nil {

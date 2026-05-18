@@ -171,62 +171,25 @@ func parseAtlasLine(ll logicalLine, relPath string) (shared.Annotation, bool) {
 	// Kind is case-sensitive — per docs/annotations.md §Parser ambiguity
 	// `@atlas:Feature` is rejected ("unknown kind 'Feature' — did you mean
 	// 'feature'?"). Map lookup is the enforcement; no ToLower here.
-	kindStr := m[1]
-	kind, ok := Kinds[kindStr]
+	kind, ok := Kinds[m[1]]
 	if !ok {
 		return shared.Annotation{}, false
 	}
 	payload := strings.TrimSpace(m[2])
 	ids, tags := splitIDsAndTags(payload, false)
 
-	// `consumer` carries its identity entirely in the `stream=` tag — the
-	// id slot is intentionally empty. Promote the stream value to the id
-	// list so downstream queries (Store.ListConsumers) can index on it
-	// uniformly. Every other kind requires at least one id.
-	if kind == shared.AnnConsumer {
-		streamVal, hasStream := findTagValue(tags, "stream")
-		if !hasStream {
-			// `@atlas:consumer` without `stream=<name>` is ill-formed.
-			return shared.Annotation{}, false
-		}
-		if !idValidationRe.MatchString(streamVal) {
-			return shared.Annotation{}, false
-		}
-		// Reject extra free-form ids — `@atlas:consumer x stream=y` is
-		// ambiguous and not part of the grammar.
-		if len(ids) > 0 {
-			return shared.Annotation{}, false
-		}
-		ids = []string{streamVal}
-	}
-
-	if len(ids) == 0 {
-		// `@atlas:feature` with no value is invalid grammar; skip.
+	ids, ok = resolveConsumerIDs(kind, ids, tags)
+	if !ok {
 		return shared.Annotation{}, false
 	}
-
-	// Strict ID validation applies to `feature` and `contract` plus all
-	// EDA-pattern kinds (bc/aggregate/aggregate-service/saga/consumer/
-	// event-emit/outbox-publish). `owner`, `deprecated`, and `since`
-	// carry free-form values (team handles, version strings, date strings)
-	// and intentionally bypass the regex.
-	if kind == shared.AnnFeature || kind == shared.AnnContract || edaStrictIDKinds[kind] {
-		for _, id := range ids {
-			if !idValidationRe.MatchString(id) {
-				return shared.Annotation{}, false
-			}
-		}
+	if len(ids) == 0 {
+		return shared.Annotation{}, false
 	}
-
-	// Per-kind tag validation (only structural validators that the parser
-	// MUST enforce — value-level semantics are still resolver-domain).
-	if kind == shared.AnnSaga {
-		if stepRaw, hasStep := findTagValue(tags, "step"); hasStep {
-			if !sagaStepTagRe.MatchString("step=" + stepRaw) {
-				// step= must be a non-negative integer; reject otherwise.
-				return shared.Annotation{}, false
-			}
-		}
+	if !validateAtlasIDs(kind, ids) {
+		return shared.Annotation{}, false
+	}
+	if !validateAtlasTags(kind, tags) {
+		return shared.Annotation{}, false
 	}
 
 	return shared.Annotation{
@@ -237,6 +200,66 @@ func parseAtlasLine(ll logicalLine, relPath string) (shared.Annotation, bool) {
 		Position: shared.FilePosition{Path: relPath, Line: ll.lineNum},
 		Raw:      payload,
 	}, true
+}
+
+// resolveConsumerIDs handles the `consumer` kind's stream= → IDs promotion.
+//
+// `@atlas:consumer` carries its identity in the `stream=<name>` tag rather
+// than the id slot. This helper:
+//
+//   - leaves non-consumer kinds untouched
+//   - rejects `@atlas:consumer` without a stream= tag
+//   - rejects `@atlas:consumer x stream=y` (extra free-form id is ambiguous)
+//   - rejects a non-idValidationRe-matching stream value
+//   - returns ids = [streamVal] on success
+//
+// ok=false means "skip this annotation; ill-formed".
+func resolveConsumerIDs(kind shared.AnnotationKind, ids, tags []string) ([]string, bool) {
+	if kind != shared.AnnConsumer {
+		return ids, true
+	}
+	streamVal, hasStream := findTagValue(tags, "stream")
+	if !hasStream {
+		return nil, false
+	}
+	if !idValidationRe.MatchString(streamVal) {
+		return nil, false
+	}
+	if len(ids) > 0 {
+		return nil, false
+	}
+	return []string{streamVal}, true
+}
+
+// validateAtlasIDs enforces the strict id-grammar regex for the kinds that
+// require it (feature, contract, all EDA-pattern kinds). Free-form kinds
+// (owner, deprecated, since) bypass.
+//
+// Returns false on first invalid id; the caller treats that as "skip".
+func validateAtlasIDs(kind shared.AnnotationKind, ids []string) bool {
+	if kind != shared.AnnFeature && kind != shared.AnnContract && !edaStrictIDKinds[kind] {
+		return true
+	}
+	for _, id := range ids {
+		if !idValidationRe.MatchString(id) {
+			return false
+		}
+	}
+	return true
+}
+
+// validateAtlasTags enforces per-kind structural rules on tags. Currently
+// only `saga` carries a structural rule: `step=N` must be a non-negative
+// integer. Returns false to mean "skip; ill-formed".
+func validateAtlasTags(kind shared.AnnotationKind, tags []string) bool {
+	if kind != shared.AnnSaga {
+		return true
+	}
+	stepRaw, hasStep := findTagValue(tags, "step")
+	if !hasStep {
+		return true
+	}
+	return sagaStepTagRe.MatchString("step=" + stepRaw)
 }
 
 // parseTestregLine matches the legacy `@testreg <payload>` grammar.
