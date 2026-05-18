@@ -131,6 +131,12 @@ linters:
       - path: packages/store/ingest\.go
         text: "(func `\\(\\*Store\\)\\.Ingest`|'Ingest')"
         linters: [gocyclo, funlen]
+      - path: packages/diagnose/score\.go
+        text: "func `matchKindHint`"
+        linters: [gocyclo]
+      - path: packages/coverage/playwright/playwright\.go
+        text: "func `walk`"
+        linters: [gocyclo]
 
 issues:
   max-issues-per-linter: 0
