@@ -157,9 +157,20 @@ func (s *edgesStore) In(ctx context.Context, toID int64) ([]EdgeRow, error) {
 // sqlite engine (as of v1.31.1) drops the column-name binding on
 // `WITH RECURSIVE chain(...)` and rejects the recursive arm's references
 // to those columns. See packages/store/queries/edges.sql for the note.
+//
+// We column-bind the qualified names into the CTE itself rather than
+// resolving them via correlated subqueries in the outer SELECT. The CTE
+// already JOINs `symbols` for the path string, so carrying the names
+// forward as columns costs nothing extra. The alternative — two
+// `(SELECT qualified_name FROM symbols WHERE id = chain.from_id)`
+// subqueries in the final projection — issues a fresh lookup per chain row
+// (N+1 against `symbols`), which gets expensive on call graphs with
+// thousands of nodes.
 const traceCallChainSQL = `
-WITH RECURSIVE chain(from_id, to_id, depth, path) AS (
-  SELECT e.from_symbol_id, e.to_symbol_id, 1,
+WITH RECURSIVE chain(from_id, to_id, from_name, to_name, depth, path) AS (
+  SELECT e.from_symbol_id, e.to_symbol_id,
+         s.qualified_name, t.qualified_name,
+         1,
          s.qualified_name || ' -> ' || t.qualified_name
   FROM edges e
   JOIN symbols s ON s.id = e.from_symbol_id
@@ -167,17 +178,16 @@ WITH RECURSIVE chain(from_id, to_id, depth, path) AS (
   WHERE e.from_symbol_id = ?
     AND e.kind = 'call'
   UNION ALL
-  SELECT c.to_id, e.to_symbol_id, c.depth + 1,
+  SELECT c.to_id, e.to_symbol_id,
+         c.to_name, t.qualified_name,
+         c.depth + 1,
          c.path || ' -> ' || t.qualified_name
   FROM chain c
   JOIN edges  e ON e.from_symbol_id = c.to_id AND e.kind = 'call'
   JOIN symbols t ON t.id = e.to_symbol_id
   WHERE c.depth < ?
 )
-SELECT depth,
-       (SELECT qualified_name FROM symbols WHERE id = chain.from_id),
-       (SELECT qualified_name FROM symbols WHERE id = chain.to_id),
-       path
+SELECT depth, from_name, to_name, path
 FROM chain ORDER BY depth, path
 `
 

@@ -80,3 +80,76 @@ func TestCoverage_GetRunMissing(t *testing.T) {
 		t.Fatalf("GetRun(9999) err = %v, want ErrNotFound", err)
 	}
 }
+
+func TestCoverage_InsertRunWithResults_Atomic(t *testing.T) {
+	s := openTestStore(t)
+	cov := s.Coverage()
+	ctx := context.Background()
+
+	// Required by the FK on coverage_results.feature_id.
+	if err := s.Features().Upsert(ctx, Feature{ID: "auth.login", Title: "Login"}); err != nil {
+		t.Fatalf("Features Upsert: %v", err)
+	}
+
+	feat := shared.FeatureID("auth.login")
+	runID, err := cov.InsertRunWithResults(ctx,
+		CoverageRun{
+			Framework:   FrameworkGoTest,
+			StartedAt:   time.Now().UTC().Add(-1 * time.Minute),
+			FinishedAt:  time.Now().UTC(),
+			SummaryJSON: `{"pass":2,"fail":1}`,
+		},
+		[]CoverageResult{
+			{Status: StatusPass, DurationMS: 11, FeatureID: &feat},
+			{Status: StatusFail, DurationMS: 27, Message: mustPtr("boom")},
+			{Status: StatusSkip, DurationMS: 0},
+		},
+	)
+	if err != nil {
+		t.Fatalf("InsertRunWithResults: %v", err)
+	}
+	if runID == 0 {
+		t.Fatal("InsertRunWithResults returned 0 id")
+	}
+
+	got, err := cov.ListResults(ctx, runID)
+	if err != nil {
+		t.Fatalf("ListResults: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("len(results) = %d, want 3", len(got))
+	}
+}
+
+// Atomicity: a bad result in the batch must roll back the run insert too.
+// Otherwise a crash mid-ingest could leave an orphan coverage_runs row.
+func TestCoverage_InsertRunWithResults_RollsBackRunOnResultError(t *testing.T) {
+	s := openTestStore(t)
+	cov := s.Coverage()
+	ctx := context.Background()
+
+	before, err := cov.ListRuns(ctx, FrameworkGoTest)
+	if err != nil {
+		t.Fatalf("ListRuns before: %v", err)
+	}
+
+	_, err = cov.InsertRunWithResults(ctx,
+		CoverageRun{Framework: FrameworkGoTest},
+		[]CoverageResult{
+			{Status: StatusPass, DurationMS: 1},
+			// Empty status fails validation inside the tx — should roll back the run too.
+			{Status: "", DurationMS: 1},
+		},
+	)
+	if err == nil {
+		t.Fatal("InsertRunWithResults: expected error from empty status, got nil")
+	}
+
+	after, err := cov.ListRuns(ctx, FrameworkGoTest)
+	if err != nil {
+		t.Fatalf("ListRuns after: %v", err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("ListRuns len after = %d, before = %d — orphan coverage_runs row leaked through rollback", len(after), len(before))
+	}
+}

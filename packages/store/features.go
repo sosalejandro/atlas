@@ -91,6 +91,12 @@ func (s *featuresStore) Get(ctx context.Context, id shared.FeatureID) (Feature, 
 // when the caller passes an IDs filter — sqlc's sqlite engine does not yet
 // support `sqlc.slice()` placeholders cleanly, so the IN(...) case stays as
 // a tiny hand-written SELECT.
+//
+// The raw branch scans into `*string` (matching what sqlc emits for the
+// nullable columns owner / deprecated_since / introduced_in) instead of
+// sql.NullString — keeping the two paths bit-for-bit equivalent at the
+// type level. Any future schema migration that adds a column will break
+// BOTH paths together, so they can't silently drift.
 func (s *featuresStore) List(ctx context.Context, f FeatureFilter) ([]Feature, error) {
 	// Fast paths: nothing or only Kind via sqlc.
 	if len(f.IDs) == 0 {
@@ -134,24 +140,15 @@ func (s *featuresStore) List(ctx context.Context, f FeatureFilter) ([]Feature, e
 
 	var out []Feature
 	for rows.Next() {
-		var (
-			id, title, kind string
-			owner, dep, intr sql.NullString
-			created, updated time.Time
-		)
-		if err := rows.Scan(&id, &title, &owner, &kind, &dep, &intr, &created, &updated); err != nil {
+		var r sqlc.Feature
+		if err := rows.Scan(
+			&r.ID, &r.Title, &r.Owner, &r.Kind,
+			&r.DeprecatedSince, &r.IntroducedIn,
+			&r.CreatedAt, &r.UpdatedAt,
+		); err != nil {
 			return nil, fmt.Errorf("features scan: %w", err)
 		}
-		out = append(out, Feature{
-			ID:              shared.FeatureID(id),
-			Title:           title,
-			Owner:           nullStringToPtr(owner),
-			Kind:            FeatureKind(kind),
-			DeprecatedSince: nullStringToPtr(dep),
-			IntroducedIn:    nullStringToPtr(intr),
-			CreatedAt:       created,
-			UpdatedAt:       updated,
-		})
+		out = append(out, fromSQLCFeature(r))
 	}
 	return out, rows.Err()
 }
