@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -50,7 +49,10 @@ func init() {
 
 // Execute runs the root command.
 func Execute() error {
-	return rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		return fmt.Errorf("execute root command: %w", err)
+	}
+	return nil
 }
 
 // detectProjectRoot finds the git root directory by running `git rev-parse --show-toplevel`.
@@ -73,8 +75,3 @@ func resolvedProjectRoot() string {
 	return projectRoot
 }
 
-// exitOnError prints an error message to stderr and exits with code 1.
-func exitOnError(msg string, err error) {
-	fmt.Fprintf(os.Stderr, "Error: %s: %s\n", msg, err)
-	os.Exit(1)
-}

@@ -181,7 +181,10 @@ func renderGapsJSON(results []*domain.AuditOutput) error {
 
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(out)
+	if err := encoder.Encode(out); err != nil {
+		return fmt.Errorf("encode gaps output: %w", err)
+	}
+	return nil
 }
 
 func renderGapsTerminal(results []*domain.AuditOutput) {

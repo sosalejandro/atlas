@@ -111,7 +111,10 @@ func outputDiagnoseJSON(result *app.DiagnoseOutput) error {
 
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(out)
+	if err := encoder.Encode(out); err != nil {
+		return fmt.Errorf("encode diagnose output: %w", err)
+	}
+	return nil
 }
 
 func outputDiagnoseTerminal(result *app.DiagnoseOutput) error {

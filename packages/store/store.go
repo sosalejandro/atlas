@@ -123,7 +123,10 @@ func (s *Store) Close() error {
 	if s == nil || s.conn == nil {
 		return nil
 	}
-	return s.conn.Close()
+	if err := s.conn.Close(); err != nil {
+		return fmt.Errorf("close store db: %w", err)
+	}
+	return nil
 }
 
 // Path returns the on-disk path the Store was opened from.

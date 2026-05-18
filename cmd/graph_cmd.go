@@ -59,7 +59,7 @@ with their call relationships.`,
 			if err != nil {
 				return fmt.Errorf("creating output file %q: %w", graphOutput, err)
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 			w = f
 		}
 

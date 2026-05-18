@@ -287,7 +287,7 @@ func walkAnnotations(ctx context.Context, rootAbs string, opts Options, skipDirs
 		return nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("walk %s: %w", rootAbs, err)
 	}
 	return out, hashes, nil
 }
@@ -295,16 +295,16 @@ func walkAnnotations(ctx context.Context, rootAbs string, opts Options, skipDirs
 func hashFile(absPath, relPath string) (FileHash, error) {
 	f, err := os.Open(absPath)
 	if err != nil {
-		return FileHash{}, err
+		return FileHash{}, fmt.Errorf("open %s: %w", absPath, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		return FileHash{}, err
+		return FileHash{}, fmt.Errorf("hash %s: %w", absPath, err)
 	}
 	info, err := f.Stat()
 	if err != nil {
-		return FileHash{}, err
+		return FileHash{}, fmt.Errorf("stat %s: %w", absPath, err)
 	}
 	return FileHash{
 		Path:        relPath,

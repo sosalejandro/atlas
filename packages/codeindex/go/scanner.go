@@ -214,7 +214,7 @@ func normaliseHandlerRef(handler string) string {
 // ---------------------------------------------------------------------------
 
 func (c *scanContext) discoverFunctions(ctx context.Context) error {
-	return filepath.WalkDir(c.backendAbs, func(path string, d os.DirEntry, err error) error {
+	if err := filepath.WalkDir(c.backendAbs, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip inaccessible
 		}
@@ -242,7 +242,10 @@ func (c *scanContext) discoverFunctions(ctx context.Context) error {
 			return nil
 		}
 		return c.parseFile(ctx, path, relPath)
-	})
+	}); err != nil {
+		return fmt.Errorf("walk %s: %w", c.backendAbs, err)
+	}
+	return nil
 }
 
 func (c *scanContext) parseFile(ctx context.Context, absPath, relPath string) error {

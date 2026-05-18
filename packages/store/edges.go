@@ -199,7 +199,7 @@ func (s *edgesStore) Walk(ctx context.Context, fromID int64, maxDepth int) ([]Wa
 	if err != nil {
 		return nil, fmt.Errorf("edges walk: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []WalkResult
 	for rows.Next() {
@@ -212,7 +212,10 @@ func (s *edgesStore) Walk(ctx context.Context, fromID int64, maxDepth int) ([]Wa
 		w.ToName = shared.SymbolID(toName)
 		out = append(out, w)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("edges walk rows: %w", err)
+	}
+	return out, nil
 }
 
 func (s *edgesStore) DeleteByFile(ctx context.Context, filePath string) error {

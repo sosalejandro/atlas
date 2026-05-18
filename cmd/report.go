@@ -41,7 +41,7 @@ a file (default: docs/testing/COVERAGE.md).`,
 				if createErr != nil {
 					return fmt.Errorf("creating output file %s: %w", reportOutput, createErr)
 				}
-				defer f.Close()
+				defer func() { _ = f.Close() }()
 				encoder := json.NewEncoder(f)
 				encoder.SetIndent("", "  ")
 				if err := encoder.Encode(report); err != nil {
