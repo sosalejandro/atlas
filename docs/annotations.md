@@ -60,8 +60,10 @@ Tokens, separated by whitespace:
 4. **Tags must follow IDs.** `@atlas:feature checkout.cart #real` is fine.
    `@atlas:feature #real checkout.cart` parses incorrectly — the first
    `#tag` token terminates the ID list.
-5. **IDs are case-sensitive and validated against `[a-z0-9_]+(\.[a-z0-9_]+)*`.**
-   `Auth.Login` is rejected; `auth.login` is canonical.
+5. **IDs are validated by kind:**
+   - `feature` / `contract` — strict regex `[a-z0-9_]+(\.[a-z0-9_]+)*`. Case-sensitive lowercase + dot-namespacing. `Auth.Login` is rejected; `auth.login` is canonical.
+   - `owner` / `deprecated` / `since` — relaxed, accepts any non-whitespace token. This is necessary because owners (`platform-team`, `@alice`) and versions (`v2.0`, `1.4.0-beta`) don't fit the dot-namespace shape.
+   The implementation in `packages/codeindex/annotations/parser.go` enforces these two grammars per kind. New kinds added via the registration mechanism (see "Forward compatibility") choose their own validator at registration time.
 
 ---
 

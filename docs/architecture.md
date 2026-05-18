@@ -226,22 +226,25 @@ those are `codeindex/ts/`'s job.
 ### 3.7 `store/`
 
 SQLite-backed cache. The *only* package allowed to import `database/sql` and a
-SQLite driver. Schema lives in `store/schema/NNN_*.sql` files embedded via
+SQLite driver. Schema lives in `store/schema/NNNN_*.up.sql` files embedded via
 `//go:embed schema/*.sql`, applied in numeric order with version tracking in
-`schema_migrations`. Same pattern as `bmad-story-runner-cli/infrastructure/state/sqlite/schema/`.
+`schema_version`. Same pattern as `bmad-story-runner-cli/infrastructure/state/sqlite/schema/`.
 
-Tables (v1, see `docs/schema-v1.md` for the authoritative spec):
+Tables (v1, see `docs/schema-v1.md` for the authoritative spec — schema-v1.md
+is the source of truth for column-level details):
 
 ```
 features          (feature_id, name, priority, owner, ...)
 symbols           (symbol_id, kind, file, line, package)
 edges             (from_symbol, to_symbol, ambiguous, cycle)
-annotations       (feature_id, file, line, kind, source)
-file_hashes       (path, sha256, scanned_at)         -- incremental scan
+feature_symbols   (feature_id, symbol_id, role, source)   -- m:n bridge
+annotations       (file, line, kind, value, source)
+file_hashes       (path, sha256, scanned_at)              -- incremental scan
 coverage_runs     (run_id, framework, started_at, ...)
-test_results      (run_id, test_name, status, file, line, feature_ids)
+coverage_results  (run_id, test_name, status, file, line, feature_ids)
 audit_snapshots   (snapshot_id, taken_at, scores_json)
-schema_migrations (version, applied_at, checksum)
+config            (key, value, updated_at)
+schema_version    (version, applied_at)                   -- bootstrap table
 ```
 
 **Imports:** `shared`. Schema migrations are pure SQL — no Go logic per
@@ -488,13 +491,15 @@ or `bmad-cli` consume Atlas output without coupling to undocumented internals.
 ## 7. Schema versioning (SQLite)
 
 The `store/` package owns the only persistent state. Schema lives in
-`packages/store/schema/`, applied in numeric order:
+`packages/store/schema/`, applied in numeric order (up-only — no `.down.sql` files):
 
 ```
 packages/store/schema/
-  001_initial.sql        -- features, symbols, edges, annotations, file_hashes
-  002_coverage.sql       -- coverage_runs, test_results
-  003_audit_snapshots.sql
+  0001_initial.up.sql        -- all v1 tables (features, symbols, edges,
+                                feature_symbols, annotations, file_hashes,
+                                coverage_runs, coverage_results,
+                                audit_snapshots, config)
+  0002_<future>.up.sql       -- forward-only schema evolution
   ...
 ```
 
@@ -502,9 +507,10 @@ Embedded via `//go:embed schema/*.sql`. Migration runner:
 
 ```go
 // store.Open opens the SQLite file (creating it if missing), applies any
-// pending migrations in lexicographic order, and records each in the
-// schema_migrations table with a sha256 checksum of the applied SQL.
-func Open(path string) (*Store, error)
+// pending migrations in numeric order, and records each in the
+// schema_version table (bootstrap-created out-of-band before the first
+// migration runs).
+func Open(ctx context.Context, path string) (*Store, error)
 ```
 
 **Rules:**

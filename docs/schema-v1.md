@@ -90,9 +90,7 @@ prefix and a snake_case label:
 ```
 packages/store/schema/
 ├── 0001_initial.up.sql
-├── 0001_initial.down.sql
-├── 0002_<future>.up.sql
-└── 0002_<future>.down.sql
+└── 0002_<future>.up.sql
 ```
 
 Embedded into the binary via `//go:embed schema/*.sql`. The runner mirrors
@@ -111,9 +109,11 @@ the bmad-story-runner-cli pattern verbatim:
    schema_version (version) VALUES (?)` row. Either both happen or neither
    does; a crash mid-migration rolls back cleanly and the next `Open` retries.
 
-Down migrations (`*.down.sql`) exist for documentation parity but are **not
-auto-applied**. There is no `atlas migrate down` in v0; rollback is "delete
-the file and re-init."
+**Up-only migrations.** Atlas does NOT ship `*.down.sql` files (locked
+decision in `docs/architecture.md` §3.7). Rollback is "delete the file
+and re-init" — safe because the database is a re-derivable cache, not
+the source of truth. If a migration needs to be reversed, ship a
+new forward-direction migration that undoes it.
 
 ---
 
@@ -620,9 +620,10 @@ change usually requires:
 3. `DROP TABLE features` and `ALTER TABLE features_new RENAME TO features`.
 4. Recreate every index that referenced the old table.
 
-All four steps live in a single `*.up.sql` file inside one transaction. The
-matching `*.down.sql` reverses them. Because the DB is a re-derivable cache,
-the down-migration path is documentation, not a hot path.
+All four steps live in a single `*.up.sql` file inside one transaction.
+Because the DB is a re-derivable cache, there is no down-migration —
+delete the file and re-init if you need to roll back, or ship a forward
+migration that undoes the previous one.
 
 Candidate v2+ migrations identified during Phase 0 (not yet committed):
 
