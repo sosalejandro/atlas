@@ -102,7 +102,7 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 			}
 			continue
 		}
-		id, inserted, err := upsertSymbolTx(ctx, qtx, sym)
+		id, inserted, err := upsertSymbolTx(ctx, qtx, s.logger, sym)
 		if err != nil {
 			return nil, err
 		}
@@ -347,8 +347,13 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 
 // upsertSymbolTx inserts a shared.Symbol via the sqlc tx and returns the
 // row's surrogate id plus whether the insert created a new row.
-func upsertSymbolTx(ctx context.Context, qtx *sqlc.Queries, sym shared.Symbol) (int64, bool, error) {
-	kind := normalizeKind(sym.Kind)
+//
+// The logger argument is the Store's logger — it carries the parser-drift
+// Warn record emitted by normalizeKindForWrite when an unknown kind has to
+// be collapsed to KindFunc. Pass shared.NopLogger{} in tests that don't
+// care about the warning side channel.
+func upsertSymbolTx(ctx context.Context, qtx *sqlc.Queries, logger shared.Logger, sym shared.Symbol) (int64, bool, error) {
+	kind := normalizeKindForWrite(ctx, logger, "ingest.upsertSymbolTx", sym.ID, sym.Kind)
 	var pkg *string
 	if sym.Package != "" {
 		v := sym.Package

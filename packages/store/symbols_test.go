@@ -1,8 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sosalejandro/atlas/packages/shared"
@@ -346,5 +351,97 @@ func TestSymbols_FindByPattern_EmptyPattern(t *testing.T) {
 	syms := openTestStore(t).Symbols()
 	if _, err := syms.FindByPattern(context.Background(), ""); err == nil {
 		t.Fatal("FindByPattern(\"\") should error")
+	}
+}
+
+// TestSymbols_Insert_KindCollapseEmitsWarn covers issue #10/finding-5:
+// an unknown SymbolKind on the WRITE path must surface a Warn log record
+// so a real parser bug (a kind that silently rewrites to "func" forever)
+// is visible in production.
+func TestSymbols_Insert_KindCollapseEmitsWarn(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atlas-state.db")
+	ctx := context.Background()
+
+	buf := &bytes.Buffer{}
+	logger := shared.NewSlogLoggerFromHandler(slog.NewJSONHandler(buf, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+	s, err := OpenWithLogger(ctx, path, logger)
+	if err != nil {
+		t.Fatalf("OpenWithLogger: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	// shared.KindHandler is an audit-layer value not in the §5.4 CHECK set;
+	// the adapter normalizes it to KindFunc AND must log a Warn record.
+	if _, err := s.Symbols().Insert(ctx, SymbolRow{
+		QualifiedName: "pkg.SomeHandler",
+		Kind:          shared.KindHandler,
+		FilePath:      "src/x.go",
+		Line:          1,
+	}); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	// Parse each JSON log record and assert exactly one Warn with the
+	// expected payload appeared.
+	var collapses []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("non-JSON log line %q: %v", line, err)
+		}
+		if rec["level"] == "WARN" && strings.Contains(rec["msg"].(string), "parser drift") {
+			collapses = append(collapses, rec)
+		}
+	}
+	if len(collapses) != 1 {
+		t.Fatalf("expected exactly 1 parser-drift Warn record, got %d (raw=%q)", len(collapses), buf.String())
+	}
+	rec := collapses[0]
+	if rec["input_kind"] != string(shared.KindHandler) {
+		t.Errorf("input_kind = %v, want %q", rec["input_kind"], shared.KindHandler)
+	}
+	if rec["output_kind"] != string(shared.KindFunc) {
+		t.Errorf("output_kind = %v, want %q", rec["output_kind"], shared.KindFunc)
+	}
+	if rec["qualified_name"] != "pkg.SomeHandler" {
+		t.Errorf("qualified_name = %v, want pkg.SomeHandler", rec["qualified_name"])
+	}
+	if rec["where"] != "symbols.Insert" {
+		t.Errorf("where = %v, want symbols.Insert", rec["where"])
+	}
+
+	// Canonical kinds must NOT emit a warning — regression guard.
+	buf.Reset()
+	if _, err := s.Symbols().Insert(ctx, SymbolRow{
+		QualifiedName: "pkg.Quiet",
+		Kind:          shared.KindFunc,
+		FilePath:      "src/y.go",
+		Line:          1,
+	}); err != nil {
+		t.Fatalf("Insert canonical: %v", err)
+	}
+	if strings.Contains(buf.String(), "parser drift") {
+		t.Errorf("canonical KindFunc emitted a drift warning: %q", buf.String())
+	}
+
+	// Empty kind defaults silently to KindFunc — the "no kind supplied"
+	// path is distinct from "unknown kind supplied" and should NOT warn.
+	buf.Reset()
+	if _, err := s.Symbols().Insert(ctx, SymbolRow{
+		QualifiedName: "pkg.Unspecified",
+		Kind:          "",
+		FilePath:      "src/z.go",
+		Line:          1,
+	}); err != nil {
+		t.Fatalf("Insert empty kind: %v", err)
+	}
+	if strings.Contains(buf.String(), "parser drift") {
+		t.Errorf("empty kind emitted a drift warning: %q", buf.String())
 	}
 }
