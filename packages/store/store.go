@@ -8,9 +8,13 @@ import (
 	"fmt"
 
 	"github.com/golang-migrate/migrate/v4"
+	// The modernc.org/sqlite driver is registered as a side-effect of
+	// importing migrate/v4/database/sqlite below — that package carries the
+	// same `_ "modernc.org/sqlite"` blank import. We deliberately rely on
+	// that transitive registration instead of duplicating the blank import
+	// here; keep the chain unbroken if the migrate dep is ever swapped out.
 	migratesqlite "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	_ "modernc.org/sqlite"
 
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store/sqlc"
@@ -99,6 +103,14 @@ func OpenWithLogger(ctx context.Context, path string, logger shared.Logger) (*St
 // Up-only: Atlas does NOT ship `*.down.sql` files. golang-migrate tolerates
 // their absence — it just loses the ability to step down, which Atlas
 // doesn't need (the DB is a re-derivable cache; rollback is delete + reopen).
+//
+// On Up() failure we surface the database's (version, dirty) state via
+// m.Version() — the single most useful diagnostic when a migration breaks
+// half-way through (`dirty=true` means manual intervention is required:
+// either fix the migration and clear the dirty flag, or delete the DB
+// and reopen). m.Version() returns migrate.ErrNilVersion when no
+// migration has ever been applied; that case is reported separately so
+// the wrap message stays unambiguous.
 func runMigrations(db *sql.DB, path string) error {
 	src, err := iofs.New(schemaFS, "schema")
 	if err != nil {
@@ -113,7 +125,19 @@ func runMigrations(db *sql.DB, path string) error {
 		return fmt.Errorf("migrate.NewWithInstance: %w", err)
 	}
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("migrate.Up: %w", err)
+		v, dirty, vErr := m.Version()
+		if errors.Is(vErr, migrate.ErrNilVersion) {
+			return fmt.Errorf("migrate.Up (no prior version applied): %w", err)
+		}
+		if vErr != nil {
+			// Both Up() and Version() failed — join so callers / log scrapers
+			// can still match on either via errors.Is.
+			return errors.Join(
+				fmt.Errorf("migrate.Up: %w", err),
+				fmt.Errorf("migrate.Version lookup failed: %w", vErr),
+			)
+		}
+		return fmt.Errorf("migrate.Up (version=%d dirty=%v): %w", v, dirty, err)
 	}
 	return nil
 }

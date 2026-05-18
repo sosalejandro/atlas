@@ -82,6 +82,76 @@ func (q *Queries) InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql
 	)
 }
 
+const listSymbols = `-- name: ListSymbols :many
+SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
+FROM symbols
+WHERE (?1 = '' OR file_path = ?1)
+  AND (?2   = '' OR package   = ?2)
+  AND (?3   = '' OR bc_path   = ?3)
+  AND (?4      = '' OR kind      = ?4)
+ORDER BY file_path, line, qualified_name
+`
+
+type ListSymbolsParams struct {
+	FilePath interface{} `db:"file_path" json:"file_path"`
+	Package  interface{} `db:"package" json:"package"`
+	BcPath   interface{} `db:"bc_path" json:"bc_path"`
+	Kind     interface{} `db:"kind" json:"kind"`
+}
+
+// Returns rows that match every non-empty filter, ordered deterministically.
+// Each filter is opt-in via the sentinel-empty-string idiom: pass the empty
+// string for a column to disable that predicate; pass a value to match it
+// exactly. We use sentinels instead of sqlc.narg because as of sqlc v1.31.1
+// the sqlite engine ANTLR grammar rejects the post-substituted placeholders
+// the narg lowering emits (see sqlc-dev/sqlc#1881, #3508).
+//
+// None of these columns store the empty value as a legitimate row: the
+// parser layer always populates file_path + kind, and package / bc_path
+// are either non-empty or NULL.
+//
+// Callers must normalize Kind to the closed schema-v1 set BEFORE binding
+// (see normalizeKind) so the equality match never silently misses an
+// audit-layer value that would have collapsed at insert time.
+func (q *Queries) ListSymbols(ctx context.Context, arg ListSymbolsParams) ([]Symbol, error) {
+	rows, err := q.db.QueryContext(ctx, listSymbols,
+		arg.FilePath,
+		arg.Package,
+		arg.BcPath,
+		arg.Kind,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Symbol{}
+	for rows.Next() {
+		var i Symbol
+		if err := rows.Scan(
+			&i.ID,
+			&i.QualifiedName,
+			&i.Kind,
+			&i.FilePath,
+			&i.Line,
+			&i.EndLine,
+			&i.Package,
+			&i.BcPath,
+			&i.CreatedAt,
+			&i.PatternMatches,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lookupSymbolAtOrAfterLine = `-- name: LookupSymbolAtOrAfterLine :one
 SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
 FROM symbols

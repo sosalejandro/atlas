@@ -40,5 +40,28 @@ WHERE file_path = sqlc.arg(file_path)
 ORDER BY line ASC
 LIMIT 1;
 
--- Note: List + FindByPattern use raw SQL in symbols.go because sqlc's
--- sqlite engine handles dynamic WHERE / JSON-substring matchers poorly.
+-- name: ListSymbols :many
+-- Returns rows that match every non-empty filter, ordered deterministically.
+-- Each filter is opt-in via the sentinel-empty-string idiom: pass the empty
+-- string for a column to disable that predicate; pass a value to match it
+-- exactly. We use sentinels instead of sqlc.narg because as of sqlc v1.31.1
+-- the sqlite engine ANTLR grammar rejects the post-substituted placeholders
+-- the narg lowering emits (see sqlc-dev/sqlc#1881, #3508).
+--
+-- None of these columns store the empty value as a legitimate row: the
+-- parser layer always populates file_path + kind, and package / bc_path
+-- are either non-empty or NULL.
+--
+-- Callers must normalize Kind to the closed schema-v1 set BEFORE binding
+-- (see normalizeKind) so the equality match never silently misses an
+-- audit-layer value that would have collapsed at insert time.
+SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
+FROM symbols
+WHERE (sqlc.arg(file_path) = '' OR file_path = sqlc.arg(file_path))
+  AND (sqlc.arg(package)   = '' OR package   = sqlc.arg(package))
+  AND (sqlc.arg(bc_path)   = '' OR bc_path   = sqlc.arg(bc_path))
+  AND (sqlc.arg(kind)      = '' OR kind      = sqlc.arg(kind))
+ORDER BY file_path, line, qualified_name;
+
+-- Note: FindByPattern still uses raw SQL in symbols.go because sqlc's
+-- sqlite engine handles JSON-substring matchers poorly.

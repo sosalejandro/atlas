@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/shared"
@@ -57,14 +56,50 @@ var schemaSymbolKinds = map[shared.SymbolKind]bool{
 // constraint accepts. Audit-layer values (handler/service/repository/...)
 // collapse to "func" because they're inferences over the call graph, not
 // statements about the symbol's syntactic shape.
+//
+// Use this variant on the READ path (List filters etc.) where a collapse
+// is benign — the caller is narrowing a search, not persisting a row.
+// Use normalizeKindForWrite on the WRITE path so an unknown kind surfaces
+// a parser-drift warning instead of silently masking the bug.
 func normalizeKind(k shared.SymbolKind) shared.SymbolKind {
+	out, _ := normalizeKindCollapsed(k)
+	return out
+}
+
+// normalizeKindCollapsed returns the normalized kind plus whether the
+// input was forced to KindFunc despite being non-empty and non-canonical
+// (i.e. a real "I rewrote your kind" event the caller may want to log).
+//
+// The empty-string case is NOT a collapse — it's the explicit "no kind
+// supplied" path and we default to func without warning.
+func normalizeKindCollapsed(k shared.SymbolKind) (shared.SymbolKind, bool) {
 	if k == "" {
-		return shared.KindFunc
+		return shared.KindFunc, false
 	}
 	if schemaSymbolKinds[k] {
-		return k
+		return k, false
 	}
-	return shared.KindFunc
+	return shared.KindFunc, true
+}
+
+// normalizeKindForWrite is the write-path companion to normalizeKind. When
+// the input is an unknown non-empty kind, it logs a Warn record at logger
+// before returning the collapsed value so a real parser bug (a kind that
+// silently rewrites to "func" forever) is visible in production logs.
+//
+// `where` is a short call-site tag ("symbols.Insert", "ingest.upsertSymbolTx")
+// included in the log record so the operator can trace the source.
+func normalizeKindForWrite(ctx context.Context, logger shared.Logger, where string, qn shared.SymbolID, k shared.SymbolKind) shared.SymbolKind {
+	out, collapsed := normalizeKindCollapsed(k)
+	if collapsed && logger != nil {
+		logger.Warn(ctx, "symbol kind collapsed to func — possible parser drift",
+			"where", where,
+			"qualified_name", string(qn),
+			"input_kind", string(k),
+			"output_kind", string(out),
+		)
+	}
+	return out
 }
 
 // SymbolFilter narrows List queries.
@@ -159,7 +194,7 @@ func (s *symbolsStore) Insert(ctx context.Context, sym SymbolRow) (int64, error)
 		return 0, fmt.Errorf("symbols insert %q: file_path required", sym.QualifiedName)
 	}
 
-	kind := normalizeKind(sym.Kind)
+	kind := normalizeKindForWrite(ctx, s.db.Logger(), "symbols.Insert", sym.QualifiedName, sym.Kind)
 
 	res, err := s.q.InsertSymbol(ctx, sqlc.InsertSymbolParams{
 		QualifiedName: string(sym.QualifiedName),
@@ -225,55 +260,29 @@ func (s *symbolsStore) FindByQualifiedName(ctx context.Context, qn shared.Symbol
 	return fromSQLCSymbol(row), nil
 }
 
-// List uses raw SQL because the filter set is genuinely dynamic
-// (file_path, package, bc_path, kind — each optional). sqlc's sqlite engine
-// does not express conditional WHERE clauses well; the alternative is a 16x
-// query-variant explosion. The raw query stays trivial: one prepared SELECT
-// with a per-field placeholder.
+// List delegates to the sqlc-generated ListSymbols query. Each filter
+// field is opt-in via empty-string sentinels — the query short-circuits
+// the predicate for any arg that's the zero value. See queries/symbols.sql
+// for the rationale (TL;DR: sqlc v1.31.1 sqlite engine rejects sqlc.narg
+// post-substitution, so we encode the IS-NULL-OR-EQUALS semantics with
+// '' instead of NULL).
 func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, error) {
-	var (
-		where []string
-		args  []any
-	)
-	if f.FilePath != "" {
-		where = append(where, "file_path = ?")
-		args = append(args, f.FilePath)
-	}
-	if f.Package != "" {
-		where = append(where, "package = ?")
-		args = append(args, f.Package)
-	}
-	if f.BCPath != "" {
-		where = append(where, "bc_path = ?")
-		args = append(args, f.BCPath)
-	}
+	kind := ""
 	if f.Kind != "" {
-		where = append(where, "kind = ?")
-		args = append(args, string(normalizeKind(f.Kind)))
+		kind = string(normalizeKind(f.Kind))
 	}
-
-	q := `SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches FROM symbols`
-	if len(where) > 0 {
-		q += " WHERE " + strings.Join(where, " AND ")
-	}
-	q += " ORDER BY file_path, line, qualified_name"
-
-	rows, err := s.db.sqlDB().QueryContext(ctx, q, args...)
+	rows, err := s.q.ListSymbols(ctx, sqlc.ListSymbolsParams{
+		FilePath: f.FilePath,
+		Package:  f.Package,
+		BcPath:   f.BCPath,
+		Kind:     kind,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("symbols list: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-
-	var out []SymbolRow
-	for rows.Next() {
-		row, err := scanSymbolRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("symbols rows: %w", err)
+	out := make([]SymbolRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, fromSQLCSymbol(r))
 	}
 	return out, nil
 }
