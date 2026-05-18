@@ -43,6 +43,12 @@ var loaded Config
 
 // NewRootCmd builds a fresh root command tree. Exposed for tests that want
 // to drive the tree without invoking Execute directly.
+//
+// NOTE: `flags` and `loaded` are package-level singletons reset at the top
+// of this function. That is safe in production (one binary invocation = one
+// NewRootCmd call) but unsafe under t.Parallel(): tests that drive
+// NewRootCmd MUST NOT use t.Parallel() until these are refactored into
+// per-cmd context. Tracked for a future cleanup pass.
 func NewRootCmd() *cobra.Command {
 	// Reset flags per invocation so repeat test calls don't bleed state.
 	flags = globalFlags{}

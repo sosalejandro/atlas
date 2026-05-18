@@ -11,7 +11,6 @@ import (
 // docs/onboarding.md contract — these are what every fresh project gets
 // before a `.atlas.yaml` is written.
 func TestDefaultConfig_Shape(t *testing.T) {
-	t.Parallel()
 	cfg := defaultConfig()
 	if cfg.DBPath != filepath.Join(".atlas", "atlas.db") {
 		t.Fatalf("DBPath default = %q", cfg.DBPath)
@@ -32,7 +31,6 @@ func TestDefaultConfig_Shape(t *testing.T) {
 // accessors return the right time.Durations even when the underlying
 // `_days` integer is zero (where the accessor must fall back to 30).
 func TestConfig_WindowAccessors(t *testing.T) {
-	t.Parallel()
 	cfg := defaultConfig()
 	if got := cfg.freshnessWindow(); got != 30*24*time.Hour {
 		t.Fatalf("freshness default = %v", got)
@@ -50,7 +48,6 @@ func TestConfig_WindowAccessors(t *testing.T) {
 // tempdir via the --config seam. The result should pick up the explicit
 // fields and leave the rest at defaults.
 func TestLoadConfig_ExplicitFile(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "atlas.yaml")
 	body := `
@@ -94,7 +91,6 @@ sprint:
 // TestLoadConfig_MissingExplicitFatal confirms an explicit --config that
 // points at a non-existent file errors out (not a silent default).
 func TestLoadConfig_MissingExplicitFatal(t *testing.T) {
-	t.Parallel()
 	_, err := loadConfig("/non/existent/path/atlas.yaml")
 	if err == nil {
 		t.Fatal("expected error for missing explicit config")
@@ -106,7 +102,6 @@ func TestLoadConfig_MissingExplicitFatal(t *testing.T) {
 //  2. otherwise config DBPath (joined with repoRoot when relative)
 //  3. ensures the parent directory exists on return
 func TestResolveDBPath_Override(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	cfg := defaultConfig()
 	cfg.repoRoot = dir

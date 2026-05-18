@@ -11,7 +11,6 @@ import (
 // shapes Atlas needs to support: Go double-slash, Python hash, /* */ open,
 // tag-stripping, idempotency for already-migrated lines, suppressor bypass.
 func TestRewriteLine_Cases(t *testing.T) {
-	t.Parallel()
 	cases := []struct {
 		name      string
 		in        string
@@ -85,7 +84,6 @@ func TestRewriteLine_Cases(t *testing.T) {
 // is a no-op. Idempotency is load-bearing — a CI re-run mustn't churn the
 // tree once the migration has been applied.
 func TestRewriteMigrateAnnotations_RoundTrip(t *testing.T) {
-	t.Parallel()
 	src := []byte(`package x
 // @testreg auth.login #real
 // not annotated
@@ -112,7 +110,6 @@ func TestRewriteMigrateAnnotations_RoundTrip(t *testing.T) {
 // TestProcessMigrateFile_SuppressorSkip verifies the
 // `// nolint:atlas-migrate` opt-out keeps a file untouched.
 func TestProcessMigrateFile_SuppressorSkip(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	file := filepath.Join(dir, "x.go")
 	body := []byte(`package x
@@ -142,7 +139,6 @@ func TestProcessMigrateFile_SuppressorSkip(t *testing.T) {
 // TestProcessMigrateFile_DryRun confirms --dry-run reports candidates
 // but never touches disk.
 func TestProcessMigrateFile_DryRun(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	file := filepath.Join(dir, "x.go")
 	body := []byte("package x\n// @testreg auth.login\n")
@@ -169,7 +165,6 @@ func TestProcessMigrateFile_DryRun(t *testing.T) {
 // framework from the filename. The CLI falls back to --framework when
 // this returns "".
 func TestSniffFramework_Filename(t *testing.T) {
-	t.Parallel()
 	cases := map[string]string{
 		"playwright-results.json": "playwright",
 		"vitest-output.json":      "vitest",

@@ -15,7 +15,6 @@ import (
 // This is the load-bearing contract from docs/architecture.md §6 — every
 // consumer (bmad-cli, dashboards, CI integrations) pins on it.
 func TestEmitJSON_StableEnvelope(t *testing.T) {
-	t.Parallel()
 	var buf bytes.Buffer
 
 	args := map[string]any{"foo": "bar", "n": 42}
@@ -53,7 +52,6 @@ func TestEmitJSON_StableEnvelope(t *testing.T) {
 // an empty `"warnings": []` field — the JSON should omit it entirely so
 // the on-the-wire payload stays tight.
 func TestEmitJSON_NilWarnings(t *testing.T) {
-	t.Parallel()
 	var buf bytes.Buffer
 	if err := emitJSON(&buf, "test", nil, map[string]int{"n": 1}, nil); err != nil {
 		t.Fatalf("emitJSON: %v", err)

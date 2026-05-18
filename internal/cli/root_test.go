@@ -10,7 +10,6 @@ import (
 // reachable from the root command. If a refactor accidentally drops a
 // subcommand the help output catches it before users do.
 func TestNewRootCmd_WiresEverySubcommand(t *testing.T) {
-	t.Parallel()
 	root := NewRootCmd()
 	want := []string{
 		"init", "scan", "trace", "cov", "audit",
@@ -32,7 +31,6 @@ func TestNewRootCmd_WiresEverySubcommand(t *testing.T) {
 // non-empty output. Cobra surfaces an error for "no args" via
 // SilenceUsage=true; the help flag is the well-trodden no-args path.
 func TestRootCmd_HelpExitsZero(t *testing.T) {
-	t.Parallel()
 	root := NewRootCmd()
 	var stdout, stderr bytes.Buffer
 	root.SetOut(&stdout)
@@ -50,7 +48,6 @@ func TestRootCmd_HelpExitsZero(t *testing.T) {
 // `atlas codebase find` accepts a non-dotted leaf identifier even when
 // the qualified name is dotted (e.g. "Login" ↔ "auth.AuthHandler.Login").
 func TestCodebaseFind_DottedSuffix(t *testing.T) {
-	t.Parallel()
 	cases := []struct {
 		qn, suffix string
 		want       bool
