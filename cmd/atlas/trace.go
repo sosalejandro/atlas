@@ -20,12 +20,13 @@ import (
 //
 // Per docs/architecture.md §6:
 //   - schema_version pinned to "v1"; additive changes within v1 do NOT bump.
-//     Phase 2 added the optional `lang` field on chain entries — that is
-//     additive, so we stay on "v1.1" to make the addition discoverable for
-//     downstream tooling without breaking older clients.
 //   - command identifies the verb so a multi-output consumer can dispatch
 //   - generated_at is UTC RFC3339
 //   - data is the payload (trace tree + chain summary)
+//
+// Phase 2 added the optional `lang` field on chain entries; that is additive
+// and so does NOT change the schema_version per the rule above. Consumers
+// MUST ignore unknown fields.
 //
 // JSON tag names use lowerCamel per the v1 convention.
 type traceEnvelope struct {
@@ -125,7 +126,7 @@ func runTraceWithOpts(ctx context.Context, w io.Writer, root, feature string, ma
 
 	trace := idx.Graph.TraceFrom(rootID, maxDepth)
 	env := traceEnvelope{
-		SchemaVersion: "v1.1",
+		SchemaVersion: "v1",
 		Command:       "trace",
 		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
 		Data: traceData{

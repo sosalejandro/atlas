@@ -109,12 +109,29 @@ type Scanner struct {
 // NewScanner returns a Scanner configured with opts. The constructor does
 // NOT extract scanner.ts (that's deferred to first Scan) so cheap
 // instantiation in init paths remains safe.
+//
+// Callers MUST defer Close() to release the tempfile that holds the
+// extracted scanner.ts (and the bridged typescript directory, if a copy
+// fallback was taken). For long-lived processes (daemons, watch mode),
+// leaking these would accumulate dozens of MB per Scan call.
 func NewScanner(opts Options) *Scanner {
 	logger := opts.Logger
 	if logger == nil {
 		logger = shared.NopLogger{}
 	}
 	return &Scanner{Options: opts, logger: logger}
+}
+
+// Close releases the tempdir that holds the extracted scanner.ts (and any
+// bridged typescript copy). Idempotent — calling more than once is safe.
+// Safe to call even if Scan was never invoked (no-op in that case).
+func (s *Scanner) Close() error {
+	if s.scriptPath == "" {
+		return nil
+	}
+	dir := filepath.Dir(s.scriptPath)
+	s.scriptPath = ""
+	return os.RemoveAll(dir)
 }
 
 // Scan runs scanner.ts against rootDir and returns the discovered

@@ -156,6 +156,15 @@ func IndexProject(ctx context.Context, rootDir string, opts Options) (*Index, er
 			tsOpts.Logger = opts.Logger
 		}
 		tsScanner := tsscan.NewScanner(tsOpts)
+		// Release the extracted scanner.ts tempdir (+ bridged typescript
+		// copy, if any) before IndexProject returns. Without this, every
+		// invocation leaks ~50MB on the bridge-copy fallback path.
+		defer func() {
+			if cerr := tsScanner.Close(); cerr != nil {
+				idx.Warnings = append(idx.Warnings,
+					fmt.Sprintf("ts scanner close: %v", cerr))
+			}
+		}()
 		tsRes, tsErr := tsScanner.Scan(ctx, abs)
 		if tsErr != nil {
 			// Surface as warning rather than fatal — TS scan must never
@@ -208,6 +217,15 @@ func mergeTSResult(idx *Index, res *tsscan.Result) {
 			if existing := idx.Graph.Nodes[sym.ID]; existing.Position.Path == "" && sym.Position.Path != "" {
 				existing.Symbol = sym
 				idx.SymbolLangs[sym.ID] = "ts"
+				// Keep idx.Symbols (denormalised view of Graph.Nodes) in sync
+				// with the upgraded node. Linear scan by ID — placeholder
+				// upgrades are rare so the cost is fine.
+				for i := range idx.Symbols {
+					if idx.Symbols[i].ID == sym.ID {
+						idx.Symbols[i] = sym
+						break
+					}
+				}
 			}
 			continue
 		}

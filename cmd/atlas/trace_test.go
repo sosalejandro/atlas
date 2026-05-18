@@ -27,8 +27,8 @@ func TestRunTrace_SampleProject(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
 		t.Fatalf("unmarshal: %v\n%s", err, buf.String())
 	}
-	if env.SchemaVersion != "v1.1" {
-		t.Fatalf("schema_version = %q; want v1.1", env.SchemaVersion)
+	if env.SchemaVersion != "v1" {
+		t.Fatalf("schema_version = %q; want v1", env.SchemaVersion)
 	}
 	if env.Command != "trace" {
 		t.Fatalf("command = %q; want trace", env.Command)
@@ -85,8 +85,8 @@ func TestRunTrace_ReactRouter_LangTagging(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
 		t.Fatalf("unmarshal: %v\n%s", err, buf.String())
 	}
-	if env.SchemaVersion != "v1.1" {
-		t.Fatalf("schema_version = %q; want v1.1", env.SchemaVersion)
+	if env.SchemaVersion != "v1" {
+		t.Fatalf("schema_version = %q; want v1", env.SchemaVersion)
 	}
 	// Expect the root to be a route node tagged ts.
 	if env.Data.Root != "route:/login" {
