@@ -50,8 +50,9 @@ type Snapshot struct {
 // 6a). The shape mirrors what audit/ is expected to ship: a per-feature
 // integer score in 0..100 plus optional per-layer breakdown and blocking
 // findings. Audit/ will provide a typed FeatureHealth → diff.FeatureHealth
-// adapter once it lands; until then callers can populate this slice from
-// store.AuditSnapshot rows directly.
+// adapter once it lands; until then callers can populate this slice by
+// unmarshalling store.AuditSnapshotRun.ScoreJSON (which audit/ writes as a
+// JSON-encoded []FeatureHealth) and projecting into this type.
 //
 // JSON tags are stable: they back the audit_json column persisted in
 // the snapshots table, so changing them is a schema-level event (and

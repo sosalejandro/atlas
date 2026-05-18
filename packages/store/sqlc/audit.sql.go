@@ -24,27 +24,6 @@ func (q *Queries) GetAuditSnapshotRun(ctx context.Context, id int64) (AuditSnaps
 	return i, err
 }
 
-const insertAuditSnapshot = `-- name: InsertAuditSnapshot :execresult
-INSERT INTO audit_snapshots (feature_id, score, layer_scores_json, blocking_findings_json)
-VALUES (?, ?, ?, ?)
-`
-
-type InsertAuditSnapshotParams struct {
-	FeatureID            string `db:"feature_id" json:"feature_id"`
-	Score                int64  `db:"score" json:"score"`
-	LayerScoresJson      string `db:"layer_scores_json" json:"layer_scores_json"`
-	BlockingFindingsJson string `db:"blocking_findings_json" json:"blocking_findings_json"`
-}
-
-func (q *Queries) InsertAuditSnapshot(ctx context.Context, arg InsertAuditSnapshotParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, insertAuditSnapshot,
-		arg.FeatureID,
-		arg.Score,
-		arg.LayerScoresJson,
-		arg.BlockingFindingsJson,
-	)
-}
-
 const insertAuditSnapshotRun = `-- name: InsertAuditSnapshotRun :execresult
 INSERT INTO audit_snapshot_runs (score_json) VALUES (?)
 `
@@ -64,29 +43,6 @@ type InsertAuditSnapshotRunWithTimeParams struct {
 
 func (q *Queries) InsertAuditSnapshotRunWithTime(ctx context.Context, arg InsertAuditSnapshotRunWithTimeParams) (sql.Result, error) {
 	return q.db.ExecContext(ctx, insertAuditSnapshotRunWithTime, arg.ComputedAt, arg.ScoreJson)
-}
-
-const insertAuditSnapshotWithTime = `-- name: InsertAuditSnapshotWithTime :execresult
-INSERT INTO audit_snapshots (taken_at, feature_id, score, layer_scores_json, blocking_findings_json)
-VALUES (?, ?, ?, ?, ?)
-`
-
-type InsertAuditSnapshotWithTimeParams struct {
-	TakenAt              time.Time `db:"taken_at" json:"taken_at"`
-	FeatureID            string    `db:"feature_id" json:"feature_id"`
-	Score                int64     `db:"score" json:"score"`
-	LayerScoresJson      string    `db:"layer_scores_json" json:"layer_scores_json"`
-	BlockingFindingsJson string    `db:"blocking_findings_json" json:"blocking_findings_json"`
-}
-
-func (q *Queries) InsertAuditSnapshotWithTime(ctx context.Context, arg InsertAuditSnapshotWithTimeParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, insertAuditSnapshotWithTime,
-		arg.TakenAt,
-		arg.FeatureID,
-		arg.Score,
-		arg.LayerScoresJson,
-		arg.BlockingFindingsJson,
-	)
 }
 
 const latestAuditSnapshotRun = `-- name: LatestAuditSnapshotRun :one
@@ -120,49 +76,6 @@ func (q *Queries) ListAuditSnapshotRuns(ctx context.Context, limit int64) ([]Aud
 	for rows.Next() {
 		var i AuditSnapshotRun
 		if err := rows.Scan(&i.ID, &i.ComputedAt, &i.ScoreJson); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAuditSnapshotsByFeature = `-- name: ListAuditSnapshotsByFeature :many
-SELECT id, taken_at, feature_id, score, layer_scores_json, blocking_findings_json
-FROM audit_snapshots
-WHERE feature_id = ?
-ORDER BY taken_at DESC
-LIMIT ?
-`
-
-type ListAuditSnapshotsByFeatureParams struct {
-	FeatureID string `db:"feature_id" json:"feature_id"`
-	Limit     int64  `db:"limit" json:"limit"`
-}
-
-func (q *Queries) ListAuditSnapshotsByFeature(ctx context.Context, arg ListAuditSnapshotsByFeatureParams) ([]AuditSnapshot, error) {
-	rows, err := q.db.QueryContext(ctx, listAuditSnapshotsByFeature, arg.FeatureID, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AuditSnapshot{}
-	for rows.Next() {
-		var i AuditSnapshot
-		if err := rows.Scan(
-			&i.ID,
-			&i.TakenAt,
-			&i.FeatureID,
-			&i.Score,
-			&i.LayerScoresJson,
-			&i.BlockingFindingsJson,
-		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

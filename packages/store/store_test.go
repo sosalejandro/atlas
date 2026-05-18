@@ -30,9 +30,10 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	}
 	// Schema version tracks the highest applied migration. Bumped to 2 in
 	// Phase 6e (annotation kind set extension), 3 in Phase 6f
-	// (symbols.pattern_matches column), 4 in Phase 6b (snapshots), and
-	// 5 in Phase 6a (audit_snapshot_runs table).
-	const expected = 5
+	// (symbols.pattern_matches column), 4 in Phase 6b (snapshots),
+	// 5 in Phase 6a (audit_snapshot_runs table), and 6 by issue #21
+	// (drop the unused legacy audit_snapshots table).
+	const expected = 6
 	if v != expected {
 		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}
@@ -83,7 +84,7 @@ func TestOpen_AllTablesCreated(t *testing.T) {
 	want := []string{
 		"config", "features", "symbols", "edges", "feature_symbols",
 		"file_hashes", "coverage_runs", "coverage_results",
-		"audit_snapshots", "audit_snapshot_runs", "annotations",
+		"audit_snapshot_runs", "annotations",
 		"schema_migrations", "snapshots",
 	}
 
