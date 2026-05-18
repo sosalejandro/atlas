@@ -4,18 +4,21 @@
 // parses flags, calls into a packages/<x>/ library, and formats the result.
 // No business logic lives in cmd/.
 //
-// Phase 1 ships exactly one subcommand: `atlas trace`. Future phases add
-// init / scan / cov / audit / sprint / diff / contract / diagnose /
-// migrate-annotations per the architecture doc.
+// Phase 7 wires every library package (codeindex, store, audit, sprintplan,
+// diff, contract, diagnose, coverage, …) into the cobra dispatch tree. The
+// per-verb implementations live in internal/cli/<verb>.go; this file is the
+// thin os.Args entry shim.
 package main
 
 import (
 	"fmt"
 	"os"
+
+	"github.com/sosalejandro/atlas/internal/cli"
 )
 
 func main() {
-	if err := newRootCmd().Execute(); err != nil {
+	if err := cli.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
