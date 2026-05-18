@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
 
 // FeatureKind matches the CHECK constraint on `features.kind`.
@@ -51,80 +52,106 @@ type Features interface {
 var _ Features = (*featuresStore)(nil)
 
 // Features returns the Store's Features port.
-func (s *Store) Features() Features { return &featuresStore{db: s} }
+func (s *Store) Features() Features { return &featuresStore{db: s, q: s.queries()} }
 
-type featuresStore struct{ db *Store }
+type featuresStore struct {
+	db *Store
+	q  *sqlc.Queries
+}
 
-const featuresSelectCols = `id, title, owner, kind, deprecated_since, introduced_in, created_at, updated_at`
-
-func scanFeature(row interface{ Scan(...any) error }) (Feature, error) {
-	var (
-		f               Feature
-		owner           sql.NullString
-		kind            string
-		deprecatedSince sql.NullString
-		introducedIn    sql.NullString
-	)
-	if err := row.Scan(&f.ID, &f.Title, &owner, &kind, &deprecatedSince, &introducedIn, &f.CreatedAt, &f.UpdatedAt); err != nil {
-		return Feature{}, err
+// fromSQLCFeature converts a sqlc.Feature row to the store-facing Feature
+// domain type. The sqlc layer carries strings + pointers; this is the only
+// place that knows the field-name mapping.
+func fromSQLCFeature(r sqlc.Feature) Feature {
+	return Feature{
+		ID:              shared.FeatureID(r.ID),
+		Title:           r.Title,
+		Owner:           r.Owner,
+		Kind:            FeatureKind(r.Kind),
+		DeprecatedSince: r.DeprecatedSince,
+		IntroducedIn:    r.IntroducedIn,
+		CreatedAt:       r.CreatedAt,
+		UpdatedAt:       r.UpdatedAt,
 	}
-	f.Owner = ptrString(owner)
-	f.Kind = FeatureKind(kind)
-	f.DeprecatedSince = ptrString(deprecatedSince)
-	f.IntroducedIn = ptrString(introducedIn)
-	return f, nil
 }
 
 func (s *featuresStore) Get(ctx context.Context, id shared.FeatureID) (Feature, error) {
-	row := s.db.sqlDB().QueryRowContext(ctx,
-		`SELECT `+featuresSelectCols+` FROM features WHERE id = ?`, string(id))
-	f, err := scanFeature(row)
+	row, err := s.q.GetFeature(ctx, string(id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Feature{}, shared.ErrFeatureNotFound
 	}
 	if err != nil {
 		return Feature{}, fmt.Errorf("features get %q: %w", id, err)
 	}
-	return f, nil
+	return fromSQLCFeature(row), nil
 }
 
+// List dispatches across sqlc's two static query variants
+// (ListAllFeatures / ListFeaturesByKind) and falls back to a raw query
+// when the caller passes an IDs filter — sqlc's sqlite engine does not yet
+// support `sqlc.slice()` placeholders cleanly, so the IN(...) case stays as
+// a tiny hand-written SELECT.
 func (s *featuresStore) List(ctx context.Context, f FeatureFilter) ([]Feature, error) {
-	var (
-		where []string
-		args  []any
-	)
-	if f.Kind != nil {
-		where = append(where, "kind = ?")
-		args = append(args, string(*f.Kind))
-	}
-	if len(f.IDs) > 0 {
-		placeholders := strings.Repeat("?,", len(f.IDs))
-		placeholders = placeholders[:len(placeholders)-1]
-		where = append(where, "id IN ("+placeholders+")")
-		for _, id := range f.IDs {
-			args = append(args, string(id))
+	// Fast paths: nothing or only Kind via sqlc.
+	if len(f.IDs) == 0 {
+		var rows []sqlc.Feature
+		var err error
+		if f.Kind != nil {
+			rows, err = s.q.ListFeaturesByKind(ctx, string(*f.Kind))
+		} else {
+			rows, err = s.q.ListAllFeatures(ctx)
 		}
+		if err != nil {
+			return nil, fmt.Errorf("features list: %w", err)
+		}
+		out := make([]Feature, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, fromSQLCFeature(r))
+		}
+		return out, nil
 	}
 
-	q := `SELECT ` + featuresSelectCols + ` FROM features`
-	if len(where) > 0 {
-		q += " WHERE " + strings.Join(where, " AND ")
+	// IDs filter — issue a single SELECT with IN(...) bound via positional ?.
+	placeholders := strings.Repeat("?,", len(f.IDs))
+	placeholders = placeholders[:len(placeholders)-1]
+	q := `SELECT id, title, owner, kind, deprecated_since, introduced_in, created_at, updated_at
+	      FROM features WHERE id IN (` + placeholders + `)`
+	args := make([]any, 0, len(f.IDs)+1)
+	for _, id := range f.IDs {
+		args = append(args, string(id))
+	}
+	if f.Kind != nil {
+		q += " AND kind = ?"
+		args = append(args, string(*f.Kind))
 	}
 	q += " ORDER BY id"
 
 	rows, err := s.db.sqlDB().QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("features list: %w", err)
+		return nil, fmt.Errorf("features list (IDs): %w", err)
 	}
 	defer rows.Close()
 
 	var out []Feature
 	for rows.Next() {
-		feat, err := scanFeature(rows)
-		if err != nil {
+		var (
+			id, title, kind string
+			owner, dep, intr sql.NullString
+			created, updated time.Time
+		)
+		if err := rows.Scan(&id, &title, &owner, &kind, &dep, &intr, &created, &updated); err != nil {
 			return nil, fmt.Errorf("features scan: %w", err)
 		}
-		out = append(out, feat)
+		out = append(out, Feature{
+			ID:              shared.FeatureID(id),
+			Title:           title,
+			Owner:           nullStringToPtr(owner),
+			Kind:            FeatureKind(kind),
+			DeprecatedSince: nullStringToPtr(dep),
+			IntroducedIn:    nullStringToPtr(intr),
+			CreatedAt:       created,
+			UpdatedAt:       updated,
+		})
 	}
 	return out, rows.Err()
 }
@@ -148,20 +175,14 @@ func (s *featuresStore) Upsert(ctx context.Context, feat Feature) error {
 		kind = FeatureKindFeature
 	}
 
-	_, err := s.db.sqlDB().ExecContext(ctx, `
-		INSERT INTO features (id, title, owner, kind, deprecated_since, introduced_in, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(id) DO UPDATE SET
-		  title            = excluded.title,
-		  owner            = excluded.owner,
-		  kind             = excluded.kind,
-		  deprecated_since = excluded.deprecated_since,
-		  introduced_in    = excluded.introduced_in,
-		  updated_at       = CURRENT_TIMESTAMP
-	`,
-		string(feat.ID), feat.Title, nullStringPtr(feat.Owner), string(kind),
-		nullStringPtr(feat.DeprecatedSince), nullStringPtr(feat.IntroducedIn),
-	)
+	err := s.q.UpsertFeature(ctx, sqlc.UpsertFeatureParams{
+		ID:              string(feat.ID),
+		Title:           feat.Title,
+		Owner:           feat.Owner,
+		Kind:            string(kind),
+		DeprecatedSince: feat.DeprecatedSince,
+		IntroducedIn:    feat.IntroducedIn,
+	})
 	if err != nil {
 		return fmt.Errorf("features upsert %q: %w", feat.ID, err)
 	}
@@ -169,11 +190,10 @@ func (s *featuresStore) Upsert(ctx context.Context, feat Feature) error {
 }
 
 func (s *featuresStore) Delete(ctx context.Context, id shared.FeatureID) error {
-	res, err := s.db.sqlDB().ExecContext(ctx, `DELETE FROM features WHERE id = ?`, string(id))
+	n, err := s.q.DeleteFeature(ctx, string(id))
 	if err != nil {
 		return fmt.Errorf("features delete %q: %w", id, err)
 	}
-	n, _ := res.RowsAffected()
 	if n == 0 {
 		return shared.ErrFeatureNotFound
 	}

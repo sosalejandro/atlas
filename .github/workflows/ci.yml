@@ -26,6 +26,19 @@ jobs:
       - name: Download modules
         run: go mod download
 
+      - name: Install sqlc
+        # Pin to the version used to generate packages/store/sqlc/ —
+        # bumping requires running `sqlc generate` and reviewing the diff.
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+
+      - name: sqlc diff (generated code is up to date)
+        # Fails when packages/store/queries/*.sql has been edited but the
+        # generated code in packages/store/sqlc/ wasn't regenerated. Run
+        # `cd packages/store && sqlc generate` locally and commit the
+        # output to fix.
+        working-directory: packages/store
+        run: sqlc diff
+
       - name: go vet
         run: go vet ./...
 

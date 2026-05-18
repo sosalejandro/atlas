@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
 
 // Framework matches the CHECK constraint on `coverage_runs.framework`.
@@ -70,24 +71,22 @@ type Coverage interface {
 var _ Coverage = (*coverageStore)(nil)
 
 // Coverage returns the Store's Coverage port.
-func (s *Store) Coverage() Coverage { return &coverageStore{db: s} }
+func (s *Store) Coverage() Coverage { return &coverageStore{db: s, q: s.queries()} }
 
-type coverageStore struct{ db *Store }
+type coverageStore struct {
+	db *Store
+	q  *sqlc.Queries
+}
 
-const coverageRunsSelectCols = `id, framework, started_at, finished_at, raw_path, summary_json`
-
-func scanCoverageRun(row interface{ Scan(...any) error }) (CoverageRun, error) {
-	var (
-		r       CoverageRun
-		fw      string
-		rawPath sql.NullString
-	)
-	if err := row.Scan(&r.ID, &fw, &r.StartedAt, &r.FinishedAt, &rawPath, &r.SummaryJSON); err != nil {
-		return CoverageRun{}, err
+func fromSQLCCoverageRun(r sqlc.CoverageRun) CoverageRun {
+	return CoverageRun{
+		ID:          r.ID,
+		Framework:   Framework(r.Framework),
+		StartedAt:   r.StartedAt,
+		FinishedAt:  r.FinishedAt,
+		RawPath:     r.RawPath,
+		SummaryJSON: r.SummaryJson,
 	}
-	r.Framework = Framework(fw)
-	r.RawPath = ptrString(rawPath)
-	return r, nil
 }
 
 func (c *coverageStore) InsertRun(ctx context.Context, r CoverageRun) (int64, error) {
@@ -104,10 +103,13 @@ func (c *coverageStore) InsertRun(ctx context.Context, r CoverageRun) (int64, er
 		r.SummaryJSON = "{}"
 	}
 
-	res, err := c.db.sqlDB().ExecContext(ctx, `
-		INSERT INTO coverage_runs (framework, started_at, finished_at, raw_path, summary_json)
-		VALUES (?, ?, ?, ?, ?)
-	`, string(r.Framework), r.StartedAt, r.FinishedAt, nullStringPtr(r.RawPath), r.SummaryJSON)
+	res, err := c.q.InsertCoverageRun(ctx, sqlc.InsertCoverageRunParams{
+		Framework:   string(r.Framework),
+		StartedAt:   r.StartedAt,
+		FinishedAt:  r.FinishedAt,
+		RawPath:     r.RawPath,
+		SummaryJson: r.SummaryJSON,
+	})
 	if err != nil {
 		return 0, fmt.Errorf("coverage InsertRun: %w", err)
 	}
@@ -116,46 +118,40 @@ func (c *coverageStore) InsertRun(ctx context.Context, r CoverageRun) (int64, er
 }
 
 func (c *coverageStore) GetRun(ctx context.Context, id int64) (CoverageRun, error) {
-	row := c.db.sqlDB().QueryRowContext(ctx,
-		`SELECT `+coverageRunsSelectCols+` FROM coverage_runs WHERE id = ?`, id)
-	r, err := scanCoverageRun(row)
+	row, err := c.q.GetCoverageRun(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CoverageRun{}, shared.ErrNotFound
 	}
 	if err != nil {
 		return CoverageRun{}, fmt.Errorf("coverage GetRun %d: %w", id, err)
 	}
-	return r, nil
+	return fromSQLCCoverageRun(row), nil
 }
 
 func (c *coverageStore) ListRuns(ctx context.Context, framework Framework) ([]CoverageRun, error) {
 	var (
-		q    = `SELECT ` + coverageRunsSelectCols + ` FROM coverage_runs`
-		args []any
+		rows []sqlc.CoverageRun
+		err  error
 	)
-	if framework != "" {
-		q += ` WHERE framework = ?`
-		args = append(args, string(framework))
+	if framework == "" {
+		rows, err = c.q.ListAllCoverageRuns(ctx)
+	} else {
+		rows, err = c.q.ListCoverageRunsByFramework(ctx, string(framework))
 	}
-	q += ` ORDER BY finished_at DESC, id DESC`
-
-	rows, err := c.db.sqlDB().QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("coverage ListRuns: %w", err)
 	}
-	defer rows.Close()
-
-	var out []CoverageRun
-	for rows.Next() {
-		r, err := scanCoverageRun(rows)
-		if err != nil {
-			return nil, fmt.Errorf("coverage runs scan: %w", err)
-		}
-		out = append(out, r)
+	out := make([]CoverageRun, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, fromSQLCCoverageRun(r))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
+// InsertResults batches per-test rows in a single transaction. We wrap the
+// shared sqlc.Queries via WithTx and call the generated InsertCoverageResult
+// per row — the wrapper keeps the prepared-statement-ish behaviour with no
+// per-call SQL parsing overhead.
 func (c *coverageStore) InsertResults(ctx context.Context, runID int64, results []CoverageResult) error {
 	if runID == 0 {
 		return fmt.Errorf("coverage InsertResults: run_id required")
@@ -170,32 +166,31 @@ func (c *coverageStore) InsertResults(ctx context.Context, runID int64, results 
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO coverage_results (run_id, symbol_id, feature_id, status, duration_ms, message)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("coverage InsertResults prepare: %w", err)
-	}
-	defer stmt.Close()
-
+	qtx := c.q.WithTx(tx)
 	for i, r := range results {
 		if r.Status == "" {
 			return fmt.Errorf("coverage InsertResults: result %d has empty status", i)
 		}
 		var (
-			featureID sql.NullString
-			symbolID  sql.NullInt64
+			symbolID  *int64
+			featureID *string
 		)
-		if r.FeatureID != nil && *r.FeatureID != "" {
-			featureID = sql.NullString{String: string(*r.FeatureID), Valid: true}
-		}
 		if r.SymbolID != nil && *r.SymbolID != 0 {
-			symbolID = sql.NullInt64{Int64: *r.SymbolID, Valid: true}
+			v := *r.SymbolID
+			symbolID = &v
 		}
-		if _, err := stmt.ExecContext(ctx,
-			runID, symbolID, featureID, string(r.Status), r.DurationMS, nullStringPtr(r.Message),
-		); err != nil {
+		if r.FeatureID != nil && *r.FeatureID != "" {
+			v := string(*r.FeatureID)
+			featureID = &v
+		}
+		if err := qtx.InsertCoverageResult(ctx, sqlc.InsertCoverageResultParams{
+			RunID:      runID,
+			SymbolID:   symbolID,
+			FeatureID:  featureID,
+			Status:     string(r.Status),
+			DurationMs: r.DurationMS,
+			Message:    r.Message,
+		}); err != nil {
 			return fmt.Errorf("coverage InsertResults exec row %d: %w", i, err)
 		}
 	}
@@ -206,38 +201,26 @@ func (c *coverageStore) InsertResults(ctx context.Context, runID int64, results 
 }
 
 func (c *coverageStore) ListResults(ctx context.Context, runID int64) ([]CoverageResult, error) {
-	rows, err := c.db.sqlDB().QueryContext(ctx, `
-		SELECT id, run_id, symbol_id, feature_id, status, duration_ms, message
-		FROM coverage_results WHERE run_id = ? ORDER BY id
-	`, runID)
+	rows, err := c.q.ListCoverageResults(ctx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("coverage ListResults: %w", err)
 	}
-	defer rows.Close()
-
-	var out []CoverageResult
-	for rows.Next() {
-		var (
-			r         CoverageResult
-			symbolID  sql.NullInt64
-			featureID sql.NullString
-			status    string
-			message   sql.NullString
-		)
-		if err := rows.Scan(&r.ID, &r.RunID, &symbolID, &featureID, &status, &r.DurationMS, &message); err != nil {
-			return nil, fmt.Errorf("coverage results scan: %w", err)
+	out := make([]CoverageResult, 0, len(rows))
+	for _, r := range rows {
+		var fid *shared.FeatureID
+		if r.FeatureID != nil {
+			f := shared.FeatureID(*r.FeatureID)
+			fid = &f
 		}
-		if symbolID.Valid {
-			v := symbolID.Int64
-			r.SymbolID = &v
-		}
-		if featureID.Valid {
-			v := shared.FeatureID(featureID.String)
-			r.FeatureID = &v
-		}
-		r.Status = CoverageStatus(status)
-		r.Message = ptrString(message)
-		out = append(out, r)
+		out = append(out, CoverageResult{
+			ID:         r.ID,
+			RunID:      r.RunID,
+			SymbolID:   r.SymbolID,
+			FeatureID:  fid,
+			Status:     CoverageStatus(r.Status),
+			DurationMS: r.DurationMs,
+			Message:    r.Message,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }

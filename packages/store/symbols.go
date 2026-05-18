@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
 
 // SymbolRow is one row of the `symbols` table (docs/schema-v1.md §5.4).
@@ -87,28 +88,25 @@ type Symbols interface {
 var _ Symbols = (*symbolsStore)(nil)
 
 // Symbols returns the Store's Symbols port.
-func (s *Store) Symbols() Symbols { return &symbolsStore{db: s} }
+func (s *Store) Symbols() Symbols { return &symbolsStore{db: s, q: s.queries()} }
 
-type symbolsStore struct{ db *Store }
+type symbolsStore struct {
+	db *Store
+	q  *sqlc.Queries
+}
 
-const symbolsSelectCols = `id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at`
-
-func scanSymbolRow(row interface{ Scan(...any) error }) (SymbolRow, error) {
-	var (
-		r       SymbolRow
-		endLine sql.NullInt64
-		pkg     sql.NullString
-		bc      sql.NullString
-		kind    string
-	)
-	if err := row.Scan(&r.ID, &r.QualifiedName, &kind, &r.FilePath, &r.Line, &endLine, &pkg, &bc, &r.CreatedAt); err != nil {
-		return SymbolRow{}, err
+func fromSQLCSymbol(r sqlc.Symbol) SymbolRow {
+	return SymbolRow{
+		ID:            r.ID,
+		QualifiedName: shared.SymbolID(r.QualifiedName),
+		Kind:          shared.SymbolKind(r.Kind),
+		FilePath:      r.FilePath,
+		Line:          int(r.Line),
+		EndLine:       int64PtrToIntPtr(r.EndLine),
+		Package:       r.Package,
+		BCPath:        r.BcPath,
+		CreatedAt:     r.CreatedAt,
 	}
-	r.Kind = shared.SymbolKind(kind)
-	r.EndLine = ptrInt(endLine)
-	r.Package = ptrString(pkg)
-	r.BCPath = ptrString(bc)
-	return r, nil
 }
 
 func (s *symbolsStore) Insert(ctx context.Context, sym SymbolRow) (int64, error) {
@@ -121,14 +119,15 @@ func (s *symbolsStore) Insert(ctx context.Context, sym SymbolRow) (int64, error)
 
 	kind := normalizeKind(sym.Kind)
 
-	res, err := s.db.sqlDB().ExecContext(ctx, `
-		INSERT OR IGNORE INTO symbols
-		  (qualified_name, kind, file_path, line, end_line, package, bc_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`,
-		string(sym.QualifiedName), string(kind), sym.FilePath, sym.Line,
-		nullInt(sym.EndLine), nullStringPtr(sym.Package), nullStringPtr(sym.BCPath),
-	)
+	res, err := s.q.InsertSymbol(ctx, sqlc.InsertSymbolParams{
+		QualifiedName: string(sym.QualifiedName),
+		Kind:          string(kind),
+		FilePath:      sym.FilePath,
+		Line:          int64(sym.Line),
+		EndLine:       intPtrToInt64Ptr(sym.EndLine),
+		Package:       sym.Package,
+		BcPath:        sym.BCPath,
+	})
 	if err != nil {
 		return 0, fmt.Errorf("symbols insert %q: %w", sym.QualifiedName, err)
 	}
@@ -138,9 +137,7 @@ func (s *symbolsStore) Insert(ctx context.Context, sym SymbolRow) (int64, error)
 	}
 	// INSERT OR IGNORE collapsed to a no-op because the row already exists.
 	// Look up the surrogate id so callers always get a usable value.
-	var existing int64
-	err = s.db.sqlDB().QueryRowContext(ctx,
-		`SELECT id FROM symbols WHERE qualified_name = ?`, string(sym.QualifiedName)).Scan(&existing)
+	existing, err := s.q.GetSymbolIDByQualifiedName(ctx, string(sym.QualifiedName))
 	if err != nil {
 		return 0, fmt.Errorf("symbols insert %q (lookup existing): %w", sym.QualifiedName, err)
 	}
@@ -148,18 +145,21 @@ func (s *symbolsStore) Insert(ctx context.Context, sym SymbolRow) (int64, error)
 }
 
 func (s *symbolsStore) FindByQualifiedName(ctx context.Context, qn shared.SymbolID) (SymbolRow, error) {
-	row := s.db.sqlDB().QueryRowContext(ctx,
-		`SELECT `+symbolsSelectCols+` FROM symbols WHERE qualified_name = ?`, string(qn))
-	r, err := scanSymbolRow(row)
+	row, err := s.q.GetSymbolByQualifiedName(ctx, string(qn))
 	if errors.Is(err, sql.ErrNoRows) {
 		return SymbolRow{}, shared.ErrSymbolNotFound
 	}
 	if err != nil {
 		return SymbolRow{}, fmt.Errorf("symbols find %q: %w", qn, err)
 	}
-	return r, nil
+	return fromSQLCSymbol(row), nil
 }
 
+// List uses raw SQL because the filter set is genuinely dynamic
+// (file_path, package, bc_path, kind — each optional). sqlc's sqlite engine
+// does not express conditional WHERE clauses well; the alternative is a 16x
+// query-variant explosion. The raw query stays trivial: one prepared SELECT
+// with a per-field placeholder.
 func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, error) {
 	var (
 		where []string
@@ -182,7 +182,7 @@ func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, e
 		args = append(args, string(normalizeKind(f.Kind)))
 	}
 
-	q := `SELECT ` + symbolsSelectCols + ` FROM symbols`
+	q := `SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at FROM symbols`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -196,11 +196,31 @@ func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, e
 
 	var out []SymbolRow
 	for rows.Next() {
-		r, err := scanSymbolRow(rows)
-		if err != nil {
+		var (
+			id        int64
+			qn        string
+			kind      string
+			filePath  string
+			line      int64
+			endLine   sql.NullInt64
+			pkg       sql.NullString
+			bc        sql.NullString
+			createdAt time.Time
+		)
+		if err := rows.Scan(&id, &qn, &kind, &filePath, &line, &endLine, &pkg, &bc, &createdAt); err != nil {
 			return nil, fmt.Errorf("symbols scan: %w", err)
 		}
-		out = append(out, r)
+		out = append(out, SymbolRow{
+			ID:            id,
+			QualifiedName: shared.SymbolID(qn),
+			Kind:          shared.SymbolKind(kind),
+			FilePath:      filePath,
+			Line:          int(line),
+			EndLine:       nullInt64ToIntPtr(endLine),
+			Package:       nullStringToPtr(pkg),
+			BCPath:        nullStringToPtr(bc),
+			CreatedAt:     createdAt,
+		})
 	}
 	return out, rows.Err()
 }
@@ -209,8 +229,7 @@ func (s *symbolsStore) DeleteByFile(ctx context.Context, filePath string) error 
 	if filePath == "" {
 		return fmt.Errorf("symbols delete-by-file: file_path required")
 	}
-	_, err := s.db.sqlDB().ExecContext(ctx, `DELETE FROM symbols WHERE file_path = ?`, filePath)
-	if err != nil {
+	if err := s.q.DeleteSymbolsByFile(ctx, filePath); err != nil {
 		return fmt.Errorf("symbols delete-by-file %q: %w", filePath, err)
 	}
 	return nil

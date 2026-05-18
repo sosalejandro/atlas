@@ -1,7 +1,6 @@
--- Initial Atlas v1 schema per docs/schema-v1.md §5. The schema_version table
--- is bootstrapped out-of-band by the embedded migration runner before this
--- file is applied, so the very first migration can co-exist with version
--- tracking.
+-- Initial Atlas v1 schema per docs/schema-v1.md §5. Migration tracking is
+-- handled by golang-migrate (v4) using its default `schema_migrations` table
+-- (created by the driver, not by this file).
 
 -- ---------- Config (runtime knobs, key/value; spec §5.2) ----------
 CREATE TABLE config (

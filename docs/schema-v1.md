@@ -93,49 +93,60 @@ packages/store/schema/
 └── 0002_<future>.up.sql
 ```
 
-Embedded into the binary via `//go:embed schema/*.sql`. The runner mirrors
-the bmad-story-runner-cli pattern verbatim:
+Embedded into the binary via `//go:embed schema/*.sql` and applied by
+[`github.com/golang-migrate/migrate/v4`][gm] (the `iofs` source + the
+modernc-backed `sqlite` driver). The runner:
 
-1. **Bootstrap** — `CREATE TABLE IF NOT EXISTS schema_version (version
-   INTEGER PRIMARY KEY, applied_at TIMESTAMP NOT NULL DEFAULT
-   CURRENT_TIMESTAMP)`. Out of band, before any migration runs, so the very
-   first migration (0001) can record its own version.
-2. **Discover** — read `schema/*.up.sql` from the embedded FS, parse the
-   `NNNN_<name>.up.sql` filename, sort ascending by `version`.
-3. **Filter** — select `SELECT version FROM schema_version` and skip any
-   already-applied versions.
-4. **Apply** — each pending migration runs in its own transaction. The
-   transaction commits both the migration's SQL and an `INSERT INTO
-   schema_version (version) VALUES (?)` row. Either both happen or neither
-   does; a crash mid-migration rolls back cleanly and the next `Open` retries.
+1. **Discover** — `iofs.New(schemaFS, "schema")` enumerates `NNNN_<name>.up.sql`
+   from the embedded filesystem and orders them by the numeric prefix.
+2. **Track** — golang-migrate creates and maintains its default
+   `schema_migrations` table (`version BIGINT PRIMARY KEY, dirty BOOLEAN`)
+   the first time `m.Up()` runs. Atlas never writes to that table directly;
+   `Store.SchemaVersion(ctx)` is a read-only convenience that returns
+   `MAX(version)`.
+3. **Apply** — each pending migration runs in a per-statement transaction
+   driven by the sqlite driver. On crash mid-migration the row is flagged
+   `dirty=1`; resolving that state requires `migrate force <version>` at
+   the CLI (Atlas does not auto-resolve dirty state — we surface it instead
+   so the operator decides).
 
 **Up-only migrations.** Atlas does NOT ship `*.down.sql` files (locked
-decision in `docs/architecture.md` §3.7). Rollback is "delete the file
-and re-init" — safe because the database is a re-derivable cache, not
-the source of truth. If a migration needs to be reversed, ship a
-new forward-direction migration that undoes it.
+decision in `docs/architecture.md` §3.7). golang-migrate tolerates their
+absence — it simply loses the ability to step down past a version, which
+Atlas doesn't need. Rollback is "delete the file and re-init" — safe
+because the database is a re-derivable cache, not the source of truth.
+If a migration needs to be reversed, ship a new forward-direction
+migration that undoes it.
+
+**Installing the tooling.** Developers who edit `packages/store/queries/*.sql`
+must run `cd packages/store && sqlc generate` and commit the regenerated
+`packages/store/sqlc/`. CI enforces this with `sqlc diff` (see
+`.github/workflows/ci.yml`). If `sqlc` is not on `PATH`:
+
+```bash
+go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+```
+
+[gm]: https://github.com/golang-migrate/migrate
 
 ---
 
 ## 5. Initial Schema (Migration 0001)
 
-The bootstrap `schema_version` table is created out-of-band by the runner
-before 0001 executes. All other tables defined below live in
-`0001_initial.up.sql`.
+All tables defined below live in `0001_initial.up.sql`. The
+`schema_migrations` table is created automatically by golang-migrate the
+first time `Open` runs — it is not part of `0001_initial.up.sql`.
 
-### 5.1 `schema_version` (bootstrap, not in 0001)
+### 5.1 `schema_migrations` (managed by golang-migrate)
 
-```sql
-CREATE TABLE IF NOT EXISTS schema_version (
-  version    INTEGER PRIMARY KEY,
-  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-```
+Created and maintained by the migration runner. Atlas reads it via
+`Store.SchemaVersion(ctx)` for diagnostics and CLI commands like
+`atlas doctor`; nothing in Atlas writes to it directly.
 
-| Column       | Type      | Notes                                                                |
-| ------------ | --------- | -------------------------------------------------------------------- |
-| `version`    | INTEGER   | Primary key. Numeric prefix from the migration filename (e.g. `1`). |
-| `applied_at` | TIMESTAMP | When the migration finished committing. UTC, default `CURRENT_TIMESTAMP`. |
+| Column    | Type    | Notes                                                                  |
+| --------- | ------- | ---------------------------------------------------------------------- |
+| `version` | BIGINT  | Primary key. Numeric prefix from the latest applied migration filename. |
+| `dirty`   | BOOLEAN | `1` if a migration crashed mid-apply. Resolve via `migrate force`.      |
 
 ### 5.2 `config` — runtime knobs (key/value)
 

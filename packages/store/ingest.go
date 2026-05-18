@@ -3,12 +3,14 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/codeindex"
 	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
 
 // IngestStats records what Ingest wrote. Useful for the `atlas scan`
@@ -45,6 +47,11 @@ type IngestStats struct {
 // (Phase 1's codeindex doesn't carry per-symbol provenance fine enough
 // for partial re-ingest, so the conservative choice is to skip the file
 // entirely). Files that are not yet in file_hashes are always processed.
+//
+// All writes go through the sqlc-generated Queries (via WithTx for the
+// transactional batch) — only the unchanged-file detection still reads via
+// the FileHashes port, which is fine because that read happens before the
+// tx opens.
 func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats, error) {
 	if idx == nil {
 		return nil, fmt.Errorf("store ingest: nil index")
@@ -69,6 +76,7 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 		return nil, fmt.Errorf("store ingest: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	qtx := s.q.WithTx(tx)
 
 	// 2. Upsert symbols (skip those declared in unchanged files).
 	symbolIDByQualifiedName := make(map[shared.SymbolID]int64, len(idx.Symbols))
@@ -80,7 +88,7 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 		if unchanged[path] {
 			// Even when skipping inserts, we still need the surrogate id
 			// for edge writes — look it up.
-			id, ok, err := lookupSymbolID(ctx, tx, sym.ID)
+			id, ok, err := lookupSymbolIDTx(ctx, qtx, sym.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -89,7 +97,7 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 			}
 			continue
 		}
-		id, inserted, err := upsertSymbolTx(ctx, tx, sym)
+		id, inserted, err := upsertSymbolTx(ctx, qtx, sym)
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +136,7 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 			if line <= 0 {
 				line = 1
 			}
-			inserted, err := upsertEdgeTx(ctx, tx, fromID, toID, EdgeKindCall, path, line)
+			inserted, err := upsertEdgeTx(ctx, qtx, fromID, toID, EdgeKindCall, path, line)
 			if err != nil {
 				return nil, err
 			}
@@ -156,14 +164,13 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 		if value == "" && len(ann.IDs) > 0 {
 			value = strings.Join(ann.IDs, " ")
 		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO annotations (file_path, line, kind, value, source)
-			VALUES (?, ?, ?, ?, ?)
-			ON CONFLICT(file_path, line, kind) DO UPDATE SET
-			  value     = excluded.value,
-			  source    = excluded.source,
-			  parsed_at = CURRENT_TIMESTAMP
-		`, path, ann.Position.Line, string(ann.Kind), value, string(src)); err != nil {
+		if err := qtx.UpsertAnnotation(ctx, sqlc.UpsertAnnotationParams{
+			FilePath: path,
+			Line:     int64(ann.Position.Line),
+			Kind:     string(ann.Kind),
+			Value:    value,
+			Source:   string(src),
+		}); err != nil {
 			return nil, fmt.Errorf("store ingest annotation %q L%d: %w", path, ann.Position.Line, err)
 		}
 		stats.AnnotationsInserted++
@@ -172,14 +179,12 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 	// 5. Upsert file_hashes (always — even unchanged files get last_scanned
 	// refreshed so the cache TTL stays warm).
 	for path, fh := range idx.FileHashes {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO file_hashes (file_path, content_hash, mtime, last_scanned)
-			VALUES (?, ?, ?, ?)
-			ON CONFLICT(file_path) DO UPDATE SET
-			  content_hash = excluded.content_hash,
-			  mtime        = excluded.mtime,
-			  last_scanned = excluded.last_scanned
-		`, path, fh.SHA256, fh.ModTime, fh.LastScanned); err != nil {
+		if err := qtx.UpsertFileHash(ctx, sqlc.UpsertFileHashParams{
+			FilePath:    path,
+			ContentHash: fh.SHA256,
+			Mtime:       fh.ModTime,
+			LastScanned: fh.LastScanned,
+		}); err != nil {
 			return nil, fmt.Errorf("store ingest file_hash %q: %w", path, err)
 		}
 		stats.FileHashesUpserted++
@@ -193,17 +198,19 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 	return stats, nil
 }
 
-// upsertSymbolTx inserts a shared.Symbol into the open tx and returns the
+// upsertSymbolTx inserts a shared.Symbol via the sqlc tx and returns the
 // row's surrogate id plus whether the insert created a new row.
-func upsertSymbolTx(ctx context.Context, tx *sql.Tx, sym shared.Symbol) (int64, bool, error) {
+func upsertSymbolTx(ctx context.Context, qtx *sqlc.Queries, sym shared.Symbol) (int64, bool, error) {
 	kind := normalizeKind(sym.Kind)
-	pkg := sql.NullString{}
+	var pkg *string
 	if sym.Package != "" {
-		pkg = sql.NullString{String: sym.Package, Valid: true}
+		v := sym.Package
+		pkg = &v
 	}
-	bc := sql.NullString{}
+	var bc *string
 	if bcPath := bcPathFor(sym.Position.Path); bcPath != "" {
-		bc = sql.NullString{String: bcPath, Valid: true}
+		v := bcPath
+		bc = &v
 	}
 
 	path := sym.Position.Path
@@ -218,11 +225,15 @@ func upsertSymbolTx(ctx context.Context, tx *sql.Tx, sym shared.Symbol) (int64, 
 		line = 1
 	}
 
-	res, err := tx.ExecContext(ctx, `
-		INSERT OR IGNORE INTO symbols
-		  (qualified_name, kind, file_path, line, end_line, package, bc_path)
-		VALUES (?, ?, ?, ?, NULL, ?, ?)
-	`, string(sym.ID), string(kind), path, line, pkg, bc)
+	res, err := qtx.InsertSymbol(ctx, sqlc.InsertSymbolParams{
+		QualifiedName: string(sym.ID),
+		Kind:          string(kind),
+		FilePath:      path,
+		Line:          int64(line),
+		EndLine:       nil,
+		Package:       pkg,
+		BcPath:        bc,
+	})
 	if err != nil {
 		return 0, false, fmt.Errorf("ingest symbol %q: %w", sym.ID, err)
 	}
@@ -231,7 +242,7 @@ func upsertSymbolTx(ctx context.Context, tx *sql.Tx, sym shared.Symbol) (int64, 
 		return id, true, nil
 	}
 	// Already existed — fetch the surrogate id.
-	id, ok, err := lookupSymbolID(ctx, tx, sym.ID)
+	id, ok, err := lookupSymbolIDTx(ctx, qtx, sym.ID)
 	if err != nil {
 		return 0, false, err
 	}
@@ -241,10 +252,9 @@ func upsertSymbolTx(ctx context.Context, tx *sql.Tx, sym shared.Symbol) (int64, 
 	return id, false, nil
 }
 
-func lookupSymbolID(ctx context.Context, tx *sql.Tx, qn shared.SymbolID) (int64, bool, error) {
-	var id int64
-	err := tx.QueryRowContext(ctx, `SELECT id FROM symbols WHERE qualified_name = ?`, string(qn)).Scan(&id)
-	if err == sql.ErrNoRows {
+func lookupSymbolIDTx(ctx context.Context, qtx *sqlc.Queries, qn shared.SymbolID) (int64, bool, error) {
+	id, err := qtx.GetSymbolIDByQualifiedName(ctx, string(qn))
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
 	if err != nil {
@@ -253,12 +263,14 @@ func lookupSymbolID(ctx context.Context, tx *sql.Tx, qn shared.SymbolID) (int64,
 	return id, true, nil
 }
 
-func upsertEdgeTx(ctx context.Context, tx *sql.Tx, fromID, toID int64, kind EdgeKind, filePath string, line int) (bool, error) {
-	res, err := tx.ExecContext(ctx, `
-		INSERT OR IGNORE INTO edges
-		  (from_symbol_id, to_symbol_id, kind, file_path, line)
-		VALUES (?, ?, ?, ?, ?)
-	`, fromID, toID, string(kind), filePath, line)
+func upsertEdgeTx(ctx context.Context, qtx *sqlc.Queries, fromID, toID int64, kind EdgeKind, filePath string, line int) (bool, error) {
+	res, err := qtx.InsertEdge(ctx, sqlc.InsertEdgeParams{
+		FromSymbolID: fromID,
+		ToSymbolID:   toID,
+		Kind:         string(kind),
+		FilePath:     filePath,
+		Line:         int64(line),
+	})
 	if err != nil {
 		return false, fmt.Errorf("ingest edge %d->%d: %w", fromID, toID, err)
 	}

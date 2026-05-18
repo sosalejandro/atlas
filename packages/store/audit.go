@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
 
 // AuditSnapshot is one row of the `audit_snapshots` table
@@ -32,9 +33,11 @@ type AuditSnapshots interface {
 var _ AuditSnapshots = (*auditSnapshotsStore)(nil)
 
 // AuditSnapshots returns the Store's AuditSnapshots port.
-func (s *Store) AuditSnapshots() AuditSnapshots { return &auditSnapshotsStore{db: s} }
+func (s *Store) AuditSnapshots() AuditSnapshots {
+	return &auditSnapshotsStore{q: s.queries()}
+}
 
-type auditSnapshotsStore struct{ db *Store }
+type auditSnapshotsStore struct{ q *sqlc.Queries }
 
 func (a *auditSnapshotsStore) Insert(ctx context.Context, s AuditSnapshot) (int64, error) {
 	if s.FeatureID == "" {
@@ -48,10 +51,12 @@ func (a *auditSnapshotsStore) Insert(ctx context.Context, s AuditSnapshot) (int6
 	}
 	if s.TakenAt.IsZero() {
 		// Let SQLite supply CURRENT_TIMESTAMP by omitting the column.
-		res, err := a.db.sqlDB().ExecContext(ctx, `
-			INSERT INTO audit_snapshots (feature_id, score, layer_scores_json, blocking_findings_json)
-			VALUES (?, ?, ?, ?)
-		`, string(s.FeatureID), s.Score, s.LayerScoresJSON, s.BlockingFindingsJSON)
+		res, err := a.q.InsertAuditSnapshot(ctx, sqlc.InsertAuditSnapshotParams{
+			FeatureID:            string(s.FeatureID),
+			Score:                int64(s.Score),
+			LayerScoresJson:      s.LayerScoresJSON,
+			BlockingFindingsJson: s.BlockingFindingsJSON,
+		})
 		if err != nil {
 			return 0, fmt.Errorf("audit_snapshots Insert: %w", err)
 		}
@@ -59,10 +64,13 @@ func (a *auditSnapshotsStore) Insert(ctx context.Context, s AuditSnapshot) (int6
 		return id, nil
 	}
 
-	res, err := a.db.sqlDB().ExecContext(ctx, `
-		INSERT INTO audit_snapshots (taken_at, feature_id, score, layer_scores_json, blocking_findings_json)
-		VALUES (?, ?, ?, ?, ?)
-	`, s.TakenAt, string(s.FeatureID), s.Score, s.LayerScoresJSON, s.BlockingFindingsJSON)
+	res, err := a.q.InsertAuditSnapshotWithTime(ctx, sqlc.InsertAuditSnapshotWithTimeParams{
+		TakenAt:              s.TakenAt,
+		FeatureID:            string(s.FeatureID),
+		Score:                int64(s.Score),
+		LayerScoresJson:      s.LayerScoresJSON,
+		BlockingFindingsJson: s.BlockingFindingsJSON,
+	})
 	if err != nil {
 		return 0, fmt.Errorf("audit_snapshots Insert: %w", err)
 	}
@@ -74,25 +82,23 @@ func (a *auditSnapshotsStore) ListByFeature(ctx context.Context, featureID share
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := a.db.sqlDB().QueryContext(ctx, `
-		SELECT id, taken_at, feature_id, score, layer_scores_json, blocking_findings_json
-		FROM audit_snapshots
-		WHERE feature_id = ?
-		ORDER BY taken_at DESC
-		LIMIT ?
-	`, string(featureID), limit)
+	rows, err := a.q.ListAuditSnapshotsByFeature(ctx, sqlc.ListAuditSnapshotsByFeatureParams{
+		FeatureID: string(featureID),
+		Limit:     int64(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("audit_snapshots ListByFeature: %w", err)
 	}
-	defer rows.Close()
-
-	var out []AuditSnapshot
-	for rows.Next() {
-		var s AuditSnapshot
-		if err := rows.Scan(&s.ID, &s.TakenAt, &s.FeatureID, &s.Score, &s.LayerScoresJSON, &s.BlockingFindingsJSON); err != nil {
-			return nil, fmt.Errorf("audit_snapshots scan: %w", err)
-		}
-		out = append(out, s)
+	out := make([]AuditSnapshot, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, AuditSnapshot{
+			ID:                   r.ID,
+			TakenAt:              r.TakenAt,
+			FeatureID:            shared.FeatureID(r.FeatureID),
+			Score:                int(r.Score),
+			LayerScoresJSON:      r.LayerScoresJson,
+			BlockingFindingsJSON: r.BlockingFindingsJson,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }

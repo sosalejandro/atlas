@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
 
 // AnnotationRow is one row of the `annotations` table (docs/schema-v1.md §5.11).
@@ -60,9 +61,9 @@ type Annotations interface {
 var _ Annotations = (*annotationsStore)(nil)
 
 // Annotations returns the Store's Annotations port.
-func (s *Store) Annotations() Annotations { return &annotationsStore{db: s} }
+func (s *Store) Annotations() Annotations { return &annotationsStore{q: s.queries()} }
 
-type annotationsStore struct{ db *Store }
+type annotationsStore struct{ q *sqlc.Queries }
 
 func (a *annotationsStore) Upsert(ctx context.Context, row AnnotationRow) error {
 	if row.FilePath == "" {
@@ -82,14 +83,13 @@ func (a *annotationsStore) Upsert(ctx context.Context, row AnnotationRow) error 
 		src = shared.SourceAtlas
 	}
 
-	_, err := a.db.sqlDB().ExecContext(ctx, `
-		INSERT INTO annotations (file_path, line, kind, value, source)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(file_path, line, kind) DO UPDATE SET
-		  value     = excluded.value,
-		  source    = excluded.source,
-		  parsed_at = CURRENT_TIMESTAMP
-	`, row.FilePath, row.Line, string(row.Kind), row.Value, string(src))
+	err := a.q.UpsertAnnotation(ctx, sqlc.UpsertAnnotationParams{
+		FilePath: row.FilePath,
+		Line:     int64(row.Line),
+		Kind:     string(row.Kind),
+		Value:    row.Value,
+		Source:   string(src),
+	})
 	if err != nil {
 		return fmt.Errorf("annotations upsert %q L%d: %w", row.FilePath, row.Line, err)
 	}
@@ -97,35 +97,27 @@ func (a *annotationsStore) Upsert(ctx context.Context, row AnnotationRow) error 
 }
 
 func (a *annotationsStore) ListByFile(ctx context.Context, filePath string) ([]AnnotationRow, error) {
-	rows, err := a.db.sqlDB().QueryContext(ctx, `
-		SELECT id, file_path, line, kind, value, source, parsed_at
-		FROM annotations WHERE file_path = ? ORDER BY line, kind
-	`, filePath)
+	rows, err := a.q.ListAnnotationsByFile(ctx, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("annotations by-file %q: %w", filePath, err)
 	}
-	defer rows.Close()
-
-	var out []AnnotationRow
-	for rows.Next() {
-		var (
-			r      AnnotationRow
-			kind   string
-			source string
-		)
-		if err := rows.Scan(&r.ID, &r.FilePath, &r.Line, &kind, &r.Value, &source, &r.ParsedAt); err != nil {
-			return nil, fmt.Errorf("annotations scan: %w", err)
-		}
-		r.Kind = shared.AnnotationKind(kind)
-		r.Source = shared.AnnotationSource(source)
-		out = append(out, r)
+	out := make([]AnnotationRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, AnnotationRow{
+			ID:       r.ID,
+			FilePath: r.FilePath,
+			Line:     int(r.Line),
+			Kind:     shared.AnnotationKind(r.Kind),
+			Value:    r.Value,
+			Source:   shared.AnnotationSource(r.Source),
+			ParsedAt: r.ParsedAt,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (a *annotationsStore) DeleteByFile(ctx context.Context, filePath string) error {
-	_, err := a.db.sqlDB().ExecContext(ctx, `DELETE FROM annotations WHERE file_path = ?`, filePath)
-	if err != nil {
+	if err := a.q.DeleteAnnotationsByFile(ctx, filePath); err != nil {
 		return fmt.Errorf("annotations delete-by-file %q: %w", filePath, err)
 	}
 	return nil
