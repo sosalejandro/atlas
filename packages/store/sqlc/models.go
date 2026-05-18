@@ -87,6 +87,15 @@ type FileHash struct {
 	LastScanned time.Time `db:"last_scanned" json:"last_scanned"`
 }
 
+type Snapshot struct {
+	ID         int64     `db:"id" json:"id"`
+	GitRef     string    `db:"git_ref" json:"git_ref"`
+	CapturedAt time.Time `db:"captured_at" json:"captured_at"`
+	IndexJson  string    `db:"index_json" json:"index_json"`
+	AuditJson  *string   `db:"audit_json" json:"audit_json"`
+	Notes      *string   `db:"notes" json:"notes"`
+}
+
 type Symbol struct {
 	ID             int64     `db:"id" json:"id"`
 	QualifiedName  string    `db:"qualified_name" json:"qualified_name"`
