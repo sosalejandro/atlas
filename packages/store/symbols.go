@@ -86,6 +86,18 @@ type Symbols interface {
 	// shared.ErrSymbolNotFound.
 	FindByQualifiedName(ctx context.Context, qn shared.SymbolID) (SymbolRow, error)
 
+	// LookupAtPosition resolves a (file, line) pair to the symbol it
+	// attaches to. Used by the ingest feature-materialization pass: an
+	// annotation parsed at file:line is mapped to the symbol whose
+	// declaration line is at or just after the annotation (the standard
+	// "doc-comment above the func decl" shape).
+	//
+	// Returns shared.ErrSymbolNotFound when no symbol exists within the
+	// search horizon (default 30 lines forward). The error is the natural
+	// "orphan annotation" signal — callers that want to silently ignore
+	// orphans should check for this error and skip.
+	LookupAtPosition(ctx context.Context, filePath string, line int) (SymbolRow, error)
+
 	// List returns all rows that match the filter, ordered by file_path,line.
 	List(ctx context.Context, f SymbolFilter) ([]SymbolRow, error)
 
@@ -172,6 +184,34 @@ func (s *symbolsStore) Insert(ctx context.Context, sym SymbolRow) (int64, error)
 		return 0, fmt.Errorf("symbols insert %q (lookup existing): %w", sym.QualifiedName, err)
 	}
 	return existing, nil
+}
+
+// defaultPositionLookahead is the line window LookupAtPosition uses when
+// searching forward from an annotation to find the symbol it documents.
+// Tuned for the realistic upper bound on a doc-comment block in Go/TS
+// source — annotations more than ~30 lines from their target are almost
+// always orphans on markdown or end-of-file comments.
+const defaultPositionLookahead int64 = 30
+
+func (s *symbolsStore) LookupAtPosition(ctx context.Context, filePath string, line int) (SymbolRow, error) {
+	if filePath == "" {
+		return SymbolRow{}, fmt.Errorf("symbols lookup-at-position: file_path required")
+	}
+	if line <= 0 {
+		return SymbolRow{}, fmt.Errorf("symbols lookup-at-position: line must be > 0")
+	}
+	row, err := s.q.LookupSymbolAtOrAfterLine(ctx, sqlc.LookupSymbolAtOrAfterLineParams{
+		FilePath:     filePath,
+		Line:         int64(line),
+		MaxLookahead: defaultPositionLookahead,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return SymbolRow{}, shared.ErrSymbolNotFound
+	}
+	if err != nil {
+		return SymbolRow{}, fmt.Errorf("symbols lookup-at-position %q L%d: %w", filePath, line, err)
+	}
+	return fromSQLCSymbol(row), nil
 }
 
 func (s *symbolsStore) FindByQualifiedName(ctx context.Context, qn shared.SymbolID) (SymbolRow, error) {

@@ -25,5 +25,16 @@ ON CONFLICT(id) DO UPDATE SET
   introduced_in    = excluded.introduced_in,
   updated_at       = CURRENT_TIMESTAMP;
 
+-- name: EnsureFeature :exec
+-- Inserts a feature row from the ingest path. Pure INSERT OR IGNORE -- if
+-- the row already exists with richer metadata (title/owner/kind/etc set
+-- by a prior atlas migrate or test harness), the ingest pass MUST NOT
+-- clobber it back to the id-as-title default.
+--
+-- Re-ingest of the same annotation produces zero row changes. Use the
+-- explicit UpsertFeature path when callers genuinely want to overwrite.
+INSERT OR IGNORE INTO features (id, title, kind)
+VALUES (?, ?, ?);
+
 -- name: DeleteFeature :execrows
 DELETE FROM features WHERE id = ?;
