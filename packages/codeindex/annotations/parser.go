@@ -24,7 +24,36 @@ var Kinds = map[string]shared.AnnotationKind{
 	"owner":      shared.AnnOwner,
 	"deprecated": shared.AnnDeprecated,
 	"since":      shared.AnnSince,
+
+	// EDA-pattern kinds (Phase 6e). Same canonical grammar
+	// (@atlas:<kind> <id> [#tags...] [key=value...]). The id is
+	// regex-validated for every EDA kind — these are NOT free-form like
+	// owner/since/deprecated.
+	"bc":                shared.AnnBC,
+	"aggregate":         shared.AnnAggregate,
+	"aggregate-service": shared.AnnAggregateService,
+	"saga":              shared.AnnSaga,
+	"consumer":          shared.AnnConsumer,
+	"event-emit":        shared.AnnEventEmit,
+	"outbox-publish":    shared.AnnOutboxPublish,
 }
+
+// edaStrictIDKinds are the EDA kinds whose ids must match idValidationRe.
+// Identical handling to feature/contract — bare lower-case dot-namespaced ids.
+var edaStrictIDKinds = map[shared.AnnotationKind]bool{
+	shared.AnnBC:               true,
+	shared.AnnAggregate:        true,
+	shared.AnnAggregateService: true,
+	shared.AnnSaga:             true,
+	shared.AnnConsumer:         true,
+	shared.AnnEventEmit:        true,
+	shared.AnnOutboxPublish:    true,
+}
+
+// sagaStepTagRe matches a well-formed `step=<N>` tag. Non-numeric step values
+// like `step=two` or empty `step=` are rejected at parse time so the saga
+// walk query never has to defend against them.
+var sagaStepTagRe = regexp.MustCompile(`^step=([0-9]+)$`)
 
 // idValidationRe is the case-sensitive ID grammar per docs/annotations.md.
 //
@@ -64,7 +93,7 @@ func ParseRelative(ctx context.Context, absPath, relPath string) ([]shared.Annot
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", absPath, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	ext := strings.ToLower(filepath.Ext(absPath))
 	style := commentStyleFor(ext)
@@ -85,7 +114,7 @@ func ParseRelative(ctx context.Context, absPath, relPath string) ([]shared.Annot
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse %s: %w", absPath, err)
 	}
 
 	return ParseBytes(relPath, buf.Bytes(), style), nil
@@ -142,29 +171,27 @@ func parseAtlasLine(ll logicalLine, relPath string) (shared.Annotation, bool) {
 	// Kind is case-sensitive — per docs/annotations.md §Parser ambiguity
 	// `@atlas:Feature` is rejected ("unknown kind 'Feature' — did you mean
 	// 'feature'?"). Map lookup is the enforcement; no ToLower here.
-	kindStr := m[1]
-	kind, ok := Kinds[kindStr]
+	kind, ok := Kinds[m[1]]
 	if !ok {
 		return shared.Annotation{}, false
 	}
 	payload := strings.TrimSpace(m[2])
 	ids, tags := splitIDsAndTags(payload, false)
-	if len(ids) == 0 {
-		// `@atlas:feature` with no value is invalid grammar; skip.
+
+	ids, ok = resolveConsumerIDs(kind, ids, tags)
+	if !ok {
 		return shared.Annotation{}, false
 	}
-	// Strict ID validation applies only to `feature` and `contract` kinds —
-	// those identify a feature so the dot-namespaced lower-case rule from
-	// docs/annotations.md §Parser rules #5 holds. `owner`, `deprecated`,
-	// and `since` carry free-form values (team handles, version strings,
-	// date strings) and intentionally bypass the regex.
-	if kind == shared.AnnFeature || kind == shared.AnnContract {
-		for _, id := range ids {
-			if !idValidationRe.MatchString(id) {
-				return shared.Annotation{}, false
-			}
-		}
+	if len(ids) == 0 {
+		return shared.Annotation{}, false
 	}
+	if !validateAtlasIDs(kind, ids) {
+		return shared.Annotation{}, false
+	}
+	if !validateAtlasTags(kind, tags) {
+		return shared.Annotation{}, false
+	}
+
 	return shared.Annotation{
 		Kind:     kind,
 		IDs:      ids,
@@ -173,6 +200,66 @@ func parseAtlasLine(ll logicalLine, relPath string) (shared.Annotation, bool) {
 		Position: shared.FilePosition{Path: relPath, Line: ll.lineNum},
 		Raw:      payload,
 	}, true
+}
+
+// resolveConsumerIDs handles the `consumer` kind's stream= → IDs promotion.
+//
+// `@atlas:consumer` carries its identity in the `stream=<name>` tag rather
+// than the id slot. This helper:
+//
+//   - leaves non-consumer kinds untouched
+//   - rejects `@atlas:consumer` without a stream= tag
+//   - rejects `@atlas:consumer x stream=y` (extra free-form id is ambiguous)
+//   - rejects a non-idValidationRe-matching stream value
+//   - returns ids = [streamVal] on success
+//
+// ok=false means "skip this annotation; ill-formed".
+func resolveConsumerIDs(kind shared.AnnotationKind, ids, tags []string) ([]string, bool) {
+	if kind != shared.AnnConsumer {
+		return ids, true
+	}
+	streamVal, hasStream := findTagValue(tags, "stream")
+	if !hasStream {
+		return nil, false
+	}
+	if !idValidationRe.MatchString(streamVal) {
+		return nil, false
+	}
+	if len(ids) > 0 {
+		return nil, false
+	}
+	return []string{streamVal}, true
+}
+
+// validateAtlasIDs enforces the strict id-grammar regex for the kinds that
+// require it (feature, contract, all EDA-pattern kinds). Free-form kinds
+// (owner, deprecated, since) bypass.
+//
+// Returns false on first invalid id; the caller treats that as "skip".
+func validateAtlasIDs(kind shared.AnnotationKind, ids []string) bool {
+	if kind != shared.AnnFeature && kind != shared.AnnContract && !edaStrictIDKinds[kind] {
+		return true
+	}
+	for _, id := range ids {
+		if !idValidationRe.MatchString(id) {
+			return false
+		}
+	}
+	return true
+}
+
+// validateAtlasTags enforces per-kind structural rules on tags. Currently
+// only `saga` carries a structural rule: `step=N` must be a non-negative
+// integer. Returns false to mean "skip; ill-formed".
+func validateAtlasTags(kind shared.AnnotationKind, tags []string) bool {
+	if kind != shared.AnnSaga {
+		return true
+	}
+	stepRaw, hasStep := findTagValue(tags, "step")
+	if !hasStep {
+		return true
+	}
+	return sagaStepTagRe.MatchString("step=" + stepRaw)
 }
 
 // parseTestregLine matches the legacy `@testreg <payload>` grammar.
@@ -218,9 +305,14 @@ func parseAPILine(ll logicalLine, relPath string) (shared.Annotation, bool) {
 	}, true
 }
 
-// splitIDsAndTags splits a whitespace-separated payload into IDs (no `#`
-// prefix) and tags (`#`-prefixed). Tags must follow IDs — the first `#`
-// token terminates the ID list (docs/annotations.md §Parser rules #4).
+// splitIDsAndTags splits a whitespace-separated payload into IDs (bare
+// tokens) and tags. Two tag shapes are accepted:
+//
+//   - `#tag`        — boolean tag (e.g. `#real`, `#flaky`)
+//   - `key=value`   — key/value tag (e.g. `step=1`, `stream=meal_prep_events`)
+//
+// Tags must follow IDs. The first tag token (either shape) terminates the
+// ID list (docs/annotations.md §Parser rules #4).
 //
 // allowCommaSplit=true honors legacy testreg semantics where IDs can be
 // comma-separated; allowCommaSplit=false enforces the new strict
@@ -229,7 +321,7 @@ func splitIDsAndTags(payload string, allowCommaSplit bool) (ids []string, tags [
 	fields := strings.Fields(payload)
 	tagsStarted := false
 	for _, f := range fields {
-		if strings.HasPrefix(f, "#") {
+		if strings.HasPrefix(f, "#") || isKVTag(f) {
 			tagsStarted = true
 			tags = append(tags, f)
 			continue
@@ -250,4 +342,36 @@ func splitIDsAndTags(payload string, allowCommaSplit bool) (ids []string, tags [
 		ids = append(ids, f)
 	}
 	return ids, tags
+}
+
+// isKVTag reports whether token has the `key=value` shape used by EDA
+// annotations (`step=1`, `stream=meal_prep_events`). It is intentionally
+// permissive on the value side — `splitIDsAndTags` only needs to classify
+// the token as "this is a tag, not an id"; per-kind tag validators run later.
+func isKVTag(token string) bool {
+	if token == "" {
+		return false
+	}
+	if strings.HasPrefix(token, "#") {
+		return false
+	}
+	idx := strings.IndexByte(token, '=')
+	if idx <= 0 {
+		// No `=` at all, or `=value` with empty key — not a kv tag.
+		return false
+	}
+	return true
+}
+
+// findTagValue returns the value of the first `key=value` tag matching the
+// given key, or "" if none. Used by per-kind validators (saga step=, consumer
+// stream=). Tag tokens must be in the form returned by splitIDsAndTags.
+func findTagValue(tags []string, key string) (value string, ok bool) {
+	prefix := key + "="
+	for _, t := range tags {
+		if strings.HasPrefix(t, prefix) {
+			return t[len(prefix):], true
+		}
+	}
+	return "", false
 }

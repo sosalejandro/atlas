@@ -31,7 +31,7 @@ Example:
 		if serveProjectName == "" {
 			// Default to the base name of the project root directory.
 			if resolvedProjectRoot() != "" && resolvedProjectRoot() != "." {
-				serveProjectName = fmt.Sprintf("%s", resolvedProjectRoot())
+				serveProjectName = resolvedProjectRoot()
 				// Trim to just the last path component.
 				for i := len(serveProjectName) - 1; i >= 0; i-- {
 					if serveProjectName[i] == '/' || serveProjectName[i] == '\\' {

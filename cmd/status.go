@@ -82,5 +82,8 @@ func outputStatusTable(result *app.StatusResult) error {
 func outputStatusJSON(result *app.StatusResult) error {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(result)
+	if err := encoder.Encode(result); err != nil {
+		return fmt.Errorf("encode status output: %w", err)
+	}
+	return nil
 }

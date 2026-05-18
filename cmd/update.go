@@ -141,7 +141,11 @@ func readResultFile(resultPath string) ([]byte, error) {
 	}
 
 	if !info.IsDir() {
-		return os.ReadFile(resultPath)
+		data, err := os.ReadFile(resultPath)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", resultPath, err)
+		}
+		return data, nil
 	}
 
 	for _, name := range []string{"results.json", "report.json", "test-results.json"} {

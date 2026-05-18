@@ -294,7 +294,10 @@ func renderSprintJSON(scored []scoredFeature) error {
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(entries)
+	if err := enc.Encode(entries); err != nil {
+		return fmt.Errorf("encode sprint entries: %w", err)
+	}
+	return nil
 }
 
 // --- helpers ---

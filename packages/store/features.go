@@ -136,7 +136,7 @@ func (s *featuresStore) List(ctx context.Context, f FeatureFilter) ([]Feature, e
 	if err != nil {
 		return nil, fmt.Errorf("features list (IDs): %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []Feature
 	for rows.Next() {
@@ -150,7 +150,10 @@ func (s *featuresStore) List(ctx context.Context, f FeatureFilter) ([]Feature, e
 		}
 		out = append(out, fromSQLCFeature(r))
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("features rows: %w", err)
+	}
+	return out, nil
 }
 
 // Upsert inserts a new feature or updates the metadata of an existing one.

@@ -27,12 +27,24 @@ type AnnotationRow struct {
 // schemaAnnotationKinds is the closed set the §5.11 CHECK constraint
 // accepts (note: `api` is intentionally NOT persisted — it is consumed by
 // the in-memory route resolver, not the annotations table).
+//
+// Extended in Phase 6e (migration 0002) with the EDA-pattern kinds:
+// bc, aggregate, aggregate-service, saga, consumer, event-emit,
+// outbox-publish.
 var schemaAnnotationKinds = map[shared.AnnotationKind]bool{
 	shared.AnnFeature:    true,
 	shared.AnnContract:   true,
 	shared.AnnOwner:      true,
 	shared.AnnDeprecated: true,
 	shared.AnnSince:      true,
+
+	shared.AnnBC:               true,
+	shared.AnnAggregate:        true,
+	shared.AnnAggregateService: true,
+	shared.AnnSaga:             true,
+	shared.AnnConsumer:         true,
+	shared.AnnEventEmit:        true,
+	shared.AnnOutboxPublish:    true,
 }
 
 // schemaAnnotationSources is the closed set the §5.11 CHECK constraint

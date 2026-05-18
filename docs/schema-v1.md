@@ -224,7 +224,7 @@ CREATE TABLE symbols (
   package         TEXT,
   bc_path         TEXT,
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  pattern_matches TEXT,   -- Phase 6f, added in migration 0002
+  pattern_matches TEXT,   -- Phase 6f, added in migration 0003
   CHECK (kind IN ('type', 'func', 'method', 'interface', 'var', 'const'))
 );
 
@@ -433,7 +433,11 @@ CREATE TABLE annotations (
   value     TEXT    NOT NULL,
   source    TEXT    NOT NULL DEFAULT 'atlas',
   parsed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CHECK (kind IN ('feature', 'contract', 'owner', 'deprecated', 'since')),
+  CHECK (kind IN (
+    'feature', 'contract', 'owner', 'deprecated', 'since',
+    'bc', 'aggregate', 'aggregate-service', 'saga', 'consumer',
+    'event-emit', 'outbox-publish'
+  )),
   CHECK (source IN ('atlas', 'testreg'))
 );
 
@@ -441,12 +445,18 @@ CREATE INDEX annotations_file_idx ON annotations(file_path);
 CREATE UNIQUE INDEX annotations_dedupe_idx ON annotations(file_path, line, kind);
 ```
 
+The seven EDA-pattern kinds (`bc`, `aggregate`, `aggregate-service`, `saga`,
+`consumer`, `event-emit`, `outbox-publish`) were added in Phase 6e via
+migration `0002_eda_annotation_kinds.up.sql`. SQLite cannot ALTER a CHECK
+constraint in place, so the migration rebuilds the table with the extended
+CHECK set and copies existing rows over.
+
 | Column      | Type      | Notes                                                                                                                                       |
 | ----------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id`        | INTEGER   | Surrogate PK.                                                                                                                               |
 | `file_path` | TEXT      | Project-relative path.                                                                                                                      |
 | `line`      | INTEGER   | 1-based line of the comment.                                                                                                                |
-| `kind`      | TEXT      | `feature`, `contract`, `owner`, `deprecated`, `since`. Matches Atlas's annotation grammar verbs from `docs/annotations.md`.                  |
+| `kind`      | TEXT      | One of the twelve kinds in the CHECK clause above. Matches Atlas's annotation grammar verbs from `docs/annotations.md` §Known kinds.        |
 | `value`     | TEXT      | Raw value after the kind keyword. e.g. for `// @atlas:feature auth.login`: `value = "auth.login"`. Tags are part of the raw value string.   |
 | `source`    | TEXT      | `atlas` for new-style `@atlas:<kind>`, `testreg` for legacy `// @testreg <id>`. Lets the migration tool target only legacy rows.            |
 | `parsed_at` | TIMESTAMP | When the parser saw this annotation.                                                                                                        |

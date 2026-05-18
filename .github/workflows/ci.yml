@@ -51,8 +51,10 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          # v2.x supports go.mod targeting >= 1.25; the v6 action defaulted to
-          # golangci-lint v1.64 which was built with Go 1.24 and refused to load
-          # configs whose go.mod targets 1.25+. v7 + v2.x lint is the fix.
-          version: v2.0.2
+          # golangci-lint v2.12.x is built with Go 1.26 and supports go.mod
+          # targeting >= 1.25 (our current target). Earlier v2.0.x was built
+          # against Go 1.24 and refused to load configs whose go.mod target
+          # was 1.25+. Bumping the patch line forward keeps us ahead of the
+          # Go toolchain we build the binary with.
+          version: v2.12.2
           args: --timeout=5m
