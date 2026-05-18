@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 // TypeExtractor extracts function signatures and struct field information

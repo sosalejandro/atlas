@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/testreg/internal/adapters"
+	"github.com/sosalejandro/atlas/internal/adapters"
 )
 
 func TestGenerateReportExecute(t *testing.T) {

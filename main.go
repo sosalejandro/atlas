@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/sosalejandro/testreg/cmd"
+	"github.com/sosalejandro/atlas/cmd"
 )
 
 func main() {

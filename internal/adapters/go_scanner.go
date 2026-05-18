@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sosalejandro/testreg/internal/ports"
+	"github.com/sosalejandro/atlas/internal/ports"
 )
 
 // GoScanner discovers Go test files by walking the project tree.

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/testreg/internal/ports"
+	"github.com/sosalejandro/atlas/internal/ports"
 )
 
 func TestTypedScanner_NewCreatesWithFallback(t *testing.T) {

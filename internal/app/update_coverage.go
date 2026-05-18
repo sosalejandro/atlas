@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/testreg/internal/domain"
-	"github.com/sosalejandro/testreg/internal/ports"
+	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/atlas/internal/ports"
 )
 
 // UpdateCoverageUseCase merges test results into the registry.

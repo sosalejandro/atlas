@@ -4,7 +4,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 func TestSeverityColor(t *testing.T) {

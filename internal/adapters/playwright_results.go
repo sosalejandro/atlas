@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/testreg/internal/ports"
+	"github.com/sosalejandro/atlas/internal/ports"
 )
 
 // PlaywrightResultParser parses Playwright JSON reporter output.

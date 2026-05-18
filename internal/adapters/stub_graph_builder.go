@@ -3,8 +3,8 @@ package adapters
 import (
 	"fmt"
 
-	"github.com/sosalejandro/testreg/internal/domain"
-	"github.com/sosalejandro/testreg/internal/ports"
+	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/atlas/internal/ports"
 )
 
 // StubGraphBuilder is a placeholder implementation of ports.GraphBuilder that

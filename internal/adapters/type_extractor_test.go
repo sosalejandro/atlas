@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/sosalejandro/testreg/internal/ports"
+	"github.com/sosalejandro/atlas/internal/ports"
 )
 
 func loadTestPackages(t *testing.T, dir string) []*packages.Package {

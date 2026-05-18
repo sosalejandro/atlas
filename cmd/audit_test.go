@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 func TestPriorityScore_CriticalAt0Health(t *testing.T) {

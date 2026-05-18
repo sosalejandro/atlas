@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/testreg/internal/adapters"
+	"github.com/sosalejandro/atlas/internal/adapters"
 )
 
 // testdataDir returns the absolute path to testdata/registry.

@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/sosalejandro/testreg/internal/domain"
+	"github.com/sosalejandro/atlas/internal/domain"
 )
 
 // Additional ANSI color codes not defined in terminal_reporter.go.
