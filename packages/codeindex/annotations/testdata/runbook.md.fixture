@@ -1,0 +1,9 @@
+<!-- @atlas:feature ops.incident_response #docs -->
+
+# Incident Response Runbook
+
+Steps to follow when an incident is declared.
+
+<!--
+@atlas:owner sre-team
+-->
