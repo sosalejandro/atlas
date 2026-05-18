@@ -1,0 +1,25 @@
+scalar UUID
+
+type User {
+  id: UUID!
+  email: String!
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+type LoginPayload {
+  token: String!
+  user: User!
+}
+
+extend type Mutation {
+  loginUser(input: LoginInput!): LoginPayload!
+  logoutUser: Boolean!
+}
+
+extend type Query {
+  currentUser: User
+}
