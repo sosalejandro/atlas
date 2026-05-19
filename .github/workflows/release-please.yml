@@ -1,0 +1,37 @@
+name: release-please
+
+# release-please monitors `main` for conventional-commit messages
+# (feat:, fix:, refactor:, etc.) since the last release, and opens (or
+# updates) a "Release PR" that bumps the version, regenerates CHANGELOG.md,
+# and — when merged — cuts the git tag + GitHub Release.
+#
+# Bootstrap state is anchored in .release-please-manifest.json (currently
+# pinned at the last manual tag, v0.1.2). From that anchor forward,
+# release-please owns versioning end-to-end. No manual `git tag` needed.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: open or update release PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: release-please-action
+        uses: googleapis/release-please-action@v4
+        with:
+          # All package + section config lives in .release-please-config.json
+          # at the repo root. Current state lives in
+          # .release-please-manifest.json. Keeping both files in-tree means
+          # the action stays declarative and reproducible across runs.
+          config-file: .release-please-config.json
+          manifest-file: .release-please-manifest.json
