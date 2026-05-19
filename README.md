@@ -48,7 +48,7 @@ docs/                     # architecture / annotations / schema-v1 / migration /
 - [`docs/schema-v1.md`](./docs/schema-v1.md) — SQLite schema reference
 - [`docs/migration-from-testreg.md`](./docs/migration-from-testreg.md) — cutover guide for testreg users
 
-## Install (once Phase 7 ships)
+## Install
 
 ```
 go install github.com/sosalejandro/atlas/cmd/atlas@latest
@@ -59,6 +59,10 @@ For a specific tagged release, swap `@latest` for the version you want
 for the full version history and changelog — releases are cut automatically
 by [release-please](https://github.com/googleapis/release-please) from
 conventional-commit messages on `main`.
+
+After install, verify with `atlas --version`. If the version reports `dev`
+instead of a semver, you installed from a non-tag ref (commit hash or
+branch) — for reproducible pinning use a tagged release.
 
 ## License
 
