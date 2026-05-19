@@ -15,12 +15,16 @@ import (
 //	-X github.com/sosalejandro/atlas/internal/cli.Commit=$(git rev-parse HEAD)
 //	-X github.com/sosalejandro/atlas/internal/cli.BuildDate=$(date -u +%FT%TZ)
 //
-// Default values are placeholders that make `--version` informative on
-// `go run` builds.
+// When ldflags are absent (e.g. `go install
+// github.com/sosalejandro/atlas/cmd/atlas@v0.1.3`, which does not pass
+// ldflags), resolveBuildInfo() falls back to runtime/debug.ReadBuildInfo()
+// so the version string still reflects the installed module version and
+// VCS revision. The defaults below are only the last-resort sentinel
+// values — see internal/cli/buildinfo.go for the resolution contract.
 var (
-	Version   = "dev"
-	Commit    = "unknown"
-	BuildDate = "unknown"
+	Version   = defaultVersion
+	Commit    = defaultCommit
+	BuildDate = defaultBuildDate
 )
 
 // globalFlags holds the cobra-bound values for the persistent flags every
@@ -54,13 +58,14 @@ func NewRootCmd() *cobra.Command {
 	flags = globalFlags{}
 	loaded = Config{}
 
+	version, commit, builtAt := resolveBuildInfo()
 	root := &cobra.Command{
 		Use:           "atlas",
 		Short:         "Atlas — code graph, coverage, and audit toolkit",
 		Long:          atlasLong,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Version:       fmt.Sprintf("%s (commit %s, built %s)", Version, Commit, BuildDate),
+		Version:       fmt.Sprintf("%s (commit %s, built %s)", version, commit, builtAt),
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := loadConfig(flags.ConfigPath)
 			if err != nil {
