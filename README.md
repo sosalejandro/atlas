@@ -54,6 +54,12 @@ docs/                     # architecture / annotations / schema-v1 / migration /
 go install github.com/sosalejandro/atlas/cmd/atlas@latest
 ```
 
+For a specific tagged release, swap `@latest` for the version you want
+(e.g. `@v0.1.2`). See [Releases](https://github.com/sosalejandro/atlas/releases)
+for the full version history and changelog — releases are cut automatically
+by [release-please](https://github.com/googleapis/release-please) from
+conventional-commit messages on `main`.
+
 ## License
 
 Same as the testreg repo this was forked from.
