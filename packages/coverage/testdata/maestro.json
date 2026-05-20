@@ -1,0 +1,18 @@
+{
+  "started_at": "2026-05-20T10:00:00Z",
+  "flows": [
+    {
+      "name": "Login Flow",
+      "file": "flows/auth/login.yaml",
+      "status": "passed",
+      "duration_ms": 1500
+    },
+    {
+      "name": "Register Flow",
+      "file": "flows/auth/register.yaml",
+      "status": "failed",
+      "duration_ms": 800,
+      "message": "assertion failed: expected screen 'home' but got 'error'"
+    }
+  ]
+}
