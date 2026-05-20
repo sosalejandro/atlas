@@ -48,6 +48,12 @@ jobs:
       - name: go test
         run: go test ./... -race -timeout 5m
 
+      - name: go test (integration tag)
+        # Runs the framework-parser integration tests added in W2-E.
+        # Scoped to packages/coverage/... so TestIngest_NutritionDogfood
+        # (which requires the nutrition-v2-go checkout) is excluded.
+        run: go test -tags=integration ./packages/coverage/... -race -timeout 5m
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
