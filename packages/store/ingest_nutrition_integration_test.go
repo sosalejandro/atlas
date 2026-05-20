@@ -87,16 +87,19 @@ func TestIngest_NutritionDogfood(t *testing.T) {
 	if stats.FeaturesMaterialized == 0 {
 		t.Fatal("nutrition smoke materialized zero features — atlas#26 regression: the Go scanner is skipping _test.go again")
 	}
-	// Conservative floor. Nutrition currently materialises ~970 features
-	// from its ~1100 Go-test-file annotations; 500 is the threshold below
-	// which we know something has structurally regressed (either the
-	// scanner is back to skipping tests, or a large chunk of nutrition's
-	// annotation corpus was removed). If the corpus genuinely shrinks
-	// below 500, raise the floor in the same commit that removes the
-	// annotations.
-	if stats.FeaturesMaterialized < 500 {
-		t.Fatalf("nutrition smoke materialized only %d features; want >= 500 (atlas#26 floor)",
-			stats.FeaturesMaterialized)
+	// Exact-count + 2% tolerance band. Calibrated 2026-05-20 against
+	// nutrition's then-current corpus (972 features). When the corpus
+	// drifts more than 2% in either direction, the audit owner should
+	// re-calibrate this band in the same commit that causes the drift —
+	// this is a regression guard, not a moving target.
+	//
+	// Audit details: atlas-internal/docs/dogfood-findings/2026-05-20-annotation-gap.md
+	// Refs sosalejandro/atlas#39 (Horizon 1 closure tracker, W2-D).
+	const expected = 972
+	const tolerance = expected / 50 // 2%
+	if stats.FeaturesMaterialized < expected-tolerance || stats.FeaturesMaterialized > expected+tolerance {
+		t.Fatalf("nutrition smoke materialized %d features; want %d ± %d (2%% tolerance)",
+			stats.FeaturesMaterialized, expected, tolerance)
 	}
 
 	// Spot-check three feature IDs known to live on test functions in Go
