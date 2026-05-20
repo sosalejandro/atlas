@@ -1,0 +1,14 @@
+{
+  "startTime": 1747742400000,
+  "testResults": [
+    {
+      "name": "src/auth/login.test.ts",
+      "startTime": 1747742400000,
+      "endTime": 1747742400020,
+      "assertionResults": [
+        {"title": "logs in", "status": "passed", "duration": 12, "fullName": "login > logs in", "ancestorTitles": ["login"]},
+        {"title": "rejects bad password", "status": "failed", "duration": 8, "fullName": "login > rejects bad password", "ancestorTitles": ["login"], "failureMessages": ["expected true to be false"]}
+      ]
+    }
+  ]
+}

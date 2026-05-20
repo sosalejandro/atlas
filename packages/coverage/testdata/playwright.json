@@ -1,0 +1,21 @@
+{
+  "config": {"projects": [{"name": "chromium"}]},
+  "suites": [
+    {
+      "title": "auth.spec.ts",
+      "file": "e2e/auth/login.spec.ts",
+      "specs": [
+        {
+          "title": "logs in",
+          "file": "e2e/auth/login.spec.ts",
+          "tests": [{"status": "expected", "duration": 1234, "results": [{"status": "passed", "duration": 1234}]}]
+        },
+        {
+          "title": "fails to log in with bad password",
+          "file": "e2e/auth/login.spec.ts",
+          "tests": [{"status": "unexpected", "duration": 567, "results": [{"status": "failed", "duration": 567, "error": {"message": "expected 200 got 401"}}]}]
+        }
+      ]
+    }
+  ]
+}

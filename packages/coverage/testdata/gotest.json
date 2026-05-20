@@ -1,0 +1,4 @@
+{"Time":"2026-05-20T10:00:00Z","Action":"run","Package":"example/auth","Test":"TestLogin"}
+{"Time":"2026-05-20T10:00:00.500Z","Action":"pass","Package":"example/auth","Test":"TestLogin","Elapsed":0.5}
+{"Time":"2026-05-20T10:00:00.600Z","Action":"run","Package":"example/auth","Test":"TestRegister"}
+{"Time":"2026-05-20T10:00:00.900Z","Action":"fail","Package":"example/auth","Test":"TestRegister","Elapsed":0.3}
