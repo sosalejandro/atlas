@@ -8,6 +8,19 @@ name: release-please
 # Bootstrap state is anchored in .release-please-manifest.json (currently
 # pinned at the last manual tag, v0.1.2). From that anchor forward,
 # release-please owns versioning end-to-end. No manual `git tag` needed.
+#
+# Stamped-release-binary post-step (issue #43):
+#   After release-please opens/updates the Release PR, we bake literal
+#   Version / Commit / BuildDate values into internal/cli/root.go on the
+#   release-please branch. That way the merged release commit — and thus
+#   the source served by the Go module proxy under the new tag — carries
+#   the stamps verbatim. `go install ...@vX.Y.Z` users then get a fully
+#   populated `--version` string via the existing ldflags-mode path in
+#   resolveBuildInfo() (buildinfo.go), without any -ldflags requirement.
+#
+#   The dev-build path (`go build` from a local clone with the stamps
+#   absent / set to defaults) is unaffected — the resolution order still
+#   falls back to runtime/debug.ReadBuildInfo() when no stamping ran.
 
 on:
   push:
@@ -25,8 +38,13 @@ jobs:
   release-please:
     name: open or update release PR
     runs-on: ubuntu-latest
+    outputs:
+      pr: ${{ steps.release-please-action.outputs.pr }}
+      version: ${{ steps.release-please-action.outputs.version }}
+      release_created: ${{ steps.release-please-action.outputs.release_created }}
     steps:
       - name: release-please-action
+        id: release-please-action
         uses: googleapis/release-please-action@v4
         with:
           # All package + section config lives in .release-please-config.json
@@ -35,3 +53,157 @@ jobs:
           # the action stays declarative and reproducible across runs.
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  stamp-release-binary:
+    name: stamp build metadata into release PR
+    runs-on: ubuntu-latest
+    needs: release-please
+    # Only run when release-please actually has a PR to amend. `pr` is a
+    # JSON blob (non-empty string) when the action opened or updated a
+    # Release PR this run; empty otherwise. `release_created` would be
+    # true on the post-merge run that cuts the tag — that run has no PR
+    # to amend and must be skipped.
+    if: needs.release-please.outputs.pr != '' && needs.release-please.outputs.release_created != 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: extract release PR metadata
+        id: meta
+        env:
+          # Funnel release-please outputs through env to keep them out of
+          # the run-script's shell-expansion path. The outputs originate
+          # from a trusted first-party action (googleapis/release-please-
+          # action@v4), but routing via env is the standing rule for any
+          # GitHub-Actions-context-derived string consumed by a shell.
+          PR_JSON: ${{ needs.release-please.outputs.pr }}
+          VERSION_INPUT: ${{ needs.release-please.outputs.version }}
+        run: |
+          set -euo pipefail
+          BRANCH="$(printf '%s' "$PR_JSON" | jq -r '.headBranchName')"
+          if [ -z "$BRANCH" ] || [ "$BRANCH" = "null" ]; then
+            echo "could not derive release-please branch from PR payload" >&2
+            exit 1
+          fi
+          # Defensive validation: release-please branches always match
+          # `release-please--*`. Reject anything else so a malformed
+          # output can never coerce checkout into a foreign ref.
+          case "$BRANCH" in
+            release-please--*) ;;
+            *)
+              echo "refusing non-release-please branch name: $BRANCH" >&2
+              exit 1
+              ;;
+          esac
+          if [ -z "$VERSION_INPUT" ]; then
+            echo "release-please did not surface a version output" >&2
+            exit 1
+          fi
+          # Semver shape check: digits + dots + optional prerelease.
+          # release-please never emits anything else, but the
+          # belt-and-braces guard means a downstream `sed` on this value
+          # cannot inject shell metacharacters.
+          if ! printf '%s' "$VERSION_INPUT" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$'; then
+            echo "refusing non-semver version string: $VERSION_INPUT" >&2
+            exit 1
+          fi
+          {
+            echo "branch=$BRANCH"
+            echo "version=$VERSION_INPUT"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: checkout release-please branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.branch }}
+          # Need full history so a `git push` from this checkout is not
+          # rejected as a non-fast-forward against the just-updated tip.
+          fetch-depth: 0
+          # Default GITHUB_TOKEN is fine here: branch is in-repo, no fork
+          # crossing. release-please-action already wrote to it with the
+          # same token.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: bake stamps into internal/cli/root.go
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          FILE="internal/cli/root.go"
+
+          # Compute the commit SHA + build date. We use the release-please
+          # branch tip (which IS the commit that will become HEAD of main
+          # once the PR merges, modulo a possible merge-commit reword by
+          # GitHub on squash-merge — but release-please uses squash by
+          # default and the resulting commit SHA changes on merge anyway).
+          # We deliberately stamp with the pre-merge tip SHA: it is the
+          # most stable reference available at PR-creation time, and the
+          # version field still carries the real semver tag which is the
+          # primary correctness signal for end users.
+          COMMIT="$(git rev-parse --short=7 HEAD)"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          echo "stamping ${FILE}: Version=v${VERSION} Commit=${COMMIT} BuildDate=${DATE}"
+
+          # Rewrite the three package-level vars in root.go. The source
+          # currently reads (tab-indented inside the `var (` block):
+          #   Version   = defaultVersion
+          #   Commit    = defaultCommit
+          #   BuildDate = defaultBuildDate
+          # We replace the right-hand-side with literal quoted strings.
+          # Anchoring on the exact identifier on the LHS + the default
+          # symbol on the RHS keeps the sed narrow — it will not touch
+          # the const block in buildinfo.go, and will not double-stamp
+          # an already-stamped file (because the RHS no longer matches).
+          sed -i \
+            -e "s|^\tVersion   = defaultVersion$|\tVersion   = \"v${VERSION}\"|" \
+            -e "s|^\tCommit    = defaultCommit$|\tCommit    = \"${COMMIT}\"|" \
+            -e "s|^\tBuildDate = defaultBuildDate$|\tBuildDate = \"${DATE}\"|" \
+            "$FILE"
+
+          # Validate that all three substitutions landed. If a future
+          # refactor moves the vars or renames the defaults, we want CI
+          # to fail loudly instead of silently shipping unstamped tags.
+          if ! grep -q "Version   = \"v${VERSION}\"" "$FILE"; then
+            echo "stamp failed: Version line not rewritten in $FILE" >&2
+            grep -n 'Version' "$FILE" >&2 || true
+            exit 1
+          fi
+          if ! grep -q "Commit    = \"${COMMIT}\"" "$FILE"; then
+            echo "stamp failed: Commit line not rewritten in $FILE" >&2
+            grep -n 'Commit' "$FILE" >&2 || true
+            exit 1
+          fi
+          if ! grep -q "BuildDate = \"${DATE}\"" "$FILE"; then
+            echo "stamp failed: BuildDate line not rewritten in $FILE" >&2
+            grep -n 'BuildDate' "$FILE" >&2 || true
+            exit 1
+          fi
+
+      - name: commit + push stamped release file
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          BRANCH: ${{ steps.meta.outputs.branch }}
+        run: |
+          set -euo pipefail
+
+          # Skip the commit if sed produced no change. That can happen if
+          # the workflow re-runs against an already-stamped PR head (e.g.
+          # a manual re-trigger after the previous run pushed the stamps
+          # but failed downstream). Idempotent: a no-op `git diff` exits
+          # 0 + leaves the branch tip as-is.
+          if git diff --quiet; then
+            echo "no changes to commit; release PR is already stamped"
+            exit 0
+          fi
+
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          git add internal/cli/root.go
+          git commit -m "chore(release): stamp build metadata for v${VERSION}"
+
+          # Push back to the release-please branch. release-please does
+          # not force-update between runs unless the underlying changelog
+          # changes, so a normal fast-forward push is safe.
+          git push origin "HEAD:${BRANCH}"
