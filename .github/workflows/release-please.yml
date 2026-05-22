@@ -76,8 +76,16 @@ jobs:
           # from a trusted first-party action (googleapis/release-please-
           # action@v4), but routing via env is the standing rule for any
           # GitHub-Actions-context-derived string consumed by a shell.
+          #
+          # NOTE: release-please-action@v4 only emits the top-level
+          # `version` output on the run that actually CUTS the tag
+          # (release_created=true) — on PR-update runs the output is
+          # empty. We therefore source the version from the PR title
+          # ("chore(main): release X.Y.Z"), which release-please always
+          # populates with the bumped semver. PR_JSON itself is trusted
+          # (action-generated; never user-controlled) but we still pin
+          # the regex shape on the extracted value as defence in depth.
           PR_JSON: ${{ needs.release-please.outputs.pr }}
-          VERSION_INPUT: ${{ needs.release-please.outputs.version }}
         run: |
           set -euo pipefail
           BRANCH="$(printf '%s' "$PR_JSON" | jq -r '.headBranchName')"
@@ -95,21 +103,34 @@ jobs:
               exit 1
               ;;
           esac
-          if [ -z "$VERSION_INPUT" ]; then
-            echo "release-please did not surface a version output" >&2
+          # Extract the version from the PR title. release-please uses
+          # `pull-request-title-pattern` to construct this; the default
+          # is "chore${scope}: release${component} ${version}" — for a
+          # single-package config that means "chore(main): release X.Y.Z".
+          PR_TITLE="$(printf '%s' "$PR_JSON" | jq -r '.title')"
+          if [ -z "$PR_TITLE" ] || [ "$PR_TITLE" = "null" ]; then
+            echo "could not read PR title from payload" >&2
+            exit 1
+          fi
+          # Pull the trailing semver off the title; tolerant of an
+          # optional component name between "release" and the number
+          # (e.g. "release atlas 0.2.0" in monorepo mode).
+          VERSION="$(printf '%s' "$PR_TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$' || true)"
+          if [ -z "$VERSION" ]; then
+            echo "could not extract semver from PR title: $PR_TITLE" >&2
             exit 1
           fi
           # Semver shape check: digits + dots + optional prerelease.
           # release-please never emits anything else, but the
           # belt-and-braces guard means a downstream `sed` on this value
           # cannot inject shell metacharacters.
-          if ! printf '%s' "$VERSION_INPUT" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$'; then
-            echo "refusing non-semver version string: $VERSION_INPUT" >&2
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$'; then
+            echo "refusing non-semver version string: $VERSION" >&2
             exit 1
           fi
           {
             echo "branch=$BRANCH"
-            echo "version=$VERSION_INPUT"
+            echo "version=$VERSION"
           } >> "$GITHUB_OUTPUT"
 
       - name: checkout release-please branch
