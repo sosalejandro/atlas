@@ -156,3 +156,56 @@ func TestRootCmd_VersionStringFormat(t *testing.T) {
 		t.Fatalf("rendered version missing tag; got %q", root.Version)
 	}
 }
+
+// TestResolveBuildInfo_StampedReleaseAllThreeBaked is the dedicated guard
+// for issue #43's release-please pre-tag stamping pathway. When the
+// release-please workflow bakes literal Version/Commit/BuildDate into
+// internal/cli/root.go (replacing the `= defaultX` initialisers with
+// quoted string literals), `go install ...@vX.Y.Z` users compile a
+// binary whose package vars are ALL non-default at startup. This test
+// pins that contract: resolveBuildInfo must return the three stamped
+// values verbatim, in order, with no consultation of runtime/debug —
+// which is what makes the install-from-module-proxy path fully reflect
+// the tag's stamp instead of falling through to the "unknown" sentinels.
+//
+// This is intentionally a separate test from TestResolveBuildInfo_LdflagsWins
+// even though both exercise the ldflags-mode path: that test documents
+// the -ldflags injection contract for CI binary builds; this one
+// documents the source-baked contract for `go install` users. Keeping
+// them separate means a future refactor that breaks ONE of the two
+// pathways will surface a targeted failure name rather than a generic
+// "ldflags broken" signal.
+func TestResolveBuildInfo_StampedReleaseAllThreeBaked(t *testing.T) {
+	const (
+		stampedVersion   = "v0.2.0"
+		stampedCommit    = "1a849a5"
+		stampedBuildDate = "2026-05-22T13:00:36Z"
+	)
+	withLdflagsVars(t, stampedVersion, stampedCommit, stampedBuildDate)
+
+	v, c, b := resolveBuildInfo()
+	if v != stampedVersion {
+		t.Errorf("stamped version: got %q want %q", v, stampedVersion)
+	}
+	if c != stampedCommit {
+		t.Errorf("stamped commit: got %q want %q", c, stampedCommit)
+	}
+	if b != stampedBuildDate {
+		t.Errorf("stamped buildDate: got %q want %q", b, stampedBuildDate)
+	}
+
+	// Also assert the user-visible rendering matches the acceptance
+	// criterion from issue #43: `atlas version vX.Y.Z (commit <sha>,
+	// built <date>)` — no "unknown" anywhere.
+	root := NewRootCmd()
+	want := stampedVersion + " (commit " + stampedCommit + ", built " + stampedBuildDate + ")"
+	if root.Version != want {
+		t.Fatalf("rendered version: got %q want %q", root.Version, want)
+	}
+	if strings.Contains(root.Version, "unknown") {
+		t.Fatalf("rendered version must not contain 'unknown' once stamped: %q", root.Version)
+	}
+	if strings.Contains(root.Version, "dev") {
+		t.Fatalf("rendered version must not contain 'dev' once stamped: %q", root.Version)
+	}
+}
