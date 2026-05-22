@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/sosalejandro/atlas/compare/v0.1.4...v0.2.0) (2026-05-22)
+
+
+### Features
+
+* **coverage:** framework-parser integration tests (W2-E) ([#41](https://github.com/sosalejandro/atlas/issues/41)) ([1a849a5](https://github.com/sosalejandro/atlas/commit/1a849a5a7b54f74f9a05c448042345094457a93f))
+
+
+### Bug Fixes
+
+* **ci:** extract release version from PR title, not action output ([#43](https://github.com/sosalejandro/atlas/issues/43)) ([#45](https://github.com/sosalejandro/atlas/issues/45)) ([247c1b9](https://github.com/sosalejandro/atlas/commit/247c1b9be3950f57c08bfb81cd5ebfa90f2e1d85))
+
 ## [0.1.4](https://github.com/sosalejandro/atlas/compare/v0.1.3...v0.1.4) (2026-05-19)
 
 
