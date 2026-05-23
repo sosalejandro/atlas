@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/sosalejandro/atlas/compare/v0.3.1...v0.4.0) (2026-05-23)
+
+
+### Features
+
+* **codeindex/py:** parse [@atlas](https://github.com/atlas):feature comment + [@atlas](https://github.com/atlas).feature decorator annotations (closes [#53](https://github.com/sosalejandro/atlas/issues/53)) ([#55](https://github.com/sosalejandro/atlas/issues/55)) ([eff6368](https://github.com/sosalejandro/atlas/commit/eff636819bfc7f28d62fca632392adde35f3423d))
+
 ## [0.3.1](https://github.com/sosalejandro/atlas/compare/v0.3.0...v0.3.1) (2026-05-23)
 
 
