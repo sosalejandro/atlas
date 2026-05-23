@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.1](https://github.com/sosalejandro/atlas/compare/v0.3.0...v0.3.1) (2026-05-23)
+
+
+### Bug Fixes
+
+* **ci:** re-stamp release PR even when prior stamps already in tree (closes [#49](https://github.com/sosalejandro/atlas/issues/49)) ([#54](https://github.com/sosalejandro/atlas/issues/54)) ([50ce307](https://github.com/sosalejandro/atlas/commit/50ce307292ccb48fc89d8795fb5dbea1c5439750))
+
+
+### Documentation
+
+* refresh stale testreg-era command docs + add quickstart and per-language guides ([#51](https://github.com/sosalejandro/atlas/issues/51)) ([4833562](https://github.com/sosalejandro/atlas/commit/4833562e75bee40f7efdb7d316517390dd67f9a7))
+
 ## [0.3.0](https://github.com/sosalejandro/atlas/compare/v0.2.0...v0.3.0) (2026-05-23)
 
 
