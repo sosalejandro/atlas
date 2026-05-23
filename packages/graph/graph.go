@@ -28,9 +28,17 @@ type Node struct {
 // without an explicit binding). Both flags are advisory — consumers may
 // still walk through cycle/ambiguous edges; the markers exist so renderers
 // can warn.
+//
+// Kind labels the relationship semantics. Sub-scanners emit kinds in their
+// native vocabulary (the Python scanner emits "import", "inheritance",
+// "decorator", "call"; the Go scanner emits "call"). The store-side
+// ingestor maps these to the closed EdgeKind enum before persistence —
+// unknown kinds default to "call". Zero value ("") is back-compat with
+// pre-v0.4 callers and is treated as "call" by downstream consumers.
 type Edge struct {
 	From      shared.SymbolID `json:"from"`
 	To        shared.SymbolID `json:"to"`
+	Kind      string          `json:"kind,omitempty"`
 	Cycle     bool            `json:"cycle,omitempty"`
 	Ambiguous bool            `json:"ambiguous,omitempty"`
 }
@@ -107,10 +115,24 @@ func (g *Graph) MergeNode(oldID shared.SymbolID, resolved *Node) {
 // Cycle detection runs a DFS over the current edges; for very large graphs
 // (>100k edges) this is the only O(E) cost — keep it in mind for the
 // future SQLite-backed path which can use a recursive CTE instead.
+//
+// Kind defaults to the empty string (treated as "call" by downstream
+// consumers). Callers that want to record a specific relationship kind
+// (e.g. "inheritance", "import") should use AddEdgeKind.
 func (g *Graph) AddEdge(from, to shared.SymbolID) {
+	g.AddEdgeKind(from, to, "")
+}
+
+// AddEdgeKind is AddEdge with an explicit relationship kind. The Python
+// sub-scanner uses this to preserve the "import" / "inheritance" /
+// "decorator" / "call" distinction emitted by scanner.py. Callers should
+// pass the same vocabulary the store ingestor recognises (see
+// packages/store.EdgeKind*) — unknown values are tolerated by the graph
+// layer but will fall back to EdgeKindCall at persistence time.
+func (g *Graph) AddEdgeKind(from, to shared.SymbolID, kind string) {
 	g.invalidateAdjacency()
 	cycle := g.hasPath(to, from)
-	g.Edges = append(g.Edges, Edge{From: from, To: to, Cycle: cycle})
+	g.Edges = append(g.Edges, Edge{From: from, To: to, Kind: kind, Cycle: cycle})
 }
 
 // AddAmbiguousEdge is AddEdge with Ambiguous=true. Used by the codeindex
