@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/sosalejandro/atlas/compare/v0.5.0...v0.5.1) (2026-05-23)
+
+
+### Bug Fixes
+
+* **codeindex/ts:** emit actionable warning when typescript module missing ([#64](https://github.com/sosalejandro/atlas/issues/64)) ([5bbc9cb](https://github.com/sosalejandro/atlas/commit/5bbc9cb933bbd4a458ae97d0ecb24d89f7fb01f0))
+* probe typescript module reachability via the same candidate list ([5bbc9cb](https://github.com/sosalejandro/atlas/commit/5bbc9cb933bbd4a458ae97d0ecb24d89f7fb01f0))
+
 ## [0.5.0](https://github.com/sosalejandro/atlas/compare/v0.4.1...v0.5.0) (2026-05-23)
 
 
