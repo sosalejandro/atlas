@@ -464,3 +464,252 @@ func TestTrace_FreshFlagWired(t *testing.T) {
 		t.Fatal("atlas trace is missing --fresh flag")
 	}
 }
+
+// TestTrace_DepthFlagWired is the same surface guard for issue #61's
+// --depth flag.
+func TestTrace_DepthFlagWired(t *testing.T) {
+	c := newTraceCmd()
+	if c.Flags().Lookup("depth") == nil {
+		t.Fatal("atlas trace is missing --depth flag")
+	}
+}
+
+// seedFanChain seeds a non-linear chain that branches at depth 1 so the
+// tree shape is observably different from the legacy flat output.
+//
+//	root → mid1 → leaf1
+//	     → mid2 → leaf2
+//
+// Returns the surrogate id of root.
+func (f *traceFixture) seedFanChain(t *testing.T, rootQN string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	s := f.openStore(t)
+	defer s.Close()
+
+	insert := func(qn, file string, line int) int64 {
+		t.Helper()
+		id, err := s.Symbols().Insert(ctx, store.SymbolRow{
+			QualifiedName: shared.SymbolID(qn), Kind: shared.KindFunc,
+			FilePath: file, Line: line,
+		})
+		if err != nil {
+			t.Fatalf("insert %q: %v", qn, err)
+		}
+		return id
+	}
+	root := insert(rootQN, "src/root.go", 10)
+	mid1 := insert("pkg.Mid1", "src/mid1.go", 20)
+	mid2 := insert("pkg.Mid2", "src/mid2.go", 30)
+	leaf1 := insert("pkg.Leaf1", "src/leaf1.go", 40)
+	leaf2 := insert("pkg.Leaf2", "src/leaf2.go", 50)
+	for _, e := range []store.EdgeRow{
+		{FromID: root, ToID: mid1, Kind: store.EdgeKindCall, FilePath: "src/root.go", Line: 11},
+		{FromID: root, ToID: mid2, Kind: store.EdgeKindCall, FilePath: "src/root.go", Line: 12},
+		{FromID: mid1, ToID: leaf1, Kind: store.EdgeKindCall, FilePath: "src/mid1.go", Line: 21},
+		{FromID: mid2, ToID: leaf2, Kind: store.EdgeKindCall, FilePath: "src/mid2.go", Line: 31},
+	} {
+		if _, err := s.Edges().Insert(ctx, e); err != nil {
+			t.Fatalf("insert edge: %v", err)
+		}
+	}
+	return root
+}
+
+// seedCycleChain seeds a 2-node cycle so the cycle-detection branch is
+// exercised: a → b → a. Returns the surrogate id of a.
+func (f *traceFixture) seedCycleChain(t *testing.T, aQN, bQN string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	s := f.openStore(t)
+	defer s.Close()
+
+	a, err := s.Symbols().Insert(ctx, store.SymbolRow{
+		QualifiedName: shared.SymbolID(aQN), Kind: shared.KindFunc,
+		FilePath: "src/a.go", Line: 10,
+	})
+	if err != nil {
+		t.Fatalf("insert %q: %v", aQN, err)
+	}
+	b, err := s.Symbols().Insert(ctx, store.SymbolRow{
+		QualifiedName: shared.SymbolID(bQN), Kind: shared.KindFunc,
+		FilePath: "src/b.go", Line: 20,
+	})
+	if err != nil {
+		t.Fatalf("insert %q: %v", bQN, err)
+	}
+	for _, e := range []store.EdgeRow{
+		{FromID: a, ToID: b, Kind: store.EdgeKindCall, FilePath: "src/a.go", Line: 11},
+		{FromID: b, ToID: a, Kind: store.EdgeKindCall, FilePath: "src/b.go", Line: 21},
+	} {
+		if _, err := s.Edges().Insert(ctx, e); err != nil {
+			t.Fatalf("insert edge: %v", err)
+		}
+	}
+	return a
+}
+
+// TestTrace_DepthDefault confirms the default --depth of 3 is what the
+// command actually uses. We seed a linear chain longer than 3 hops and
+// expect the output to clip at 3.
+func TestTrace_DepthDefault(t *testing.T) {
+	fix := newTraceFixture(t)
+	// Build a 5-deep chain: pkg.L0 → pkg.L1 → pkg.L2 → pkg.L3 → pkg.L4
+	ctx := context.Background()
+	s := fix.openStore(t)
+	var ids [5]int64
+	for i := 0; i < 5; i++ {
+		id, err := s.Symbols().Insert(ctx, store.SymbolRow{
+			QualifiedName: shared.SymbolID("pkg.L" + string(rune('0'+i))),
+			Kind:          shared.KindFunc,
+			FilePath:      "src/x.go", Line: 10 + i,
+		})
+		if err != nil {
+			t.Fatalf("insert L%d: %v", i, err)
+		}
+		ids[i] = id
+	}
+	for i := 0; i < 4; i++ {
+		if _, err := s.Edges().Insert(ctx, store.EdgeRow{
+			FromID: ids[i], ToID: ids[i+1], Kind: store.EdgeKindCall,
+			FilePath: "src/x.go", Line: 100 + i,
+		}); err != nil {
+			t.Fatalf("insert edge: %v", err)
+		}
+	}
+	s.Close()
+
+	stdout, _, err := runTraceCmd(t, fix, "pkg.L0")
+	if err != nil {
+		t.Fatalf("trace: %v", err)
+	}
+	// Default depth=3 means we see L0..L3, NOT L4.
+	for _, want := range []string{"pkg.L0", "pkg.L1", "pkg.L2", "pkg.L3"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("expected %q in default-depth output; stdout:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "pkg.L4") {
+		t.Errorf("default depth=3 should clip pkg.L4; stdout:\n%s", stdout)
+	}
+}
+
+// TestTrace_DepthOneMatchesLegacy confirms --depth 1 reproduces the
+// pre-issue-#61 depth-1 walk (root + direct callees only). The fan
+// fixture has 2 mids at depth 1 and 2 leaves at depth 2; --depth 1
+// must show mids, not leaves.
+func TestTrace_DepthOneMatchesLegacy(t *testing.T) {
+	fix := newTraceFixture(t)
+	_ = fix.seedFanChain(t, "pkg.Root")
+
+	stdout, _, err := runTraceCmd(t, fix, "--depth", "1", "pkg.Root")
+	if err != nil {
+		t.Fatalf("trace --depth 1: %v", err)
+	}
+	for _, want := range []string{"pkg.Root", "pkg.Mid1", "pkg.Mid2"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("expected %q in --depth 1 output; stdout:\n%s", want, stdout)
+		}
+	}
+	for _, bad := range []string{"pkg.Leaf1", "pkg.Leaf2"} {
+		if strings.Contains(stdout, bad) {
+			t.Errorf("--depth 1 should not include depth-2 %q; stdout:\n%s", bad, stdout)
+		}
+	}
+}
+
+// TestTrace_DepthUnlimitedCycle confirms --depth -1 walks unlimited
+// and the cycle-detection guard prevents infinite recursion. The
+// fixture is a 2-node cycle; the trace must terminate, mark the back
+// edge as [cycle], and emit the cycle node in cycle_nodes.
+func TestTrace_DepthUnlimitedCycle(t *testing.T) {
+	fix := newTraceFixture(t)
+	_ = fix.seedCycleChain(t, "pkg.A", "pkg.B")
+
+	done := make(chan struct {
+		stdout string
+		err    error
+	}, 1)
+	go func() {
+		stdout, _, err := runTraceCmd(t, fix, "--depth", "-1", "pkg.A")
+		done <- struct {
+			stdout string
+			err    error
+		}{stdout, err}
+	}()
+	select {
+	case res := <-done:
+		if res.err != nil {
+			t.Fatalf("trace --depth -1: %v", res.err)
+		}
+		if !strings.Contains(res.stdout, "[cycle]") {
+			t.Errorf("expected [cycle] marker; stdout:\n%s", res.stdout)
+		}
+		for _, want := range []string{"pkg.A", "pkg.B"} {
+			if !strings.Contains(res.stdout, want) {
+				t.Errorf("expected %q in unlimited-cycle output; stdout:\n%s", want, res.stdout)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("trace --depth -1 hung — cycle detection is broken")
+	}
+}
+
+// TestTrace_JSONTreeShape exercises the nested-tree JSON contract that
+// issue #61 introduces. Downstream tooling (e.g. atlas's own
+// integration tests, future LSP plugins) will read this structure.
+func TestTrace_JSONTreeShape(t *testing.T) {
+	fix := newTraceFixture(t)
+	_ = fix.seedFanChain(t, "pkg.Root")
+
+	stdout, _, err := runTraceCmd(t, fix, "--json", "--depth", "2", "pkg.Root")
+	if err != nil {
+		t.Fatalf("trace --json --depth 2: %v", err)
+	}
+	var env struct {
+		Result struct {
+			Tree struct {
+				Symbol   string `json:"symbol"`
+				Depth    int    `json:"depth"`
+				Children []struct {
+					Symbol   string `json:"symbol"`
+					Depth    int    `json:"depth"`
+					Children []struct {
+						Symbol string `json:"symbol"`
+						Depth  int    `json:"depth"`
+					} `json:"children"`
+				} `json:"children"`
+			} `json:"tree"`
+			DepthReached int `json:"depth_reached"`
+			MaxDepth     int `json:"max_depth"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("decode envelope: %v\nstdout:\n%s", err, stdout)
+	}
+	if env.Result.Tree.Symbol != "pkg.Root" {
+		t.Errorf("tree.symbol = %q; want pkg.Root", env.Result.Tree.Symbol)
+	}
+	if env.Result.Tree.Depth != 0 {
+		t.Errorf("root depth = %d; want 0", env.Result.Tree.Depth)
+	}
+	if len(env.Result.Tree.Children) != 2 {
+		t.Fatalf("expected 2 mid children; got %d: %+v", len(env.Result.Tree.Children), env.Result.Tree.Children)
+	}
+	if env.Result.DepthReached != 2 {
+		t.Errorf("depth_reached = %d; want 2", env.Result.DepthReached)
+	}
+	if env.Result.MaxDepth != 2 {
+		t.Errorf("max_depth = %d; want 2", env.Result.MaxDepth)
+	}
+	for _, mid := range env.Result.Tree.Children {
+		if len(mid.Children) != 1 {
+			t.Errorf("mid %s expected 1 leaf child; got %d", mid.Symbol, len(mid.Children))
+		}
+		for _, leaf := range mid.Children {
+			if leaf.Depth != 2 {
+				t.Errorf("leaf %s depth = %d; want 2", leaf.Symbol, leaf.Depth)
+			}
+		}
+	}
+}

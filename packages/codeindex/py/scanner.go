@@ -381,7 +381,7 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 	// declaring module — see pyEdgeResolver for the lookup semantics +
 	// collision handling (last-write-wins is fine here because Python
 	// module-level names cannot legally collide).
-	resolver := newPyEdgeResolver(raw.Nodes)
+	resolver := newPyEdgeResolver(raw.Nodes, raw.Edges)
 	knownIDs := make(map[shared.SymbolID]bool, len(res.Symbols))
 	for _, sym := range res.Symbols {
 		knownIDs[sym.ID] = true

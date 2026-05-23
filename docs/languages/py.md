@@ -289,7 +289,43 @@ Propagation only applies to direct method definitions inside the class
 body — nested functions or closures defined inside a method body are
 NOT considered part of the class API surface and do not inherit.
 
-### 4. Annotation parsing is split across two layers
+### 4. Cross-module callee resolution (RESOLVED in v0.5.0)
+
+**Resolved in v0.5.0 (issue #61).** scanner.py emits best-effort
+unqualified callee names (`echo`, `Base`, `style`) because Python's
+dynamic dispatch makes full name resolution at AST time infeasible.
+Prior to v0.5.0 those bare names became `external:py:1` stubs at
+ingest time, so `atlas trace` chains terminated at the first
+cross-module hop.
+
+The Go-side resolver
+([`packages/codeindex/py/resolver.go`](../../packages/codeindex/py/resolver.go))
+now promotes bare callee names to qualified ids through a 5-tier
+lookup (first match wins):
+
+1. Exact qualified-name match against the symbol table.
+2. Same-module basename or dotted-head match (e.g. `helper` from
+   `sample.compute` → `sample.helper`).
+3. Caller's own `from X import Y` — `Y` resolves to `X.Y`.
+4. Re-export from the caller's package `__init__.py` — `from .module
+   import Y` in `pkg/__init__.py` lets callers in `pkg.anything`
+   reference bare `Y` and resolve to `pkg.module.Y`.
+5. Sibling-module top-level: `Y` not bound by an import edge but
+   declared at top-level in a sibling module of the caller's package.
+   Most-imported wins on tie-breaks.
+
+If all five tiers miss, the edge keeps its bare callee target and the
+ingestor synthesises an `external:py` stub so the edge still lands in
+the graph (preserving the depth-1 reachability set).
+
+**Out of scope** (acknowledged limitations):
+
+- Type inference for dynamic dispatch (`x.method()` where `x` is an
+  `Any`-typed parameter). Requires pyright-grade type analysis.
+- `super().method` — MRO walking is not implemented. The call stays
+  as an `external:py` stub.
+
+### 5. Annotation parsing is split across two layers
 
 As of v0.4.0 (issue #53) the Python scanner is annotation-aware:
 `scanner.py` extracts both comment-form (`# @atlas:...`) and

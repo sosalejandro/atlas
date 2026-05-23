@@ -36,7 +36,8 @@ explicit prefix.
 | Flag                          | Default               | Description                                                                                                       |
 | ----------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `--fresh`                     | off                   | Re-walk the codebase from disk instead of reading the cached store. Slow; use only when the cache looks wrong.    |
-| `--max-depth`                 | `10`                  | Maximum trace depth. Useful for shallow "what does this call directly" views.                                     |
+| `--depth`                     | `3`                   | Recursive call-tree depth. `-1` = unlimited (with cycle detection); `0` = root only. See "Recursive tree" below.  |
+| `--max-depth`                 | `10`                  | Legacy alias for `--depth`. Kept for back-compat with scripts; new code should prefer `--depth`.                  |
 | `--root`                      | repo root / cwd       | Project root for the `--fresh` re-walk.                                                                           |
 | `--node-modules-path`         | auto-detected         | Absolute path to a `node_modules/` directory the TS scanner can borrow `typescript` from. Repeatable.             |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                                             |
@@ -77,21 +78,54 @@ When the input is interpreted as a symbol, the header line carries a
 `confidence` score reflecting how unambiguous the resolution was —
 `1.00` for an exact qualified-name hit, lower for fuzzy suffix matches.
 
-### Limit depth
+### Recursive tree (`--depth N`)
+
+As of `v0.5.0` (issue #61) symbol traces render a recursive indented
+tree up to `--depth N` (default `3`). The tree uses box-drawing
+connectors so siblings, descendants, and clipped branches are visually
+distinct:
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas trace auth.login --max-depth 1
-trace feature auth.login (3 nodes)
-AuthHandler.Login  [func] go/auth.go:14
-  AuthService.Authenticate  [func] go/auth.go:26
-  AuthService.IssueToken  [func] go/auth.go:30
+$ atlas trace src.click.core.Command.invoke --depth 3
+src.click.core.Command.invoke  [method] src/click/core.py:1294
+├─ src.click.utils.echo  [func] src/click/utils.py:234
+│   ├─ src.click._compat._find_binary_writer  [func] src/click/_compat.py:192
+│   ├─ src.click.globals.resolve_color_default  [func] src/click/globals.py:54
+│   └─ src.click._compat.should_strip_ansi  [func] src/click/_compat.py:500
+├─ src.click.termui.style  [func] src/click/termui.py:576
+│   └─ src.click.termui._interpret_color  [func] src/click/termui.py:565
+└─ src.click.core._format_deprecated_suffix  [func] src/click/core.py:104
 ```
 
-In this fixture the call graph is only one level deep, so `--max-depth 1`
-matches the unlimited output. On real codebases (handler → service →
-repository → query) `--max-depth 2` is a useful "what does this thin
-wrapper do directly" lens.
+Special depth values:
+
+| Value          | Behaviour                                                                              |
+| -------------- | -------------------------------------------------------------------------------------- |
+| `--depth 0`    | Root only — no children. Useful as a "does this symbol exist?" probe.                  |
+| `--depth 1`    | Root + direct callees (the pre-`v0.5.0` default).                                       |
+| `--depth 3`    | Default. Three layers of children — usually enough to span handler → service → repo.   |
+| `--depth -1`   | Unlimited recursion. Cycle detection prevents infinite walks — see below.              |
+
+#### Cycle detection
+
+When the walk revisits a symbol that's already on the current chain it
+emits a leaf marked `[cycle]` and stops descending:
+
+```
+$ atlas trace recur.alpha --depth -1
+recur.alpha  [func] recur.py:4
+└─ recur.beta  [func] recur.py:9
+    └─ recur.alpha  [cycle]
+```
+
+Cycles surface in the JSON envelope as `cycle_nodes: [...]` so
+programmatic consumers can dedupe / filter them.
+
+#### `--max-depth` (legacy alias)
+
+`--max-depth` predates `--depth` and is retained for back-compat with
+existing scripts. When both are passed, `--depth` wins. New invocations
+should prefer `--depth`.
 
 ### Disambiguation error
 
