@@ -1,83 +1,95 @@
-# testreg sprint
+# atlas sprint
 
-Rank features by priority-weighted gap score for sprint planning.
+`atlas sprint` composes the audit signal with the gap-weighted prioritisation
+in [`packages/sprintplan/`](../../packages/sprintplan/) and emits a ranked
+backlog: which features to invest engineering time in next.
 
-## Score formula
-
-```
-score = weight * max(0, target - health)
-```
-
-| Priority | Weight | Target |
-|----------|--------|--------|
-| critical | 4 | 100% |
-| high | 3 | 80% |
-| medium | 2 | 60% |
-| low | 1 | 40% |
-
-Features at or above target are excluded.
+By default the full backlog is returned. Pass `--top N` to cap. The
+`.atlas.yaml > sprint.default_top_n` config key applies when `--top` is
+unset.
 
 ## Usage
 
 ```
-testreg sprint [flags]
+atlas sprint [flags]
 ```
 
 ## Flags
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--format` | `terminal` | Output format: `terminal`, `json` |
-| `-n, --limit` | `20` | Top N results |
-| `--priority` | (all) | Filter by priority (comma-separated) |
-| `--group-by` | (none) | Group output by: `type`, `domain` |
+| Flag                          | Default               | Description                                                                                               |
+| ----------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `--top`                       | `0` (full backlog)    | Cap output to the top-N items. `0` means "no cap" or "use config default", whichever is more restrictive. |
+| `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                                     |
+| `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                           |
+| `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                             |
+| `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                                                                            |
 
 ## Examples
 
-### Default sprint output
+### Full sprint backlog
 
 ```
-$ testreg sprint
-
-Sprint Priorities (10 features, sorted by priority score):
-
-   Score  Priority   Health  Target  Feature
-  ──────────────────────────────────────────────────────────────────────
-    2.40  high          0%     80%  shopping.create
-    2.40  high          0%     80%  plans-patient.list
-    1.65  high         25%     80%  auth.biometric-login
-    1.65  high         25%     80%  training.session-indicator
-    1.20  high         40%     80%  settings.account
-    1.20  high         40%     80%  settings.privacy
-    1.20  high         40%     80%  recovery.score
-    1.20  high         40%     80%  recovery.readiness
-    1.20  medium        0%     60%  shopping.recipe-from-inventory
-    1.20  medium        0%     60%  admin.api-docs
+# Run from: /tmp/atlas-fixture
+$ atlas sprint
+ 1. billing.subscribe                                   priority= 60.00 cost=S
+    - Score 0 (critical), 0 linked symbols, cost=S
+    - no audit signals available (no coverage, no aggregate, no contract, no annotation source)
+ 2. auth.login                                          priority= 20.00 cost=S
+    - Score 100 (healthy), 1 linked symbols, cost=S
+    - recency decay: 100 (recent activity boost)
 ```
 
-### Group by domain
+Two features ranked by priority score. `billing.subscribe` wins because
+it has no audit signals (score 0, classified `critical`) — atlas treats
+the absence of signal as a higher-priority gap than a healthy feature.
+`auth.login` is in the same backlog but at priority 20 because its score
+is 100 ("healthy") and the recency-decay component picked up a recent
+annotation touch.
+
+The `cost=S` field is the planning-poker cost estimate threaded through
+from the planner (S / M / L / XL); on this fixture every feature is S
+because the codebase is tiny.
+
+### Top-N cap
 
 ```
-$ testreg sprint --group-by domain -n 10
-
-  auth (3 features, score: 11.00):
-    4.00  critical   0%  auth.login
-    4.00  critical   0%  auth.register
-    3.00  critical  25%  auth.token-refresh
-
-  recipes (2 features, score: 4.80):
-    2.40  high      20%  recipes.create
-    2.40  high      20%  recipes.search
+# Run from: /tmp/atlas-fixture
+$ atlas sprint --top 1
+ 1. billing.subscribe                                   priority= 60.00 cost=S
+    - Score 0 (critical), 0 linked symbols, cost=S
+    - no audit signals available (no coverage, no aggregate, no contract, no annotation source)
 ```
 
-### Critical and high only
+`--top 1` collapses the output to the highest-priority feature only —
+useful in CI to surface the single most-pressing gap.
 
-```bash
-testreg sprint --priority critical,high -n 10
+### Per-config default
+
+In `.atlas.yaml`:
+
+```yaml
+sprint:
+  default_top_n: 10
 ```
 
-## Tips
+With that config, `atlas sprint` (no `--top` flag) returns 10 rows. An
+explicit `--top` on the CLI always wins over the config default.
 
-- Run at the start of each sprint to decide what to fix.
-- Use `--group-by domain` to assign test-writing work by team or domain owner.
-- Combine with `testreg gaps --format prompt` to hand off specific fixes to AI agents.
+## How it works
+
+1. Read every feature from the store.
+2. Read the latest audit score per feature.
+3. For each feature, compute the priority components:
+   - **Score gap** — `100 - audit_score`; weighted highest.
+   - **Symbol-fan-out** — features with many linked symbols carry more
+     blast radius.
+   - **Recency decay** — features touched recently get a small boost so
+     "the area we were just working in" stays surfaced.
+   - **Cost** — planning-poker estimate (S/M/L/XL) folded into the rank.
+4. Sort descending by priority.
+5. Cap to `--top N` (or config default), render.
+
+The priority formula is intentionally simple and inspectable — the
+per-feature explanation lines under each row name which components fired
+and what they contributed. When a feature surprises you in the rank, the
+explanation tells you why.

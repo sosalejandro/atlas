@@ -44,10 +44,23 @@ docs/                     # architecture / annotations / schema-v1 / migration /
 
 ## Documentation
 
-- [`docs/architecture.md`](./docs/architecture.md) — package boundaries + dependency direction
-- [`docs/annotations.md`](./docs/annotations.md) — `@atlas:<kind> <id>` grammar
-- [`docs/schema-v1.md`](./docs/schema-v1.md) — SQLite schema reference
-- [`docs/migration-from-testreg.md`](./docs/migration-from-testreg.md) — cutover guide for testreg users
+### Getting started
+
+- [Quickstart](./docs/quickstart.md) — first 5 minutes with atlas
+- [Languages](./docs/languages/) — per-language usage guides
+  ([Go](./docs/languages/go.md) /
+  [TypeScript](./docs/languages/ts.md) /
+  [Python](./docs/languages/py.md))
+
+### Reference
+
+- [Commands](./docs/commands/) — per-subcommand reference
+  (`atlas init`, `scan`, `trace`, `audit`, `codebase`, `cov`, `diff`,
+  `snapshot`, `sprint`, `diagnose`, `contract`, `migrate-annotations`)
+- [Architecture](./docs/architecture.md) — package boundaries + dependency direction
+- [Annotations](./docs/annotations.md) — `@atlas:<kind> <id>` grammar
+- [Schema v1](./docs/schema-v1.md) — SQLite schema reference
+- [Migration from testreg](./docs/migration-from-testreg.md) — cutover guide for testreg users
 
 ## Install
 
