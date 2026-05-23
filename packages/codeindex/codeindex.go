@@ -273,10 +273,20 @@ func runPythonScanPhase(
 }
 
 // projectHasTS returns true if rootDir looks like it might contain
-// TypeScript — i.e. has either a tsconfig.json or a package.json with the
-// typescript dep, or an apps/ or packages/ subdir (monorepo). This is the
-// cheap pre-check that avoids spinning up Node when there's nothing to
-// scan.
+// TypeScript. Two layers:
+//
+//  1. Cheap manifest probes (tsconfig.json, package.json, apps/, packages/).
+//     A hit here covers every well-formed JS/TS project and short-circuits
+//     before any filesystem walk.
+//  2. Fallback file walk (.ts/.tsx/.mts/.cts) for the long tail — single-file
+//     fixtures, partial monorepos, repos where someone dropped a stray .ts
+//     file alongside Go code. Pre-fix this case silently bypassed the TS
+//     scanner entirely (no warning, no symbols) — see
+//     sosalejandro/atlas-internal#19 for the Minca-AI bug report.
+//
+// The walk honours node_modules / vendor / .git / hidden-dir skips so a
+// pure-Go project with deps doesn't pay the cost of descending into a 100k-
+// file dependency tree just to confirm "no TS here".
 func projectHasTS(rootDir string) bool {
 	probes := []string{
 		"tsconfig.json",
@@ -289,7 +299,50 @@ func projectHasTS(rootDir string) bool {
 			return true
 		}
 	}
-	return false
+	// Fallback: walk for at least one .ts/.tsx file. Stops at the first hit
+	// so the cost is O(directories until the first TS file) — pure-Go
+	// projects pay only the walk startup, not a full tree sweep.
+	return hasAnyTSFile(rootDir)
+}
+
+// hasAnyTSFile walks rootDir and returns true on the first .ts/.tsx/.mts/.cts
+// it finds (excluding .d.ts declarations, which appear in dependency trees
+// even for pure-Go projects with `@types/*` installed). Skips the standard
+// dependency / hidden directories.
+func hasAnyTSFile(rootDir string) bool {
+	skip := map[string]bool{
+		"node_modules": true,
+		"vendor":       true,
+		"dist":         true,
+		"build":        true,
+		"out":          true,
+		".next":        true,
+		".turbo":       true,
+	}
+	found := false
+	_ = filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if path != rootDir && (skip[name] || strings.HasPrefix(name, ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if strings.HasSuffix(name, ".d.ts") {
+			return nil
+		}
+		if strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".tsx") ||
+			strings.HasSuffix(name, ".mts") || strings.HasSuffix(name, ".cts") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 // projectHasPY returns true if rootDir contains at least one .py file.
