@@ -218,6 +218,30 @@ func (s *Scanner) Scan(ctx context.Context, rootDir string) (*Result, error) {
 		return nil, fmt.Errorf("tsscan: build args: %w", err)
 	}
 
+	// Pre-flight: confirm the `typescript` module is reachable before we
+	// spawn Node. Without this check, a missing module produces a 300-line
+	// ERR_MODULE_NOT_FOUND stack trace that gets wrapped in a single-line
+	// "ts scan: scanner.ts exited 1" warning the user has to grep through —
+	// and the orchestrator can't tell them how many .ts/.tsx files were
+	// affected. Probing here lets us emit one clean, actionable warning
+	// with the impact count + searched paths + a fix command. See issue
+	// sosalejandro/atlas-internal#19 for the UX motivation.
+	if found, searched := probeTypescriptModule(abs, s.Options.NodeModulesPaths); !found {
+		skipped, _ := countTSSourceFiles(ctx, abs, nil)
+		if skipped > 0 {
+			warning := formatMissingTypescriptWarning(skipped, searched)
+			s.logger.Warn(ctx, "ts scanner skipped: typescript module missing",
+				"skipped_files", skipped, "searched", searched)
+			return &Result{Warnings: []string{warning}}, nil
+		}
+		// No .ts/.tsx files in the tree — silent skip is correct here:
+		// there is nothing the scanner could have done. We still log at
+		// debug for operators who want to confirm the decision.
+		s.logger.Debug(ctx, "ts scanner skipped: no typescript module and no .ts files",
+			"searched", searched)
+		return &Result{}, nil
+	}
+
 	// Make sure scanner.ts can resolve `typescript` even when the scanned
 	// project has no node_modules. We bridge by synthesising a node_modules
 	// next to the tempdir copy of scanner.ts that links to the first
