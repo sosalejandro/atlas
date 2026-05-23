@@ -34,9 +34,10 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	// Schema version tracks the highest applied migration. Bumped to 2 in
 	// Phase 6e (annotation kind set extension), 3 in Phase 6f
 	// (symbols.pattern_matches column), 4 in Phase 6b (snapshots),
-	// 5 in Phase 6a (audit_snapshot_runs table), and 6 by issue #21
-	// (drop the unused legacy audit_snapshots table).
-	const expected = 6
+	// 5 in Phase 6a (audit_snapshot_runs table), 6 by issue #21
+	// (drop the unused legacy audit_snapshots table), and 7 by issue #57
+	// (widen edges.kind CHECK to admit Python polyglot kinds).
+	const expected = 7
 	if v != expected {
 		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}

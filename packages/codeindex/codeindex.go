@@ -358,7 +358,7 @@ func mergeTSResult(idx *Index, res *tsscan.Result) {
 		idx.SymbolLangs[sym.ID] = "ts"
 	}
 	for _, e := range res.Edges {
-		idx.Graph.AddEdge(e.From, e.To)
+		idx.Graph.AddEdgeKind(e.From, e.To, e.Kind)
 	}
 	// Surface TS scanner warnings to the orchestrator output.
 	idx.Warnings = append(idx.Warnings, res.Warnings...)
@@ -395,7 +395,7 @@ func mergePYResult(idx *Index, res *pyscan.Result) {
 		idx.SymbolLangs[sym.ID] = "py"
 	}
 	for _, e := range res.Edges {
-		idx.Graph.AddEdge(e.From, e.To)
+		idx.Graph.AddEdgeKind(e.From, e.To, e.Kind)
 	}
 	idx.Annotations = append(idx.Annotations, res.Annotations...)
 	idx.Warnings = append(idx.Warnings, res.Warnings...)

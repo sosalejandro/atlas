@@ -151,7 +151,8 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 			if line <= 0 {
 				line = 1
 			}
-			inserted, err := upsertEdgeTx(ctx, qtx, fromID, toID, EdgeKindCall, path, line)
+			kind := NormalizeEdgeKind(e.Kind)
+			inserted, err := upsertEdgeTx(ctx, qtx, fromID, toID, kind, path, line)
 			if err != nil {
 				return nil, err
 			}

@@ -115,17 +115,24 @@ func TestScanner_SampleProject(t *testing.T) {
 		edgeSet[string(e.From)+"->"+string(e.To)] = true
 	}
 
+	// Edge targets are resolved to fully-qualified symbol ids when an
+	// emitted same-module symbol matches the raw target — see
+	// pyEdgeResolver. `helper`, `BaseEntity`, `register`, `cached` all
+	// live alongside the call/inheritance/decorator source in main.py,
+	// so they promote from bare names to `main.<name>`. External targets
+	// (os, collections.OrderedDict, .sibling) pass through verbatim
+	// because no same-module symbol shadows them.
 	wantEdges := []string{
-		// Call: compute -> helper
-		"main.compute->helper",
-		// Call: MyClass.run -> helper
-		"main.MyClass.run->helper",
-		// Inheritance: MyClass -> BaseEntity
-		"main.MyClass->BaseEntity",
-		// Decorator: MyClass -> register
-		"main.MyClass->register",
-		// Decorator: compute -> cached
-		"main.compute->cached",
+		// Call: compute -> helper (resolved to main.helper)
+		"main.compute->main.helper",
+		// Call: MyClass.run -> helper (resolved to main.helper)
+		"main.MyClass.run->main.helper",
+		// Inheritance: MyClass -> BaseEntity (resolved to main.BaseEntity)
+		"main.MyClass->main.BaseEntity",
+		// Decorator: MyClass -> register (resolved to main.register)
+		"main.MyClass->main.register",
+		// Decorator: compute -> cached (resolved to main.cached)
+		"main.compute->main.cached",
 		// Absolute import: module -> os
 		"main->os",
 		// from-import: module -> collections.OrderedDict

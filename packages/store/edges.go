@@ -17,7 +17,36 @@ const (
 	EdgeKindImplement EdgeKind = "implement"
 	EdgeKindEmbed     EdgeKind = "embed"
 	EdgeKindConstruct EdgeKind = "construct"
+	// Python-specific kinds emitted by scanner.py. The schema CHECK
+	// constraint was widened in migration 0007 to admit these.
+	EdgeKindInheritance EdgeKind = "inheritance"
+	EdgeKindDecorator   EdgeKind = "decorator"
+	EdgeKindImport      EdgeKind = "import"
 )
+
+// IsValidEdgeKind reports whether kind is one of the closed set the
+// store accepts. Callers should normalise via NormalizeEdgeKind before
+// persistence rather than calling this directly.
+func IsValidEdgeKind(kind EdgeKind) bool {
+	switch kind {
+	case EdgeKindCall, EdgeKindImplement, EdgeKindEmbed, EdgeKindConstruct,
+		EdgeKindInheritance, EdgeKindDecorator, EdgeKindImport:
+		return true
+	}
+	return false
+}
+
+// NormalizeEdgeKind maps a raw scanner-emitted kind string onto the closed
+// EdgeKind enum. Unknown or empty inputs default to EdgeKindCall so
+// upstream churn (a future scanner kind we haven't taught the store about
+// yet) degrades gracefully rather than rejecting the edge.
+func NormalizeEdgeKind(raw string) EdgeKind {
+	k := EdgeKind(raw)
+	if IsValidEdgeKind(k) {
+		return k
+	}
+	return EdgeKindCall
+}
 
 // EdgeRow is one row of the `edges` table (docs/schema-v1.md §5.5).
 //

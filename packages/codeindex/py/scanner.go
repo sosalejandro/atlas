@@ -367,10 +367,42 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 			Doc: n.Doc,
 		})
 	}
+	// Build an in-module name resolver so unqualified `to` targets
+	// emitted by scanner.py (e.g. `helper`, `Base`) can be promoted to
+	// the fully-qualified symbol id when one exists in the same module.
+	// Without this step, every Python edge whose target is a same-file
+	// reference would be dropped at ingest time (the store's symbol
+	// lookup is keyed by qualified_name, and `helper` does not match
+	// `sample.helper`).
+	//
+	// Scanner.py emits both qualified module nodes (`sample`) and
+	// qualified definitions (`sample.helper`). For every emitted symbol
+	// we record the basename → qualified-id mapping scoped by the
+	// declaring module — see pyEdgeResolver for the lookup semantics +
+	// collision handling (last-write-wins is fine here because Python
+	// module-level names cannot legally collide).
+	resolver := newPyEdgeResolver(raw.Nodes)
+	knownIDs := make(map[shared.SymbolID]bool, len(res.Symbols))
+	for _, sym := range res.Symbols {
+		knownIDs[sym.ID] = true
+	}
+	// externalSeen dedupes synthetic stub symbols emitted for unresolved
+	// edge targets (e.g. `typing.List` for `from typing import List`).
+	// Without stubs these edges would be silently dropped at ingest
+	// time — the store's edges table mandates a FK into symbols, so an
+	// edge to an undeclared target has nowhere to land.
+	externalSeen := make(map[shared.SymbolID]bool)
 	for _, e := range raw.Edges {
+		from := shared.SymbolID(e.From)
+		to := resolver.resolve(from, e.To)
+		if !knownIDs[to] && !externalSeen[to] && to != "" {
+			res.Symbols = append(res.Symbols, externalSymbolStub(to))
+			externalSeen[to] = true
+		}
 		res.Edges = append(res.Edges, graph.Edge{
-			From: shared.SymbolID(e.From),
-			To:   shared.SymbolID(e.To),
+			From: from,
+			To:   to,
+			Kind: e.Kind,
 		})
 	}
 	skippedKinds := map[string]int{}
