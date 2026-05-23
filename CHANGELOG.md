@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/sosalejandro/atlas/compare/v0.2.0...v0.3.0) (2026-05-23)
+
+
+### Features
+
+* **codeindex/py:** add Python AST scanner mirroring TS scanner layout (closes [#46](https://github.com/sosalejandro/atlas/issues/46)) ([#47](https://github.com/sosalejandro/atlas/issues/47)) ([56e197b](https://github.com/sosalejandro/atlas/commit/56e197b2aed8e2833207cf85a05991ffe87cc96c))
+
 ## [0.2.0](https://github.com/sosalejandro/atlas/compare/v0.1.4...v0.2.0) (2026-05-22)
 
 
