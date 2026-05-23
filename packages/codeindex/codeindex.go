@@ -376,6 +376,14 @@ func mergeTSResult(idx *Index, res *tsscan.Result) {
 // (a Python integration calling out to a Go binary via subprocess, for
 // example) — those are exactly what trace needs to render polyglot
 // chains.
+//
+// Annotations surfaced by the AST walker — decorator-form hits and
+// class-level propagation records — are appended to idx.Annotations so
+// the standard ingest/materialise pipeline links them to
+// feature_symbols. Comment-form hits also surface here, but the
+// file-walker pass in walkAnnotations sees the same lines independently;
+// the store's idempotent feature_symbols upsert collapses any
+// duplicates so dual emission is harmless.
 func mergePYResult(idx *Index, res *pyscan.Result) {
 	for _, sym := range res.Symbols {
 		if _, exists := idx.Graph.Nodes[sym.ID]; exists {
@@ -389,6 +397,7 @@ func mergePYResult(idx *Index, res *pyscan.Result) {
 	for _, e := range res.Edges {
 		idx.Graph.AddEdge(e.From, e.To)
 	}
+	idx.Annotations = append(idx.Annotations, res.Annotations...)
 	idx.Warnings = append(idx.Warnings, res.Warnings...)
 }
 

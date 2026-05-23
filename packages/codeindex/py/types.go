@@ -23,14 +23,35 @@ type FileMeta struct {
 // goscan.Result + tsscan.Result so codeindex orchestration can append all
 // three into the same graph.Graph without reshaping.
 //
+// Annotations carries any `@atlas:<kind> <id>` records the Python AST
+// walker surfaces:
+//
+//   - Comment-style hits on the line above a def/class
+//     (e.g. `# @atlas:feature billing.subscribe`).
+//   - Decorator-style hits using the no-op runtime helper shipped at
+//     `assets/python/atlas.py` (e.g. `@atlas.feature("billing.subscribe")`
+//     or `@feature("billing.subscribe")` when imported as
+//     `from atlas import feature`).
+//   - Class-level propagation records: when a class carries an annotation,
+//     one record is emitted per method with the method's line as the
+//     anchor so the store-side LookupSymbolAtOrAfterLine resolves to the
+//     method symbol. This addresses the v0.3.0 gotcha #3 in
+//     docs/languages/py.md.
+//
+// The standard `feature_symbols` materialisation pipeline consumes these
+// identically to records discovered by the Go-side annotations parser; the
+// two paths are complementary, not exclusive, and the store's idempotent
+// upsert collapses duplicate link rows.
+//
 // Warnings are non-fatal: a missing python3 runtime, a syntactically broken
 // file, or any other recoverable issue surfaces here rather than as an
 // error. Callers should pass them through to the user.
 type Result struct {
-	Symbols  []shared.Symbol `json:"symbols"`
-	Edges    []graph.Edge    `json:"edges"`
-	Files    []FileMeta      `json:"files,omitempty"`
-	Warnings []string        `json:"warnings,omitempty"`
+	Symbols     []shared.Symbol     `json:"symbols"`
+	Edges       []graph.Edge        `json:"edges"`
+	Annotations []shared.Annotation `json:"annotations,omitempty"`
+	Files       []FileMeta          `json:"files,omitempty"`
+	Warnings    []string            `json:"warnings,omitempty"`
 }
 
 // rawScannerOutput is the JSON contract emitted by the embedded scanner.py.
@@ -38,11 +59,30 @@ type Result struct {
 // orchestration code stays uniform across language sub-scanners), then
 // mapped to Atlas's shared.Symbol + graph.Edge shapes in the Go layer.
 type rawScannerOutput struct {
-	Nodes    []rawNode  `json:"nodes"`
-	Edges    []rawEdge  `json:"edges"`
-	Files    []FileMeta `json:"files"`
-	Warnings []string   `json:"warnings"`
-	Stats    rawStats   `json:"stats"`
+	Nodes       []rawNode       `json:"nodes"`
+	Edges       []rawEdge       `json:"edges"`
+	Annotations []rawAnnotation `json:"annotations"`
+	Files       []FileMeta      `json:"files"`
+	Warnings    []string        `json:"warnings"`
+	Stats       rawStats        `json:"stats"`
+}
+
+// rawAnnotation is the wire form of one `@atlas:<kind> <id>` record
+// surfaced by scanner.py. Kind matches the closed set of
+// annotations.Kinds keys; only the kinds the Go-side parser recognises
+// are mapped onto shared.Annotation downstream, so a future scanner.py
+// emitting an unrecognised kind degrades gracefully into a "skipped"
+// counter rather than a crash.
+//
+// ID carries the first id token; the raw payload (which may contain
+// tags or extra ids in the comment form) is preserved on `Raw` for
+// diagnostic display.
+type rawAnnotation struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+	File string `json:"file"`
+	Line int    `json:"line"`
+	Raw  string `json:"raw,omitempty"`
 }
 
 type rawNode struct {
@@ -66,10 +106,11 @@ type rawEdge struct {
 }
 
 type rawStats struct {
-	FilesScanned   int `json:"files_scanned"`
-	SymbolsFound   int `json:"symbols_found"`
-	EdgesFound     int `json:"edges_found"`
-	SyntaxFailures int `json:"syntax_failures"`
+	FilesScanned     int `json:"files_scanned"`
+	SymbolsFound     int `json:"symbols_found"`
+	EdgesFound       int `json:"edges_found"`
+	AnnotationsFound int `json:"annotations_found"`
+	SyntaxFailures   int `json:"syntax_failures"`
 }
 
 // rawKindToSymbolKind maps the scanner.py node.kind strings onto Atlas's

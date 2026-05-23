@@ -63,6 +63,8 @@ func TestScanner_SampleProject(t *testing.T) {
 		// Module-level nodes (kind=module)
 		"main",
 		"sibling",
+		"annotated_comment",
+		"annotated_decorator",
 		// Top-level function + decorated function
 		"main.helper",
 		"main.compute",
@@ -76,6 +78,14 @@ func TestScanner_SampleProject(t *testing.T) {
 		"main.API_VERSION",
 		// Sibling module helper
 		"sibling.sibling_helper",
+		// Comment-annotated fixture symbols
+		"annotated_comment.ingest_rows",
+		"annotated_comment.parse_row",
+		// Decorator-annotated fixture symbols
+		"annotated_decorator.ship_one",
+		"annotated_decorator.BatchShipper",
+		"annotated_decorator.BatchShipper.enqueue",
+		"annotated_decorator.BatchShipper.flush",
 	}
 	for _, want := range mustHave {
 		if !idSet[want] {
@@ -150,6 +160,82 @@ func TestScanner_SampleProject(t *testing.T) {
 	}
 	if !gotSyntaxWarn {
 		t.Errorf("expected syntax_error.py warning; got warnings=%v", res.Warnings)
+	}
+}
+
+// TestScanner_Annotations_BothModes exercises issue #53's two recognition
+// modes (comment + decorator) and the class-level propagation gotcha.
+//
+// Layout under testdata/sample_project/:
+//
+//   - annotated_comment.py:
+//       L13 `# @atlas:feature ingest-csv-imports` → ingest_rows  (L14)
+//       L19 `# @atlas:contract ingest-csv-imports.parse-row` → parse_row (L20)
+//
+//   - annotated_decorator.py:
+//       L21 `@atlas.feature("ship-orders")` → ship_one  (L22)
+//       L27 `@atlas.feature("ship-orders.batch")` → BatchShipper  (L28)
+//       Class-level propagation → __init__ (L37), enqueue (L40), flush (L44).
+//
+// Total expected: 2 (comment) + 2 (decorator on def/class) + 3
+// (propagation) = 7 records.
+func TestScanner_Annotations_BothModes(t *testing.T) {
+	t.Parallel()
+	res := runScan(t, "sample_project")
+
+	type key struct {
+		kind shared.AnnotationKind
+		id   string
+		path string
+		line int
+	}
+	got := make(map[key]bool, len(res.Annotations))
+	for _, a := range res.Annotations {
+		if len(a.IDs) == 0 {
+			continue
+		}
+		got[key{a.Kind, a.IDs[0], a.Position.Path, a.Position.Line}] = true
+	}
+
+	want := []key{
+		// Comment-style hits. Anchored at the def line (one below the
+		// comment-bearing line) — that's the line the scanner reports
+		// via node.lineno so LookupSymbolAtOrAfterLine resolves to the
+		// symbol below the comment.
+		{shared.AnnFeature, "ingest-csv-imports", "annotated_comment.py", 13},
+		{shared.AnnContract, "ingest-csv-imports.parse-row", "annotated_comment.py", 19},
+		// Decorator-style hits at the symbol's def line.
+		{shared.AnnFeature, "ship-orders", "annotated_decorator.py", 22},
+		{shared.AnnFeature, "ship-orders.batch", "annotated_decorator.py", 28},
+		// Class-level propagation — one record per method, anchored at
+		// the method's source line.
+		{shared.AnnFeature, "ship-orders.batch", "annotated_decorator.py", 37},
+		{shared.AnnFeature, "ship-orders.batch", "annotated_decorator.py", 40},
+		{shared.AnnFeature, "ship-orders.batch", "annotated_decorator.py", 44},
+	}
+	for _, k := range want {
+		if !got[k] {
+			t.Errorf("missing annotation %+v", k)
+		}
+	}
+
+	// Stronger negative: a helper (`_read_count`) that lives in the same
+	// file as the comment-annotated symbols must NOT pick up a stray
+	// feature link. Asserted via "no annotation anchored at its line".
+	for _, a := range res.Annotations {
+		if a.Position.Path == "annotated_comment.py" && a.Position.Line == 24 {
+			t.Errorf("unexpected annotation on helper @ annotated_comment.py:24: %+v", a)
+		}
+	}
+
+	// Source attribution: every annotation surfaced by the AST walker
+	// must carry SourceAtlas so the materialise step treats it as a
+	// real annotation (testreg's legacy path is for `@testreg` only).
+	for _, a := range res.Annotations {
+		if a.Source != shared.SourceAtlas {
+			t.Errorf("annotation %+v has Source=%q; want SourceAtlas",
+				a, a.Source)
+		}
 	}
 }
 
