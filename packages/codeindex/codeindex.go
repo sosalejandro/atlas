@@ -17,6 +17,7 @@ import (
 	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
 	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
 	"github.com/sosalejandro/atlas/packages/codeindex/patterns"
+	pyscan "github.com/sosalejandro/atlas/packages/codeindex/py"
 	tsscan "github.com/sosalejandro/atlas/packages/codeindex/ts"
 	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
@@ -77,6 +78,19 @@ type Options struct {
 	// false (the default) the orchestrator auto-detects TS presence and
 	// runs the scanner only if it finds something to do.
 	SkipTS bool
+
+	// PYOptions is the pyscan.Options forwarded to the Python sub-scanner.
+	// The Python scanner is invoked when the project contains any .py
+	// file. If `python3` isn't on PATH, the Python scan is skipped
+	// gracefully (a single warning is appended to Index.Warnings; the Go
+	// + TS sub-scanners still run and the index is still returned).
+	PYOptions pyscan.Options
+
+	// SkipPY disables the Python sub-scanner unconditionally. Use this in
+	// pure-Go-or-TS audits where running python3 would just add latency.
+	// When false (the default) the orchestrator auto-detects Python
+	// presence and runs the scanner only if it finds something to do.
+	SkipPY bool
 
 	// AnnotationExts lists the file extensions the annotations sub-scanner
 	// should walk. Defaults to .go, .ts, .tsx, .js, .jsx, .py, .md.
@@ -211,7 +225,51 @@ func IndexProject(ctx context.Context, rootDir string, opts Options) (*Index, er
 		}
 	}
 
+	// Phase D: Python AST scan via python3 subprocess. Auto-skipped when
+	// the project has no .py files or when SkipPY is set; degrades to a
+	// warning if python3 isn't on PATH (same contract as Phase C).
+	runPythonScanPhase(ctx, abs, skipDirs, opts, idx)
+
 	return idx, nil
+}
+
+// runPythonScanPhase encapsulates Phase D (Python AST sub-scan) so the
+// IndexProject body stays under the funlen ceiling. Same auto-skip
+// semantics as Phase C: if SkipPY is set OR no .py files live under abs,
+// the phase is a no-op; if python3 is missing the sub-scanner returns a
+// warning rather than an error.
+//
+// idx is mutated in place: discovered symbols / edges are appended via
+// mergePYResult, and any sub-scan failure surfaces as a warning.
+func runPythonScanPhase(
+	ctx context.Context,
+	abs string,
+	skipDirs map[string]bool,
+	opts Options,
+	idx *Index,
+) {
+	if opts.SkipPY || !projectHasPY(abs, skipDirs) {
+		return
+	}
+	pyOpts := opts.PYOptions
+	if pyOpts.Logger == nil {
+		pyOpts.Logger = opts.Logger
+	}
+	pyScanner := pyscan.NewScanner(pyOpts)
+	defer func() {
+		if cerr := pyScanner.Close(); cerr != nil {
+			idx.Warnings = append(idx.Warnings,
+				fmt.Sprintf("py scanner close: %v", cerr))
+		}
+	}()
+	pyRes, pyErr := pyScanner.Scan(ctx, abs)
+	if pyErr != nil {
+		idx.Warnings = append(idx.Warnings, fmt.Sprintf("py scan: %v", pyErr))
+		return
+	}
+	if pyRes != nil {
+		mergePYResult(idx, pyRes)
+	}
 }
 
 // projectHasTS returns true if rootDir looks like it might contain
@@ -232,6 +290,37 @@ func projectHasTS(rootDir string) bool {
 		}
 	}
 	return false
+}
+
+// projectHasPY returns true if rootDir contains at least one .py file.
+// This is the cheap pre-check that avoids spinning up python3 when
+// there's nothing to scan. The walk honours skipDirs so vendor/,
+// node_modules/, and any user-configured deny-list don't trigger a
+// false positive.
+//
+// We short-circuit on the first hit so the cost is O(directories until
+// the first .py file) — pure-Go projects pay only the filesystem-walk
+// startup, not the full project sweep.
+func projectHasPY(rootDir string, skipDirs map[string]bool) bool {
+	found := false
+	_ = filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if path != rootDir && (skipDirs[name] || strings.HasPrefix(name, ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".py") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 // mergeTSResult folds a tsscan.Result into the orchestrator's Index. Symbol
@@ -272,6 +361,34 @@ func mergeTSResult(idx *Index, res *tsscan.Result) {
 		idx.Graph.AddEdge(e.From, e.To)
 	}
 	// Surface TS scanner warnings to the orchestrator output.
+	idx.Warnings = append(idx.Warnings, res.Warnings...)
+}
+
+// mergePYResult folds a pyscan.Result into the orchestrator's Index.
+// Symbol IDs that already exist in the Go or TS graph are NOT
+// overwritten — earlier scanners win because they have stronger
+// guarantees about source-of-truth for symbols in their own language.
+// New symbols are appended to both idx.Graph.Nodes and the denormalised
+// idx.Symbols list, tagged with SymbolLangs["py"] for cross-language
+// `atlas trace`.
+//
+// Edges are appended verbatim, which may create cross-language edges
+// (a Python integration calling out to a Go binary via subprocess, for
+// example) — those are exactly what trace needs to render polyglot
+// chains.
+func mergePYResult(idx *Index, res *pyscan.Result) {
+	for _, sym := range res.Symbols {
+		if _, exists := idx.Graph.Nodes[sym.ID]; exists {
+			continue
+		}
+		node := &graph.Node{Symbol: sym}
+		idx.Graph.AddNode(node)
+		idx.Symbols = append(idx.Symbols, sym)
+		idx.SymbolLangs[sym.ID] = "py"
+	}
+	for _, e := range res.Edges {
+		idx.Graph.AddEdge(e.From, e.To)
+	}
 	idx.Warnings = append(idx.Warnings, res.Warnings...)
 }
 
