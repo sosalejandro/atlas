@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/sosalejandro/atlas/compare/v0.4.1...v0.5.0) (2026-05-23)
+
+
+### Features
+
+* **cli/trace,codeindex/py:** recursive call-tree walk + cross-module python resolution ([#62](https://github.com/sosalejandro/atlas/issues/62)) ([5502ae4](https://github.com/sosalejandro/atlas/commit/5502ae424e5a1e120400a69d482ac0f45ae04689))
+
 ## [0.4.1](https://github.com/sosalejandro/atlas/compare/v0.4.0...v0.4.1) (2026-05-23)
 
 
