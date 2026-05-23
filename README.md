@@ -22,7 +22,8 @@ packages/                 # SRP libraries — each importable from external Go p
 ├── shared/               # FilePosition, FeatureID, SymbolID, errors
 ├── codeindex/            # AST → symbol graph (foundation)
 │   ├── go/               # Go AST scanner
-│   ├── ts/               # TS scanner (embedded ts-scanner.ts)
+│   ├── ts/               # TS scanner (embedded scanner.ts; requires `node` on PATH)
+│   ├── py/               # Python scanner (embedded scanner.py; requires `python3` on PATH)
 │   └── annotations/      # @atlas / @testreg parser
 ├── graph/                # Node / Edge model + adjacency
 ├── resolver/             # Wire + Fx DI introspection
@@ -53,6 +54,19 @@ docs/                     # architecture / annotations / schema-v1 / migration /
 ```
 go install github.com/sosalejandro/atlas/cmd/atlas@latest
 ```
+
+### Optional runtime dependencies
+
+The language sub-scanners shell out to native runtimes when a project
+contains TypeScript or Python sources. Each is **optional** — if the
+runtime isn't on PATH, atlas surfaces a single warning and continues
+scanning the languages it can:
+
+| Language   | Runtime  | Min version | Skip with                         |
+| ---------- | -------- | ----------- | --------------------------------- |
+| Go         | (none)   | —           | (always on)                       |
+| TypeScript | `node`   | 18+         | `.atlas.yaml` `scan.skip_ts: true`|
+| Python     | `python3`| 3.8+        | `codeindex.Options.SkipPY = true` |
 
 For a specific tagged release, swap `@latest` for the version you want
 (e.g. `@v0.1.2`). See [Releases](https://github.com/sosalejandro/atlas/releases)
