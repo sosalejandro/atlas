@@ -11,15 +11,33 @@ Output contract (JSON, one object on stdout)::
     {
       "nodes": [{"id", "kind", "file", "line", "doc"}, ...],
       "edges": [{"from", "to", "kind"}, ...],
+      "annotations": [{"kind", "id", "file", "line", "raw"}, ...],
       "files": [{"path", "syntax_error"}, ...],
       "warnings": ["..."],
       "stats": {"files_scanned", "symbols_found", "edges_found",
-                "syntax_failures"}
+                "annotations_found", "syntax_failures"}
     }
 
 The Go orchestrator maps node.kind onto shared.SymbolKind and emits
 graph.Edge values verbatim. All file paths are repo-relative
 (forward-slash) so the persisted shared.FilePosition is portable.
+
+Annotations come in two recognition modes (both supported):
+
+* **Comment-style** — ``# @atlas:<kind> <id> [tags...]`` on the line
+  IMMEDIATELY above a ``def`` / ``class`` declaration. Mirrors Go's
+  ``// @atlas:feature ...`` convention.
+* **Decorator-style** — ``@atlas.feature("id")`` (or ``@feature("id")``
+  when the helper is imported as ``from atlas import feature``).
+  Atlas treats the decorator as no-op runtime sugar and reads the
+  feature id statically.
+
+Class-level annotations PROPAGATE to every method defined inside the
+class: scanning a class with ``@atlas:feature billing.subscribe``
+materializes one annotation record per method, anchored at the method's
+own line so the Go-side ``LookupSymbolAtOrAfterLine`` resolves to the
+method symbol. This resolves the v0.3.0 gotcha #3 documented in
+``docs/languages/py.md``.
 
 Usage::
 
@@ -32,12 +50,17 @@ scanner walks the entire project root, skipping the always-excluded
 directories listed in ``DEFAULT_SKIP_DIRS``.
 
 Constraints:
-    * Pure stdlib (``ast``, ``json``, ``sys``, ``os``, ``argparse``).
+    * Pure stdlib (``ast``, ``json``, ``sys``, ``os``, ``re``,
+      ``argparse``).
     * No pip dependencies — atlas's value prop is "just works once
       python3 is on PATH".
-    * Per the issue spec (out-of-scope), the scanner does NOT parse
-      ``@atlas:feature`` annotations; it surfaces decorator names as edges
-      and lets the Go-side annotation parser handle the rest.
+    * Comment-style annotations are also surfaced by the Go-side
+      ``packages/codeindex/annotations`` parser (which sees every ``#``
+      comment in every ``.py`` file). The Python scanner emits them
+      again because (a) decorator-form is invisible to the comment
+      parser, and (b) class-level propagation requires AST-aware
+      anchoring that only the scanner has. Duplicate records are
+      idempotent at the ``feature_symbols`` link layer.
 """
 
 from __future__ import annotations
@@ -46,6 +69,7 @@ import argparse
 import ast
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import Iterable
@@ -105,13 +129,200 @@ class _FileMeta:
 
 
 @dataclass
+class _Annotation:
+    """One ``@atlas:<kind> <id>`` record discovered by the AST walker.
+
+    ``raw`` carries the source-form payload so downstream consumers can
+    re-render the annotation for diagnostics. Tags (``#tag``, ``key=val``)
+    are preserved in ``raw`` even though the Go-side store schema flattens
+    them onto the ``annotations`` row.
+    """
+
+    kind: str  # e.g. "feature"; matches annotations.Kinds keys
+    id: str
+    file: str
+    line: int
+    raw: str = ""
+
+
+@dataclass
 class _Output:
     nodes: list[_Node] = field(default_factory=list)
     edges: list[_Edge] = field(default_factory=list)
+    annotations: list[_Annotation] = field(default_factory=list)
     files: list[_FileMeta] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     files_scanned: int = 0
     syntax_failures: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Annotation extraction
+# ---------------------------------------------------------------------------
+
+
+# Comment-style annotation grammar — mirrors the Go-side
+# ``atlasAnnotationRe`` in packages/codeindex/annotations/parser.go so a
+# Python project parses identically whichever code path sees the comment
+# first.
+#
+# Example matches::
+#
+#     # @atlas:feature billing.subscribe
+#     # @atlas:owner alice
+#     # @atlas:feature billing.subscribe #real step=1
+#
+# Group 1 is the kind ("feature", "owner", …). Group 2 is the rest of the
+# line (id + optional tags). The scanner forwards group 2 verbatim as the
+# annotation record's ``raw`` field and extracts the first whitespace-
+# separated token as the id.
+_ATLAS_COMMENT_RE = re.compile(
+    r"^\s*#\s*@atlas:([a-zA-Z][a-zA-Z0-9_-]*)\s+(.+?)\s*$"
+)
+
+
+def _first_id_token(payload: str) -> str:
+    """Return the first whitespace-separated token that is not a ``#tag`` or
+    ``key=value`` pair. Mirrors the Go-side ``splitIDsAndTags`` semantics."""
+    for tok in payload.split():
+        if tok.startswith("#"):
+            continue
+        if "=" in tok and not tok.startswith("="):
+            # Looks like a key=value tag; tags follow ids so any "=" means
+            # we've already seen all the ids — abort.
+            return ""
+        return tok
+    return ""
+
+
+def _extract_comment_annotation(
+    node: ast.AST, source_lines: list[str], rel_path: str
+) -> _Annotation | None:
+    """Inspect the line immediately above ``node`` for a comment-style
+    ``# @atlas:<kind> <id>`` annotation.
+
+    Returns ``None`` when the line above is blank, a different comment,
+    or non-comment source.
+
+    Decorators sit BETWEEN the comment and the ``def``/``class`` keyword
+    in source, so for decorated symbols the comment-bearing line is
+    ``decorator_list[0].lineno - 1`` rather than ``node.lineno - 1``.
+    Defensive against missing decorator metadata (returns ``None`` when
+    the calculation would underflow).
+    """
+    anchor_line = node.lineno
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        if node.decorator_list:
+            first_dec = node.decorator_list[0]
+            anchor_line = min(anchor_line, getattr(first_dec, "lineno", anchor_line))
+    idx = anchor_line - 2  # source_lines is 0-indexed; line N is index N-1
+    if idx < 0 or idx >= len(source_lines):
+        return None
+    m = _ATLAS_COMMENT_RE.match(source_lines[idx])
+    if not m:
+        return None
+    kind = m.group(1)
+    payload = m.group(2).strip()
+    fid = _first_id_token(payload)
+    if not fid:
+        return None
+    return _Annotation(
+        kind=kind, id=fid, file=rel_path, line=node.lineno, raw=payload
+    )
+
+
+def _extract_decorator_annotation(
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
+    rel_path: str,
+) -> _Annotation | None:
+    """Inspect ``node.decorator_list`` for a ``@atlas.feature("id")`` or
+    ``@feature("id")`` (when imported as ``from atlas import feature``)
+    decorator.
+
+    Returns the annotation on the first match and stops. Multiple
+    ``@atlas.feature(...)`` decorators on the same symbol would all
+    resolve to the same kind anyway; if a future use case wants
+    multi-id-per-symbol, this is the seam to extend.
+    """
+    for dec in node.decorator_list:
+        if not isinstance(dec, ast.Call):
+            continue
+        kind = _decorator_atlas_kind(dec.func)
+        if kind is None:
+            continue
+        if not dec.args:
+            continue
+        first = dec.args[0]
+        fid = _string_constant(first)
+        if fid is None or not fid:
+            continue
+        return _Annotation(
+            kind=kind,
+            id=fid,
+            file=rel_path,
+            line=node.lineno,
+            raw=f"{fid}",
+        )
+    return None
+
+
+def _decorator_atlas_kind(func: ast.expr) -> str | None:
+    """Match ``atlas.<kind>`` and ``<kind>`` decorator call shapes against
+    the closed set of atlas annotation kinds.
+
+    Returns the canonical kind string on match (``feature``, ``bc``,
+    ``aggregate-service`` etc.), ``None`` otherwise. Only kinds that
+    take a single string-id payload are recognised here; free-form kinds
+    like ``owner`` / ``deprecated`` are intentionally NOT decorator-
+    addressable because the runtime ergonomics are awkward (a string
+    argument is the wrong shape for "alice@team.com" or a free-text
+    deprecation reason).
+
+    Python identifiers cannot contain ``-`` so the kebab-case wire kinds
+    (``aggregate-service``, ``event-emit``, ``outbox-publish``) are
+    reached through their snake_case Python aliases
+    (``aggregate_service`` etc.). The mapping mirrors the helper module
+    shipped at ``assets/python/atlas.py``.
+    """
+    # Python-attribute name -> canonical wire kind.
+    decoratable = {
+        "feature": "feature",
+        "contract": "contract",
+        "bc": "bc",
+        "aggregate": "aggregate",
+        "aggregate_service": "aggregate-service",
+        "saga": "saga",
+        "consumer": "consumer",
+        "event_emit": "event-emit",
+        "outbox_publish": "outbox-publish",
+    }
+    if isinstance(func, ast.Attribute):
+        # @atlas.feature(...) — value must be ast.Name(id='atlas').
+        if isinstance(func.value, ast.Name) and func.value.id == "atlas":
+            return decoratable.get(func.attr)
+        return None
+    if isinstance(func, ast.Name):
+        # @feature(...) — valid when imported as
+        # `from atlas import feature`. We can't always prove the import
+        # statically (a project could shadow the name), but accepting
+        # the bare name is the documented convention.
+        return decoratable.get(func.id)
+    return None
+
+
+def _string_constant(node: ast.expr) -> str | None:
+    """Return the string value of a Constant/Str AST node, or None.
+
+    Python 3.8 deprecated ``ast.Str`` in favour of ``ast.Constant``; the
+    helper accepts either so scanner.py runs on the minimum supported
+    Python version.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    # ast.Str path is gone in 3.12+; keep for 3.8 compatibility.
+    if hasattr(ast, "Str") and isinstance(node, ast.Str):  # type: ignore[attr-defined]
+        return node.s  # type: ignore[attr-defined]
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -202,12 +413,27 @@ def _walk_module(
     tree: ast.Module,
     rel_path: str,
     module_id: str,
+    source_lines: list[str],
     out: _Output,
 ) -> None:
-    """Walk one module's AST and append discoveries to ``out``."""
+    """Walk one module's AST and append discoveries to ``out``.
+
+    ``source_lines`` is the file's text split on ``\\n``; the AST walker
+    consults it when looking for comment-style annotations on the line
+    above each ``def``/``class`` (the AST itself does not retain
+    comments).
+    """
     # Track the current container so nested defs render as
     # "module.outer.inner" — flat names would collide across modules.
-    _walk_body(tree.body, rel_path, module_id, out, parent_id=module_id)
+    _walk_body(
+        tree.body,
+        rel_path,
+        module_id,
+        source_lines,
+        out,
+        parent_id=module_id,
+        inherited_annotations=[],
+    )
 
 
 def _params_doc(args: ast.arguments) -> str:
@@ -240,8 +466,10 @@ def _walk_body(
     body: list[ast.stmt],
     rel_path: str,
     module_id: str,
+    source_lines: list[str],
     out: _Output,
     parent_id: str,
+    inherited_annotations: list[_Annotation],
 ) -> None:
     """Walk a list of top-level (or nested) statements.
 
@@ -253,18 +481,24 @@ def _walk_body(
       * Attach call edges to their containing function.
       * Discriminate class-body defs (=> methods) from function-body defs
         (=> nested functions).
+
+    ``inherited_annotations`` carries class-level annotations DOWN to
+    each method so AC #6 (class-level propagation) holds without an
+    extra pass.
     """
     for node in body:
         if isinstance(node, ast.ClassDef):
-            _visit_class(node, rel_path, module_id, out, parent_id)
+            _visit_class(node, rel_path, module_id, source_lines, out, parent_id)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             _visit_function(
                 node,
                 rel_path,
                 module_id,
+                source_lines,
                 out,
                 parent_id,
                 is_method=False,
+                inherited_annotations=inherited_annotations,
             )
         elif isinstance(node, ast.Import):
             _visit_import(node, module_id, out)
@@ -278,6 +512,7 @@ def _visit_class(
     node: ast.ClassDef,
     rel_path: str,
     module_id: str,
+    source_lines: list[str],
     out: _Output,
     parent_id: str,
 ) -> None:
@@ -310,18 +545,42 @@ def _visit_class(
     for deco in decorators:
         out.edges.append(_Edge(from_=class_id, to=deco, kind="decorator"))
 
+    # Annotations on the class itself. We collect EVERY hit (comment +
+    # decorator forms can co-exist on the same symbol) so a project that
+    # uses both styles in a transition window still resolves to a single
+    # `feature_symbols` link via the store's INSERT-OR-IGNORE upsert.
+    class_anns: list[_Annotation] = []
+    comment_ann = _extract_comment_annotation(node, source_lines, rel_path)
+    if comment_ann is not None:
+        class_anns.append(comment_ann)
+    decorator_ann = _extract_decorator_annotation(node, rel_path)
+    if decorator_ann is not None:
+        class_anns.append(decorator_ann)
+    out.annotations.extend(class_anns)
+
+    # Class-level annotations propagate to each method body (AC #6).
+    # Each propagated record is anchored at the method's line so the
+    # Go-side LookupSymbolAtOrAfterLine resolves to the method symbol.
+    # If a method also carries its own annotation, both get emitted;
+    # the store's idempotent upsert collapses them into one link.
+    inherited: list[_Annotation] = list(class_anns)
+
     # Walk class body — defs become methods, nested classes recurse.
     for child in node.body:
         if isinstance(child, ast.ClassDef):
-            _visit_class(child, rel_path, module_id, out, parent_id=class_id)
+            _visit_class(
+                child, rel_path, module_id, source_lines, out, parent_id=class_id
+            )
         elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
             _visit_function(
                 child,
                 rel_path,
                 module_id,
+                source_lines,
                 out,
                 parent_id=class_id,
                 is_method=True,
+                inherited_annotations=inherited,
             )
 
 
@@ -329,9 +588,11 @@ def _visit_function(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     rel_path: str,
     module_id: str,
+    source_lines: list[str],
     out: _Output,
     parent_id: str,
     is_method: bool,
+    inherited_annotations: list[_Annotation],
 ) -> None:
     func_id = f"{parent_id}.{node.name}"
     decorators = [_decorator_name(d) for d in node.decorator_list]
@@ -370,9 +631,41 @@ def _visit_function(
     for deco in decorators:
         out.edges.append(_Edge(from_=func_id, to=deco, kind="decorator"))
 
+    # Annotation extraction — own (comment + decorator) PLUS any
+    # inherited records propagated from the enclosing class. Inherited
+    # records are re-anchored at this symbol's line so the Go-side
+    # LookupSymbolAtOrAfterLine resolves to the method, not the class.
+    own_ann_comment = _extract_comment_annotation(node, source_lines, rel_path)
+    if own_ann_comment is not None:
+        out.annotations.append(own_ann_comment)
+    own_ann_decorator = _extract_decorator_annotation(node, rel_path)
+    if own_ann_decorator is not None:
+        out.annotations.append(own_ann_decorator)
+    for ann in inherited_annotations:
+        out.annotations.append(
+            _Annotation(
+                kind=ann.kind,
+                id=ann.id,
+                file=rel_path,
+                line=node.lineno,
+                raw=ann.raw,
+            )
+        )
+
     # Walk body: emit call edges + recurse for nested defs/classes.
+    # Nested defs inside a function body do NOT inherit class
+    # annotations — closure-captured callbacks aren't part of the class
+    # API surface.
     _emit_call_edges(node, func_id, out)
-    _walk_body(node.body, rel_path, module_id, out, parent_id=func_id)
+    _walk_body(
+        node.body,
+        rel_path,
+        module_id,
+        source_lines,
+        out,
+        parent_id=func_id,
+        inherited_annotations=[],
+    )
 
 
 def _emit_call_edges(
@@ -522,7 +815,11 @@ def _scan_file(abs_path: str, rel_path: str, out: _Output) -> None:
         )
     )
 
-    _walk_module(tree, rel_path, module_id, out)
+    # Source-line view used by the comment-annotation extractor. We keep
+    # this scoped to _scan_file so the lifetime ends when the function
+    # returns — no need to retain the source in _Output.
+    source_lines = source.splitlines()
+    _walk_module(tree, rel_path, module_id, source_lines, out)
     out.files.append(_FileMeta(path=rel_path))
     out.files_scanned += 1
 
@@ -549,6 +846,7 @@ def _emit(out: _Output) -> None:
     payload = {
         "nodes": [n.__dict__ for n in out.nodes],
         "edges": [e.to_json() for e in out.edges],
+        "annotations": [a.__dict__ for a in out.annotations],
         "files": [
             {"path": f.path, **({"syntax_error": f.syntax_error} if f.syntax_error else {})}
             for f in out.files
@@ -558,6 +856,7 @@ def _emit(out: _Output) -> None:
             "files_scanned": out.files_scanned,
             "symbols_found": len(out.nodes),
             "edges_found": len(out.edges),
+            "annotations_found": len(out.annotations),
             "syntax_failures": out.syntax_failures,
         },
     }
@@ -572,12 +871,14 @@ def main(argv: list[str]) -> int:
             {
                 "nodes": [],
                 "edges": [],
+                "annotations": [],
                 "files": [],
                 "warnings": [f"pyscan: root not a directory: {root}"],
                 "stats": {
                     "files_scanned": 0,
                     "symbols_found": 0,
                     "edges_found": 0,
+                    "annotations_found": 0,
                     "syntax_failures": 0,
                 },
             },

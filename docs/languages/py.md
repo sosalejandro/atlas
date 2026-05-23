@@ -35,7 +35,8 @@ listed below) and surfaces:
 | Methods on a class                                          | `method`         | Qualified name = `<module-path>.<class>.<method>`.                              |
 | `__init__` constructors                                     | `method`         | Indexed; not specially marked.                                                  |
 | Decorator names applied to a function/class                 | `call`           | Surfaced as edges with the decorator as `to`.                                  |
-| `@atlas:*` annotation comments                              | (annotation)     | Parsed by the **Go-side** annotation parser, not `scanner.py` — same grammar.  |
+| `@atlas:*` annotation comments                              | (annotation)     | Comment-form `# @atlas:...` parsed by the shared Go-side annotations parser.    |
+| `@atlas.feature("id")` decorator annotations                | (annotation)     | Decorator-form parsed by `scanner.py`; class-level decorators propagate to methods. |
 
 The scanner skips by default:
 
@@ -74,6 +75,107 @@ annotations:     3 (the @atlas:feature / @atlas:aggregate sites)
 
 Symbols are stored with the `py.` namespace prefix so they don't collide
 with Go symbols of the same short name in cross-language queries.
+
+## Tagging Python code for feature-level grouping (optional)
+
+Atlas associates symbols with features through `@atlas:<kind> <id>`
+annotations — the same grammar used in Go and TypeScript. For Python,
+two recognition modes are supported and may be mixed freely within a
+project.
+
+### Mode 1 — comment-style (no runtime dependency)
+
+A `# @atlas:<kind> <id>` comment on the line immediately above a `def`
+or `class` declaration attaches that annotation to the symbol below.
+Mirrors Go's `// @atlas:feature ...` convention.
+
+```python
+# @atlas:feature ingest-csv-imports
+def parse_csv_file(path: str) -> list[dict]:
+    ...
+
+# @atlas:contract ingest-csv-imports.parse-row
+def parse_row(line: str) -> dict:
+    ...
+```
+
+Tags after the id (`#real`, `step=1`, `stream=meal_prep_events`) follow
+the canonical grammar in [`docs/annotations.md`](../annotations.md).
+
+### Mode 2 — decorator-style (idiomatic Python)
+
+A `@atlas.feature("id")` decorator (or `@feature("id")` when imported
+as `from atlas import feature`) is functionally equivalent to the
+comment form. Atlas reads the decorator name and its first string
+argument statically; at runtime the decorator is a no-op.
+
+```python
+from atlas import feature, aggregate
+
+@feature("ship-orders")
+def ship_one(order_id: str) -> str:
+    ...
+
+@aggregate("ship-orders.batch")
+class BatchShipper:
+    def enqueue(self, order_id: str) -> None: ...
+    def flush(self) -> int: ...
+```
+
+To use the decorator form, drop the 3-line helper module shipped at
+[`assets/python/atlas.py`](../../assets/python/atlas.py) into your
+project (e.g. as `atlas.py` at a package root, or anywhere on
+`PYTHONPATH`). The helper has no pip dependencies — it provides
+identity-decorators for the id-shaped kinds (`feature`, `contract`,
+`bc`, `aggregate`, `aggregate_service`, `saga`, `consumer`,
+`event_emit`, `outbox_publish`).
+
+Python identifiers cannot contain `-` so the kebab-case wire kinds
+(`aggregate-service`, `event-emit`, `outbox-publish`) are reached via
+their `aggregate_service` / `event_emit` / `outbox_publish` Python
+aliases. The annotation parser canonicalises back to the wire form
+when materialising the record.
+
+Free-form kinds (`owner`, `deprecated`, `since`) are intentionally
+NOT decorator-addressable — a string argument is the wrong shape for
+"alice@team.com" or a free-text deprecation reason. Use the comment
+form for those.
+
+### Class-level annotations propagate to methods
+
+A `@atlas:feature` annotation on a `class` propagates to every method
+defined inside the class body — one `feature_symbols` link per
+method, anchored at the method's own source line. So a single
+annotation at the class declaration covers the entire class surface:
+
+```python
+@atlas.feature("ship-orders.batch")
+class BatchShipper:
+    def enqueue(self, order_id: str) -> None:
+        ...  # inherits ship-orders.batch
+
+    def flush(self) -> int:
+        ...  # inherits ship-orders.batch
+```
+
+`atlas trace ship-orders.batch` then returns the call chains of the
+methods, not just the class declaration line. This works with both
+the comment form (`# @atlas:feature ...` above the `class`) and the
+decorator form.
+
+### Verifying the linkage
+
+```
+# Run from the project root after `atlas init`:
+$ atlas trace ship-orders.batch
+ship-orders.batch
+└─ annotated_decorator.BatchShipper.enqueue       annotated_decorator.py:40
+└─ annotated_decorator.BatchShipper.flush         annotated_decorator.py:44
+```
+
+If `atlas trace` returns nothing, the most likely cause is that the
+annotation's id failed the strict id-grammar (`^[a-z0-9_-]+(\.[a-z0-9_-]+)*$`)
+— see [`docs/annotations.md`](../annotations.md) §id grammar.
 
 ## Worked queries
 
@@ -162,36 +264,52 @@ support for Python today. If you need HTTP-route extraction across
 Python services, open an issue at
 <https://github.com/sosalejandro/atlas/issues>.
 
-### 3. Annotations on a class don't auto-propagate to methods
+### 3. Annotations on a class auto-propagate to methods (RESOLVED in v0.4.0)
 
-A class-level `@atlas:feature` annotation attaches to the class symbol
-only, not to every method defined inside it. If you want each method to
-participate in the audit, annotate each one explicitly:
+**Resolved in v0.4.0 (issue #53).** A class-level `@atlas:feature` (or
+any id-shaped kind) now propagates to every method defined inside the
+class. The Python AST walker emits one `feature_symbols` link per
+method, anchored at the method's own source line.
+
+So this single annotation covers every method:
 
 ```python
 # @atlas:feature billing.subscribe
 class BillingHandler:
-    # @atlas:feature billing.subscribe
     def subscribe(self, user_id, plan):
-        ...
+        ...  # inherits billing.subscribe
+
+    def cancel(self, sub_id):
+        ...  # inherits billing.subscribe
 ```
 
-This is intentional — atlas treats the class as the API surface and
-treats methods as implementation. If your "API surface" is the method,
-annotate the method, not the class.
+If you need a specific method to NOT inherit the class-level link, drop
+the class annotation and annotate the methods you want individually.
+Propagation only applies to direct method definitions inside the class
+body — nested functions or closures defined inside a method body are
+NOT considered part of the class API surface and do not inherit.
 
-### 4. The scanner is not annotation-aware (Go side handles that)
+### 4. Annotation parsing is split across two layers
 
-`scanner.py` extracts the AST shape — symbols, decorators, file
-positions — but does **not** parse `@atlas:feature` annotations. That
-parsing happens in the Go orchestrator
-([`packages/codeindex/annotations/`](../../packages/codeindex/annotations/)),
-which reads the raw source text and matches against the shared
-annotation grammar.
+As of v0.4.0 (issue #53) the Python scanner is annotation-aware:
+`scanner.py` extracts both comment-form (`# @atlas:...`) and
+decorator-form (`@atlas.feature("...")`) hits, including class-level
+propagation to methods.
 
-The practical consequence: if you customise the annotation grammar
-(e.g. by registering a new `@atlas:<kind>`), no Python-side change is
-needed — the Go-side parser handles it for all three languages.
+The Go-side comment parser
+([`packages/codeindex/annotations/`](../../packages/codeindex/annotations/))
+also walks every `.py` file and surfaces comment-form hits
+independently. Both paths land in the same `feature_symbols` table;
+the store's idempotent upsert collapses any duplicates so dual
+emission is harmless.
+
+The practical consequence: registering a new id-shaped `@atlas:<kind>`
+in `annotations.Kinds` automatically lights up the comment-form path
+in every language. To support the new kind via the **decorator-form**
+in Python, also add it to the `decoratable` map in
+[`packages/codeindex/py/scanner.py`](../../packages/codeindex/py/scanner.py)
+and to the helper module at
+[`assets/python/atlas.py`](../../assets/python/atlas.py).
 
 ## Related
 

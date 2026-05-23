@@ -44,6 +44,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
 	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 )
@@ -339,12 +340,20 @@ func decodeOutput(b []byte) (*rawScannerOutput, error) {
 // Syntax-error files surface as Warnings AND as FileMeta entries with
 // SyntaxError set, so callers that care can drill in (e.g. the future
 // `atlas lint` verb) without re-walking the result.
+//
+// Annotations are mapped through annotations.Kinds so an unknown kind
+// from a future scanner.py degrades into a counted warning rather than
+// a crash. Records flagged Source=SourceAtlas so the materialise step
+// treats them identically to comment-grammar hits found by the Go-side
+// parser; the store's idempotent upserts collapse any duplicates that
+// arise when a project annotates with both forms simultaneously.
 func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 	res := &Result{
-		Symbols:  make([]shared.Symbol, 0, len(raw.Nodes)),
-		Edges:    make([]graph.Edge, 0, len(raw.Edges)),
-		Files:    raw.Files,
-		Warnings: append([]string(nil), raw.Warnings...),
+		Symbols:     make([]shared.Symbol, 0, len(raw.Nodes)),
+		Edges:       make([]graph.Edge, 0, len(raw.Edges)),
+		Annotations: make([]shared.Annotation, 0, len(raw.Annotations)),
+		Files:       raw.Files,
+		Warnings:    append([]string(nil), raw.Warnings...),
 	}
 	for _, n := range raw.Nodes {
 		kind := rawKindToSymbolKind(n.Kind)
@@ -363,6 +372,31 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 			From: shared.SymbolID(e.From),
 			To:   shared.SymbolID(e.To),
 		})
+	}
+	skippedKinds := map[string]int{}
+	for _, a := range raw.Annotations {
+		kind, ok := annotations.Kinds[a.Kind]
+		if !ok {
+			skippedKinds[a.Kind]++
+			continue
+		}
+		if a.ID == "" {
+			continue
+		}
+		res.Annotations = append(res.Annotations, shared.Annotation{
+			Kind: kind,
+			IDs:  []string{a.ID},
+			Position: shared.FilePosition{
+				Path: filepath.ToSlash(a.File),
+				Line: a.Line,
+			},
+			Source: shared.SourceAtlas,
+			Raw:    a.Raw,
+		})
+	}
+	for k, n := range skippedKinds {
+		res.Warnings = append(res.Warnings,
+			fmt.Sprintf("pyscan: skipped %d annotation(s) of unknown kind %q", n, k))
 	}
 	// Surface syntax-error files as warnings so the CLI prints them.
 	for _, f := range raw.Files {
