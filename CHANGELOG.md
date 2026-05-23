@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/sosalejandro/atlas/compare/v0.4.0...v0.4.1) (2026-05-23)
+
+
+### Bug Fixes
+
+* **codeindex/py:** preserve edge kind + resolve in-module targets so python edges land in store ([#59](https://github.com/sosalejandro/atlas/issues/59)) ([805b2fe](https://github.com/sosalejandro/atlas/commit/805b2feb89e84e85729779fe7b8ba9494a5f1831))
+
 ## [0.4.0](https://github.com/sosalejandro/atlas/compare/v0.3.1...v0.4.0) (2026-05-23)
 
 
