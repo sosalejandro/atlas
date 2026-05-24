@@ -48,22 +48,30 @@ func externalSymbolStub(id shared.SymbolID) shared.Symbol {
 //
 //  1. The raw target already matches an emitted symbol id verbatim
 //     (e.g. `sample.helper` → `sample.helper`). No-op.
-//  2. Same-module basename or dotted-head match (e.g. `helper` from
+//  2. Suffix match against the canonical-Python-name index — a multi-
+//     dot target like `mypkg.db.models.Case` that does NOT match any
+//     emitted id verbatim resolves to an internal symbol whose id ENDS
+//     with that target at a dot boundary, provided there is exactly one
+//     such symbol. This handles `src/` layouts where atlas's
+//     path-rooted symbol ids (`packages.db.src.mypkg.db.models.Case`)
+//     differ from the Python import path (`mypkg.db.models.Case`) the
+//     user actually wrote in `from … import …`. Issue #15.
+//  3. Same-module basename or dotted-head match (e.g. `helper` from
 //     `sample.compute` → `sample.helper`; `MyClass.run` →
 //     `sample.MyClass.run`).
-//  3. Caller's `from X import callee` — if the caller's module has an
+//  4. Caller's `from X import callee` — if the caller's module has an
 //     import edge whose bound name matches the callee, qualify to that
 //     edge's import target (e.g. `echo` from `src.click.core` with a
 //     `from .termui import echo` edge → `src.click.termui.echo`).
-//  4. Re-export from the caller's package `__init__.py`: if the package's
+//  5. Re-export from the caller's package `__init__.py`: if the package's
 //     `__init__` re-exports the callee via `from .module import callee`,
 //     qualify to `<package>.module.callee` (transitive lookup against
 //     the actual definition).
-//  5. Sibling-module top-level: among modules in the same parent package
+//  6. Sibling-module top-level: among modules in the same parent package
 //     as the caller, look for a top-level symbol whose basename matches
 //     the callee. Exactly one hit → qualify. Multiple hits → pick the
 //     most-imported one as a tie-breaker heuristic.
-//  6. No resolution. Pass the raw target through untouched — the
+//  7. No resolution. Pass the raw target through untouched — the
 //     ingestor will emit an `external:py` stub so the edge still lands.
 //
 // pyEdgeResolver is stateless after construction; safe for concurrent use.
@@ -80,32 +88,32 @@ type pyEdgeResolver struct {
 	allIDs map[string]struct{}
 
 	// byModule maps a module id (e.g. "sample") → basename → qualified
-	// id of an emitted symbol in that module. Rule (2).
+	// id of an emitted symbol in that module. Rule (3).
 	byModule map[string]map[string]string
 
 	// importAlias maps a caller module id → bound name → fully-qualified
 	// import target. Built from the scanner's `import` edges with the
 	// scanner.py rendering reversed back into Python-import semantics
-	// (relative dots resolved against the caller's package). Rule (3).
+	// (relative dots resolved against the caller's package). Rule (4).
 	importAlias map[string]map[string]string
 
 	// reExport maps a package module id (i.e. the id of an
 	// `__init__.py`) → bound name → the qualified id the package
-	// re-exports. Rule (4) consults the caller's package; transitive
+	// re-exports. Rule (5) consults the caller's package; transitive
 	// re-exports (a sibling `__init__` re-exporting from another
 	// package) are NOT walked — the static analysis bar stays "best
-	// effort, single hop". Rule (4).
+	// effort, single hop".
 	reExport map[string]map[string]string
 
 	// siblingIndex maps a parent-package module id → basename → list of
 	// qualified ids in sibling modules whose top-level symbol matches
 	// the basename. The list is sorted to make tie-breaking deterministic
-	// (rule 5 uses importPopularity as the first key, then alpha-sort).
+	// (rule 6 uses importPopularity as the first key, then alpha-sort).
 	siblingIndex map[string]map[string][]string
 
 	// importPopularity counts how many distinct caller modules import
 	// each qualified symbol id. Used as the deterministic tie-breaker
-	// when rule (5) finds multiple sibling candidates. A 0 entry means
+	// when rule (6) finds multiple sibling candidates. A 0 entry means
 	// no observed import — fine, ambiguous cases just fall back to
 	// alphabetical order in resolveSibling.
 	importPopularity map[string]int
@@ -117,6 +125,27 @@ type pyEdgeResolver struct {
 	// here. Used by parentPackage() to decide whether the caller's
 	// module IS its own package or whether to strip a dotted tail.
 	packageInits map[string]struct{}
+
+	// suffixIndex maps every dot-segmented tail of every emitted symbol
+	// id (length >= 2 segments) to the list of full symbol ids that end
+	// with that tail at a dot boundary. Used by rule (2) — the canonical-
+	// Python-name resolver — to bridge atlas's path-rooted symbol ids
+	// (e.g. `packages.db.src.mypkg.db.models.Case`) and the canonical
+	// Python import paths users actually write (e.g. `mypkg.db.models.Case`)
+	// when projects use a `src/` layout or a monorepo packaging convention.
+	//
+	// Bare 1-segment names are intentionally NOT indexed here — those
+	// are resolved by rules (3) (same-module), (4) (import-alias), (5)
+	// (re-export), and (6) (sibling), each of which carries enough caller
+	// context to disambiguate. Indexing 1-segment names would create
+	// massive collision buckets (every `Case` / `User` / `run`) and add
+	// no useful resolution beyond what those rules already deliver.
+	//
+	// Each bucket is sorted at construction time for deterministic
+	// tie-breaking when multiple symbols share the same suffix (e.g. two
+	// `mypkg/db/models.py` files in different src roots). Multi-hit
+	// buckets fall through to rule (7) passthrough — we never guess.
+	suffixIndex map[string][]string
 }
 
 // newPyEdgeResolver builds the resolution index from scanner.py's raw
@@ -135,10 +164,12 @@ func newPyEdgeResolver(nodes []rawNode, edges []rawEdge) *pyEdgeResolver {
 		siblingIndex:     make(map[string]map[string][]string),
 		importPopularity: make(map[string]int),
 		packageInits:     make(map[string]struct{}),
+		suffixIndex:      make(map[string][]string),
 	}
 	topLevelByModule := r.indexNodes(nodes)
 	r.indexEdges(edges)
 	r.indexSiblings(topLevelByModule)
+	r.indexSuffixes(nodes)
 	return r
 }
 
@@ -213,6 +244,56 @@ func (r *pyEdgeResolver) indexEdges(edges []rawEdge) {
 	}
 }
 
+// indexSuffixes populates r.suffixIndex with every dot-segmented tail
+// of every emitted symbol id whose tail length is at least 2 segments.
+//
+// Why ≥2 segments: import targets in the wild that hit this index are
+// always multi-dot (`mypkg.db.models.Case`, `services.api.foo.bar`).
+// Bare 1-segment callees (`Case`, `helper`) are resolved by the rules
+// that carry caller context (rules 3-6) where the disambiguation works
+// without inducing the noise of indexing every basename in the project.
+//
+// Why post-construction sort: the resolver promises deterministic
+// resolution (same scan → same edges) and the suffix lookup needs the
+// bucket order stable for multi-hit ambiguity reporting + future
+// tie-breaking work. Sort cost is O(B log B) per bucket; the suffix
+// index is the only post-O(n) write so this stays cheap in aggregate.
+//
+// Memory note: total entries are bounded by sum-over-symbols of
+// (segments - 1). For a 20k-symbol project averaging 6 segments per id
+// that's ≈100k map entries — well within reasonable bounds for an
+// in-process resolver. If this becomes a hot spot for very large
+// codebases the index can be lazily built on first miss instead.
+func (r *pyEdgeResolver) indexSuffixes(nodes []rawNode) {
+	for _, n := range nodes {
+		id := n.ID
+		if id == "" {
+			continue
+		}
+		// Walk suffix start positions from "skip first segment" toward
+		// the end. For id="a.b.c.d" we register "b.c.d", "c.d" — i.e.
+		// every multi-segment tail strictly shorter than the full id.
+		// Indexing the full id is redundant with rule (1) exact match.
+		i := 0
+		for i < len(id) {
+			j := strings.IndexByte(id[i:], '.')
+			if j < 0 {
+				break
+			}
+			i += j + 1
+			suffix := id[i:]
+			if !strings.Contains(suffix, ".") {
+				// 1-segment tails skipped; see method doc.
+				break
+			}
+			r.suffixIndex[suffix] = append(r.suffixIndex[suffix], id)
+		}
+	}
+	for s := range r.suffixIndex {
+		sort.Strings(r.suffixIndex[s])
+	}
+}
+
 // indexSiblings builds the sibling index keyed by parent package and
 // sorts each bucket so the tie-break in pickSibling is deterministic.
 func (r *pyEdgeResolver) indexSiblings(topLevelByModule map[string]map[string]string) {
@@ -250,12 +331,28 @@ func (r *pyEdgeResolver) resolve(fromID shared.SymbolID, target string) shared.S
 	if _, ok := r.allIDs[target]; ok {
 		return shared.SymbolID(target)
 	}
+	// Rule (2): canonical-Python-name suffix match — the import target
+	// is a multi-dot path like `mypkg.db.models.Case` and exactly one
+	// emitted symbol id ends with that suffix at a dot boundary. This
+	// fires for `src/` layouts and monorepo packaging conventions where
+	// atlas's path-rooted symbol ids drift from the importable Python
+	// module path. Issue #15.
+	//
+	// We intentionally check this BEFORE we drop into caller-context-
+	// dependent rules (3-6), because canonical-Python-name matches need
+	// no caller context — they are file-to-file edges by construction.
+	// Running this rule before the callerModule check also means we
+	// resolve module-level (no caller) imports, which scanner.py emits
+	// with from=<module_id> and to=<absolute target>.
+	if qn, ok := r.resolveSuffix(target); ok {
+		return shared.SymbolID(qn)
+	}
 	callerModule := r.callerEnclosingModule(string(fromID))
 	if callerModule == "" {
 		return shared.SymbolID(target)
 	}
 
-	// Rule (2): same-module basename / dotted-head match.
+	// Rule (3): same-module basename / dotted-head match.
 	if qn, ok := r.resolveSameModule(callerModule, target); ok {
 		return shared.SymbolID(qn)
 	}
@@ -276,7 +373,7 @@ func (r *pyEdgeResolver) resolve(fromID shared.SymbolID, target string) shared.S
 		}
 	}
 
-	// Rule (6): no resolution — pass through. mapToResult will stub it.
+	// Rule (7): no resolution — pass through. mapToResult will stub it.
 	return shared.SymbolID(target)
 }
 
@@ -291,7 +388,30 @@ func (r *pyEdgeResolver) callerEnclosingModule(fromID string) string {
 	return moduleOfSymbol(fromID)
 }
 
-// resolveSameModule implements rule (2): same-module basename or
+// resolveSuffix implements rule (2): canonical-Python-name suffix match.
+//
+// For a multi-dot target like `mypkg.db.models.Case`, looks for an
+// emitted symbol id that ends with that exact suffix at a dot boundary.
+// Returns the symbol id only when the suffix maps to EXACTLY ONE entry —
+// multiple-hit suffixes are ambiguous (two packages named the same
+// across different src roots) and we refuse to guess, deferring to the
+// caller's pass-through stub so the data quality issue is visible
+// rather than silently mis-resolved.
+//
+// Targets with no dot are skipped — bare names are the province of
+// rules (3) through (6) which carry caller context.
+func (r *pyEdgeResolver) resolveSuffix(target string) (string, bool) {
+	if !strings.Contains(target, ".") {
+		return "", false
+	}
+	candidates := r.suffixIndex[target]
+	if len(candidates) != 1 {
+		return "", false
+	}
+	return candidates[0], true
+}
+
+// resolveSameModule implements rule (3): same-module basename or
 // dotted-head match against the byModule index.
 func (r *pyEdgeResolver) resolveSameModule(callerModule, target string) (string, bool) {
 	mod, ok := r.byModule[callerModule]
@@ -302,7 +422,7 @@ func (r *pyEdgeResolver) resolveSameModule(callerModule, target string) (string,
 	return qn, ok
 }
 
-// resolveImportAlias implements rule (3): the caller's own `from X
+// resolveImportAlias implements rule (4): the caller's own `from X
 // import Y` introduces Y into the caller's namespace; if the head
 // matches a bound name we qualify to the import target.
 func (r *pyEdgeResolver) resolveImportAlias(callerModule, head, tail string) (string, bool) {
@@ -317,7 +437,7 @@ func (r *pyEdgeResolver) resolveImportAlias(callerModule, head, tail string) (st
 	return r.applyTail(qn, tail), true
 }
 
-// resolveReExport implements rule (4): if the caller's package
+// resolveReExport implements rule (5): if the caller's package
 // __init__.py re-exports head via `from .module import head`, qualify
 // to the re-export's target.
 func (r *pyEdgeResolver) resolveReExport(pkg, head, tail string) (string, bool) {
@@ -335,7 +455,7 @@ func (r *pyEdgeResolver) resolveReExport(pkg, head, tail string) (string, bool) 
 	return r.applyTail(qn, tail), true
 }
 
-// resolveSibling implements rule (5): match head against top-level
+// resolveSibling implements rule (6): match head against top-level
 // symbols of sibling modules in the same parent package, picking the
 // most-imported one when multiple modules define it.
 func (r *pyEdgeResolver) resolveSibling(pkg, head, tail, callerModule string) (string, bool) {
