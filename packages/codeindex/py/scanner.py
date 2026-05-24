@@ -673,22 +673,77 @@ def _emit_call_edges(
     func_id: str,
     out: _Output,
 ) -> None:
-    """For every ``ast.Call`` inside ``func``, emit a call edge.
+    """For every ``ast.Call`` inside ``func`` *but not inside a nested
+    ``def`` / ``async def`` / ``class``*, emit a call edge.
 
     Python's dynamic dispatch means the callee string is a best-effort
     rendering (``"foo"``, ``"obj.method"``, ``"mod.helper"``) — the same
     contract the TS scanner provides for symbol-level call traceability.
+
+    Issue #18: ``ast.walk`` descends into every child node including
+    nested function bodies, which would attribute a nested ``def``'s
+    calls to the enclosing function as well. The recursion in
+    ``_walk_body`` already emits call edges for nested defs/methods with
+    their own ``func_id`` — duplicating them under the outer ``func_id``
+    breaks caller identity for trace + blast-radius queries. We walk only
+    the function's *own* body, stopping descent at any new function or
+    class scope, while still visiting lambdas and comprehensions
+    (Python-3 list/set/dict/generator scopes that do NOT introduce a
+    nameable symbol in the symbol table).
     """
-    for sub in ast.walk(func):
-        if isinstance(sub, ast.Call):
-            try:
-                callee = _callee_string(sub.func)
-            except Exception:  # noqa: BLE001 — defensive; render must never crash
-                callee = type(sub.func).__name__
-            if callee:
-                out.edges.append(
-                    _Edge(from_=func_id, to=callee, kind="call"),
-                )
+    for call in _iter_own_scope_calls(func):
+        try:
+            callee = _callee_string(call.func)
+        except Exception:  # noqa: BLE001 — defensive; render must never crash
+            callee = type(call.func).__name__
+        if callee:
+            out.edges.append(
+                _Edge(from_=func_id, to=callee, kind="call"),
+            )
+
+
+# AST node types that introduce a new *named* scope (a symbol that ends
+# up in the Atlas symbol table). Recursion stops at these — they get
+# their own ``_emit_call_edges`` invocation via ``_walk_body`` and must
+# not double-count calls under the enclosing scope.
+#
+# Lambdas + comprehensions are deliberately NOT in this set: they
+# introduce a Python scope but no nameable symbol, so any calls they
+# make are still attributed to the enclosing def/method (the only place
+# a human would look for "who calls X").
+_OWN_SCOPE_STOP_TYPES: tuple[type, ...] = (
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.ClassDef,
+)
+
+
+def _iter_own_scope_calls(
+    func: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> Iterable[ast.Call]:
+    """Yield every ``ast.Call`` inside ``func``'s own scope.
+
+    Walks ``func.body`` (and inline lambda / comprehension bodies) but
+    halts at any nested ``def`` / ``async def`` / ``class`` so calls
+    made by the inner scope are NOT yielded here. The inner scope gets
+    its own attribution pass via ``_walk_body`` -> ``_visit_function``.
+    """
+
+    def _walk(node: ast.AST) -> Iterable[ast.Call]:
+        if isinstance(node, ast.Call):
+            yield node
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _OWN_SCOPE_STOP_TYPES):
+                # New named scope — its calls belong to it, not us.
+                continue
+            yield from _walk(child)
+
+    for stmt in func.body:
+        if isinstance(stmt, _OWN_SCOPE_STOP_TYPES):
+            # Top-level nested def/class inside the function body — same
+            # rationale as above. The recursion in _walk_body picks it up.
+            continue
+        yield from _walk(stmt)
 
 
 def _visit_import(node: ast.Import, module_id: str, out: _Output) -> None:
