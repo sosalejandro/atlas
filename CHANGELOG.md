@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/sosalejandro/atlas/compare/v0.5.1...v0.5.2) (2026-05-24)
+
+
+### Bug Fixes
+
+* **codeindex/py:** bound call-edge walk at nested scopes so caller identity survives ([#66](https://github.com/sosalejandro/atlas/issues/66)) ([be2efb6](https://github.com/sosalejandro/atlas/commit/be2efb6a8f4e2bd2994a28bbc15807943b248dfb))
+* **codeindex/py:** preserve per-edge source line so python import edges report their actual lineno ([#68](https://github.com/sosalejandro/atlas/issues/68)) ([78efd17](https://github.com/sosalejandro/atlas/commit/78efd17c7b0ab922aa644beca21cc172dc2855a9))
+
 ## [0.5.1](https://github.com/sosalejandro/atlas/compare/v0.5.0...v0.5.1) (2026-05-23)
 
 
