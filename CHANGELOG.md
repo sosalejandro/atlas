@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/sosalejandro/atlas/compare/v0.5.2...v0.6.0) (2026-05-24)
+
+
+### Features
+
+* **codeindex/py:** resolve intra-repo import edges to source files via canonical-name suffix index ([#69](https://github.com/sosalejandro/atlas/issues/69)) ([87e3e5d](https://github.com/sosalejandro/atlas/commit/87e3e5de2218640e3a90a07feac5ffb1a6ea4468))
+
 ## [0.5.2](https://github.com/sosalejandro/atlas/compare/v0.5.1...v0.5.2) (2026-05-24)
 
 
