@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/sosalejandro/atlas/compare/v0.7.0...v0.8.0) (2026-05-24)
+
+
+### Features
+
+* **cli/codebase:** add dead-code candidate subcommand surfacing zero-incoming-edge symbols ([#75](https://github.com/sosalejandro/atlas/issues/75)) ([ec3e585](https://github.com/sosalejandro/atlas/commit/ec3e58521eb8e387e1dc0ff153556f4982862f96))
+
 ## [0.7.0](https://github.com/sosalejandro/atlas/compare/v0.6.1...v0.7.0) (2026-05-24)
 
 
