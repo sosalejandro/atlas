@@ -57,6 +57,7 @@ type Edge struct {
 	FilePath     string    `db:"file_path" json:"file_path"`
 	Line         int64     `db:"line" json:"line"`
 	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	EdgeMeta     *string   `db:"edge_meta" json:"edge_meta"`
 }
 
 type Feature struct {

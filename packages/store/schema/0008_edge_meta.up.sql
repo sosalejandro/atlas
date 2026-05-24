@@ -1,0 +1,38 @@
+-- 0008_edge_meta.up.sql
+--
+-- Adds an optional `edge_meta` column to `edges` so a kind-specific
+-- qualifier can ride alongside the relationship label without
+-- multiplying the kind enum. The first producer is the Python scanner
+-- (issue #16): import edges now carry a scope tag — one of "module",
+-- "function", "conditional", "type_checking", "try_guard" — so
+-- downstream dead-code analysis can distinguish definitely-live
+-- module-level imports from deferred / type-checking-only ones.
+--
+-- Schema-shape notes:
+--
+--   * NULLable — only Python `import` edges populate the column today;
+--     every other edge kind (call, inheritance, decorator, polyglot
+--     edges from Go / TS scanners) keeps NULL. A future scanner that
+--     wants a per-kind qualifier (TS scanner, hypothetical
+--     "@deprecated since=v3" tag) can use this column without
+--     re-migrating.
+--
+--   * NOT in the composite UNIQUE index on
+--     (from_symbol_id, to_symbol_id, kind, file_path, line). Treating
+--     edge_meta as part of the dedupe key would let a project re-emit
+--     the same logical import twice (once at "function" scope, once
+--     at "module" scope) and we'd persist both, which is misleading.
+--     Last-write-wins on the meta column when an upsert races is
+--     acceptable — the scanner is deterministic per source state, so
+--     re-running atlas init always settles on one value.
+--
+--   * No CHECK on the meta value vocabulary. The Go-side store layer
+--     (packages/store/edges.go IsValidEdgeMeta) gates writes; SQLite
+--     CHECK constraints aren't ALTERable in place and the kind-scoped
+--     vocabulary will grow, so we keep the validator in Go where
+--     test coverage is cheaper to expand.
+--
+-- The store is a re-derivable cache (see store.go runMigrations) so a
+-- failure here is recovered by deleting atlas.db and re-running.
+
+ALTER TABLE edges ADD COLUMN edge_meta TEXT;

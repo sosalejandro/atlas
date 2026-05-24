@@ -118,15 +118,29 @@ class _Edge:
     kind: str
     # 1-based source line of the AST node that produced this edge.
     # 0 means "no per-edge line available" (back-compat with pre-fix
-    # callers and synthetic edges that have no source anchor). The Go
-    # ingestor falls back to the from-node's symbol line when this is 0,
-    # so omitting it never breaks ingestion — it only loses precision.
+    # callers and synthetic edges that have no source anchor). The
+    # Go ingestor falls back to the from-node's symbol line when this
+    # is 0, so omitting it never breaks ingestion — it only loses
+    # precision. Closes issue #17 (PR #68).
     line: int = 0
+    # scope is non-empty only for ``import`` edges. It records the
+    # syntactic context the import was discovered in so downstream
+    # queries can distinguish definitely-live module-level imports
+    # from deferred / conditional / type-checking-only ones (see
+    # ``_classify_import_scope`` and issue #16).
+    #
+    # Allowed values: "module", "function", "conditional",
+    # "type_checking", "try_guard". Empty string is wire-omitted so
+    # the JSON envelope stays back-compat with pre-#16 atlas binaries
+    # reading the same scanner output.
+    scope: str = ""
 
     def to_json(self) -> dict[str, object]:
         # `from` is a Python keyword — translate at the wire boundary.
         # `line` is omitted when 0 so the wire stays small and the Go
         # decoder's int zero-value naturally signals "no value".
+        # `scope` is omitted when empty so non-import edges keep their
+        # historical three-key shape (from/to/kind).
         payload: dict[str, object] = {
             "from": self.from_,
             "to": self.to,
@@ -134,6 +148,8 @@ class _Edge:
         }
         if self.line:
             payload["line"] = self.line
+        if self.scope:
+            payload["scope"] = self.scope
         return payload
 
 
@@ -341,6 +357,180 @@ def _string_constant(node: ast.expr) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Import-scope classification (issue #16)
+# ---------------------------------------------------------------------------
+
+
+# Canonical scope tags for import edges. The set is intentionally closed —
+# downstream consumers (SQL filters like
+# ``WHERE edge_meta IN ('module','try_guard')``) rely on these values
+# being enumerable. Adding a new scope requires updating
+# ``packages/store/edges.go``'s IsValidEdgeMeta allow-list too.
+SCOPE_MODULE = "module"  # top-level statement at module scope
+SCOPE_FUNCTION = "function"  # inside ``def`` / ``async def`` body
+SCOPE_CONDITIONAL = "conditional"  # inside ``if`` / ``elif`` / ``else`` block
+SCOPE_TYPE_CHECKING = "type_checking"  # inside ``if TYPE_CHECKING:``
+SCOPE_TRY_GUARD = "try_guard"  # inside ``try:`` catching ImportError
+
+# AST node types that introduce a function-scope binding boundary.
+_FUNCTION_SCOPES: tuple[type, ...] = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def _try_catches_import_error(node: ast.Try) -> bool:
+    """Return True when ``node`` has an ``except ImportError`` handler.
+
+    Recognises three handler shapes:
+
+    * ``except ImportError:``                         — bare name
+    * ``except ImportError as e:``                    — aliased
+    * ``except (ImportError, ModuleNotFoundError):``  — tuple
+
+    Any other exception (``except Exception:``, ``except OSError:`` …)
+    is treated as a regular try block, NOT a try-guard. The narrower
+    classification matches the dogfood pattern from issue #16:
+    try-guards exist specifically to fall back when an optional
+    dependency is missing, and ``ImportError`` (plus its 3.6+ subclass
+    ``ModuleNotFoundError``) is the only exception the runtime raises
+    in that scenario.
+    """
+    for handler in node.handlers:
+        if handler.type is None:
+            # Bare ``except:`` — too broad; don't promote to try_guard.
+            continue
+        for name in _exception_names(handler.type):
+            if name in ("ImportError", "ModuleNotFoundError"):
+                return True
+    return False
+
+
+def _exception_names(node: ast.expr) -> list[str]:
+    """Flatten an exception-handler type into a list of bare class names.
+
+    ``ImportError``                  -> ["ImportError"]
+    ``(ImportError, OSError)``       -> ["ImportError", "OSError"]
+    ``builtins.ImportError``         -> ["ImportError"]   (last attr only)
+    Anything more exotic (a call, a subscript) -> []
+    """
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, ast.Attribute):
+        # `builtins.ImportError` — we only care about the leaf attr name.
+        return [node.attr]
+    if isinstance(node, ast.Tuple):
+        out: list[str] = []
+        for elt in node.elts:
+            out.extend(_exception_names(elt))
+        return out
+    return []
+
+
+def _if_is_type_checking(node: ast.If) -> bool:
+    """Return True when ``node`` tests ``TYPE_CHECKING`` (common forms).
+
+    Accepts both the canonical ``if TYPE_CHECKING:`` (after
+    ``from typing import TYPE_CHECKING``) and the qualified
+    ``if typing.TYPE_CHECKING:`` form. Negated tests
+    (``if not TYPE_CHECKING:``) do NOT promote — by definition the
+    imports inside them run at runtime.
+    """
+    test = node.test
+    if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
+        return True
+    if isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING":
+        return True
+    return False
+
+
+def _classify_import_scope(stack: list[ast.AST]) -> str:
+    """Pick the strongest scope tag for an import whose ancestor chain
+    is ``stack`` (innermost-last).
+
+    Priority: type_checking > try_guard > function > conditional >
+    module. The most-specific tag wins so a deferred import that's
+    ALSO inside ``if TYPE_CHECKING:`` is reported as type_checking
+    (the more useful classification for dead-code analysis).
+
+    Callers must NOT include the import statement itself in ``stack``.
+    """
+    saw_function = False
+    saw_conditional = False
+    saw_try_guard = False
+    for ancestor in stack:
+        if isinstance(ancestor, ast.If):
+            if _if_is_type_checking(ancestor):
+                # Highest priority — short-circuit.
+                return SCOPE_TYPE_CHECKING
+            saw_conditional = True
+        elif isinstance(ancestor, ast.Try):
+            if _try_catches_import_error(ancestor):
+                saw_try_guard = True
+        elif isinstance(ancestor, _FUNCTION_SCOPES):
+            saw_function = True
+    if saw_try_guard:
+        return SCOPE_TRY_GUARD
+    if saw_function:
+        return SCOPE_FUNCTION
+    if saw_conditional:
+        return SCOPE_CONDITIONAL
+    return SCOPE_MODULE
+
+
+def _emit_module_imports(
+    tree: ast.Module, module_id: str, out: _Output
+) -> None:
+    """Walk ``tree`` and emit one edge per ``ast.Import`` /
+    ``ast.ImportFrom`` at any depth, tagged with its lexical scope.
+
+    Closes issue #16: pre-fix the scanner only walked module-level
+    ``tree.body`` and silently skipped imports inside functions, ``if``
+    blocks, and ``try`` blocks — producing systematic false positives
+    in dead-code detection for any project that uses deferred imports
+    as an anti-circular-import pattern (FastAPI lifespan hooks,
+    Django apps, etc.).
+
+    We do an iterative pre-order traversal with an ancestor stack so
+    each import is classified with O(depth) work and no whole-tree
+    re-walk per node. Python's own ``ast.parse`` enforces
+    ``sys.setrecursionlimit`` so a file that parses cannot also blow
+    this walker's stack.
+    """
+    stack: list[ast.AST] = []
+    _walk_for_imports(tree, stack, module_id, out)
+
+
+def _walk_for_imports(
+    node: ast.AST, stack: list[ast.AST], module_id: str, out: _Output
+) -> None:
+    """Pre-order recursive walk that emits import edges for every
+    ``ast.Import`` / ``ast.ImportFrom`` it visits, tagging them with
+    the lexical scope derived from ``stack``.
+
+    ``stack`` carries the ancestor chain (innermost-last) used by
+    ``_classify_import_scope``. ``node`` itself is NOT on the stack
+    when this function is called for it.
+    """
+    if isinstance(node, ast.Import):
+        scope = _classify_import_scope(stack)
+        _visit_import(node, module_id, out, scope=scope)
+        return
+    if isinstance(node, ast.ImportFrom):
+        scope = _classify_import_scope(stack)
+        _visit_import_from(node, module_id, out, scope=scope)
+        return
+
+    # Push self onto the stack BEFORE descending; pop on the way back
+    # up so siblings see a clean ancestor chain. The try/finally pair
+    # guards against a child raising — the stack must remain consistent
+    # with the caller's view.
+    stack.append(node)
+    try:
+        for child in ast.iter_child_nodes(node):
+            _walk_for_imports(child, stack, module_id, out)
+    finally:
+        stack.pop()
+
+
+# ---------------------------------------------------------------------------
 # AST walk
 # ---------------------------------------------------------------------------
 
@@ -437,6 +627,17 @@ def _walk_module(
     consults it when looking for comment-style annotations on the line
     above each ``def``/``class`` (the AST itself does not retain
     comments).
+
+    Symbol + call-edge discovery uses ``_walk_body`` because those
+    need container-aware ids ("mod.Class.method") that are cleanest
+    expressed with a recursive container walk. Import-edge discovery
+    uses a SEPARATE depth-unbounded walker
+    (``_emit_module_imports``) that visits every ``ast.Import`` /
+    ``ast.ImportFrom`` in the tree regardless of nesting depth — see
+    issue #16. The two walkers are deliberately independent:
+    collapsing them would force the symbol walker to descend into
+    bodies it currently skips (``ast.With``, ``ast.For`` …) just to
+    catch deferred imports, and the extra surface area isn't worth it.
     """
     # Track the current container so nested defs render as
     # "module.outer.inner" — flat names would collide across modules.
@@ -449,6 +650,12 @@ def _walk_module(
         parent_id=module_id,
         inherited_annotations=[],
     )
+    # Import edges at any depth — issue #16. The dedicated walker
+    # carries an ancestor stack so each import is tagged with its
+    # lexical scope (module / function / conditional / type_checking
+    # / try_guard). Module-level imports keep scope="module" which is
+    # the legacy (pre-fix) behaviour for downstream consumers.
+    _emit_module_imports(tree, module_id, out)
 
 
 def _params_doc(args: ast.arguments) -> str:
@@ -515,12 +722,13 @@ def _walk_body(
                 is_method=False,
                 inherited_annotations=inherited_annotations,
             )
-        elif isinstance(node, ast.Import):
-            _visit_import(node, module_id, out)
-        elif isinstance(node, ast.ImportFrom):
-            _visit_import_from(node, module_id, out)
         elif isinstance(node, ast.Assign):
             _visit_module_assign(node, rel_path, module_id, out, parent_id)
+        # NOTE: ast.Import / ast.ImportFrom are NOT handled here.
+        # Import discovery runs through _emit_module_imports (called
+        # once per module from _walk_module) so deferred imports
+        # inside function bodies, conditional blocks, and try-guards
+        # land too — issue #16.
 
 
 def _visit_class(
@@ -795,35 +1003,54 @@ def _iter_own_scope_calls(
         yield from _walk(stmt)
 
 
-def _visit_import(node: ast.Import, module_id: str, out: _Output) -> None:
+def _visit_import(
+    node: ast.Import, module_id: str, out: _Output, scope: str = SCOPE_MODULE
+) -> None:
     """``import X`` and ``import X as Y`` — one edge per alias.
 
     Every emitted edge carries ``node.lineno`` so the Go ingestor can
     persist the actual source line of the import statement instead of
-    defaulting to the module symbol's line (which is always 1).
+    defaulting to the module symbol's line (issue #17, PR #68).
+
+    ``scope`` is the lexical context the statement was found in (see
+    issue #16 + ``_classify_import_scope``). Module-level imports keep
+    the historical ``scope="module"`` tag; deferred imports carry
+    their real scope so downstream queries can filter (e.g. dead-code
+    analysis excludes ``scope='function'`` from "no incoming edges"
+    reports).
     """
     line = node.lineno
     for alias in node.names:
         target = alias.name
         out.edges.append(
-            _Edge(from_=module_id, to=target, kind="import", line=line),
+            _Edge(from_=module_id, to=target, kind="import", line=line, scope=scope),
         )
 
 
 def _visit_import_from(
-    node: ast.ImportFrom, module_id: str, out: _Output
+    node: ast.ImportFrom,
+    module_id: str,
+    out: _Output,
+    scope: str = SCOPE_MODULE,
 ) -> None:
     """``from X import Y, Z`` and relative ``from . import sibling``.
 
-    The edge target is rendered as the fully-qualified name so a Go-side
-    consumer can resolve to module + symbol with simple splitting.
+    The edge target is rendered as the fully-qualified name so a
+    Go-side consumer can resolve to module + symbol with simple
+    splitting.
 
     Every emitted edge carries the ``from ... import`` statement's
-    ``node.lineno``; for a multi-name form (``from X import a, b, c``)
-    each alias shares the same line because Python's grammar makes them
-    a single statement. If a future precision pass wants per-name lines
-    it can read ``alias.lineno`` — currently ``ast`` only populates that
-    on Python 3.10+, so we keep the statement-level line for portability.
+    ``node.lineno`` (issue #17, PR #68); for a multi-name form
+    (``from X import a, b, c``) each alias shares the same line
+    because Python's grammar makes them a single statement. If a
+    future precision pass wants per-name lines it can read
+    ``alias.lineno`` — currently ``ast`` only populates that on
+    Python 3.10+, so we keep the statement-level line for portability.
+
+    ``scope`` carries the lexical-context tag the AST walker computed
+    for the enclosing statement chain (issue #16) so deferred and
+    conditional imports land alongside module-level ones, tagged
+    with their real syntactic context.
     """
     # Render `from .sibling import x`     -> base = ".sibling", target = ".sibling.x"
     # Render `from . import sibling`        -> base = ".",        target = ".sibling"
@@ -841,7 +1068,7 @@ def _visit_import_from(
         else:
             target = f"{base}.{alias.name}"
         out.edges.append(
-            _Edge(from_=module_id, to=target, kind="import", line=line),
+            _Edge(from_=module_id, to=target, kind="import", line=line, scope=scope),
         )
 
 

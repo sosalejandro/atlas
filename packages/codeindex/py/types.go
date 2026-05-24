@@ -97,18 +97,35 @@ type rawEdge struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	// Kind labels what relationship this edge represents:
-	//   "import"      — module-level `import X` / `from X import Y`
+	//   "import"      — `import X` / `from X import Y` at any depth
 	//   "inheritance" — `class Child(Parent)`
 	//   "call"        — `foo()` inside a function body
 	//   "decorator"   — `@dec def f()` (or class-level decorator)
 	// Currently advisory; the Go layer drops it into graph.Edge.From/To only.
 	Kind string `json:"kind,omitempty"`
-	// Line is the 1-based source line of the AST node that produced this
-	// edge (the `import` statement, the `@deco` decorator line, the call
-	// site, etc.). Zero means "scanner.py did not supply one" — the
-	// ingestor then falls back to the from-symbol's declaration line so
-	// the wire stays back-compat with pre-fix scanner builds.
+	// Line is the 1-based source line of the AST node that produced
+	// this edge (the `import` statement, the `@deco` decorator line,
+	// the call site, etc.). Zero means "scanner.py did not supply
+	// one" — the ingestor then falls back to the from-symbol's
+	// declaration line so the wire stays back-compat with pre-fix
+	// scanner builds. Closes issue #17 (PR #68).
 	Line int `json:"line,omitempty"`
+	// Scope is set ONLY on import edges and records the lexical
+	// context the import was found in. Possible values mirror
+	// scanner.py's SCOPE_* constants:
+	//
+	//   "module"         — top-level statement
+	//   "function"       — inside a def/async def body
+	//   "conditional"    — inside `if/elif/else` (non-TYPE_CHECKING)
+	//   "type_checking"  — inside `if TYPE_CHECKING:`
+	//   "try_guard"      — inside `try:` whose handlers catch ImportError
+	//
+	// Empty string means "scope was not reported" (legacy scanners
+	// or non-import edges). Closes issue #16: the legacy scanner
+	// only walked module-level imports, so anything in a function
+	// body or conditional was silently dropped — false-positive
+	// dead code.
+	Scope string `json:"scope,omitempty"`
 }
 
 type rawStats struct {

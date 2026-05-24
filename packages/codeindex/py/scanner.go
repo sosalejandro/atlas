@@ -403,7 +403,15 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 			From: from,
 			To:   to,
 			Kind: e.Kind,
+			// Line is the source line of the import / call / decorator
+			// statement (issue #17, PR #68). Zero defaults to the
+			// from-symbol's line at ingest time.
 			Line: e.Line,
+			// Meta carries the import-scope tag scanner.py computes
+			// for each import edge (issue #16). Empty for every
+			// non-import edge, which keeps the wire payload
+			// back-compat with pre-#16 atlas binaries.
+			Meta: e.Scope,
 		})
 	}
 	skippedKinds := map[string]int{}
