@@ -300,21 +300,31 @@ cross-module hop.
 
 The Go-side resolver
 ([`packages/codeindex/py/resolver.go`](../../packages/codeindex/py/resolver.go))
-now promotes bare callee names to qualified ids through a 5-tier
+now promotes bare callee names to qualified ids through a 6-tier
 lookup (first match wins):
 
 1. Exact qualified-name match against the symbol table.
-2. Same-module basename or dotted-head match (e.g. `helper` from
+2. Canonical-Python-name suffix match (added in issue #15) — a multi-
+   dot target like `mypkg.db.models.Case` matched against the index of
+   every dot-segmented tail of every emitted symbol id. Resolves when
+   exactly one internal symbol's id ends with the target at a dot
+   boundary. This is the rule that bridges atlas's path-rooted symbol
+   ids (`packages.db.src.mypkg.db.models.Case`) and the canonical
+   Python module paths users actually type in `from … import …`,
+   enabling cross-package import edges in monorepo / `src/`-layout
+   projects to land as real file-to-file edges instead of `external:py`
+   stubs.
+3. Same-module basename or dotted-head match (e.g. `helper` from
    `sample.compute` → `sample.helper`).
-3. Caller's own `from X import Y` — `Y` resolves to `X.Y`.
-4. Re-export from the caller's package `__init__.py` — `from .module
+4. Caller's own `from X import Y` — `Y` resolves to `X.Y`.
+5. Re-export from the caller's package `__init__.py` — `from .module
    import Y` in `pkg/__init__.py` lets callers in `pkg.anything`
    reference bare `Y` and resolve to `pkg.module.Y`.
-5. Sibling-module top-level: `Y` not bound by an import edge but
+6. Sibling-module top-level: `Y` not bound by an import edge but
    declared at top-level in a sibling module of the caller's package.
    Most-imported wins on tie-breaks.
 
-If all five tiers miss, the edge keeps its bare callee target and the
+If all six tiers miss, the edge keeps its bare callee target and the
 ingestor synthesises an `external:py` stub so the edge still lands in
 the graph (preserving the depth-1 reachability set).
 

@@ -47,9 +47,9 @@ func TestResolver_CrossModule(t *testing.T) {
 		edge string
 		why  string
 	}{
-		{"pkg.core.command->pkg.termui.echo", "rule 4: re-export from pkg/__init__.py"},
-		{"pkg.core.command->pkg.termui.style", "rule 3: caller's own `from .termui import style`"},
-		{"pkg.core.command->pkg.helpers.sibling_fn", "rule 5: sibling module top-level lookup"},
+		{"pkg.core.command->pkg.termui.echo", "rule 5: re-export from pkg/__init__.py"},
+		{"pkg.core.command->pkg.termui.style", "rule 4: caller's own `from .termui import style`"},
+		{"pkg.core.command->pkg.helpers.sibling_fn", "rule 6: sibling module top-level lookup"},
 	}
 	for _, want := range wantResolved {
 		if !edgeSet[want.edge] {
@@ -125,31 +125,31 @@ func TestResolver_RulePriority(t *testing.T) {
 			want:   "pkg.termui.echo",
 		},
 		{
-			name:   "rule 2: same-module basename",
+			name:   "rule 3: same-module basename",
 			from:   "pkg.core.command",
 			target: "inline_helper",
 			want:   "pkg.core.inline_helper",
 		},
 		{
-			name:   "rule 3: caller's `from .termui import style`",
+			name:   "rule 4: caller's `from .termui import style`",
 			from:   "pkg.core.command",
 			target: "style",
 			want:   "pkg.termui.style",
 		},
 		{
-			name:   "rule 4: re-export from package __init__",
+			name:   "rule 5: re-export from package __init__",
 			from:   "pkg.core.command",
 			target: "echo",
 			want:   "pkg.termui.echo",
 		},
 		{
-			name:   "rule 5: sibling-module top-level",
+			name:   "rule 6: sibling-module top-level",
 			from:   "pkg.core.command",
 			target: "sibling_fn",
 			want:   "pkg.helpers.sibling_fn",
 		},
 		{
-			name:   "rule 6: no resolution — passthrough",
+			name:   "rule 7: no resolution — passthrough",
 			from:   "pkg.core.command",
 			target: "unknown_external_name",
 			want:   "unknown_external_name",
@@ -336,4 +336,151 @@ func edgeStringList(edges []graph.Edge) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// TestResolver_MultiPackageSuffixMatch is the issue-#15 integration
+// regression: a monorepo where the scanned files use a `src/` source-
+// root layout (`packages/db/src/mypkg/db/models.py`) but cross-package
+// imports use the canonical Python module path the user actually wrote
+// (`from mypkg.db.models import Case`).
+//
+// Before the fix, both import edges in services/api/src/api/deps.py
+// landed pointing at `external:py` stubs because atlas's symbol ids
+// are path-rooted (`packages.db.src.mypkg.db.models.Case`) and don't
+// match the import target verbatim. After the fix, rule (2) — the
+// canonical-Python-name suffix index — bridges the two name spaces so
+// the edges resolve to the real internal symbol ids, whose file_path
+// is the actual source file on disk.
+//
+// This is the test the issue explicitly calls for ("integration test
+// using the multi-package fixture asserts the resolved file_path").
+func TestResolver_MultiPackageSuffixMatch(t *testing.T) {
+	t.Parallel()
+	skipIfNoPython(t)
+
+	root, err := filepath.Abs(filepath.Join("testdata", "multi_package"))
+	if err != nil {
+		t.Fatalf("abs testdata: %v", err)
+	}
+	s := NewScanner(Options{Logger: shared.NopLogger{}})
+	res, err := s.Scan(context.Background(), root)
+	if err != nil {
+		t.Fatalf("scan multi_package: %v", err)
+	}
+
+	// Map every symbol id → file path so we can assert the import edge
+	// targets land on the real source file, not the external stub.
+	fileByID := make(map[shared.SymbolID]string, len(res.Symbols))
+	for _, sym := range res.Symbols {
+		fileByID[sym.ID] = sym.Position.Path
+	}
+
+	wantTargets := []shared.SymbolID{
+		"packages.db.src.mypkg.db.models.Case",
+		"packages.db.src.mypkg.db.models.User",
+	}
+	wantPath := "packages/db/src/mypkg/db/models.py"
+
+	wantFromModule := shared.SymbolID("services.api.src.api.deps")
+
+	resolved := make(map[shared.SymbolID]bool)
+	for _, e := range res.Edges {
+		if e.Kind != "import" {
+			continue
+		}
+		if e.From != wantFromModule {
+			continue
+		}
+		for _, want := range wantTargets {
+			if e.To == want {
+				resolved[want] = true
+				if got := fileByID[e.To]; got != wantPath {
+					t.Errorf("import edge %s → %s landed at file_path %q; want %q (issue #15: must resolve to real source file, not external:py)",
+						e.From, e.To, got, wantPath)
+				}
+			}
+		}
+	}
+	for _, want := range wantTargets {
+		if !resolved[want] {
+			t.Errorf("expected import edge %s → %s to be present and resolved; got edges:\n%s",
+				wantFromModule, want, strings.Join(edgeStringList(res.Edges), "\n"))
+		}
+	}
+
+	// Belt-and-braces: no internally-imported target may land on an
+	// external:py stub. (External imports — e.g. stdlib — are still
+	// allowed to stub, but neither test fixture file imports any.)
+	for _, e := range res.Edges {
+		if e.Kind != "import" {
+			continue
+		}
+		if e.From != wantFromModule {
+			continue
+		}
+		if fileByID[e.To] == externalPyStubPath {
+			t.Errorf("import edge %s → %s still lands at external:py stub after fix; expected canonical-name suffix match to resolve it",
+				e.From, e.To)
+		}
+	}
+}
+
+// TestResolver_SuffixIndexAmbiguity locks in the safety guarantee that
+// suffix-match resolution never guesses when multiple internal symbols
+// share the same canonical Python tail. Two repos each defining
+// `services.foo.handler.Handler` (one in `apps/`, one in `libs/`)
+// would create a 2-element bucket; the resolver must refuse to pick
+// either and let the edge fall through to the stub path, preserving
+// data quality visibility.
+func TestResolver_SuffixIndexAmbiguity(t *testing.T) {
+	t.Parallel()
+	nodes := []rawNode{
+		{ID: "apps.svc.src.shared.handler", Kind: "module", File: "apps/svc/src/shared/handler.py"},
+		{ID: "apps.svc.src.shared.handler.Handler", Kind: "class", File: "apps/svc/src/shared/handler.py", Line: 1},
+		{ID: "libs.lib.src.shared.handler", Kind: "module", File: "libs/lib/src/shared/handler.py"},
+		{ID: "libs.lib.src.shared.handler.Handler", Kind: "class", File: "libs/lib/src/shared/handler.py", Line: 1},
+		// Distinct unambiguous symbol to confirm single-hit lookups still resolve.
+		{ID: "apps.svc.src.unique.api", Kind: "module", File: "apps/svc/src/unique/api.py"},
+		{ID: "apps.svc.src.unique.api.UniqueClass", Kind: "class", File: "apps/svc/src/unique/api.py", Line: 1},
+		// Caller module.
+		{ID: "consumer", Kind: "module", File: "consumer.py"},
+	}
+	r := newPyEdgeResolver(nodes, nil)
+
+	// Ambiguous: `shared.handler.Handler` is a tail of two symbols.
+	if got := r.resolve("consumer", "shared.handler.Handler"); got != "shared.handler.Handler" {
+		t.Errorf("ambiguous suffix should pass through unchanged; got %q", got)
+	}
+
+	// Unambiguous: `unique.api.UniqueClass` matches exactly one symbol.
+	want := shared.SymbolID("apps.svc.src.unique.api.UniqueClass")
+	if got := r.resolve("consumer", "unique.api.UniqueClass"); got != want {
+		t.Errorf("unique suffix should resolve; got %q want %q", got, want)
+	}
+}
+
+// TestResolver_SuffixIndexSkipsBareNames protects the design decision
+// that single-segment names are NOT routed through the suffix index —
+// they are the province of caller-context-aware rules (3-6). If a
+// bare `User` were to hit the suffix index, ambiguity would dominate
+// (every project has hundreds of 1-segment basenames), and the
+// rule-(3) same-module resolution we already have would silently lose
+// priority.
+func TestResolver_SuffixIndexSkipsBareNames(t *testing.T) {
+	t.Parallel()
+	nodes := []rawNode{
+		{ID: "pkg.a", Kind: "module", File: "pkg/a.py"},
+		{ID: "pkg.a.User", Kind: "class", File: "pkg/a.py", Line: 1},
+		{ID: "pkg.b", Kind: "module", File: "pkg/b.py"},
+		{ID: "pkg.b.caller", Kind: "function", File: "pkg/b.py", Line: 1},
+	}
+	r := newPyEdgeResolver(nodes, nil)
+
+	// Bare `User` does NOT match via suffix index (would be ambiguous
+	// in real projects). It falls through to rule (6) sibling lookup,
+	// which finds the unique sibling `pkg.a.User`.
+	got := r.resolve("pkg.b.caller", "User")
+	if got != "pkg.a.User" {
+		t.Errorf("bare User should resolve via rule (6) sibling, not rule (2) suffix; got %q want pkg.a.User", got)
+	}
 }
