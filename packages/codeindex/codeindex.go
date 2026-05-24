@@ -453,12 +453,17 @@ func mergePYResult(idx *Index, res *pyscan.Result) {
 		idx.SymbolLangs[sym.ID] = "py"
 	}
 	for _, e := range res.Edges {
-		// Preserve the per-edge line emitted by scanner.py — without
-		// AddEdgeKindLine the line gets dropped here and the store
-		// ingestor falls back to the from-symbol's declaration line
-		// (which is line 1 for module-level imports). See
-		// atlas-internal #17.
-		idx.Graph.AddEdgeKindLine(e.From, e.To, e.Kind, e.Line)
+		// Preserve both the per-edge line (issue #17, PR #68) and
+		// the kind-specific Meta qualifier (issue #16) emitted by
+		// scanner.py. Without AddEdgeKindLineMeta either signal
+		// gets dropped here and the store-side ingest persists a
+		// less-faithful row — line falls back to the from-symbol's
+		// declaration line (always 1 for module-level imports) and
+		// Meta lands as NULL even when scanner.py supplied a scope
+		// tag. Empty Line/Meta on the call site means "back-compat
+		// with pre-fix producers" — the graph layer treats them as
+		// the zero value.
+		idx.Graph.AddEdgeKindLineMeta(e.From, e.To, e.Kind, e.Line, e.Meta)
 	}
 	idx.Annotations = append(idx.Annotations, res.Annotations...)
 	idx.Warnings = append(idx.Warnings, res.Warnings...)

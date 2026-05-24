@@ -38,6 +38,7 @@ type Querier interface {
 	InsertAuditSnapshotRunWithTime(ctx context.Context, arg InsertAuditSnapshotRunWithTimeParams) (sql.Result, error)
 	InsertCoverageResult(ctx context.Context, arg InsertCoverageResultParams) error
 	InsertCoverageRun(ctx context.Context, arg InsertCoverageRunParams) (sql.Result, error)
+	// edge_meta is a NULLable kind-specific qualifier. Python import edges populate it with a scope tag (module/function/conditional/type_checking/try_guard) via migration 0008 - issue #16. Non-import edges pass NULL.
 	InsertEdge(ctx context.Context, arg InsertEdgeParams) (sql.Result, error)
 	InsertSnapshot(ctx context.Context, arg InsertSnapshotParams) (sql.Result, error)
 	InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql.Result, error)
@@ -51,8 +52,8 @@ type Querier interface {
 	ListConfig(ctx context.Context) ([]Config, error)
 	ListCoverageResults(ctx context.Context, runID int64) ([]CoverageResult, error)
 	ListCoverageRunsByFramework(ctx context.Context, framework string) ([]CoverageRun, error)
-	ListEdgesIn(ctx context.Context, toSymbolID int64) ([]Edge, error)
-	ListEdgesOut(ctx context.Context, fromSymbolID int64) ([]Edge, error)
+	ListEdgesIn(ctx context.Context, toSymbolID int64) ([]ListEdgesInRow, error)
+	ListEdgesOut(ctx context.Context, fromSymbolID int64) ([]ListEdgesOutRow, error)
 	ListFeatureSymbolsByFeature(ctx context.Context, featureID string) ([]FeatureSymbol, error)
 	ListFeatureSymbolsBySymbol(ctx context.Context, symbolID int64) ([]FeatureSymbol, error)
 	ListFeaturesByKind(ctx context.Context, kind string) ([]Feature, error)

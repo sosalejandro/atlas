@@ -75,6 +75,39 @@ func TestAddAmbiguousEdge(t *testing.T) {
 	}
 }
 
+// TestAddEdgeKindMeta_PreservesMeta locks in the issue #16 contract
+// that Edge.Meta is carried through the graph layer untouched.
+// AddEdgeKind delegates to AddEdgeKindMeta with an empty meta so
+// pre-#16 callers keep their behaviour.
+func TestAddEdgeKindMeta_PreservesMeta(t *testing.T) {
+	t.Parallel()
+
+	g := New()
+	g.AddNode(newNode("M", shared.KindHandler))
+	g.AddNode(newNode("os", shared.KindFunc))
+	g.AddNode(newNode("urlopen", shared.KindFunc))
+
+	// Module-scope import: carries the "module" scope tag.
+	g.AddEdgeKindMeta("M", "os", "import", "module")
+	// Deferred function-body import: carries "function".
+	g.AddEdgeKindMeta("M", "urlopen", "import", "function")
+	// Legacy call edge (AddEdgeKind path): Meta stays "".
+	g.AddEdgeKind("M", "os", "call")
+
+	if len(g.Edges) != 3 {
+		t.Fatalf("expected 3 edges, got %d", len(g.Edges))
+	}
+	if got, want := g.Edges[0].Meta, "module"; got != want {
+		t.Errorf("edge[0].Meta = %q, want %q", got, want)
+	}
+	if got, want := g.Edges[1].Meta, "function"; got != want {
+		t.Errorf("edge[1].Meta = %q, want %q", got, want)
+	}
+	if got := g.Edges[2].Meta; got != "" {
+		t.Errorf("edge[2].Meta = %q, want empty (AddEdgeKind is back-compat)", got)
+	}
+}
+
 func TestOutIn_ReturnEdges(t *testing.T) {
 	t.Parallel()
 

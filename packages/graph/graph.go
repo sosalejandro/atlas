@@ -39,16 +39,30 @@ type Edge struct {
 	From shared.SymbolID `json:"from"`
 	To   shared.SymbolID `json:"to"`
 	Kind string          `json:"kind,omitempty"`
-	// Line is the 1-based source line where this edge originated (the
-	// import statement, the call site, the decorator line, etc.). Zero
-	// means "no per-edge anchor available" — the store-side ingestor
-	// falls back to the from-symbol's declaration line in that case.
-	// Sub-scanners that know the precise origin (currently scanner.py;
-	// scanner.ts + the Go scanner do not yet populate this) should set
-	// it so callers can drill from an edge to its true source location.
+	// Line is the 1-based source line where this edge originated
+	// (the import statement, the call site, the decorator line,
+	// etc.). Zero means "no per-edge anchor available" — the
+	// store-side ingestor falls back to the from-symbol's
+	// declaration line in that case. Sub-scanners that know the
+	// precise origin (currently scanner.py; scanner.ts + the Go
+	// scanner do not yet populate this) should set it so callers
+	// can drill from an edge to its true source location. Closes
+	// issue #17 (PR #68).
 	Line      int  `json:"line,omitempty"`
 	Cycle     bool `json:"cycle,omitempty"`
 	Ambiguous bool `json:"ambiguous,omitempty"`
+	// Meta is a kind-specific qualifier carried opaquely through
+	// the graph layer. Today only `import` edges from the Python
+	// scanner populate this: the value is one of "module",
+	// "function", "conditional", "type_checking", "try_guard"
+	// (scanner.py's SCOPE_* constants) and lets downstream queries
+	// distinguish "definitely-live module-level import" from
+	// "deferred / type-checking-only import". Closes issue #16.
+	//
+	// Empty string means "no qualifier" and is back-compat with
+	// every pre-#16 caller; existing tests + non-Python scanners
+	// are unaffected.
+	Meta string `json:"meta,omitempty"`
 }
 
 // Graph is the in-memory call-graph DAG.
@@ -138,23 +152,58 @@ func (g *Graph) AddEdge(from, to shared.SymbolID) {
 // packages/store.EdgeKind*) — unknown values are tolerated by the graph
 // layer but will fall back to EdgeKindCall at persistence time.
 func (g *Graph) AddEdgeKind(from, to shared.SymbolID, kind string) {
-	g.AddEdgeKindLine(from, to, kind, 0)
+	g.AddEdgeKindLineMeta(from, to, kind, 0, "")
 }
 
-// AddEdgeKindLine is AddEdgeKind with the 1-based source line where this
-// edge originated (the import statement line, the call-site line, the
-// decorator line, etc.). Pass 0 when no per-edge line is available — the
-// store-side ingestor will fall back to the from-symbol's declaration
-// line in that case, preserving the pre-fix behaviour for sub-scanners
-// that don't yet supply per-edge anchors.
+// AddEdgeKindLine is AddEdgeKind with the 1-based source line where
+// this edge originated (the import statement line, the call-site
+// line, the decorator line, etc.). Pass 0 when no per-edge line is
+// available — the store-side ingestor will fall back to the
+// from-symbol's declaration line in that case, preserving the
+// pre-fix behaviour for sub-scanners that don't yet supply per-edge
+// anchors.
 //
-// This is the entry point sub-scanners use when they know the precise
-// origin line and want it persisted on the edge row (issue atlas-internal
-// #17: Python import edges all reported line=1 before the wire-through).
+// This is the entry point sub-scanners use when they know the
+// precise origin line and want it persisted on the edge row (issue
+// atlas-internal #17: Python import edges all reported line=1 before
+// the wire-through).
 func (g *Graph) AddEdgeKindLine(from, to shared.SymbolID, kind string, line int) {
+	g.AddEdgeKindLineMeta(from, to, kind, line, "")
+}
+
+// AddEdgeKindMeta is AddEdgeKind with an opaque per-kind qualifier
+// stored on Edge.Meta. Today the only producer is the Python
+// scanner, which tags `import` edges with their lexical scope
+// ("module" / "function" / "conditional" / "type_checking" /
+// "try_guard") so downstream dead-code analysis can distinguish
+// definitely-live module-level imports from deferred ones. Closes
+// issue #16.
+//
+// The Meta vocabulary is kind-namespaced: a "module" string on an
+// import edge means something totally different from the same
+// string on a future scanner-emitted kind. The store's persistence
+// layer rejects values outside the kind's allow-list via
+// store.IsValidEdgeMeta.
+func (g *Graph) AddEdgeKindMeta(from, to shared.SymbolID, kind, meta string) {
+	g.AddEdgeKindLineMeta(from, to, kind, 0, meta)
+}
+
+// AddEdgeKindLineMeta is the canonical full-fidelity edge constructor
+// — every other AddEdge* helper delegates here. It accepts both the
+// per-edge source line (issue #17) and the kind-specific Meta
+// qualifier (issue #16) so a caller that has both signals doesn't
+// have to choose. Pass 0/"" for the slots you don't have.
+func (g *Graph) AddEdgeKindLineMeta(from, to shared.SymbolID, kind string, line int, meta string) {
 	g.invalidateAdjacency()
 	cycle := g.hasPath(to, from)
-	g.Edges = append(g.Edges, Edge{From: from, To: to, Kind: kind, Line: line, Cycle: cycle})
+	g.Edges = append(g.Edges, Edge{
+		From:  from,
+		To:    to,
+		Kind:  kind,
+		Line:  line,
+		Meta:  meta,
+		Cycle: cycle,
+	})
 }
 
 // AddAmbiguousEdge is AddEdge with Ambiguous=true. Used by the codeindex

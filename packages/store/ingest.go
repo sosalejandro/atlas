@@ -166,7 +166,13 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 				line = 1
 			}
 			kind := NormalizeEdgeKind(e.Kind)
-			inserted, err := upsertEdgeTx(ctx, qtx, fromID, toID, kind, path, line)
+			// Meta carries an opaque kind-specific qualifier — today
+			// only Python `import` edges populate it with a scope tag
+			// (issue #16). Normalisation drops unknown values to ""
+			// (NULL) so a future scanner that emits a Meta value we
+			// don't recognise here can't pollute the column.
+			meta := NormalizeEdgeMeta(kind, e.Meta)
+			inserted, err := upsertEdgeTx(ctx, qtx, fromID, toID, kind, path, line, meta)
 			if err != nil {
 				return nil, err
 			}
@@ -430,13 +436,14 @@ func lookupSymbolIDTx(ctx context.Context, qtx *sqlc.Queries, qn shared.SymbolID
 	return id, true, nil
 }
 
-func upsertEdgeTx(ctx context.Context, qtx *sqlc.Queries, fromID, toID int64, kind EdgeKind, filePath string, line int) (bool, error) {
+func upsertEdgeTx(ctx context.Context, qtx *sqlc.Queries, fromID, toID int64, kind EdgeKind, filePath string, line int, meta string) (bool, error) {
 	res, err := qtx.InsertEdge(ctx, sqlc.InsertEdgeParams{
 		FromSymbolID: fromID,
 		ToSymbolID:   toID,
 		Kind:         string(kind),
 		FilePath:     filePath,
 		Line:         int64(line),
+		EdgeMeta:     metaParam(meta),
 	})
 	if err != nil {
 		return false, fmt.Errorf("ingest edge %d->%d: %w", fromID, toID, err)

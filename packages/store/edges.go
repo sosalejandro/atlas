@@ -48,10 +48,68 @@ func NormalizeEdgeKind(raw string) EdgeKind {
 	return EdgeKindCall
 }
 
+// EdgeMeta canonical values. Today only Python `import` edges populate
+// this column (issue #16); the vocabulary is the lexical-scope tag
+// scanner.py computes for each import statement.
+const (
+	EdgeMetaImportScopeModule       = "module"
+	EdgeMetaImportScopeFunction     = "function"
+	EdgeMetaImportScopeConditional  = "conditional"
+	EdgeMetaImportScopeTypeChecking = "type_checking"
+	EdgeMetaImportScopeTryGuard     = "try_guard"
+)
+
+// IsValidEdgeMeta reports whether meta is an accepted qualifier for
+// kind. Empty meta is always valid — the column is NULLable and
+// non-import edges leave it unset.
+//
+// The validation lives in Go (not as a SQLite CHECK constraint) so the
+// kind-scoped vocabulary can grow without re-migrating. SQLite CHECK
+// constraints aren't ALTERable in place and we don't want to pay the
+// table-rebuild cost every time a new scope-tagged edge kind joins the
+// schema.
+func IsValidEdgeMeta(kind EdgeKind, meta string) bool {
+	if meta == "" {
+		return true
+	}
+	if kind == EdgeKindImport {
+		switch meta {
+		case EdgeMetaImportScopeModule,
+			EdgeMetaImportScopeFunction,
+			EdgeMetaImportScopeConditional,
+			EdgeMetaImportScopeTypeChecking,
+			EdgeMetaImportScopeTryGuard:
+			return true
+		}
+	}
+	// No other kind has a defined meta vocabulary yet. Reject so a
+	// scanner bug surfaces as a validation error rather than silently
+	// landing junk in the column.
+	return false
+}
+
+// NormalizeEdgeMeta sanitises a raw scanner-emitted meta string for the
+// given kind. Unknown values become "" (the NULL marker) so an
+// evolving scanner can't pollute the column with values the rest of
+// the stack doesn't understand.
+func NormalizeEdgeMeta(kind EdgeKind, raw string) string {
+	if IsValidEdgeMeta(kind, raw) {
+		return raw
+	}
+	return ""
+}
+
 // EdgeRow is one row of the `edges` table (docs/schema-v1.md §5.5).
 //
 // from/to are surrogate INTEGER FKs into symbols. Callers that want to
 // work with qualified names use Edges.OutByName / Edges.InByName instead.
+//
+// Meta is the optional kind-specific qualifier (column edge_meta, added
+// in migration 0008). For Python `import` edges this carries the scope
+// the import was found in — issue #16. Empty string means no qualifier
+// (NULL in SQLite). Callers should pass values that satisfy
+// IsValidEdgeMeta(Kind, Meta); the Insert path normalises invalid
+// values to "" rather than surfacing an error.
 type EdgeRow struct {
 	ID        int64     `json:"id"`
 	FromID    int64     `json:"from_symbol_id"`
@@ -59,6 +117,7 @@ type EdgeRow struct {
 	Kind      EdgeKind  `json:"kind"`
 	FilePath  string    `json:"file_path"`
 	Line      int       `json:"line"`
+	Meta      string    `json:"edge_meta,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -106,7 +165,14 @@ type edgesStore struct {
 	q  *sqlc.Queries
 }
 
-func fromSQLCEdge(r sqlc.Edge) EdgeRow {
+// fromSQLCEdgeOut maps a generated ListEdgesOutRow into the public
+// EdgeRow shape. The generator emits per-query row types (rather
+// than re-using sqlc.Edge) because the SELECT column list now
+// includes edge_meta and the model-vs-row split is sqlc's default
+// for any custom projection. fromSQLCEdgeIn is its sibling for the
+// In variant — the row shapes are byte-identical but distinct types
+// so they can't unify without sqlc-side gymnastics.
+func fromSQLCEdgeOut(r sqlc.ListEdgesOutRow) EdgeRow {
 	return EdgeRow{
 		ID:        r.ID,
 		FromID:    r.FromSymbolID,
@@ -114,8 +180,45 @@ func fromSQLCEdge(r sqlc.Edge) EdgeRow {
 		Kind:      EdgeKind(r.Kind),
 		FilePath:  r.FilePath,
 		Line:      int(r.Line),
+		Meta:      derefString(r.EdgeMeta),
 		CreatedAt: r.CreatedAt,
 	}
+}
+
+func fromSQLCEdgeIn(r sqlc.ListEdgesInRow) EdgeRow {
+	return EdgeRow{
+		ID:        r.ID,
+		FromID:    r.FromSymbolID,
+		ToID:      r.ToSymbolID,
+		Kind:      EdgeKind(r.Kind),
+		FilePath:  r.FilePath,
+		Line:      int(r.Line),
+		Meta:      derefString(r.EdgeMeta),
+		CreatedAt: r.CreatedAt,
+	}
+}
+
+// derefString returns the pointed-to string or "" for nil. sqlc emits
+// nullable TEXT columns as *string; the EdgeRow API exposes a plain
+// string with "" as the NULL marker so callers don't have to guard
+// against nil on every read.
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// metaParam wraps a meta string for InsertEdgeParams.EdgeMeta (sqlc
+// generates *string for NULLable TEXT). Returns nil for "" so the
+// column stays NULL on insert — distinguishing "no qualifier" from
+// "empty-string qualifier" matters for SQL filters like
+// ``WHERE edge_meta IS NOT NULL``.
+func metaParam(meta string) *string {
+	if meta == "" {
+		return nil
+	}
+	return &meta
 }
 
 func (s *edgesStore) Insert(ctx context.Context, e EdgeRow) (int64, error) {
@@ -128,6 +231,11 @@ func (s *edgesStore) Insert(ctx context.Context, e EdgeRow) (int64, error) {
 	if e.FilePath == "" {
 		return 0, fmt.Errorf("edges insert: file_path required")
 	}
+	// Defence-in-depth: a scanner-supplied Meta that doesn't match
+	// the kind's allow-list lands as NULL rather than corrupting the
+	// column. Tests cover both the happy path (valid scope tags
+	// persisted) and the reject path (a fake "garbage" meta dropped).
+	meta := NormalizeEdgeMeta(e.Kind, e.Meta)
 
 	res, err := s.q.InsertEdge(ctx, sqlc.InsertEdgeParams{
 		FromSymbolID: e.FromID,
@@ -135,6 +243,7 @@ func (s *edgesStore) Insert(ctx context.Context, e EdgeRow) (int64, error) {
 		Kind:         string(e.Kind),
 		FilePath:     e.FilePath,
 		Line:         int64(e.Line),
+		EdgeMeta:     metaParam(meta),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("edges insert: %w", err)
@@ -164,7 +273,7 @@ func (s *edgesStore) Out(ctx context.Context, fromID int64) ([]EdgeRow, error) {
 	}
 	out := make([]EdgeRow, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, fromSQLCEdge(r))
+		out = append(out, fromSQLCEdgeOut(r))
 	}
 	return out, nil
 }
@@ -176,7 +285,7 @@ func (s *edgesStore) In(ctx context.Context, toID int64) ([]EdgeRow, error) {
 	}
 	out := make([]EdgeRow, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, fromSQLCEdge(r))
+		out = append(out, fromSQLCEdgeIn(r))
 	}
 	return out, nil
 }

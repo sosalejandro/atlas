@@ -212,6 +212,22 @@ func (r *pyEdgeResolver) indexNodes(nodes []rawNode) map[string]map[string]strin
 // indexEdges scans import edges to build importAlias + reExport and
 // increments importPopularity for resolved targets so rule (5) can
 // tie-break by usage.
+//
+// Only module-scope import edges contribute to importAlias /
+// reExport. Deferred imports (inside function bodies,
+// ``if TYPE_CHECKING:``, or ``try/except ImportError:`` blocks —
+// issue #16) bind their names in a scope NOT visible to the
+// caller-side resolver: a ``from .routes import router`` inside
+// ``def main():`` makes ``router`` available only inside that
+// function, so promoting a caller's ``router()`` to ``routes.router``
+// based on it would over-resolve. Deferred imports DO still
+// contribute to importPopularity — the target is genuinely imported
+// somewhere in the file, so the tie-break heuristic should count it.
+//
+// Pre-#16 every import edge was treated as module-scope because the
+// scanner didn't emit anything else; the empty Scope falls into the
+// module bucket here via isModuleScopeImport to preserve that
+// behaviour for legacy callers.
 func (r *pyEdgeResolver) indexEdges(edges []rawEdge) {
 	for _, e := range edges {
 		if e.Kind != "import" {
@@ -220,6 +236,19 @@ func (r *pyEdgeResolver) indexEdges(edges []rawEdge) {
 		callerModule := e.From
 		boundName, qualified := boundNameAndQualifiedImport(callerModule, e.To, r.packageInits)
 		if boundName == "" || qualified == "" {
+			continue
+		}
+		// All imports (deferred or not) count for the sibling
+		// tie-break popularity score because they prove the caller's
+		// project really does reach for that name.
+		if _, ok := r.allIDs[qualified]; ok {
+			r.importPopularity[qualified]++
+		}
+		// Alias + re-export indices, however, are scoped to imports
+		// that bind names at module scope. Deferred / conditional /
+		// type-checking-only imports do NOT bind names visible to
+		// arbitrary call sites in the module, so skip them.
+		if !isModuleScopeImport(e.Scope) {
 			continue
 		}
 		alias, ok := r.importAlias[callerModule]
@@ -237,11 +266,17 @@ func (r *pyEdgeResolver) indexEdges(edges []rawEdge) {
 			}
 			rex[boundName] = qualified
 		}
-
-		if _, ok := r.allIDs[qualified]; ok {
-			r.importPopularity[qualified]++
-		}
 	}
+}
+
+// isModuleScopeImport reports whether ``scope`` represents an import
+// that binds a name at module scope (the only scope visible to
+// arbitrary call sites elsewhere in the module). Empty scope is
+// treated as module-scope for pre-issue-#16 back-compat — legacy
+// scanners only ever emitted module-level imports, so an empty tag
+// is most-likely-module.
+func isModuleScopeImport(scope string) bool {
+	return scope == "" || scope == "module"
 }
 
 // indexSuffixes populates r.suffixIndex with every dot-segmented tail
