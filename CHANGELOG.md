@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/sosalejandro/atlas/compare/v0.6.0...v0.6.1) (2026-05-24)
+
+
+### Bug Fixes
+
+* **codeindex/py:** emit deferred imports at any depth with scope tag ([#71](https://github.com/sosalejandro/atlas/issues/71)) ([c328de4](https://github.com/sosalejandro/atlas/commit/c328de4bc3f059c2b95d6cd3418901a31db2883a))
+
 ## [0.6.0](https://github.com/sosalejandro/atlas/compare/v0.5.2...v0.6.0) (2026-05-24)
 
 
