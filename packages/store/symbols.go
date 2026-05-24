@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/shared"
@@ -110,6 +111,71 @@ type SymbolFilter struct {
 	Kind     shared.SymbolKind
 }
 
+// DeadCodeFilter narrows FindDead queries. Every field is opt-in: leaving
+// a field at its zero value disables that predicate. The defaults
+// (EdgeKind empty → matches every edge kind; ScopeFilter empty → matches
+// every meta scope) yield the loosest possible "has any incoming edge"
+// check — the CLI layer applies stricter defaults (kind=import, scope=
+// module+conditional) so the runtime semantics match the dead-code
+// intent.
+type DeadCodeFilter struct {
+	// EdgeKind narrows the incoming-edge count to a single edge kind
+	// (e.g. EdgeKindImport, EdgeKindCall). Empty means "any kind
+	// counts" — equivalent to the CLI --kind=all flag.
+	EdgeKind EdgeKind
+
+	// ScopeFilter narrows EdgeKindImport edges to the listed scope tags
+	// (per migration 0008 / issue #16). Empty disables the predicate
+	// entirely (i.e. an import edge with NULL meta still counts). Only
+	// meaningful when EdgeKind == EdgeKindImport.
+	//
+	// Use one of the EdgeMetaImportScope* constants; unknown values are
+	// silently dropped so a typo can't accidentally produce a query
+	// that matches nothing.
+	ScopeFilter []string
+
+	// PathPrefix restricts the candidate set to symbols whose file_path
+	// starts with this prefix. Useful for narrowing a dead-code sweep
+	// to a single service (e.g. "services/api"). Empty means no
+	// filter — every internal symbol is a candidate.
+	PathPrefix string
+
+	// IncludeTests, when false, excludes test-file edges from the
+	// incoming-edge count. A symbol whose only importer is a test
+	// module is considered dead under the production-graph view this
+	// default produces. Flip to true when you actually want to know
+	// "is this used anywhere, tests included".
+	//
+	// Test patterns matched (case-sensitive, glob-style):
+	//   - test_*.py
+	//   - *_test.py
+	//   - *_test.go
+	//   - tests/...   (path prefix)
+	//   - conftest.py
+	IncludeTests bool
+}
+
+// DeadCodeCandidate is one row of the FindDead result set. It carries
+// just enough context for the CLI to render the human-friendly output
+// + the JSON envelope, plus the surrogate id so downstream tooling can
+// chain into other store ports without a second lookup.
+type DeadCodeCandidate struct {
+	// Symbol is the candidate symbol that has zero qualifying incoming
+	// edges. Carries the file path, kind, and qualified name.
+	Symbol SymbolRow `json:"symbol"`
+
+	// IncomingCount is always 0 for rows returned by FindDead — the
+	// field is preserved on the type so future evolutions can return
+	// "low-incoming" rather than "zero-incoming" without breaking the
+	// JSON envelope shape.
+	IncomingCount int `json:"incoming_count"`
+
+	// EdgeKind echoes the filter used to compute IncomingCount. Useful
+	// when the JSON consumer aggregates candidates across multiple
+	// FindDead invocations (e.g. one per kind).
+	EdgeKind EdgeKind `json:"edge_kind"`
+}
+
 // Symbols is the narrow port for the `symbols` table.
 type Symbols interface {
 	// Insert upserts the symbol (INSERT OR IGNORE on qualified_name) and
@@ -159,6 +225,25 @@ type Symbols interface {
 	// Returns an empty slice when no symbol has been recognised under that
 	// pattern; never returns an error for "no rows".
 	FindByPattern(ctx context.Context, pattern string) ([]SymbolRow, error)
+
+	// FindDead returns the subset of internal symbols whose incoming-edge
+	// count (filtered by DeadCodeFilter) is zero. Used by the
+	// `atlas codebase dead` CLI verb to surface candidates that no first-
+	// party module imports / calls / references.
+	//
+	// "Internal" excludes the `external:py` stubs the Python scanner emits
+	// for unresolved import targets (stdlib, third-party, dynamic
+	// imports) — those are never authored in the indexed codebase, so
+	// flagging them as dead would be nonsense.
+	//
+	// The result is intentionally a candidate list, not a verdict.
+	// Dynamic dispatch (Python getattr / importlib, Go reflect),
+	// entry points, plugin registries, and re-export chains all show up
+	// as zero-incoming-edge symbols in static analysis even when they're
+	// live at runtime. Callers must treat the output as a triage starting
+	// point, not a deletion list. The CLI layer surfaces these caveats
+	// alongside the rows.
+	FindDead(ctx context.Context, f DeadCodeFilter) ([]DeadCodeCandidate, error)
 }
 
 var _ Symbols = (*symbolsStore)(nil)
@@ -394,6 +479,222 @@ ORDER BY file_path, line, qualified_name`
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("symbols find-by-pattern %q rows: %w", pattern, err)
+	}
+	return out, nil
+}
+
+// externalPyStubPath mirrors codeindex/py.externalPyStubPath — kept as
+// a local sentinel here so the store package doesn't take a reverse
+// import on codeindex/py. The two MUST stay in lockstep; the resolver
+// owns the contract, the store owns the read-side filter that hides
+// these stubs from "internal symbol" queries. A test in the dead-code
+// suite locks in the value.
+const externalPyStubPath = "external:py"
+
+// IsTestPath reports whether filePath matches the conventional test
+// patterns FindDead excludes by default. The same predicate is shared
+// between the SQL builder (which encodes it as a chain of NOT LIKE
+// clauses) and any caller that wants to apply the filter post-hoc.
+//
+// Patterns matched:
+//   - Bases:  test_*.py, *_test.py, *_test.go, conftest.py
+//   - Path segment: any segment named exactly "tests" (so
+//     services/api/tests/foo.py and tests/unit/bar.py both match)
+//
+// The check is intentionally lexical — there's no AST-driven "is this
+// file actually a test" signal because pytest / go test both happily
+// discover tests by filename convention alone.
+func IsTestPath(filePath string) bool {
+	if filePath == "" {
+		return false
+	}
+	// Path-segment check first: catches every nesting depth without
+	// glob-matching every level.
+	for _, seg := range strings.Split(filePath, "/") {
+		if seg == "tests" {
+			return true
+		}
+	}
+	// Base-name patterns.
+	last := filePath
+	if i := strings.LastIndex(last, "/"); i >= 0 {
+		last = last[i+1:]
+	}
+	if last == "conftest.py" {
+		return true
+	}
+	if strings.HasPrefix(last, "test_") && strings.HasSuffix(last, ".py") {
+		return true
+	}
+	if strings.HasSuffix(last, "_test.py") || strings.HasSuffix(last, "_test.go") {
+		return true
+	}
+	return false
+}
+
+// deadCodeBaseSelect is the SELECT list FindDead uses to project a
+// SymbolRow. Kept as a const so the column order stays in lockstep
+// with scanSymbolRow above — if you reorder one, you MUST reorder
+// the other.
+const deadCodeBaseSelect = `SELECT s.id, s.qualified_name, s.kind, s.file_path, s.line, s.end_line, s.package, s.bc_path, s.created_at, s.pattern_matches`
+
+// excludeTestPredicates is the NOT-LIKE chain that mirrors IsTestPath
+// for the SQL builder. The fragment is appended to a query that has
+// already established the table alias `e` for the edges row being
+// counted, so test-file edges are dropped from the count rather than
+// from the candidate set itself.
+//
+// SQLite LIKE is case-sensitive by default for ASCII inside the
+// pragma-default collation Atlas uses, which matches the lexical
+// convention pytest / go test enforce.
+const excludeTestPredicates = `
+  AND e.file_path NOT LIKE '%/tests/%'
+  AND e.file_path NOT LIKE 'tests/%'
+  AND e.file_path NOT LIKE '%/conftest.py'
+  AND e.file_path != 'conftest.py'
+  AND e.file_path NOT LIKE '%/test\_%' ESCAPE '\'
+  AND e.file_path NOT LIKE 'test\_%' ESCAPE '\'
+  AND e.file_path NOT LIKE '%\_test.py' ESCAPE '\'
+  AND e.file_path NOT LIKE '%\_test.go' ESCAPE '\'`
+
+// validImportScopes is the closed set of EdgeKindImport meta values
+// FindDead accepts in ScopeFilter. Anything outside this set is silently
+// dropped during normalisation — a typo can't accidentally produce a
+// query whose IN-clause matches nothing.
+var validImportScopes = map[string]struct{}{
+	EdgeMetaImportScopeModule:       {},
+	EdgeMetaImportScopeFunction:     {},
+	EdgeMetaImportScopeConditional:  {},
+	EdgeMetaImportScopeTypeChecking: {},
+	EdgeMetaImportScopeTryGuard:     {},
+}
+
+// normalizeScopeFilter drops unknown entries and de-duplicates the
+// remainder while preserving caller order (so the generated SQL is
+// deterministic across runs). An empty slice means "no scope
+// predicate" — used by callers that intentionally want every import
+// edge to count regardless of meta.
+func normalizeScopeFilter(raw []string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, s := range raw {
+		if _, ok := validImportScopes[s]; !ok {
+			continue
+		}
+		if _, dup := seen[s]; dup {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+// FindDead returns every internal symbol whose qualifying incoming-edge
+// count is zero. The query is built dynamically so the same code path
+// serves all four "kind" modes (any / call / import / import+scope)
+// without per-mode branching in the caller.
+//
+// Implementation notes:
+//
+//   - The candidate set is restricted to symbols whose file_path does
+//     NOT start with the externalPyStubPath sentinel — those stubs
+//     stand in for stdlib / third-party / dynamic imports and are not
+//     authored in the indexed codebase.
+//   - The incoming-edge count uses a correlated NOT EXISTS subquery
+//     rather than a LEFT JOIN + COUNT(*), because correlated EXISTS
+//     short-circuits on the first match and is materially faster on
+//     dense graphs (the alternative scans every edge row per symbol).
+//   - When IncludeTests is false, the EXISTS subquery's edges row is
+//     filtered against the test-path predicates so a test-only
+//     importer doesn't keep the symbol alive in the count.
+//   - The result is ordered by file_path, line for deterministic
+//     downstream diffs (smart commit / snapshot tooling relies on
+//     stable iteration).
+func (s *symbolsStore) FindDead(ctx context.Context, f DeadCodeFilter) ([]DeadCodeCandidate, error) {
+	scopes := normalizeScopeFilter(f.ScopeFilter)
+
+	// Build the EXISTS subquery's edge predicate. Each branch carries
+	// its own bound-args so we can keep a single slice in step with
+	// the placeholders the SQL emits.
+	var (
+		edgePredicates []string
+		args           []any
+	)
+	if f.EdgeKind != "" {
+		edgePredicates = append(edgePredicates, "e.kind = ?")
+		args = append(args, string(f.EdgeKind))
+	}
+	if f.EdgeKind == EdgeKindImport && len(scopes) > 0 {
+		// Use a Go-side comma-join for the IN clause; the inputs come
+		// from the closed validImportScopes set so SQL-injection isn't
+		// a concern, but we still bind the values rather than splicing
+		// them so the prepared-statement plan stays cacheable.
+		placeholders := make([]string, len(scopes))
+		for i, sc := range scopes {
+			placeholders[i] = "?"
+			args = append(args, sc)
+		}
+		edgePredicates = append(edgePredicates,
+			"e.edge_meta IN ("+strings.Join(placeholders, ", ")+")")
+	}
+
+	existsClause := `SELECT 1 FROM edges e WHERE e.to_symbol_id = s.id`
+	for _, p := range edgePredicates {
+		existsClause += " AND " + p
+	}
+	if !f.IncludeTests {
+		existsClause += excludeTestPredicates
+	}
+
+	// Outer candidate predicate: exclude external stubs + optional
+	// path-prefix filter. Bound args are appended AFTER the inner
+	// EXISTS args because the EXISTS subquery is lexically inside the
+	// outer SELECT but its placeholders are visited first.
+	outerPredicates := []string{
+		"s.file_path NOT LIKE ?",
+	}
+	outerArgs := []any{externalPyStubPath + "%"}
+
+	if f.PathPrefix != "" {
+		outerPredicates = append(outerPredicates, "s.file_path LIKE ?")
+		outerArgs = append(outerArgs, f.PathPrefix+"%")
+	}
+
+	query := deadCodeBaseSelect + `
+FROM symbols s
+WHERE NOT EXISTS (` + existsClause + `)
+  AND ` + strings.Join(outerPredicates, "\n  AND ") + `
+ORDER BY s.file_path, s.line, s.qualified_name`
+
+	// Final arg order: inner EXISTS placeholders first, then outer.
+	finalArgs := make([]any, 0, len(args)+len(outerArgs))
+	finalArgs = append(finalArgs, args...)
+	finalArgs = append(finalArgs, outerArgs...)
+
+	rows, err := s.db.sqlDB().QueryContext(ctx, query, finalArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("symbols find-dead: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []DeadCodeCandidate
+	for rows.Next() {
+		row, err := scanSymbolRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, DeadCodeCandidate{
+			Symbol:        row,
+			IncomingCount: 0,
+			EdgeKind:      f.EdgeKind,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("symbols find-dead rows: %w", err)
 	}
 	return out, nil
 }
