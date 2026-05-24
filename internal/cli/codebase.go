@@ -27,6 +27,7 @@ func newCodebaseCmd() *cobra.Command {
 	cmd.AddCommand(newCodebaseEmitCmd())
 	cmd.AddCommand(newCodebasePatternCmd())
 	cmd.AddCommand(newCodebaseCyclesCmd())
+	cmd.AddCommand(newCodebaseDeadCmd())
 	return cmd
 }
 
