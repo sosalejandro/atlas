@@ -26,6 +26,7 @@ func newCodebaseCmd() *cobra.Command {
 	cmd.AddCommand(newCodebaseConsumerCmd())
 	cmd.AddCommand(newCodebaseEmitCmd())
 	cmd.AddCommand(newCodebasePatternCmd())
+	cmd.AddCommand(newCodebaseCyclesCmd())
 	return cmd
 }
 

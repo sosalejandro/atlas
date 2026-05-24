@@ -131,6 +131,44 @@ type WalkResult struct {
 	Path     string          `json:"path"`
 }
 
+// ImportEdgeRow is one row of the import-graph projection emitted by
+// Edges.ListImportEdges. It joins `edges` to `symbols` for both
+// endpoints so every row carries the from-file and to-file paths
+// already resolved — exactly the shape the SCC algorithm in
+// packages/graph wants when it builds a file-to-file import graph.
+//
+// Scope is the edge_meta value normalised to one of the canonical
+// EdgeMetaImportScope* constants (empty string when the column was
+// NULL — older rows from before migration 0008). Line is the per-edge
+// line number issue #17 wired through (defaults to 0 for rows that
+// pre-date the fix).
+//
+// Both file paths are repo-relative, the same shape symbols.file_path
+// stores. The CLI layer presents them verbatim without further
+// normalisation.
+type ImportEdgeRow struct {
+	FromFile string `json:"from_file"`
+	ToFile   string `json:"to_file"`
+	Scope    string `json:"scope,omitempty"`
+	Line     int    `json:"line,omitempty"`
+}
+
+// ImportEdgeFilter narrows the ListImportEdges projection. Today
+// callers only ever filter by scope (module / function / conditional
+// / type_checking / try_guard / all-of-them); SymbolPrefix is a
+// forward-looking knob for the `--scope <prefix>` flag the issue
+// reserves but doesn't make load-bearing.
+//
+// An empty Scopes slice means "any scope, including NULL" — i.e.
+// every import edge in the store, the `all` mode the verb's
+// --scope-filter=all advertises. To request only module-scoped
+// edges (the most common case — real load-time cycles), pass
+// []string{EdgeMetaImportScopeModule}.
+type ImportEdgeFilter struct {
+	Scopes       []string
+	SymbolPrefix string
+}
+
 // Edges is the narrow port for the `edges` table.
 type Edges interface {
 	// Insert upserts an edge (INSERT OR IGNORE against the composite
@@ -153,6 +191,24 @@ type Edges interface {
 	// DeleteByFile removes every edge observed in filePath. Used by the
 	// incremental scanner before re-emitting edges for a changed file.
 	DeleteByFile(ctx context.Context, filePath string) error
+
+	// ListImportEdges returns every `kind='import'` edge as a flat
+	// (from_file, to_file, scope, line) projection, JOINed against
+	// the `symbols` table for both endpoints. The result is the raw
+	// material packages/graph.FindCycles consumes when looking for
+	// circular imports — closes issue atlas-internal #14.
+	//
+	// Filter.Scopes narrows to a subset of the EdgeMetaImportScope*
+	// values; an empty slice returns every import edge regardless of
+	// scope (the `--scope-filter=all` mode). Filter.SymbolPrefix
+	// narrows to symbols whose qualified_name starts with the given
+	// string — useful for scoping the analysis to one package /
+	// service in a monorepo. An empty prefix is the no-op default.
+	//
+	// Rows are ordered by (from_file, to_file, line) so downstream
+	// consumers — and snapshot diffs — see stable output across
+	// re-runs.
+	ListImportEdges(ctx context.Context, f ImportEdgeFilter) ([]ImportEdgeRow, error)
 }
 
 var _ Edges = (*edgesStore)(nil)
@@ -364,4 +420,108 @@ func (s *edgesStore) DeleteByFile(ctx context.Context, filePath string) error {
 		return fmt.Errorf("edges delete-by-file %q: %w", filePath, err)
 	}
 	return nil
+}
+
+// listImportEdgesBaseSQL is the file-to-file projection of `kind='import'`
+// edges. We compose the WHERE clause dynamically to splice in optional
+// filters (scope IN (...), qualified_name LIKE prefix%) — sqlc's
+// sqlite engine can't bind variable-length IN lists cleanly so the raw-SQL
+// path is the path of least resistance, same pattern as edges.Walk and
+// symbols.FindByPattern. The JOIN to symbols-as-`from`/`to` resolves the
+// surrogate ids to file paths in one round-trip; a correlated subquery
+// would issue an N+1 lookup per row.
+const listImportEdgesBaseSQL = `
+SELECT
+  fromsym.file_path AS from_file,
+  tosym.file_path   AS to_file,
+  e.edge_meta       AS scope,
+  e.line            AS line
+FROM edges e
+JOIN symbols fromsym ON fromsym.id = e.from_symbol_id
+JOIN symbols tosym   ON tosym.id   = e.to_symbol_id
+WHERE e.kind = 'import'
+  AND fromsym.file_path <> ''
+  AND tosym.file_path   <> ''`
+
+func (s *edgesStore) ListImportEdges(ctx context.Context, f ImportEdgeFilter) ([]ImportEdgeRow, error) {
+	q := listImportEdgesBaseSQL
+	args := []any{}
+
+	// Scopes filter: validate each value against the canonical import
+	// vocabulary before splicing into the IN clause. Anything outside
+	// the allow-list is silently dropped — callers passing junk
+	// scopes (e.g. via `--scope-filter foo`) get an empty result set,
+	// not a SQL injection. The empty-result outcome is intentional:
+	// the CLI surface validates flag values up-front so by the time
+	// we're here, any junk represents a genuine programmer error
+	// worth surfacing as "no cycles match" rather than swallowing
+	// silently to "every cycle".
+	if len(f.Scopes) > 0 {
+		valid := make([]string, 0, len(f.Scopes))
+		for _, scope := range f.Scopes {
+			if IsValidEdgeMeta(EdgeKindImport, scope) && scope != "" {
+				valid = append(valid, scope)
+			}
+		}
+		if len(valid) == 0 {
+			// Caller asked for scope filtering but none of
+			// their values were valid — return an empty
+			// projection rather than running an unfiltered
+			// query.
+			return []ImportEdgeRow{}, nil
+		}
+		placeholders := ""
+		for i, v := range valid {
+			if i > 0 {
+				placeholders += ","
+			}
+			placeholders += "?"
+			args = append(args, v)
+		}
+		q += " AND e.edge_meta IN (" + placeholders + ")"
+	}
+
+	if f.SymbolPrefix != "" {
+		// LIKE 'prefix%' on qualified_name. We anchor at the start
+		// so the prefix is a real path-style scope (e.g.
+		// "services.preprocessor") rather than a substring that
+		// could match anywhere in a longer name.
+		q += " AND (fromsym.qualified_name LIKE ? OR tosym.qualified_name LIKE ?)"
+		needle := f.SymbolPrefix + "%"
+		args = append(args, needle, needle)
+	}
+
+	q += " ORDER BY fromsym.file_path, tosym.file_path, e.line"
+
+	rows, err := s.db.sqlDB().QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("edges list-import: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []ImportEdgeRow
+	for rows.Next() {
+		var (
+			fromFile string
+			toFile   string
+			scope    *string
+			line     int64
+		)
+		if err := rows.Scan(&fromFile, &toFile, &scope, &line); err != nil {
+			return nil, fmt.Errorf("edges list-import scan: %w", err)
+		}
+		row := ImportEdgeRow{
+			FromFile: fromFile,
+			ToFile:   toFile,
+			Line:     int(line),
+		}
+		if scope != nil {
+			row.Scope = *scope
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("edges list-import rows: %w", err)
+	}
+	return out, nil
 }
