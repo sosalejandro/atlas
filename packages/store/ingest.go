@@ -139,7 +139,21 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 				continue
 			}
 			path := fromNode.Position.Path
-			line := fromNode.Position.Line
+			// Prefer the per-edge line emitted by the sub-scanner (e.g.
+			// scanner.py records the actual import / call-site line). When
+			// the sub-scanner did not supply one (Line == 0, the wire's
+			// zero-value), fall back to the from-symbol's declaration
+			// line — which preserves pre-fix behaviour for the TS + Go
+			// scanners that don't yet populate per-edge lines.
+			//
+			// This fix addresses the bug where every Python import edge
+			// reported line=1 because the FROM symbol of an import is the
+			// module (declared at line 1) regardless of where the import
+			// statement actually appears.
+			line := e.Line
+			if line <= 0 {
+				line = fromNode.Position.Line
+			}
 			if unchanged[path] {
 				continue
 			}
