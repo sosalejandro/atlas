@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -96,8 +97,8 @@ func TestScanner_SampleProject(t *testing.T) {
 	// Kind-mapping spot checks (the SymbolKind enum is the contract surface
 	// callers like `atlas codebase find` rely on).
 	wantKinds := map[string]shared.SymbolKind{
-		"main.helper":   shared.KindFunc,
-		"main.MyClass":  shared.KindType,
+		"main.helper":      shared.KindFunc,
+		"main.MyClass":     shared.KindType,
 		"main.MyClass.run": shared.KindMethod,
 		"main.API_VERSION": shared.KindConst,
 	}
@@ -170,19 +171,133 @@ func TestScanner_SampleProject(t *testing.T) {
 	}
 }
 
+// TestScanner_NestedScopeCallAttribution is the wire-level regression
+// test for issue #18 (call edges lose caller identity because
+// `ast.walk` descended into nested function/class scopes).
+//
+// Asserts the call-edge attribution contract at the scanner boundary:
+//
+//  1. A nested closure's call attributes ONLY to the inner symbol,
+//     never duplicated under the enclosing function.
+//  2. A class method's nested closure's call attributes ONLY to the
+//     inner symbol, never duplicated under the method.
+//  3. A comprehension's call (no nameable scope) attributes to the
+//     enclosing function — Python comprehensions create a scope but
+//     no symbol that ends up in the symbol table, so the only
+//     meaningful caller is the enclosing def.
+//
+// The integration test in packages/store/ingest_pyscan_integration_test.go
+// covers the same contract end-to-end via the SQLite store; this test
+// pins it at the wire boundary so a scanner-only regression doesn't
+// have to round-trip through ingest to surface.
+func TestScanner_NestedScopeCallAttribution(t *testing.T) {
+	t.Parallel()
+	res := runScan(t, "sample_project")
+
+	// Index call-edge attributions: callee qualified id → set of callers.
+	callers := map[string]map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Kind != "call" {
+			continue
+		}
+		bucket, ok := callers[string(e.To)]
+		if !ok {
+			bucket = map[string]bool{}
+			callers[string(e.To)] = bucket
+		}
+		bucket[string(e.From)] = true
+	}
+
+	// AC #1: class method with nested closure.
+	// `DoubleNested.method` MUST NOT call `nested_scopes.deep_helper`
+	// — only its inner `closure()` does. The pre-fix scanner walked
+	// `ast.walk(method)` which descended into `closure`'s body and
+	// emitted `method -> deep_helper` AS WELL — the duplicate edge is
+	// the smoking gun for issue #18.
+	if callers["nested_scopes.deep_helper"]["nested_scopes.DoubleNested.method"] {
+		t.Errorf(
+			"regression: nested_scopes.DoubleNested.method attributed to "+
+				"deep_helper call — issue #18 nested-closure caller-identity "+
+				"collapse inside class method. All callers seen: %v",
+			keysOf(callers["nested_scopes.deep_helper"]),
+		)
+	}
+	if !callers["nested_scopes.deep_helper"]["nested_scopes.DoubleNested.method.closure"] {
+		t.Errorf(
+			"expected nested_scopes.DoubleNested.method.closure to call "+
+				"deep_helper; callers seen: %v",
+			keysOf(callers["nested_scopes.deep_helper"]),
+		)
+	}
+
+	// AC #2: free function with nested closure.
+	// `outer()` MUST NOT call `leaf_only` — only its inner `inside()`
+	// does. Same shape as AC #1 but with module-level function as the
+	// outer scope rather than a class method, so a regression that
+	// special-cases method bodies still gets caught here.
+	//
+	// Note: the resolver does NOT promote the bare `leaf_only` target
+	// for a NESTED-function caller (its byModule index is keyed on the
+	// flat enclosing-module id and `nested_scopes.outer.inside`'s caller
+	// module bucket only knows symbols immediately under `outer`). The
+	// raw `leaf_only` therefore lands as an external stub — that's
+	// orthogonal to issue #18 and is the correct downstream behaviour
+	// for an unresolvable callee. The attribution we DO assert is on
+	// the `from` side, which is what issue #18 is actually about.
+	if callers["leaf_only"]["nested_scopes.outer"] {
+		t.Errorf(
+			"regression: nested_scopes.outer attributed to leaf_only call — "+
+				"issue #18 caller-identity collapse on free-function nested "+
+				"closures. All callers seen: %v",
+			keysOf(callers["leaf_only"]),
+		)
+	}
+	if !callers["leaf_only"]["nested_scopes.outer.inside"] {
+		t.Errorf(
+			"expected nested_scopes.outer.inside to be the (sole) caller of "+
+				"leaf_only; callers seen: %v",
+			keysOf(callers["leaf_only"]),
+		)
+	}
+
+	// AC #3: comprehension scope.
+	// `[x for x in items if needs(x)]` inside `DoubleNested.method`
+	// MUST attribute `needs` to the method (no inner symbol exists for
+	// the comprehension itself).
+	if !callers["nested_scopes.needs"]["nested_scopes.DoubleNested.method"] {
+		t.Errorf(
+			"expected nested_scopes.DoubleNested.method to call needs() "+
+				"(comprehension calls belong to the enclosing function); "+
+				"callers seen: %v",
+			keysOf(callers["nested_scopes.needs"]),
+		)
+	}
+}
+
+// keysOf renders a string-keyed set as a sorted slice for stable
+// error messages in the nested-scope assertions above.
+func keysOf(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // TestScanner_Annotations_BothModes exercises issue #53's two recognition
 // modes (comment + decorator) and the class-level propagation gotcha.
 //
 // Layout under testdata/sample_project/:
 //
 //   - annotated_comment.py:
-//       L13 `# @atlas:feature ingest-csv-imports` → ingest_rows  (L14)
-//       L19 `# @atlas:contract ingest-csv-imports.parse-row` → parse_row (L20)
+//     L13 `# @atlas:feature ingest-csv-imports` → ingest_rows  (L14)
+//     L19 `# @atlas:contract ingest-csv-imports.parse-row` → parse_row (L20)
 //
 //   - annotated_decorator.py:
-//       L21 `@atlas.feature("ship-orders")` → ship_one  (L22)
-//       L27 `@atlas.feature("ship-orders.batch")` → BatchShipper  (L28)
-//       Class-level propagation → __init__ (L37), enqueue (L40), flush (L44).
+//     L21 `@atlas.feature("ship-orders")` → ship_one  (L22)
+//     L27 `@atlas.feature("ship-orders.batch")` → BatchShipper  (L28)
+//     Class-level propagation → __init__ (L37), enqueue (L40), flush (L44).
 //
 // Total expected: 2 (comment) + 2 (decorator on def/class) + 3
 // (propagation) = 7 records.
@@ -379,10 +494,10 @@ func TestValidatePythonBin_AbsoluteRequired(t *testing.T) {
 		wantErr bool
 	}{
 		{"/usr/bin/python3", false},
-		{"python3", true},      // relative — must be rejected
-		{"", true},             // empty
-		{"py;ls", true},        // shell metachar
-		{"py\nthon3", true},    // newline
+		{"python3", true},   // relative — must be rejected
+		{"", true},          // empty
+		{"py;ls", true},     // shell metachar
+		{"py\nthon3", true}, // newline
 	}
 	for _, tc := range cases {
 		err := validatePythonBin(tc.s)
