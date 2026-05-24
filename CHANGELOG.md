@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/sosalejandro/atlas/compare/v0.6.1...v0.7.0) (2026-05-24)
+
+
+### Features
+
+* **cli:** add codebase cycles subcommand for circular-import detection ([#73](https://github.com/sosalejandro/atlas/issues/73)) ([792de38](https://github.com/sosalejandro/atlas/commit/792de38193a572cfcb206e7dff991835ecfa88ba))
+
 ## [0.6.1](https://github.com/sosalejandro/atlas/compare/v0.6.0...v0.6.1) (2026-05-24)
 
 
