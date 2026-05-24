@@ -60,12 +60,37 @@ func FindCycles(edges []CycleEdge) []Cycle {
 	if len(edges) == 0 {
 		return nil
 	}
+	nodes, adjacency := buildAdjacency(edges)
+	components := newTarjan(adjacency).run()
 
-	// Build the adjacency list keyed by stable node identifiers.
-	// Multiple parallel edges between the same (from, to) pair are
-	// preserved — the SCC algorithm walks each unique destination
-	// only once, but we retain every edge for the post-pass that
-	// projects edges into a cycle.
+	// Convert the raw component slices (indexed) back into the
+	// caller's string identifiers and project the participating
+	// edges. Drop trivial single-node components — a node with no
+	// self-loop forms an SCC of size 1 in Tarjan but isn't a cycle.
+	var cycles []Cycle
+	for _, comp := range components {
+		if len(comp) < 2 {
+			continue
+		}
+		cycles = append(cycles, materializeCycle(comp, nodes, edges))
+	}
+
+	sort.Slice(cycles, func(i, j int) bool {
+		if cycles[i].Length != cycles[j].Length {
+			return cycles[i].Length < cycles[j].Length
+		}
+		return cycles[i].Nodes[0] < cycles[j].Nodes[0]
+	})
+	return cycles
+}
+
+// buildAdjacency converts the input edge list into the integer-indexed
+// adjacency representation Tarjan walks. Multiple parallel edges
+// between the same (from, to) pair are deduplicated in the adjacency
+// list (parallel edges don't change SCC structure — only the
+// post-pass edge projection cares about them), but the full edge
+// slice is preserved for that projection later.
+func buildAdjacency(edges []CycleEdge) ([]string, [][]int) {
 	nodeIndex := make(map[string]int)
 	var nodes []string
 	addNode := func(id string) int {
@@ -77,11 +102,6 @@ func FindCycles(edges []CycleEdge) []Cycle {
 		nodes = append(nodes, id)
 		return i
 	}
-
-	// adjacency[i] holds the indexed destinations reachable from
-	// node i; we dedupe destinations so Tarjan doesn't revisit the
-	// same target multiple times (parallel edges don't change the
-	// SCC structure — only the edge projection cares about them).
 	for _, e := range edges {
 		addNode(e.From)
 		addNode(e.To)
@@ -98,67 +118,49 @@ func FindCycles(edges []CycleEdge) []Cycle {
 		seenEdge[key] = struct{}{}
 		adjacency[from] = append(adjacency[from], to)
 	}
+	return nodes, adjacency
+}
 
-	scc := newTarjan(adjacency)
-	components := scc.run()
+// materializeCycle converts one raw Tarjan component (a slice of
+// node indices) into the public Cycle shape: alphabetised node ids
+// + every participating edge sorted deterministically by (From, To,
+// Line). The edge walk is O(E·C) worst case where C is the cycle
+// count, but real-world import graphs are sparse so the constant
+// factor doesn't matter.
+func materializeCycle(comp []int, nodes []string, edges []CycleEdge) Cycle {
+	idSet := make(map[string]struct{}, len(comp))
+	nodeIDs := make([]string, 0, len(comp))
+	for _, idx := range comp {
+		nodeIDs = append(nodeIDs, nodes[idx])
+		idSet[nodes[idx]] = struct{}{}
+	}
+	sort.Strings(nodeIDs)
 
-	// Convert the raw component slices (indexed) back into the
-	// caller's string identifiers and project the participating
-	// edges. Drop trivial single-node components — a node with no
-	// self-loop forms an SCC of size 1 in Tarjan but isn't a cycle.
-	var cycles []Cycle
-	for _, comp := range components {
-		if len(comp) < 2 {
+	var cycleEdges []CycleEdge
+	for _, e := range edges {
+		if _, ok := idSet[e.From]; !ok {
 			continue
 		}
-		idSet := make(map[string]struct{}, len(comp))
-		nodeIDs := make([]string, 0, len(comp))
-		for _, idx := range comp {
-			nodeIDs = append(nodeIDs, nodes[idx])
-			idSet[nodes[idx]] = struct{}{}
+		if _, ok := idSet[e.To]; !ok {
+			continue
 		}
-		sort.Strings(nodeIDs)
-
-		// Walk every input edge and keep the ones whose endpoints
-		// both live inside this component. This is O(E·C) in the
-		// worst case where C is the cycle count, but in practice
-		// edges are sparse — a typical Python project has < 50
-		// import cycles even on the largest repos.
-		var cycleEdges []CycleEdge
-		for _, e := range edges {
-			if _, ok := idSet[e.From]; !ok {
-				continue
-			}
-			if _, ok := idSet[e.To]; !ok {
-				continue
-			}
-			cycleEdges = append(cycleEdges, e)
-		}
-		sort.Slice(cycleEdges, func(i, j int) bool {
-			a, b := cycleEdges[i], cycleEdges[j]
-			if a.From != b.From {
-				return a.From < b.From
-			}
-			if a.To != b.To {
-				return a.To < b.To
-			}
-			return a.Line < b.Line
-		})
-
-		cycles = append(cycles, Cycle{
-			Length: len(nodeIDs),
-			Nodes:  nodeIDs,
-			Edges:  cycleEdges,
-		})
+		cycleEdges = append(cycleEdges, e)
 	}
-
-	sort.Slice(cycles, func(i, j int) bool {
-		if cycles[i].Length != cycles[j].Length {
-			return cycles[i].Length < cycles[j].Length
+	sort.Slice(cycleEdges, func(i, j int) bool {
+		a, b := cycleEdges[i], cycleEdges[j]
+		if a.From != b.From {
+			return a.From < b.From
 		}
-		return cycles[i].Nodes[0] < cycles[j].Nodes[0]
+		if a.To != b.To {
+			return a.To < b.To
+		}
+		return a.Line < b.Line
 	})
-	return cycles
+	return Cycle{
+		Length: len(nodeIDs),
+		Nodes:  nodeIDs,
+		Edges:  cycleEdges,
+	}
 }
 
 // tarjan implements Tarjan's strongly-connected-components algorithm
