@@ -22,9 +22,9 @@ import (
 // VCS revision. The defaults below are only the last-resort sentinel
 // values — see internal/cli/buildinfo.go for the resolution contract.
 var (
-	Version   = "v0.5.1"
-	Commit    = "2bdd346"
-	BuildDate = "2026-05-23T23:58:20Z"
+	Version   = "v0.5.2"
+	Commit    = "a7b780c"
+	BuildDate = "2026-05-24T00:14:15Z"
 )
 
 // globalFlags holds the cobra-bound values for the persistent flags every
