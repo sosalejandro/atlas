@@ -116,10 +116,25 @@ class _Edge:
     from_: str
     to: str
     kind: str
+    # 1-based source line of the AST node that produced this edge.
+    # 0 means "no per-edge line available" (back-compat with pre-fix
+    # callers and synthetic edges that have no source anchor). The Go
+    # ingestor falls back to the from-node's symbol line when this is 0,
+    # so omitting it never breaks ingestion — it only loses precision.
+    line: int = 0
 
-    def to_json(self) -> dict[str, str]:
+    def to_json(self) -> dict[str, object]:
         # `from` is a Python keyword — translate at the wire boundary.
-        return {"from": self.from_, "to": self.to, "kind": self.kind}
+        # `line` is omitted when 0 so the wire stays small and the Go
+        # decoder's int zero-value naturally signals "no value".
+        payload: dict[str, object] = {
+            "from": self.from_,
+            "to": self.to,
+            "kind": self.kind,
+        }
+        if self.line:
+            payload["line"] = self.line
+        return payload
 
 
 @dataclass
@@ -536,14 +551,30 @@ def _visit_class(
             doc="; ".join(doc_parts),
         )
     )
-    # Inheritance edges
-    for base in bases:
+    # Inheritance edges — anchored at the `class Foo(Bar):` statement line.
+    # Each base expression carries its own `lineno` (the line of that base
+    # in the parens list); we prefer that when available so multi-line base
+    # lists report each base at its true location, falling back to the
+    # class header line otherwise.
+    for base_expr, base in zip(node.bases, bases):
         out.edges.append(
-            _Edge(from_=class_id, to=base, kind="inheritance"),
+            _Edge(
+                from_=class_id,
+                to=base,
+                kind="inheritance",
+                line=getattr(base_expr, "lineno", node.lineno) or node.lineno,
+            ),
         )
-    # Decorator edges
-    for deco in decorators:
-        out.edges.append(_Edge(from_=class_id, to=deco, kind="decorator"))
+    # Decorator edges — anchored at the `@deco` line of each decorator.
+    for deco_expr, deco in zip(node.decorator_list, decorators):
+        out.edges.append(
+            _Edge(
+                from_=class_id,
+                to=deco,
+                kind="decorator",
+                line=getattr(deco_expr, "lineno", node.lineno) or node.lineno,
+            ),
+        )
 
     # Annotations on the class itself. We collect EVERY hit (comment +
     # decorator forms can co-exist on the same symbol) so a project that
@@ -627,9 +658,16 @@ def _visit_function(
             doc="; ".join(doc_parts),
         )
     )
-    # Decorator edges
-    for deco in decorators:
-        out.edges.append(_Edge(from_=func_id, to=deco, kind="decorator"))
+    # Decorator edges — anchored at each `@deco` line.
+    for deco_expr, deco in zip(node.decorator_list, decorators):
+        out.edges.append(
+            _Edge(
+                from_=func_id,
+                to=deco,
+                kind="decorator",
+                line=getattr(deco_expr, "lineno", node.lineno) or node.lineno,
+            ),
+        )
 
     # Annotation extraction — own (comment + decorator) PLUS any
     # inherited records propagated from the enclosing class. Inherited
@@ -697,8 +735,19 @@ def _emit_call_edges(
         except Exception:  # noqa: BLE001 — defensive; render must never crash
             callee = type(call.func).__name__
         if callee:
+            # `call.lineno` is the call-site line (the line where the
+            # callee is invoked), which is what a user clicking the
+            # edge expects to land on. Falling back to the enclosing
+            # function's line keeps the field non-zero if the AST
+            # node somehow lacks `lineno`.
+            call_line = getattr(call, "lineno", func.lineno) or func.lineno
             out.edges.append(
-                _Edge(from_=func_id, to=callee, kind="call"),
+                _Edge(
+                    from_=func_id,
+                    to=callee,
+                    kind="call",
+                    line=call_line,
+                ),
             )
 
 
@@ -747,10 +796,18 @@ def _iter_own_scope_calls(
 
 
 def _visit_import(node: ast.Import, module_id: str, out: _Output) -> None:
-    """``import X`` and ``import X as Y`` — one edge per alias."""
+    """``import X`` and ``import X as Y`` — one edge per alias.
+
+    Every emitted edge carries ``node.lineno`` so the Go ingestor can
+    persist the actual source line of the import statement instead of
+    defaulting to the module symbol's line (which is always 1).
+    """
+    line = node.lineno
     for alias in node.names:
         target = alias.name
-        out.edges.append(_Edge(from_=module_id, to=target, kind="import"))
+        out.edges.append(
+            _Edge(from_=module_id, to=target, kind="import", line=line),
+        )
 
 
 def _visit_import_from(
@@ -760,6 +817,13 @@ def _visit_import_from(
 
     The edge target is rendered as the fully-qualified name so a Go-side
     consumer can resolve to module + symbol with simple splitting.
+
+    Every emitted edge carries the ``from ... import`` statement's
+    ``node.lineno``; for a multi-name form (``from X import a, b, c``)
+    each alias shares the same line because Python's grammar makes them
+    a single statement. If a future precision pass wants per-name lines
+    it can read ``alias.lineno`` — currently ``ast`` only populates that
+    on Python 3.10+, so we keep the statement-level line for portability.
     """
     # Render `from .sibling import x`     -> base = ".sibling", target = ".sibling.x"
     # Render `from . import sibling`        -> base = ".",        target = ".sibling"
@@ -767,6 +831,7 @@ def _visit_import_from(
     module = node.module or ""
     level_prefix = "." * (node.level or 0)
     base = level_prefix + module  # may be ""+"" = "" for naked `import` form (impossible here)
+    line = node.lineno
     for alias in node.names:
         if base == "":
             target = alias.name
@@ -775,7 +840,9 @@ def _visit_import_from(
             target = base + alias.name
         else:
             target = f"{base}.{alias.name}"
-        out.edges.append(_Edge(from_=module_id, to=target, kind="import"))
+        out.edges.append(
+            _Edge(from_=module_id, to=target, kind="import", line=line),
+        )
 
 
 def _visit_module_assign(

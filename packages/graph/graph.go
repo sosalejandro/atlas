@@ -36,11 +36,19 @@ type Node struct {
 // unknown kinds default to "call". Zero value ("") is back-compat with
 // pre-v0.4 callers and is treated as "call" by downstream consumers.
 type Edge struct {
-	From      shared.SymbolID `json:"from"`
-	To        shared.SymbolID `json:"to"`
-	Kind      string          `json:"kind,omitempty"`
-	Cycle     bool            `json:"cycle,omitempty"`
-	Ambiguous bool            `json:"ambiguous,omitempty"`
+	From shared.SymbolID `json:"from"`
+	To   shared.SymbolID `json:"to"`
+	Kind string          `json:"kind,omitempty"`
+	// Line is the 1-based source line where this edge originated (the
+	// import statement, the call site, the decorator line, etc.). Zero
+	// means "no per-edge anchor available" — the store-side ingestor
+	// falls back to the from-symbol's declaration line in that case.
+	// Sub-scanners that know the precise origin (currently scanner.py;
+	// scanner.ts + the Go scanner do not yet populate this) should set
+	// it so callers can drill from an edge to its true source location.
+	Line      int  `json:"line,omitempty"`
+	Cycle     bool `json:"cycle,omitempty"`
+	Ambiguous bool `json:"ambiguous,omitempty"`
 }
 
 // Graph is the in-memory call-graph DAG.
@@ -130,9 +138,23 @@ func (g *Graph) AddEdge(from, to shared.SymbolID) {
 // packages/store.EdgeKind*) — unknown values are tolerated by the graph
 // layer but will fall back to EdgeKindCall at persistence time.
 func (g *Graph) AddEdgeKind(from, to shared.SymbolID, kind string) {
+	g.AddEdgeKindLine(from, to, kind, 0)
+}
+
+// AddEdgeKindLine is AddEdgeKind with the 1-based source line where this
+// edge originated (the import statement line, the call-site line, the
+// decorator line, etc.). Pass 0 when no per-edge line is available — the
+// store-side ingestor will fall back to the from-symbol's declaration
+// line in that case, preserving the pre-fix behaviour for sub-scanners
+// that don't yet supply per-edge anchors.
+//
+// This is the entry point sub-scanners use when they know the precise
+// origin line and want it persisted on the edge row (issue atlas-internal
+// #17: Python import edges all reported line=1 before the wire-through).
+func (g *Graph) AddEdgeKindLine(from, to shared.SymbolID, kind string, line int) {
 	g.invalidateAdjacency()
 	cycle := g.hasPath(to, from)
-	g.Edges = append(g.Edges, Edge{From: from, To: to, Kind: kind, Cycle: cycle})
+	g.Edges = append(g.Edges, Edge{From: from, To: to, Kind: kind, Line: line, Cycle: cycle})
 }
 
 // AddAmbiguousEdge is AddEdge with Ambiguous=true. Used by the codeindex

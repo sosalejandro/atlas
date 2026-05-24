@@ -411,7 +411,12 @@ func mergeTSResult(idx *Index, res *tsscan.Result) {
 		idx.SymbolLangs[sym.ID] = "ts"
 	}
 	for _, e := range res.Edges {
-		idx.Graph.AddEdgeKind(e.From, e.To, e.Kind)
+		// Use AddEdgeKindLine to forward the per-edge line when the
+		// TS scanner supplies one. Today scanner.ts emits Line=0 so
+		// this is functionally identical to AddEdgeKind; staying on
+		// the line-aware overload keeps the ingest path uniform and
+		// future-proofs the TS scanner's eventual per-edge anchors.
+		idx.Graph.AddEdgeKindLine(e.From, e.To, e.Kind, e.Line)
 	}
 	// Surface TS scanner warnings to the orchestrator output.
 	idx.Warnings = append(idx.Warnings, res.Warnings...)
@@ -448,7 +453,12 @@ func mergePYResult(idx *Index, res *pyscan.Result) {
 		idx.SymbolLangs[sym.ID] = "py"
 	}
 	for _, e := range res.Edges {
-		idx.Graph.AddEdgeKind(e.From, e.To, e.Kind)
+		// Preserve the per-edge line emitted by scanner.py — without
+		// AddEdgeKindLine the line gets dropped here and the store
+		// ingestor falls back to the from-symbol's declaration line
+		// (which is line 1 for module-level imports). See
+		// atlas-internal #17.
+		idx.Graph.AddEdgeKindLine(e.From, e.To, e.Kind, e.Line)
 	}
 	idx.Annotations = append(idx.Annotations, res.Annotations...)
 	idx.Warnings = append(idx.Warnings, res.Warnings...)

@@ -103,6 +103,12 @@ type rawEdge struct {
 	//   "decorator"   — `@dec def f()` (or class-level decorator)
 	// Currently advisory; the Go layer drops it into graph.Edge.From/To only.
 	Kind string `json:"kind,omitempty"`
+	// Line is the 1-based source line of the AST node that produced this
+	// edge (the `import` statement, the `@deco` decorator line, the call
+	// site, etc.). Zero means "scanner.py did not supply one" — the
+	// ingestor then falls back to the from-symbol's declaration line so
+	// the wire stays back-compat with pre-fix scanner builds.
+	Line int `json:"line,omitempty"`
 }
 
 type rawStats struct {

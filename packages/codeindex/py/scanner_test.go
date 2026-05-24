@@ -285,6 +285,91 @@ func keysOf(m map[string]bool) []string {
 	return out
 }
 
+// TestScanner_ImportEdgeLines is the regression test for the bug where
+// every Python import edge reported line=1 regardless of where the
+// import statement actually appeared (atlas-internal #17 / sosalejandro/
+// atlas fix branch). The root cause was that scanner.py emitted import
+// edges without a per-edge line, and the Go ingestor defaulted to the
+// FROM symbol's declaration line — which is line 1 for every module.
+//
+// The fix wires `node.lineno` through `_Edge.line` → `rawEdge.Line` →
+// `graph.Edge.Line`, and the store-side ingestor prefers that value
+// when non-zero. This test exercises the wire end-to-end against the
+// existing sample_project fixture, which has three imports on lines
+// 26, 27, and 28 of main.py:
+//
+//	L26: import os
+//	L27: from collections import OrderedDict
+//	L28: from . import sibling
+//
+// Asserting that the emitted edges carry exactly those lines proves
+// both (a) the Python scanner records the AST line and (b) the Go
+// scanner round-trips it through `mapToResult` into `graph.Edge.Line`.
+func TestScanner_ImportEdgeLines(t *testing.T) {
+	t.Parallel()
+	res := runScan(t, "sample_project")
+
+	type importEdge struct {
+		to   string
+		line int
+	}
+	gotImports := make(map[string]int) // edge target -> line
+	for _, e := range res.Edges {
+		if e.Kind != "import" {
+			continue
+		}
+		// Only main.py's module-level imports matter for this assertion.
+		if e.From != "main" {
+			continue
+		}
+		gotImports[string(e.To)] = e.Line
+	}
+
+	wantImports := []importEdge{
+		{"os", 26},
+		{"collections.OrderedDict", 27},
+		{".sibling", 28},
+	}
+	for _, want := range wantImports {
+		got, ok := gotImports[want.to]
+		if !ok {
+			t.Errorf("missing import edge main->%s; got: %+v", want.to, gotImports)
+			continue
+		}
+		if got != want.line {
+			t.Errorf("import edge main->%s: line = %d; want %d",
+				want.to, got, want.line)
+		}
+	}
+
+	// Stronger negative — no import edge in this fixture should report
+	// line == 1. Pre-fix every import was anchored at line 1; the
+	// regression test catches a future change that silently re-introduces
+	// the old behaviour (e.g. someone drops the `line=` kwarg from
+	// `_visit_import`).
+	for to, line := range gotImports {
+		if line <= 1 {
+			t.Errorf("import edge main->%s: line = %d (≤ 1) — "+
+				"regression of atlas-internal #17 (all import edges "+
+				"reporting line=1)", to, line)
+		}
+	}
+
+	// Distinct-line spot check: three imports on three different lines
+	// must produce three distinct line values. This catches a scenario
+	// where the fix records `node.lineno` correctly but a downstream
+	// layer collapses them (e.g. an aggregator that keys on `from+to`
+	// without `line`).
+	seen := make(map[int]bool)
+	for _, line := range gotImports {
+		seen[line] = true
+	}
+	if len(seen) < 3 {
+		t.Errorf("expected 3 distinct import lines for main.py; got %d (lines=%v)",
+			len(seen), gotImports)
+	}
+}
+
 // TestScanner_Annotations_BothModes exercises issue #53's two recognition
 // modes (comment + decorator) and the class-level propagation gotcha.
 //

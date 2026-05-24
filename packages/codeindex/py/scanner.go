@@ -403,6 +403,7 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 			From: from,
 			To:   to,
 			Kind: e.Kind,
+			Line: e.Line,
 		})
 	}
 	skippedKinds := map[string]int{}
