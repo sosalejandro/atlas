@@ -74,9 +74,10 @@ func TestRank_StabilitySameInputSameOrder(t *testing.T) {
 	a := audit.New(s, audit.Options{})
 	ctx := context.Background()
 	// Three features at different scores via coverage.
-	low := seedFeatureWithSymbols(t, s, "low", 2, "a.go")
-	mid := seedFeatureWithSymbols(t, s, "mid", 2, "b.go")
-	high := seedFeatureWithSymbols(t, s, "high", 2, "c.go")
+	// Use dot-namespaced IDs so they are not filtered as phantoms.
+	low := seedFeatureWithSymbols(t, s, "cov.low", 2, "a.go")
+	mid := seedFeatureWithSymbols(t, s, "cov.mid", 2, "b.go")
+	high := seedFeatureWithSymbols(t, s, "cov.high", 2, "c.go")
 	now := time.Now().UTC()
 	results := []store.CoverageResult{
 		{SymbolID: ptrInt64(low[0]), Status: store.StatusFail},
@@ -111,8 +112,8 @@ func TestRank_StabilitySameInputSameOrder(t *testing.T) {
 		}
 	}
 	// And: the lowest-score feature must be the highest priority.
-	if first[0].FeatureID != "low" {
-		t.Errorf("Rank ordering wrong: first = %q, want %q", first[0].FeatureID, "low")
+	if first[0].FeatureID != "cov.low" {
+		t.Errorf("Rank ordering wrong: first = %q, want %q", first[0].FeatureID, "cov.low")
 	}
 }
 
@@ -141,9 +142,10 @@ func TestRank_EmitsCostLabel(t *testing.T) {
 	s := openTestStore(t)
 	a := audit.New(s, audit.Options{})
 	ctx := context.Background()
-	seedFeatureWithSymbols(t, s, "small", 2, "a.go")  // S
-	seedFeatureWithSymbols(t, s, "medium", 8, "b.go") // M
-	seedFeatureWithSymbols(t, s, "large", 20, "c.go") // L
+	// Use dot-namespaced IDs so they are not filtered as phantoms.
+	seedFeatureWithSymbols(t, s, "cost.small", 2, "a.go")  // S
+	seedFeatureWithSymbols(t, s, "cost.medium", 8, "b.go") // M
+	seedFeatureWithSymbols(t, s, "cost.large", 20, "c.go") // L
 	p := New(s, a, Options{})
 	got, err := p.Rank(ctx)
 	if err != nil {
@@ -154,9 +156,9 @@ func TestRank_EmitsCostLabel(t *testing.T) {
 		costByID[item.FeatureID] = item.Cost
 	}
 	want := map[shared.FeatureID]string{
-		"small":  CostS,
-		"medium": CostM,
-		"large":  CostL,
+		"cost.small":  CostS,
+		"cost.medium": CostM,
+		"cost.large":  CostL,
 	}
 	for id, w := range want {
 		if costByID[id] != w {
@@ -172,7 +174,7 @@ func TestRank_EmitsCostLabel(t *testing.T) {
 func TestTopN_Zero(t *testing.T) {
 	s := openTestStore(t)
 	a := audit.New(s, audit.Options{})
-	seedFeatureWithSymbols(t, s, "x", 1, "a.go")
+	seedFeatureWithSymbols(t, s, "topn.x", 1, "a.go")
 	p := New(s, a, Options{})
 	got, err := p.TopN(context.Background(), 0)
 	if err != nil {
@@ -186,8 +188,8 @@ func TestTopN_Zero(t *testing.T) {
 func TestTopN_GreaterThanLen(t *testing.T) {
 	s := openTestStore(t)
 	a := audit.New(s, audit.Options{})
-	seedFeatureWithSymbols(t, s, "x", 1, "a.go")
-	seedFeatureWithSymbols(t, s, "y", 1, "b.go")
+	seedFeatureWithSymbols(t, s, "topn.x", 1, "a.go")
+	seedFeatureWithSymbols(t, s, "topn.y", 1, "b.go")
 	p := New(s, a, Options{})
 	got, err := p.TopN(context.Background(), 99)
 	if err != nil {
@@ -223,9 +225,12 @@ func TestRank_AllScoresMaxStableByID(t *testing.T) {
 	a := audit.New(s, audit.Options{})
 	ctx := context.Background()
 	now := time.Now().UTC()
-	a1 := seedFeatureWithSymbols(t, s, "alpha", 1, "alpha.go")
-	a2 := seedFeatureWithSymbols(t, s, "bravo", 1, "bravo.go")
-	a3 := seedFeatureWithSymbols(t, s, "charlie", 1, "charlie.go")
+	// Use dot-namespaced IDs (required — bare names are treated as phantoms).
+	// Prefixed with "tier." to stay in the valid namespace while giving
+	// each feature a recognisable alphabetical sort key.
+	a1 := seedFeatureWithSymbols(t, s, "tier.alpha", 1, "alpha.go")
+	a2 := seedFeatureWithSymbols(t, s, "tier.bravo", 1, "bravo.go")
+	a3 := seedFeatureWithSymbols(t, s, "tier.charlie", 1, "charlie.go")
 	_, err := s.Coverage().InsertRunWithResults(ctx, store.CoverageRun{
 		Framework: store.FrameworkGoTest, StartedAt: now, FinishedAt: now,
 	}, []store.CoverageResult{
@@ -250,7 +255,7 @@ func TestRank_AllScoresMaxStableByID(t *testing.T) {
 		}
 	}
 	// Stable sort by id when priorities tie.
-	want := []shared.FeatureID{"alpha", "bravo", "charlie"}
+	want := []shared.FeatureID{"tier.alpha", "tier.bravo", "tier.charlie"}
 	for i, w := range want {
 		if got[i].FeatureID != w {
 			t.Errorf("got[%d] = %q, want %q (tie-break by id)", i, got[i].FeatureID, w)
@@ -268,8 +273,9 @@ func TestRank_NoRecencyMeansLowerPriority(t *testing.T) {
 	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 
 	// Two features at identical zero coverage scores.
-	dead := seedFeatureWithSymbols(t, s, "dead", 1, "dead.go")
-	hot := seedFeatureWithSymbols(t, s, "hot", 1, "hot.go")
+	// Use dot-namespaced IDs so they are not filtered as phantoms.
+	dead := seedFeatureWithSymbols(t, s, "recency.dead", 1, "dead.go")
+	hot := seedFeatureWithSymbols(t, s, "recency.hot", 1, "hot.go")
 	_, err := s.Coverage().InsertRunWithResults(ctx, store.CoverageRun{
 		Framework: store.FrameworkGoTest, StartedAt: now, FinishedAt: now,
 	}, []store.CoverageResult{
@@ -279,10 +285,10 @@ func TestRank_NoRecencyMeansLowerPriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertRunWithResults: %v", err)
 	}
-	// Only `hot` gets an annotation site.
+	// Only `recency.hot` gets an annotation site.
 	_ = s.Annotations().Upsert(ctx, store.AnnotationRow{
 		FilePath: "hot.go", Line: 1, Kind: shared.AnnFeature,
-		Value: "hot", Source: shared.SourceAtlas,
+		Value: "recency.hot", Source: shared.SourceAtlas,
 	})
 
 	p := New(s, a, Options{
@@ -297,9 +303,9 @@ func TestRank_NoRecencyMeansLowerPriority(t *testing.T) {
 	for _, item := range got {
 		byID[item.FeatureID] = item
 	}
-	if byID["hot"].Priority <= byID["dead"].Priority {
-		t.Errorf("expected hot > dead in priority; hot=%.2f dead=%.2f",
-			byID["hot"].Priority, byID["dead"].Priority)
+	if byID["recency.hot"].Priority <= byID["recency.dead"].Priority {
+		t.Errorf("expected recency.hot > recency.dead in priority; hot=%.2f dead=%.2f",
+			byID["recency.hot"].Priority, byID["recency.dead"].Priority)
 	}
 }
 
@@ -311,7 +317,7 @@ func TestRank_ReasonsAndCostPresent(t *testing.T) {
 	s := openTestStore(t)
 	a := audit.New(s, audit.Options{})
 	ctx := context.Background()
-	seedFeatureWithSymbols(t, s, "x", 4, "x.go")
+	seedFeatureWithSymbols(t, s, "reasons.x", 4, "x.go")
 	p := New(s, a, Options{})
 	got, err := p.Rank(ctx)
 	if err != nil {
@@ -325,6 +331,104 @@ func TestRank_ReasonsAndCostPresent(t *testing.T) {
 	}
 	if len(got[0].Reasons) == 0 {
 		t.Errorf("Reasons empty: %+v", got[0])
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Phantom / noise feature ID filtering (#80)
+// -----------------------------------------------------------------------------
+
+// TestRank_PhantomIDsExcludedFromBacklog verifies that feature IDs which do
+// not conform to the canonical dot-namespaced FeatureID grammar (single tokens
+// like "a", "is", "package", or em-dashes "—") are silently excluded from the
+// sprint backlog even when they are already persisted in the store.
+//
+// This is the regression test for issue #80: "sprint backlog is dominated by
+// phantom/noise features, making it non-actionable".
+func TestRank_PhantomIDsExcludedFromBacklog(t *testing.T) {
+	s := openTestStore(t)
+	a := audit.New(s, audit.Options{})
+	ctx := context.Background()
+
+	// Phantom IDs — all lack a dot-namespaced segment (noise from @testreg).
+	phantoms := []shared.FeatureID{"a", "is", "package", "—" /* em-dash */}
+	// Real IDs — well-formed dot-namespaced names.
+	real := []shared.FeatureID{"auth.login", "pantry.add-item"}
+
+	// Seed all into the store so Rank must see them.
+	for _, id := range phantoms {
+		if err := s.Features().Upsert(ctx, store.Feature{ID: id, Title: string(id)}); err != nil {
+			t.Fatalf("Upsert phantom %q: %v", id, err)
+		}
+	}
+	for _, id := range real {
+		seedFeatureWithSymbols(t, s, id, 1, string(id)+".go")
+	}
+
+	p := New(s, a, Options{})
+	got, err := p.Rank(ctx)
+	if err != nil {
+		t.Fatalf("Rank: %v", err)
+	}
+
+	// Build a set of returned IDs.
+	returned := make(map[shared.FeatureID]bool, len(got))
+	for _, item := range got {
+		returned[item.FeatureID] = true
+	}
+
+	// Assert: no phantom ID appears in the output.
+	for _, id := range phantoms {
+		if returned[id] {
+			t.Errorf("phantom ID %q should be excluded from sprint backlog but was included", id)
+		}
+	}
+
+	// Assert: all real IDs are present.
+	for _, id := range real {
+		if !returned[id] {
+			t.Errorf("real ID %q is missing from sprint backlog", id)
+		}
+	}
+
+	// Assert: only real IDs are present (exact count).
+	if got, want := len(got), len(real); got != want {
+		t.Errorf("backlog len = %d, want %d (only real features)", got, want)
+	}
+}
+
+// TestRank_PhantomIDsTable is a table-driven companion that exercises each
+// phantom shape individually so a future regression pinpoints the offending
+// ID class.
+func TestRank_PhantomIDsTable(t *testing.T) {
+	cases := []struct {
+		id      shared.FeatureID
+		isValid bool
+		desc    string
+	}{
+		{"a", false, "single letter — stop-word"},
+		{"is", false, "two-letter stop-word"},
+		{"package", false, "Go keyword without dot"},
+		{"—", false, "em-dash"},
+		{"tags.", false, "trailing dot"},
+		{".bad", false, "leading dot"},
+		{"Bad.feature", false, "uppercase segment"},
+		{"auth.login", true, "valid dot-namespaced"},
+		{"pantry.add-item", true, "valid kebab segment"},
+		{"batch-sessions.cook", true, "valid multi-segment kebab"},
+		{"meal-prep.13-items", true, "valid segment with digits"},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(string(tc.id), func(t *testing.T) {
+			t.Parallel()
+			got := shared.IsValidFeatureID(tc.id)
+			if got != tc.isValid {
+				t.Errorf("IsValidFeatureID(%q) = %v, want %v (%s)",
+					tc.id, got, tc.isValid, tc.desc)
+			}
+		})
 	}
 }
 

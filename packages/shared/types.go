@@ -1,5 +1,34 @@
 package shared
 
+import "regexp"
+
+// ValidFeatureIDRe is the canonical regex for a well-formed FeatureID.
+//
+// Required shape: two or more dot-separated lowercase kebab/snake segments:
+//
+//	^[a-z0-9_-]+(\.[a-z0-9_-]+)+$
+//
+// The trailing `+` (not `*`) means at least one dot is mandatory. This
+// intentionally excludes bare single-word tokens like "a", "is", "package",
+// or "tags." that leak in from legacy @testreg annotations as phantom noise.
+//
+// Examples of valid IDs: "auth.login", "pantry.add-item", "batch-sessions.cook".
+// Single tokens without a dot (e.g. "a", "is", "package") and IDs containing
+// uppercase letters, spaces, or an em-dash are invalid.
+//
+// This regex is the single source of truth shared by the annotation parser
+// (packages/codeindex/annotations) and the sprint planner (packages/sprintplan)
+// so both layers enforce the same grammar without duplication.
+var ValidFeatureIDRe = regexp.MustCompile(`^[a-z0-9_-]+(\.[a-z0-9_-]+)+$`)
+
+// IsValidFeatureID reports whether id conforms to the canonical FeatureID
+// grammar (at least two dot-separated lowercase kebab/snake segments).
+// Use this to exclude phantom/noise IDs (e.g. stop-words ingested from legacy
+// @testreg annotations) from audit and sprint-plan output.
+func IsValidFeatureID(id FeatureID) bool {
+	return ValidFeatureIDRe.MatchString(string(id))
+}
+
 // SymbolID is the stable identifier Atlas uses to reference a code symbol.
 //
 // Convention (Go): "ReceiverType.MethodName" for methods, "pkgName.FuncName"

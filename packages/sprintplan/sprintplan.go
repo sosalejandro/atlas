@@ -159,6 +159,14 @@ func (p *planner) Rank(ctx context.Context) ([]SprintItem, error) {
 
 	out := make([]SprintItem, 0, len(healths))
 	for _, h := range healths {
+		// Skip phantom / unvalidated IDs (e.g. stop-words like "a", "is",
+		// "package", em-dashes) that may have been ingested from legacy
+		// @testreg annotations before the ingest gate validated them.
+		// Defence-in-depth: keeps the sprint backlog clean regardless of
+		// whether the parser already filtered them at scan time (#77/#80).
+		if !shared.IsValidFeatureID(h.FeatureID) {
+			continue
+		}
 		item, err := p.itemFor(ctx, h, latestRun, hasCov, now)
 		if err != nil {
 			return nil, fmt.Errorf("sprintplan Rank %q: %w", h.FeatureID, err)
