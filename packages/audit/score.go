@@ -228,8 +228,21 @@ func (a *auditImpl) coverageSignal(
 	links []store.FeatureSymbolLink,
 	runID int64,
 ) (signalResult, bool, error) {
-	wanted := wantedSymbolIDs(links)
 	testSyms := testSymbolIDs(links)
+	// Prefer the call-graph-derived impl surface — real production execution
+	// from a coverprofile run is attributed to these symbols. When it's
+	// non-empty we score the executed fraction directly (no blanket test-pass
+	// credit). When empty (e.g. e2e-only features, or a gotest-pass/fail run
+	// with no profile), fall back to the direct-link + test-pass model (#82).
+	surface, err := a.featureImplSurface(ctx, links)
+	if err != nil {
+		return signalResult{}, false, fmt.Errorf("impl surface: %w", err)
+	}
+	useSurface := len(surface) > 0
+	wanted := surface
+	if !useSurface {
+		wanted = wantedSymbolIDs(links)
+	}
 	if len(wanted) == 0 && len(testSyms) == 0 {
 		return signalResult{}, false, nil
 	}
@@ -238,13 +251,10 @@ func (a *auditImpl) coverageSignal(
 		return signalResult{}, false, fmt.Errorf("list coverage results: %w", err)
 	}
 	pass, skipOnly, featurePassed, testSeen := classifyCoverageResults(results, wanted, testSyms, featureID)
-	if featurePassed {
-		// A test annotated to this feature passed (or an E2E feature-level
-		// result landed). Credit the feature: if impl symbols are linked,
-		// mark them all covered; if the feature has only test-role links
-		// (the common go-test case — results key to the test function, not
-		// the impl symbol — see issue #82), the passing test alone IS the
-		// coverage evidence.
+	if featurePassed && !useSurface {
+		// gotest pass/fail mode (no execution profile): a passing annotated
+		// test credits the feature. With an impl surface we instead trust the
+		// executed fraction below — a passing test does NOT imply all impl ran.
 		if len(wanted) == 0 {
 			return signalResult{score: 100, note: coverageNote(1, 1, 100)}, true, nil
 		}
@@ -254,10 +264,7 @@ func (a *auditImpl) coverageSignal(
 	}
 	denom, numer := coverageRatio(wanted, pass, skipOnly)
 	if denom == 0 {
-		// No impl-symbol evidence. If we DID see a non-passing test result
-		// for this feature, surface 0% coverage (tests exist but don't pass);
-		// otherwise there's simply no coverage signal for it.
-		if testSeen {
+		if testSeen && !useSurface {
 			return signalResult{score: 0, note: coverageNote(0, 1, 0)}, true, nil
 		}
 		return signalResult{}, false, nil
@@ -520,6 +527,85 @@ func (a *auditImpl) lookupSymbolByID(ctx context.Context, id int64) (store.Symbo
 		return store.SymbolRow{}, shared.ErrSymbolNotFound
 	}
 	return row, nil
+}
+
+// implSurfaceMaxDepth bounds the call-graph walk from a feature's annotated
+// symbols to its production footprint. 3 captures "test → entry impl → a hop
+// or two of collaborators" without dragging in the whole transitive tree.
+const implSurfaceMaxDepth = 3
+
+// callAdjacency lazily loads (once) the whole `call`-edge adjacency.
+func (a *auditImpl) callAdjacency(ctx context.Context) (map[int64][]int64, error) {
+	if !a.callAdjLoaded {
+		adj, err := a.store.Edges().CallAdjacency(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("call adjacency: %w", err)
+		}
+		a.callAdj = adj
+		a.callAdjLoaded = true
+	}
+	return a.callAdj, nil
+}
+
+// featureImplSurface returns the PRODUCTION symbol ids reachable via `call`
+// edges (≤ implSurfaceMaxDepth) from the feature's linked symbols — the
+// executable footprint its annotated tests exercise. Used as the coverage
+// denominator so coverage reflects real production execution (from a
+// coverprofile run) instead of literal test-symbol name matches. Empty when
+// no call edges resolve (e.g. e2e-only features), in which case the caller
+// falls back to the direct-link / test-pass model. See issue #82.
+func (a *auditImpl) featureImplSurface(ctx context.Context, links []store.FeatureSymbolLink) (map[int64]bool, error) {
+	adj, err := a.callAdjacency(ctx)
+	if err != nil {
+		return nil, err
+	}
+	visited := make(map[int64]bool, len(links))
+	frontier := make([]int64, 0, len(links))
+	for _, l := range links {
+		if !visited[l.SymbolID] {
+			visited[l.SymbolID] = true
+			frontier = append(frontier, l.SymbolID)
+		}
+	}
+	for d := 0; d < implSurfaceMaxDepth && len(frontier) > 0; d++ {
+		var next []int64
+		for _, id := range frontier {
+			for _, to := range adj[id] {
+				if !visited[to] {
+					visited[to] = true
+					next = append(next, to)
+				}
+			}
+		}
+		frontier = next
+	}
+	impl := map[int64]bool{}
+	for id := range visited {
+		row, err := a.lookupSymbolByID(ctx, id)
+		if err != nil {
+			continue
+		}
+		if isProductionFile(row.FilePath) {
+			impl[id] = true
+		}
+	}
+	return impl, nil
+}
+
+// isProductionFile reports whether a path is non-test production source.
+func isProductionFile(p string) bool {
+	if p == "" {
+		return false
+	}
+	if strings.Contains(p, "/__tests__/") {
+		return false
+	}
+	for _, suf := range []string{"_test.go", ".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".test.js", ".spec.js"} {
+		if strings.HasSuffix(p, suf) {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------

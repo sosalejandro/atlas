@@ -31,10 +31,10 @@ type FeatureHealth struct {
 //
 // Keys are stable identifiers; the human-readable Reasons explain the score.
 const (
-	SignalCoverage            = "coverage"
-	SignalAnnotationFresh     = "annotation_freshness"
-	SignalPatternCompliance   = "pattern_compliance"
-	SignalContractDrift       = "contract_drift"
+	SignalCoverage          = "coverage"
+	SignalAnnotationFresh   = "annotation_freshness"
+	SignalPatternCompliance = "pattern_compliance"
+	SignalContractDrift     = "contract_drift"
 	// SignalAnnotationPresence fires when the feature has at least one linked
 	// symbol in the feature_symbols table. This is the same signal that
 	// `atlas trace feature:<id>` consumes — when trace resolves a chain,
@@ -43,7 +43,7 @@ const (
 	// contract data hasn't been ingested yet, even though the feature IS
 	// annotated in code. Weight is intentionally low (0.10) so it never
 	// dominates the score when the richer signals are available.
-	SignalAnnotationPresence  = "annotation_presence"
+	SignalAnnotationPresence = "annotation_presence"
 )
 
 // Options tunes the audit algorithm.
@@ -128,6 +128,12 @@ type auditImpl struct {
 	//
 	// nil = not yet populated.
 	symbolCache map[int64]store.SymbolRow
+
+	// callAdj lazily holds the whole `call`-edge adjacency (from→[]to),
+	// loaded once for per-feature impl-surface BFS. nil = not yet loaded;
+	// callAdjLoaded distinguishes "not loaded" from "loaded but empty".
+	callAdj       map[int64][]int64
+	callAdjLoaded bool
 }
 
 // New returns an Audit backed by the given store, using the supplied

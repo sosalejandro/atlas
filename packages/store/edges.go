@@ -192,6 +192,12 @@ type Edges interface {
 	// incremental scanner before re-emitting edges for a changed file.
 	DeleteByFile(ctx context.Context, filePath string) error
 
+	// CallAdjacency returns the entire `call`-kind edge set as an adjacency
+	// map (from_symbol_id → []to_symbol_id), loaded in one query. Intended
+	// for callers running many in-memory reachability walks (e.g. the
+	// audit's per-feature impl-surface derivation) without N round-trips.
+	CallAdjacency(ctx context.Context) (map[int64][]int64, error)
+
 	// ListImportEdges returns every `kind='import'` edge as a flat
 	// (from_file, to_file, scope, line) projection, JOINed against
 	// the `symbols` table for both endpoints. The result is the raw
@@ -269,7 +275,7 @@ func derefString(p *string) string {
 // generates *string for NULLable TEXT). Returns nil for "" so the
 // column stays NULL on insert — distinguishing "no qualifier" from
 // "empty-string qualifier" matters for SQL filters like
-// ``WHERE edge_meta IS NOT NULL``.
+// “WHERE edge_meta IS NOT NULL“.
 func metaParam(meta string) *string {
 	if meta == "" {
 		return nil
@@ -410,6 +416,27 @@ func (s *edgesStore) Walk(ctx context.Context, fromID int64, maxDepth int) ([]Wa
 		return nil, fmt.Errorf("edges walk rows: %w", err)
 	}
 	return out, nil
+}
+
+func (s *edgesStore) CallAdjacency(ctx context.Context) (map[int64][]int64, error) {
+	rows, err := s.db.sqlDB().QueryContext(ctx,
+		`SELECT from_symbol_id, to_symbol_id FROM edges WHERE kind = 'call'`)
+	if err != nil {
+		return nil, fmt.Errorf("edges call-adjacency: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	adj := map[int64][]int64{}
+	for rows.Next() {
+		var from, to int64
+		if err := rows.Scan(&from, &to); err != nil {
+			return nil, fmt.Errorf("edges call-adjacency scan: %w", err)
+		}
+		adj[from] = append(adj[from], to)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("edges call-adjacency rows: %w", err)
+	}
+	return adj, nil
 }
 
 func (s *edgesStore) DeleteByFile(ctx context.Context, filePath string) error {

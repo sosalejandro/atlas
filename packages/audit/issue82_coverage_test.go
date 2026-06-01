@@ -64,3 +64,54 @@ func TestCoverageSignal_Issue82_TestRoleFailScoresZero(t *testing.T) {
 		t.Errorf("coverage = %.1f (present=%v), want 0 present (failing test must score 0, #82)", v, ok)
 	}
 }
+
+// TestCoverageSignal_ImplSurface_ProfileExecutionCredits verifies the
+// call-graph impl-surface model: a feature linked to a TEST symbol that calls
+// a PRODUCTION symbol is scored by whether that production symbol executed
+// (coverprofile), not by literal name match. See issue #82 / coverprofile work.
+func TestCoverageSignal_ImplSurface_ProfileExecutionCredits(t *testing.T) {
+	ctx := context.Background()
+
+	run := func(implExecuted bool) float64 {
+		s := openTestStore(t)
+		// Feature → test symbol (role=test).
+		tsid := seedTestRoleFeature(t, s, "billing.subscribe", "services.TestSubscribe")
+		// Production impl symbol the test calls.
+		endLine := 40
+		isid, err := s.Symbols().Insert(ctx, store.SymbolRow{
+			QualifiedName: "services.Subscribe", Kind: shared.KindFunc,
+			FilePath: "src/contexts/billing/application/services/service.go", Line: 10, EndLine: &endLine,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Edges().Insert(ctx, store.EdgeRow{
+			FromID: tsid, ToID: isid, Kind: store.EdgeKindCall,
+			FilePath: "src/contexts/billing/application/services/service_test.go", Line: 12,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		// Profile run: the impl symbol executed (or not).
+		statuses := map[int64]store.CoverageStatus{}
+		if implExecuted {
+			statuses[isid] = store.StatusPass
+		} else {
+			// seed a different symbol so the run is non-empty but impl uncovered
+			statuses[tsid] = store.StatusPass
+		}
+		seedCoverage(t, s, store.FrameworkGoTest, statuses)
+
+		got, err := New(s, Options{}).ScoreFeature(ctx, "billing.subscribe")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Components[SignalCoverage]
+	}
+
+	if cov := run(true); cov != 100 {
+		t.Errorf("impl executed: coverage = %.1f, want 100 (impl surface covered)", cov)
+	}
+	if cov := run(false); cov != 0 {
+		t.Errorf("impl NOT executed: coverage = %.1f, want 0 (impl surface uncovered)", cov)
+	}
+}
