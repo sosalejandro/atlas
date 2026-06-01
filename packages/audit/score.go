@@ -85,12 +85,26 @@ func (a *auditImpl) scoreFromFeature(
 		notes = append(notes, drift.note)
 	}
 
+	// --- Annotation presence signal -------------------------------------
+	// Fires whenever the feature has at least one linked symbol in the
+	// feature_symbols table — the same condition atlas trace feature:<id>
+	// uses to resolve a call chain. When trace finds a chain, this signal
+	// is available and scores 100 (the feature IS annotated). This prevents
+	// a feature from scoring 0 / "no annotation source" solely because
+	// coverage runs, git blame, aggregates, or contracts haven't been
+	// ingested yet, even though the annotation→symbol link IS present.
+	if len(links) > 0 {
+		components[SignalAnnotationPresence] = 100
+		available[SignalAnnotationPresence] = true
+		// No note added — a passing signal doesn't need an explanation.
+	}
+
 	score := weightedAverage(components, available, a.opts.Weights)
 	if len(available) == 0 {
-		// No signal at all — the feature has no coverage, no blame source,
-		// no aggregates, no contracts. Score stays 0 with an explanatory
-		// reason so consumers can distinguish "0 because broken" from
-		// "0 because we don't know anything yet."
+		// No signal at all — the feature has no linked symbols, no coverage,
+		// no blame source, no aggregates, no contracts. Score stays 0 with an
+		// explanatory reason so consumers can distinguish "0 because broken"
+		// from "0 because we don't know anything yet."
 		notes = append(notes, signalNote{
 			weight:  100,
 			message: "no audit signals available (no coverage, no aggregate, no contract, no annotation source)",

@@ -31,10 +31,19 @@ type FeatureHealth struct {
 //
 // Keys are stable identifiers; the human-readable Reasons explain the score.
 const (
-	SignalCoverage           = "coverage"
-	SignalAnnotationFresh    = "annotation_freshness"
-	SignalPatternCompliance  = "pattern_compliance"
-	SignalContractDrift      = "contract_drift"
+	SignalCoverage            = "coverage"
+	SignalAnnotationFresh     = "annotation_freshness"
+	SignalPatternCompliance   = "pattern_compliance"
+	SignalContractDrift       = "contract_drift"
+	// SignalAnnotationPresence fires when the feature has at least one linked
+	// symbol in the feature_symbols table. This is the same signal that
+	// `atlas trace feature:<id>` consumes — when trace resolves a chain,
+	// this signal is present and non-zero. It prevents a feature from scoring
+	// 0 with "no annotation source" solely because coverage/git/aggregate/
+	// contract data hasn't been ingested yet, even though the feature IS
+	// annotated in code. Weight is intentionally low (0.10) so it never
+	// dominates the score when the richer signals are available.
+	SignalAnnotationPresence  = "annotation_presence"
 )
 
 // Options tunes the audit algorithm.
@@ -71,10 +80,11 @@ type Options struct {
 // defaultWeights returns the spec-default signal weights.
 func defaultWeights() map[string]float64 {
 	return map[string]float64{
-		SignalCoverage:          0.40,
-		SignalAnnotationFresh:   0.15,
-		SignalPatternCompliance: 0.25,
-		SignalContractDrift:     0.20,
+		SignalCoverage:           0.40,
+		SignalAnnotationFresh:    0.15,
+		SignalPatternCompliance:  0.25,
+		SignalContractDrift:      0.20,
+		SignalAnnotationPresence: 0.10,
 	}
 }
 

@@ -457,6 +457,125 @@ func TestScoreFeature_NoSymbolsLinked(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
+// Annotation presence signal — issue #78 regression tests
+// -----------------------------------------------------------------------------
+
+// TestAnnotationPresence_LinkedSymbolsScoreAboveZero is the regression test for
+// issue #78: "audit scores a feature 0 even when trace resolves a real call
+// chain for it".
+//
+// When a feature has linked symbols in feature_symbols (the same table that
+// atlas trace feature:<id> consults), audit must produce Score > 0 — even
+// without a coverage run, git blame, aggregate-service annotations, or
+// contracts. Before the fix, all four signals were unavailable for such
+// features and the score fell to 0 with "no annotation source".
+func TestAnnotationPresence_LinkedSymbolsScoreAboveZero(t *testing.T) {
+	// Reproduce the training.dashboard case: feature annotated in *_test.go
+	// files, no YAML API surfaces, no coverage run ingested, no git blame.
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Seed the feature with 2 linked impl symbols (as ingest.go step 4.6
+	// would produce when it resolves @atlas:feature annotations in test files).
+	seedFeature(t, s, seedSpec{
+		FeatureID:  "training.dashboard",
+		Title:      "Training Dashboard",
+		NumSymbols: 2,
+		SymbolFile: "training/dashboard_test.go",
+	})
+
+	// No coverage run, no git blame, no aggregate-service annotations,
+	// no contracts — exactly the pre-fix "no annotation source" scenario.
+	a := New(s, Options{}) // GitBlame nil, no Now override
+	got, err := a.ScoreFeature(ctx, "training.dashboard")
+	if err != nil {
+		t.Fatalf("ScoreFeature: %v", err)
+	}
+
+	// Before the fix: Score == 0, Reasons contained "no annotation source".
+	// After the fix: annotation_presence signal fires, Score > 0.
+	if got.Score <= 0 {
+		t.Errorf("Score = %.2f, want > 0 for feature with linked symbols (issue #78)", got.Score)
+	}
+	if _, ok := got.Components[SignalAnnotationPresence]; !ok {
+		t.Errorf("annotation_presence component absent; components = %+v", got.Components)
+	}
+	if got.Components[SignalAnnotationPresence] != 100 {
+		t.Errorf("annotation_presence = %.1f, want 100", got.Components[SignalAnnotationPresence])
+	}
+
+	// Verify the "no annotation source" reason is NOT present now that
+	// annotation_presence fires.
+	for _, r := range got.Reasons {
+		if r == "no audit signals available (no coverage, no aggregate, no contract, no annotation source)" {
+			t.Errorf("Reasons contains 'no annotation source' even though feature has linked symbols; reasons = %v", got.Reasons)
+		}
+	}
+}
+
+// TestAnnotationPresence_NoLinksStillScoresZero verifies that the fix does NOT
+// accidentally give a non-zero score to a feature with NO linked symbols.
+// A feature with no links has truly no signals and should still score 0.
+func TestAnnotationPresence_NoLinksStillScoresZero(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	_ = s.Features().Upsert(ctx, store.Feature{ID: "ghost.nolinks", Title: "Ghost"})
+
+	a := New(s, Options{})
+	got, err := a.ScoreFeature(ctx, "ghost.nolinks")
+	if err != nil {
+		t.Fatalf("ScoreFeature: %v", err)
+	}
+
+	if got.Score != 0 {
+		t.Errorf("Score = %.2f, want 0 for feature with no linked symbols", got.Score)
+	}
+	if _, ok := got.Components[SignalAnnotationPresence]; ok {
+		t.Errorf("annotation_presence component present for feature with no links; components = %+v", got.Components)
+	}
+}
+
+// TestAnnotationPresence_DoesNotDominateWhenCoveragePresent verifies that the
+// annotation_presence signal's low weight (0.10) does NOT inflate the score
+// when coverage data is already present and driving the result.
+func TestAnnotationPresence_DoesNotDominateWhenCoveragePresent(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	ids := seedFeature(t, s, seedSpec{
+		FeatureID:  "training.session",
+		Title:      "Session",
+		NumSymbols: 2,
+		SymbolFile: "training/session.go",
+	})
+	// Both symbols fail coverage.
+	seedCoverage(t, s, store.FrameworkGoTest, map[int64]store.CoverageStatus{
+		ids[0]: store.StatusFail,
+		ids[1]: store.StatusFail,
+	})
+
+	a := New(s, Options{})
+	got, err := a.ScoreFeature(ctx, "training.session")
+	if err != nil {
+		t.Fatalf("ScoreFeature: %v", err)
+	}
+
+	// Coverage (0%) has weight 0.40, annotation_presence (100%) has weight 0.10.
+	// Renormalized over {coverage, annotation_presence}:
+	//   (0*0.40 + 100*0.10) / (0.40+0.10) = 10 / 0.50 = 20
+	// The score must be low (< 30) — annotation_presence must not dominate.
+	if got.Score >= 30 {
+		t.Errorf("Score = %.2f, want < 30 when coverage is 0%% (annotation_presence must not dominate)", got.Score)
+	}
+	if got.Components[SignalCoverage] != 0 {
+		t.Errorf("coverage = %.1f, want 0", got.Components[SignalCoverage])
+	}
+	if got.Components[SignalAnnotationPresence] != 100 {
+		t.Errorf("annotation_presence = %.1f, want 100", got.Components[SignalAnnotationPresence])
+	}
+}
+
+// -----------------------------------------------------------------------------
 // ScoreAll ordering
 // -----------------------------------------------------------------------------
 
