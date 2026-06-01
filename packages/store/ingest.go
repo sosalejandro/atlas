@@ -18,17 +18,18 @@ import (
 // command's terminal summary line ("symbols: 1342  edges: 4571 ...") and
 // for tests that need to assert on side-effect shape.
 type IngestStats struct {
-	SymbolsInserted        int           `json:"symbols_inserted"`
-	EdgesInserted          int           `json:"edges_inserted"`
-	AnnotationsInserted    int           `json:"annotations_inserted"`
-	FileHashesUpserted     int           `json:"file_hashes_upserted"`
-	PatternMatchesSet      int           `json:"pattern_matches_set"`
-	FeaturesMaterialized   int           `json:"features_materialized"`
-	FeatureSymbolsLinked   int           `json:"feature_symbols_linked"`
-	OrphanAnnotationsSkipped int         `json:"orphan_annotations_skipped"`
-	FilesScanned           int           `json:"files_scanned"`
-	FilesSkipped           int           `json:"files_skipped"`
-	Duration               time.Duration `json:"duration"`
+	SymbolsInserted                int           `json:"symbols_inserted"`
+	EdgesInserted                  int           `json:"edges_inserted"`
+	AnnotationsInserted            int           `json:"annotations_inserted"`
+	FileHashesUpserted             int           `json:"file_hashes_upserted"`
+	PatternMatchesSet              int           `json:"pattern_matches_set"`
+	FeaturesMaterialized           int           `json:"features_materialized"`
+	FeatureSymbolsLinked           int           `json:"feature_symbols_linked"`
+	OrphanAnnotationsSkipped       int           `json:"orphan_annotations_skipped"`
+	TestAnnotationsWithoutImplSymbol int         `json:"test_annotations_without_impl_symbol"`
+	FilesScanned                   int           `json:"files_scanned"`
+	FilesSkipped                   int           `json:"files_skipped"`
+	Duration                       time.Duration `json:"duration"`
 }
 
 // Ingest writes an entire codeindex.Index into the store as one transaction.
@@ -298,14 +299,53 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 		// Annotations on non-code files (or file positions with no
 		// declaration in the next 30 lines) are orphans — we skip them
 		// silently. No feature row, no link row. The annotation row stays.
+		//
+		// Special case for FE/mobile test files (apps/**/__tests__/*.test.tsx,
+		// co-located *.test.ts, etc.): the TS scanner never emits symbols for
+		// test files (DEFAULT_SKIP_DIRS excludes them and there are no
+		// test-function AST patterns). When LookupSymbolAtOrAfterLine returns
+		// no rows for a recognised test-file path, we fall back to the impl
+		// file (e.g. "LoginPage.tsx" for "LoginPage.test.tsx") and link with
+		// role=test so audit's coverageSignal can credit the feature without
+		// inflating the impl-symbol denominator (wantedSymbolIDs skips test
+		// role). If the impl file also has no symbol, we record the miss in
+		// TestAnnotationsWithoutImplSymbol (not OrphanAnnotationsSkipped) so
+		// callers can distinguish the two failure modes.
 		symRow, err := qtx.LookupSymbolAtOrAfterLine(ctx, sqlc.LookupSymbolAtOrAfterLineParams{
 			FilePath:     ann.Position.Path,
 			Line:         int64(ann.Position.Line),
 			MaxLookahead: defaultPositionLookahead,
 		})
+		role := RoleImpl
 		if errors.Is(err, sql.ErrNoRows) {
-			stats.OrphanAnnotationsSkipped++
-			continue
+			// No symbol in the annotation's own file. Check if this is a
+			// test file and attempt impl-file fallback.
+			if isTestFilePath(ann.Position.Path) {
+				implPath := implFileForTestFile(ann.Position.Path)
+				if implPath != "" {
+					// Try to find ANY symbol in the impl file (line 1, large
+					// lookahead covers the whole file in practice).
+					implRow, implErr := qtx.LookupSymbolAtOrAfterLine(ctx, sqlc.LookupSymbolAtOrAfterLineParams{
+						FilePath:     implPath,
+						Line:         1,
+						MaxLookahead: 1000000,
+					})
+					if implErr == nil {
+						symRow = implRow
+						role = RoleTest
+						err = nil
+					}
+				}
+			}
+			if err != nil {
+				// Still no symbol found after optional impl-file fallback.
+				if isTestFilePath(ann.Position.Path) {
+					stats.TestAnnotationsWithoutImplSymbol++
+				} else {
+					stats.OrphanAnnotationsSkipped++
+				}
+				continue
+			}
 		}
 		if err != nil {
 			return nil, fmt.Errorf("store ingest feature-materialize lookup %q L%d: %w",
@@ -316,6 +356,7 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 		featureKind := FeatureKindFeature
 		if ann.Kind == shared.AnnContract {
 			featureKind = FeatureKindContract
+			role = RoleContract
 		}
 
 		for _, fid := range ids {
@@ -328,10 +369,6 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 			}
 			stats.FeaturesMaterialized++
 
-			role := RoleImpl
-			if featureKind == FeatureKindContract {
-				role = RoleContract
-			}
 			if err := qtx.LinkFeatureSymbol(ctx, sqlc.LinkFeatureSymbolParams{
 				FeatureID: fid,
 				SymbolID:  symID,

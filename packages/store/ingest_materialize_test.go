@@ -323,6 +323,199 @@ func TestIngest_DoesNotOverwriteExistingTitle(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Issue #79 — FE/mobile test-file annotations credited by audit
+// ---------------------------------------------------------------------------
+
+// TestIngest_TestFileAnnotation_LinksToImplSymbolWithRoleTest is the
+// regression guard for issue #79.
+//
+// Before the fix: an @atlas:feature annotation in a .test.tsx file (or any
+// file under __tests__/) was treated as an orphan (OrphanAnnotationsSkipped++)
+// because the TS scanner never emits symbols for test files. This caused
+// audit to score the feature 0 / "no annotation source".
+//
+// After the fix: Ingest detects the test-file path, strips the ".test." suffix
+// to derive the impl file path, looks up the first symbol in that impl file,
+// and links the feature with role=test. The audit coverageSignal's
+// wantedSymbolIDs skips test-role rows so they don't inflate the denominator,
+// but the feature has at least one link → SignalAnnotationPresence fires → the
+// feature is no longer scored as "no annotation source".
+func TestIngest_TestFileAnnotation_LinksToImplSymbolWithRoleTest(t *testing.T) {
+	cases := []struct {
+		name     string
+		symFile  string // impl file that contains the symbol
+		annFile  string // test file that carries the annotation
+		symLine  int
+		annLine  int
+		wantRole FeatureSymbolRole
+	}{
+		{
+			// __tests__ sits directly under src/, so implFileForTestFile maps
+			// "src/__tests__/LoginPage.test.tsx" → "src/LoginPage.tsx".
+			// The impl symbol must be placed at that exact path.
+			name:    "__tests__ directory (Jest/Vitest pattern)",
+			symFile: "apps/web-patient/src/LoginPage.tsx",
+			annFile: "apps/web-patient/src/__tests__/LoginPage.test.tsx",
+			symLine: 10,
+			annLine: 1,
+			wantRole: RoleTest,
+		},
+		{
+			name:    "co-located .test.tsx file",
+			symFile: "apps/web-patient/src/pages/Dashboard.tsx",
+			annFile: "apps/web-patient/src/pages/Dashboard.test.tsx",
+			symLine: 5,
+			annLine: 1,
+			wantRole: RoleTest,
+		},
+		{
+			// mobile __tests__ under src/ → impl is at src/HomeScreen.tsx
+			name:    "mobile __tests__ directory",
+			symFile: "apps/mobile/src/HomeScreen.tsx",
+			annFile: "apps/mobile/src/__tests__/HomeScreen.test.tsx",
+			symLine: 3,
+			annLine: 1,
+			wantRole: RoleTest,
+		},
+		{
+			name:    "co-located .spec.ts file",
+			symFile: "apps/web-nutritionist/src/hooks/usePatients.ts",
+			annFile: "apps/web-nutritionist/src/hooks/usePatients.spec.ts",
+			symLine: 8,
+			annLine: 1,
+			wantRole: RoleTest,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openTestStore(t)
+			ctx := context.Background()
+
+			// Build an index where the symbol lives in the IMPL file but the
+			// annotation lives in the TEST file. Before the fix, this was an
+			// orphan annotation (no symbol in the test file). After the fix,
+			// the impl file symbol is found via fallback.
+			implSym := shared.Symbol{
+				ID:      shared.SymbolID("pkg." + tc.name + "Component"),
+				Kind:    shared.KindFunc,
+				Position: shared.FilePosition{Path: tc.symFile, Line: tc.symLine},
+				Package: "github.com/example/pkg",
+			}
+			testAnn := shared.Annotation{
+				Kind:     shared.AnnFeature,
+				IDs:      []string{"auth.login"},
+				Source:   shared.SourceAtlas,
+				Position: shared.FilePosition{Path: tc.annFile, Line: tc.annLine},
+				Raw:      "auth.login",
+			}
+
+			g := graph.New()
+			g.AddNode(&graph.Node{Symbol: implSym})
+			now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+			idx := &codeindex.Index{
+				Root:        "/tmp/project",
+				GeneratedAt: now,
+				Graph:       g,
+				Symbols:     []shared.Symbol{implSym},
+				Annotations: []shared.Annotation{testAnn},
+				FileHashes: map[string]codeindex.FileHash{
+					tc.symFile: {Path: tc.symFile, SHA256: "h-impl", ModTime: now, LastScanned: now},
+					tc.annFile: {Path: tc.annFile, SHA256: "h-test", ModTime: now, LastScanned: now},
+				},
+			}
+
+			stats, err := s.Ingest(ctx, idx)
+			if err != nil {
+				t.Fatalf("Ingest: %v", err)
+			}
+
+			// After the fix: feature row + link row must be created.
+			if stats.FeaturesMaterialized != 1 {
+				t.Errorf("FeaturesMaterialized = %d, want 1 (test-file fallback must create feature row)", stats.FeaturesMaterialized)
+			}
+			if stats.FeatureSymbolsLinked != 1 {
+				t.Errorf("FeatureSymbolsLinked = %d, want 1", stats.FeatureSymbolsLinked)
+			}
+			// The annotation is NOT an orphan — it was resolved via impl fallback.
+			if stats.OrphanAnnotationsSkipped != 0 {
+				t.Errorf("OrphanAnnotationsSkipped = %d, want 0 (resolved via impl fallback)", stats.OrphanAnnotationsSkipped)
+			}
+			if stats.TestAnnotationsWithoutImplSymbol != 0 {
+				t.Errorf("TestAnnotationsWithoutImplSymbol = %d, want 0 (impl symbol found)", stats.TestAnnotationsWithoutImplSymbol)
+			}
+
+			// The feature must exist in the store.
+			if _, err := s.Features().Get(ctx, "auth.login"); err != nil {
+				t.Fatalf("Features.Get(auth.login): %v", err)
+			}
+
+			// The link must use role=test (not role=impl).
+			links, err := s.FeatureSymbols().ListByFeature(ctx, "auth.login")
+			if err != nil {
+				t.Fatalf("FeatureSymbols.ListByFeature: %v", err)
+			}
+			if len(links) != 1 {
+				t.Fatalf("len(links) = %d, want 1", len(links))
+			}
+			if links[0].Role != tc.wantRole {
+				t.Errorf("Role = %q, want %q", links[0].Role, tc.wantRole)
+			}
+		})
+	}
+}
+
+// TestIngest_TestFileAnnotation_NoImplSymbol_IncrementsTestAnnotationCounter
+// covers the case where a test-file annotation cannot be resolved even via
+// impl-file fallback (the impl file has no symbols in the store). In this
+// case we MUST NOT increment OrphanAnnotationsSkipped — we use the dedicated
+// TestAnnotationsWithoutImplSymbol counter so callers can distinguish the
+// two failure modes.
+func TestIngest_TestFileAnnotation_NoImplSymbol_IncrementsTestAnnotationCounter(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Annotation in a test file, but NO symbol in either the test file or
+	// the corresponding impl file (impl file is not in the index at all).
+	testAnn := shared.Annotation{
+		Kind:     shared.AnnFeature,
+		IDs:      []string{"auth.login"},
+		Source:   shared.SourceAtlas,
+		Position: shared.FilePosition{Path: "apps/web-patient/src/__tests__/LoginPage.test.tsx", Line: 1},
+		Raw:      "auth.login",
+	}
+	g := graph.New()
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	idx := &codeindex.Index{
+		Root:        "/tmp/project",
+		GeneratedAt: now,
+		Graph:       g,
+		Symbols:     nil,
+		Annotations: []shared.Annotation{testAnn},
+		FileHashes: map[string]codeindex.FileHash{
+			"apps/web-patient/src/__tests__/LoginPage.test.tsx": {
+				Path: "apps/web-patient/src/__tests__/LoginPage.test.tsx",
+				SHA256: "h-test", ModTime: now, LastScanned: now,
+			},
+		},
+	}
+
+	stats, err := s.Ingest(ctx, idx)
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if stats.FeaturesMaterialized != 0 {
+		t.Errorf("FeaturesMaterialized = %d, want 0 (no impl symbol to link)", stats.FeaturesMaterialized)
+	}
+	if stats.OrphanAnnotationsSkipped != 0 {
+		t.Errorf("OrphanAnnotationsSkipped = %d, want 0 (should use TestAnnotationsWithoutImplSymbol counter)", stats.OrphanAnnotationsSkipped)
+	}
+	if stats.TestAnnotationsWithoutImplSymbol != 1 {
+		t.Errorf("TestAnnotationsWithoutImplSymbol = %d, want 1", stats.TestAnnotationsWithoutImplSymbol)
+	}
+}
+
 // TestIngest_ContractKindBecomesFeatureKindContract covers the contract
 // branch: `@atlas:contract <id>` annotations materialize features with
 // kind="contract" and link rows with role="contract".
