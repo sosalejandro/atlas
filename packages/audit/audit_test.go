@@ -493,15 +493,20 @@ func TestAnnotationPresence_LinkedSymbolsScoreAboveZero(t *testing.T) {
 	}
 
 	// Before the fix: Score == 0, Reasons contained "no annotation source".
-	// After the fix: annotation_presence signal fires, Score > 0.
+	// After the fix: annotation_presence acts as a LOW floor (weight 0.10 ×
+	// 100 = 10) so the feature scores >0 but ranks at the bottom — NOT 100,
+	// which would mask phantoms and genuine "annotated but untested" gaps.
 	if got.Score <= 0 {
 		t.Errorf("Score = %.2f, want > 0 for feature with linked symbols (issue #78)", got.Score)
 	}
 	if _, ok := got.Components[SignalAnnotationPresence]; !ok {
 		t.Errorf("annotation_presence component absent; components = %+v", got.Components)
 	}
-	if got.Components[SignalAnnotationPresence] != 100 {
-		t.Errorf("annotation_presence = %.1f, want 100", got.Components[SignalAnnotationPresence])
+	if got.Components[SignalAnnotationPresence] != 10 {
+		t.Errorf("annotation_presence = %.1f, want 10 (presence floor = weight 0.10 × 100)", got.Components[SignalAnnotationPresence])
+	}
+	if got.Score != 10 {
+		t.Errorf("Score = %.2f, want 10 (presence-only floor, not 100)", got.Score)
 	}
 
 	// Verify the "no annotation source" reason is NOT present now that
@@ -560,18 +565,18 @@ func TestAnnotationPresence_DoesNotDominateWhenCoveragePresent(t *testing.T) {
 		t.Fatalf("ScoreFeature: %v", err)
 	}
 
-	// Coverage (0%) has weight 0.40, annotation_presence (100%) has weight 0.10.
-	// Renormalized over {coverage, annotation_presence}:
-	//   (0*0.40 + 100*0.10) / (0.40+0.10) = 10 / 0.50 = 20
-	// The score must be low (< 30) — annotation_presence must not dominate.
+	// annotation_presence is a FLOOR that only applies when NO real signal is
+	// available. Coverage (a real signal) IS present here, so presence is not
+	// added at all — the score is pure coverage (0% → 0). This is the
+	// strongest form of "presence must not dominate": it is entirely absent.
 	if got.Score >= 30 {
 		t.Errorf("Score = %.2f, want < 30 when coverage is 0%% (annotation_presence must not dominate)", got.Score)
 	}
 	if got.Components[SignalCoverage] != 0 {
 		t.Errorf("coverage = %.1f, want 0", got.Components[SignalCoverage])
 	}
-	if got.Components[SignalAnnotationPresence] != 100 {
-		t.Errorf("annotation_presence = %.1f, want 100", got.Components[SignalAnnotationPresence])
+	if _, ok := got.Components[SignalAnnotationPresence]; ok {
+		t.Errorf("annotation_presence present (%.1f) but a real coverage signal exists — floor must not apply", got.Components[SignalAnnotationPresence])
 	}
 }
 

@@ -69,6 +69,32 @@ var sagaStepTagRe = regexp.MustCompile(`^step=([0-9]+)$`)
 // dots, whitespace, and uppercase letters. See issue #15.
 var idValidationRe = regexp.MustCompile(`^[a-z0-9_-]+(\.[a-z0-9_-]+)*$`)
 
+// featureContractIDRe is the STRICTER grammar for `@atlas:feature` and
+// `@atlas:contract` ids: it requires at least one dot (namespace.feature),
+// e.g. `auth.login`, `plans-patient.export-pdf`. Single-segment bare words
+// (`humatier`, `package`, `the`) and bare tier keywords (`mocked`, `real`,
+// `unit`) therefore do NOT qualify as feature ids — they are dropped (or
+// reclassified as tags, see reservedBareTags) instead of polluting the
+// feature registry with phantoms. See issue #77. EDA kinds + consumer
+// streams keep idValidationRe (single-segment stream names are legitimate).
+var featureContractIDRe = regexp.MustCompile(`^[a-z0-9_-]+(\.[a-z0-9_-]+)+$`)
+
+// reservedBareTags are tier/type keywords that the post-`#`-drop @atlas
+// grammar carries as bare trailing tokens (e.g. `@atlas:feature auth.login
+// mocked`). They classify as TAGS, never feature ids — this is both what
+// makes `mocked`/`real` actually captured as the test's tier and what stops
+// them entering the registry as phantom features. See issue #77.
+var reservedBareTags = map[string]bool{
+	"mocked":      true,
+	"real":        true,
+	"unit":        true,
+	"integration": true,
+	"e2e":         true,
+	"smoke":       true,
+	"flaky":       true,
+	"bench":       true,
+}
+
 var (
 	// New canonical grammar: `@atlas:<kind> <payload>`.
 	atlasAnnotationRe = regexp.MustCompile(`@atlas:([a-zA-Z][a-zA-Z0-9_-]*)\s+(.+?)\s*$`)
@@ -189,6 +215,13 @@ func parseAtlasLine(ll logicalLine, relPath string) (shared.Annotation, bool) {
 	if !ok {
 		return shared.Annotation{}, false
 	}
+	// For feature/contract, DROP non-dotted stray tokens (e.g. a doc-comment
+	// word or a tag keyword the writer left bare) rather than failing the
+	// whole annotation — otherwise a valid `auth.login mocked` would lose
+	// `auth.login`. EDA kinds keep all-or-nothing validation below.
+	if kind == shared.AnnFeature || kind == shared.AnnContract {
+		ids = filterDottedIDs(ids)
+	}
 	if len(ids) == 0 {
 		return shared.Annotation{}, false
 	}
@@ -244,7 +277,18 @@ func resolveConsumerIDs(kind shared.AnnotationKind, ids, tags []string) ([]strin
 //
 // Returns false on first invalid id; the caller treats that as "skip".
 func validateAtlasIDs(kind shared.AnnotationKind, ids []string) bool {
-	if kind != shared.AnnFeature && kind != shared.AnnContract && !edaStrictIDKinds[kind] {
+	if kind == shared.AnnFeature || kind == shared.AnnContract {
+		// Feature/contract ids must be dotted (namespace.feature). Stray
+		// single-segment tokens are already filtered upstream; this is the
+		// belt-and-suspenders enforcement. See issue #77.
+		for _, id := range ids {
+			if !featureContractIDRe.MatchString(id) {
+				return false
+			}
+		}
+		return true
+	}
+	if !edaStrictIDKinds[kind] {
 		return true
 	}
 	for _, id := range ids {
@@ -253,6 +297,20 @@ func validateAtlasIDs(kind shared.AnnotationKind, ids []string) bool {
 		}
 	}
 	return true
+}
+
+// filterDottedIDs keeps only ids that match featureContractIDRe (at least one
+// dot), dropping stray single-segment tokens. Used for feature/contract so a
+// bare leftover word doesn't either become a phantom feature or sink the whole
+// annotation. See issue #77.
+func filterDottedIDs(ids []string) []string {
+	out := ids[:0:0]
+	for _, id := range ids {
+		if featureContractIDRe.MatchString(id) {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // validateAtlasTags enforces per-kind structural rules on tags. Currently
@@ -329,6 +387,14 @@ func splitIDsAndTags(payload string, allowCommaSplit bool) (ids []string, tags [
 	tagsStarted := false
 	for _, f := range fields {
 		if strings.HasPrefix(f, "#") || isKVTag(f) {
+			tagsStarted = true
+			tags = append(tags, f)
+			continue
+		}
+		// New @atlas grammar dropped the `#` on boolean tags, so a bare
+		// tier keyword (mocked/real/unit/...) is a TAG, not an id. Legacy
+		// @testreg (allowCommaSplit=true) keeps its original semantics.
+		if !allowCommaSplit && reservedBareTags[f] {
 			tagsStarted = true
 			tags = append(tags, f)
 			continue

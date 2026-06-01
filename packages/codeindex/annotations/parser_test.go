@@ -166,6 +166,51 @@ func TestParseBytes_RejectsInvalidIDFormat(t *testing.T) {
 	}
 }
 
+// TestParseBytes_Issue77_PhantomRejectionAndBareTags covers the proper #77
+// fix: feature ids must be dotted (namespace.feature); bare tier keywords
+// (mocked/real/unit) reclassify as tags rather than becoming phantom feature
+// ids; stray single-segment words are dropped without sinking a valid id.
+func TestParseBytes_Issue77_PhantomRejectionAndBareTags(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		line     string
+		wantIDs  []string // nil => annotation rejected entirely
+		wantTags []string
+	}{
+		{"bare mocked is a tag, not an id", `// @atlas:feature auth.login mocked`, []string{"auth.login"}, []string{"mocked"}},
+		{"bare real tag", `// @atlas:feature billing.checkout real`, []string{"billing.checkout"}, []string{"real"}},
+		{"stray word + tag dropped, dotted id kept", `// @atlas:feature billing.org-tiers humatier mocked`, []string{"billing.org-tiers"}, []string{"mocked"}},
+		{"multiple stray words dropped", `// @atlas:feature the auth.login is a package`, []string{"auth.login"}, nil},
+		{"single bare word rejected entirely", `// @atlas:feature humatier`, nil, nil},
+		{"bare tag only rejected (no valid id)", `// @atlas:feature mocked`, nil, nil},
+		{"em-dash rejected", `// @atlas:feature —`, nil, nil},
+		{"multi dotted ids + tag", `// @atlas:feature auth.login auth.logout mocked`, []string{"auth.login", "auth.logout"}, []string{"mocked"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := ParseBytes("x.go", []byte(tc.line+"\n"), styleGoTS)
+			if tc.wantIDs == nil {
+				if len(got) != 0 {
+					t.Fatalf("expected annotation rejected; got %+v", got)
+				}
+				return
+			}
+			if len(got) != 1 {
+				t.Fatalf("expected 1 annotation; got %d (%+v)", len(got), got)
+			}
+			if !reflect.DeepEqual(got[0].IDs, tc.wantIDs) {
+				t.Errorf("IDs = %v, want %v", got[0].IDs, tc.wantIDs)
+			}
+			if tc.wantTags != nil && !reflect.DeepEqual(got[0].Tags, tc.wantTags) {
+				t.Errorf("Tags = %v, want %v", got[0].Tags, tc.wantTags)
+			}
+		})
+	}
+}
+
 func TestParseBytes_UnknownKindSkipped(t *testing.T) {
 	t.Parallel()
 
