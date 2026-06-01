@@ -47,7 +47,7 @@ func newCovSyncCmd() *cobra.Command {
 run + per-test rows through the Coverage port.
 
 Supported frameworks (--framework):
-  go-test, playwright, vitest, jest, maestro
+  go-test, go-cover, playwright, vitest, jest, maestro
 
 When --framework is omitted, cov sync attempts to auto-detect from the
 filename (.json patterns from each framework) and the file's top-level
@@ -60,7 +60,7 @@ Input source: --input <path> (a file) or "-" / unset for stdin.`,
 		},
 	}
 	cmd.Flags().StringVar(&framework, "framework", "",
-		"framework tag (go-test|playwright|vitest|jest|maestro); auto-detected when omitted")
+		"framework tag (go-test|go-cover|playwright|vitest|jest|maestro); auto-detected when omitted")
 	cmd.Flags().StringVar(&input, "input", "-",
 		"report file path, or '-' for stdin")
 	return cmd
@@ -87,10 +87,6 @@ func runCovSync(cmd *cobra.Command, framework, input string) error {
 		return fmt.Errorf("cov sync: --framework is required when input is stdin or auto-detection fails")
 	}
 
-	parser, err := pickCovParser(framework)
-	if err != nil {
-		return err
-	}
 	r, closeFn, err := openCovInput(input)
 	if err != nil {
 		return err
@@ -106,6 +102,32 @@ func runCovSync(cmd *cobra.Command, framework, input string) error {
 		return fmt.Errorf("cov sync: open store %s: %w", dbPath, err)
 	}
 	defer func() { _ = s.Close() }()
+
+	// go-cover: a `go test -coverprofile` profile. Unlike the framework
+	// parsers (which key results to TEST functions), this attributes REAL
+	// production-code execution to the symbols that ran, via source span.
+	// Persisted under the 'go-test' framework tag — a coverprofile IS
+	// go-test coverage, and this avoids a CHECK-constraint migration.
+	if framework == "go-cover" {
+		stats, err := coverage.IngestGoProfile(ctx, s, store.FrameworkGoTest, r)
+		if err != nil {
+			return fmt.Errorf("cov sync (go-cover): %w", err)
+		}
+		res := covSyncResult{RunID: stats.RunID, Framework: framework, Input: input}
+		if flags.JSON {
+			return emitJSON(stdoutOrJSON(cmd), "cov.sync",
+				map[string]any{"framework": framework, "input": input}, res, nil)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(),
+			"coverprofile ingest complete  run_id=%d blocks=%d files=%d/%d symbols_executed=%d\n",
+			stats.RunID, stats.BlocksParsed, stats.FilesMatched, stats.FilesInProfile, stats.SymbolsExecuted)
+		return nil
+	}
+
+	parser, err := pickCovParser(framework)
+	if err != nil {
+		return err
+	}
 
 	opts := coverage.IngestOptions{
 		Framework: coverage.Framework(framework),
@@ -166,6 +188,11 @@ func openCovInput(path string) (io.Reader, func(), error) {
 func sniffFramework(path string) string {
 	base := strings.ToLower(filepath.Base(path))
 	switch {
+	case strings.HasSuffix(base, ".cover"),
+		strings.HasSuffix(base, "cover.out"),
+		strings.Contains(base, "coverprofile"),
+		strings.Contains(base, "go-cover"):
+		return "go-cover"
 	case strings.Contains(base, "playwright"):
 		return string(coverage.FrameworkPlaywright)
 	case strings.Contains(base, "vitest"):
@@ -206,8 +233,8 @@ the output is filtered to one feature only.`,
 
 // covStatusResult is the JSON payload for `atlas cov status`.
 type covStatusResult struct {
-	RunID    int64                  `json:"run_id"`
-	Features []covStatusFeatureRow  `json:"features"`
+	RunID    int64                 `json:"run_id"`
+	Features []covStatusFeatureRow `json:"features"`
 }
 
 type covStatusFeatureRow struct {
