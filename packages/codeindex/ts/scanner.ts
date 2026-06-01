@@ -1031,7 +1031,10 @@ function findApiServiceCalls(
       infoRec.module.includes('apiClient') ||
       infoRec.module.includes('lib/api') ||
       infoRec.module.startsWith('@/services') ||
-      infoRec.module.startsWith('@/api')
+      infoRec.module.startsWith('@/api') ||
+      // per-feature-folder convention: features/<slice>/api or @/features/.../api
+      infoRec.module.includes('features/') ||
+      (infoRec.module.endsWith('/api') && !infoRec.module.includes('node_modules'))
     ) {
       apiImports.add(name);
     }
@@ -1248,6 +1251,13 @@ function scan(args: CliArgs): GraphOutput {
       path.join(frontendRoot, 'services'),
       path.join(frontendRoot, 'api'),
     ];
+    // Per-feature-folder convention: features/<slice>/api.ts — scanned
+    // separately with a basename guard to avoid parsing hooks/components/types
+    // inside the features tree as API services.
+    const featureDirs = [
+      path.join(frontendRoot, 'src', 'features'),
+      path.join(frontendRoot, 'features'),
+    ];
     const allApiMethods: ApiMethodInfo[] = [];
     for (const apiDir of apiServiceDirs) {
       if (!fs.existsSync(apiDir)) continue;
@@ -1259,6 +1269,20 @@ function scan(args: CliArgs): GraphOutput {
         filesScannedSet.add(apiFile);
         const constants = extractFileConstants(apiSource);
         const methods = extractApiServices(apiSource, constants, apiFile, projectRoot);
+        allApiMethods.push(...methods);
+      }
+    }
+    // Walk feature directories but only process files named api.ts / api.tsx
+    for (const featureDir of featureDirs) {
+      if (!fs.existsSync(featureDir)) continue;
+      const featureFiles = collectTsFiles(featureDir, ['.ts', '.tsx'], DEFAULT_SKIP_DIRS);
+      for (const featureFile of featureFiles) {
+        const basename = path.basename(featureFile);
+        if (basename !== 'api.ts' && basename !== 'api.tsx') continue;
+        const apiSource = parseSourceFile(featureFile);
+        filesScannedSet.add(featureFile);
+        const constants = extractFileConstants(apiSource);
+        const methods = extractApiServices(apiSource, constants, featureFile, projectRoot);
         allApiMethods.push(...methods);
       }
     }

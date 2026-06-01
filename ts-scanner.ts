@@ -997,7 +997,10 @@ function findApiServiceCalls(
       info.module.includes('services/api') ||
       info.module.includes('service') ||
       info.module.includes('apiClient') ||
-      info.module.includes('lib/api')
+      info.module.includes('lib/api') ||
+      // per-feature-folder convention: features/<slice>/api or @/features/.../api
+      info.module.includes('features/') ||
+      (info.module.endsWith('/api') && !info.module.includes('node_modules'))
     ) {
       apiImports.add(name);
     }
@@ -1318,6 +1321,13 @@ function scan(projectRoot: string): GraphOutput {
       path.join(rootAbsPath, 'services'),
       path.join(rootAbsPath, 'api'),
     ];
+    // Per-feature-folder convention: features/<slice>/api.ts — scanned
+    // separately with a basename guard to avoid parsing hooks/components/types
+    // inside the features tree as API services.
+    const featureDirs = [
+      path.join(rootAbsPath, 'src', 'features'),
+      path.join(rootAbsPath, 'features'),
+    ];
 
     const allApiMethods: ApiMethodInfo[] = [];
 
@@ -1334,6 +1344,20 @@ function scan(projectRoot: string): GraphOutput {
         filesScanned++;
         const constants = extractFileConstants(apiSource);
         const methods = extractApiServices(apiSource, constants, apiFile, projectRoot);
+        allApiMethods.push(...methods);
+      }
+    }
+    // Walk feature directories but only process files named api.ts / api.tsx
+    for (const featureDir of featureDirs) {
+      if (!fs.existsSync(featureDir)) continue;
+      const featureFiles = collectTsFiles(featureDir, ['.ts', '.tsx']);
+      for (const featureFile of featureFiles) {
+        const basename = path.basename(featureFile);
+        if (basename !== 'api.ts' && basename !== 'api.tsx') continue;
+        const apiSource = parseSourceFile(featureFile);
+        filesScanned++;
+        const constants = extractFileConstants(apiSource);
+        const methods = extractApiServices(apiSource, constants, featureFile, projectRoot);
         allApiMethods.push(...methods);
       }
     }

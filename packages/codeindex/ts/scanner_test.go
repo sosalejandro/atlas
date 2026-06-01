@@ -248,6 +248,55 @@ func TestBuildScannerArgs_HappyPath(t *testing.T) {
 	}
 }
 
+// TestScanner_FeatureFolderApi is the regression test for issue #81.
+// It verifies that when a hook imports an API object from a co-located
+// features/<slice>/api.ts file (the per-feature-folder convention), the
+// scanner correctly:
+//
+//  (a) registers the api-service node (e.g. subscriptionApi.list),
+//  (b) creates the hook → api-service edge, and
+//  (c) emits no false "no matching API service" warning for that hook.
+func TestScanner_FeatureFolderApi(t *testing.T) {
+	t.Parallel()
+	res := runScan(t, "feature-folder-api")
+
+	idSet := make(map[string]bool, len(res.Symbols))
+	for _, s := range res.Symbols {
+		idSet[string(s.ID)] = true
+	}
+
+	// (a) api-service node must be registered from features/subscriptions/api.ts
+	wantNodes := []string{
+		"useSubscriptions",
+		"subscriptionApi.list",
+		"GET /api/v1/subscriptions",
+	}
+	for _, want := range wantNodes {
+		if !idSet[want] {
+			t.Errorf("feature-folder-api: missing symbol %q; got: %v", want, sortedKeys(idSet))
+		}
+	}
+
+	// (b) edge useSubscriptions → subscriptionApi.list must exist
+	hasEdge := false
+	for _, e := range res.Edges {
+		if string(e.From) == "useSubscriptions" && string(e.To) == "subscriptionApi.list" {
+			hasEdge = true
+			break
+		}
+	}
+	if !hasEdge {
+		t.Errorf("feature-folder-api: expected edge useSubscriptions → subscriptionApi.list; got edges: %v", res.Edges)
+	}
+
+	// (c) no false warning for the hook
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "useSubscriptions") && strings.Contains(w, "no matching API service") {
+			t.Errorf("feature-folder-api: false warning emitted: %q", w)
+		}
+	}
+}
+
 // sortedKeys returns the keys of a string set in deterministic order so test
 // diffs are stable. Intentionally not exported.
 func sortedKeys(m map[string]bool) []string {
