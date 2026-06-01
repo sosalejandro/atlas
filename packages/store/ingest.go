@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/codeindex"
+	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
@@ -18,18 +19,18 @@ import (
 // command's terminal summary line ("symbols: 1342  edges: 4571 ...") and
 // for tests that need to assert on side-effect shape.
 type IngestStats struct {
-	SymbolsInserted                int           `json:"symbols_inserted"`
-	EdgesInserted                  int           `json:"edges_inserted"`
-	AnnotationsInserted            int           `json:"annotations_inserted"`
-	FileHashesUpserted             int           `json:"file_hashes_upserted"`
-	PatternMatchesSet              int           `json:"pattern_matches_set"`
-	FeaturesMaterialized           int           `json:"features_materialized"`
-	FeatureSymbolsLinked           int           `json:"feature_symbols_linked"`
-	OrphanAnnotationsSkipped       int           `json:"orphan_annotations_skipped"`
-	TestAnnotationsWithoutImplSymbol int         `json:"test_annotations_without_impl_symbol"`
-	FilesScanned                   int           `json:"files_scanned"`
-	FilesSkipped                   int           `json:"files_skipped"`
-	Duration                       time.Duration `json:"duration"`
+	SymbolsInserted                  int           `json:"symbols_inserted"`
+	EdgesInserted                    int           `json:"edges_inserted"`
+	AnnotationsInserted              int           `json:"annotations_inserted"`
+	FileHashesUpserted               int           `json:"file_hashes_upserted"`
+	PatternMatchesSet                int           `json:"pattern_matches_set"`
+	FeaturesMaterialized             int           `json:"features_materialized"`
+	FeatureSymbolsLinked             int           `json:"feature_symbols_linked"`
+	OrphanAnnotationsSkipped         int           `json:"orphan_annotations_skipped"`
+	TestAnnotationsWithoutImplSymbol int           `json:"test_annotations_without_impl_symbol"`
+	FilesScanned                     int           `json:"files_scanned"`
+	FilesSkipped                     int           `json:"files_skipped"`
+	Duration                         time.Duration `json:"duration"`
 }
 
 // Ingest writes an entire codeindex.Index into the store as one transaction.
@@ -530,6 +531,15 @@ func extractFeatureIDsFromAnnotation(ann shared.Annotation) []string {
 		// not feature ids; ann.IDs should never carry them, but the
 		// raw-fallback path could. Drop conservatively.
 		if strings.ContainsRune(t, '=') {
+			continue
+		}
+		// Enforce the feature/contract id grammar (dotted namespace.feature).
+		// This is the single materialization choke point, so filtering here
+		// drops stray non-dotted tokens (e.g. `humatier`, `foundational`, a
+		// doc-comment word, or a bare tier keyword surviving the raw-fallback
+		// split) that would otherwise seed phantom features — regardless of
+		// which scanner (Go / TS) produced the annotation. See issue #77.
+		if !annotations.IsDottedFeatureID(t) {
 			continue
 		}
 		if seen[t] {

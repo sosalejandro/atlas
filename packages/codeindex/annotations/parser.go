@@ -79,6 +79,13 @@ var idValidationRe = regexp.MustCompile(`^[a-z0-9_-]+(\.[a-z0-9_-]+)*$`)
 // streams keep idValidationRe (single-segment stream names are legitimate).
 var featureContractIDRe = regexp.MustCompile(`^[a-z0-9_-]+(\.[a-z0-9_-]+)+$`)
 
+// IsDottedFeatureID reports whether id is a well-formed feature/contract id
+// (lower-case dotted-kebab, at least one dot — `namespace.feature`). Exported
+// so the store's feature-materialization path can apply the SAME grammar the
+// parser enforces, closing the gap where raw annotation payloads bypassed the
+// parser and seeded phantom features. See issue #77.
+func IsDottedFeatureID(id string) bool { return featureContractIDRe.MatchString(id) }
+
 // reservedBareTags are tier/type keywords that the post-`#`-drop @atlas
 // grammar carries as bare trailing tokens (e.g. `@atlas:feature auth.login
 // mocked`). They classify as TAGS, never feature ids — this is both what
