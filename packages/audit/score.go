@@ -229,24 +229,37 @@ func (a *auditImpl) coverageSignal(
 	runID int64,
 ) (signalResult, bool, error) {
 	wanted := wantedSymbolIDs(links)
-	if len(wanted) == 0 {
+	testSyms := testSymbolIDs(links)
+	if len(wanted) == 0 && len(testSyms) == 0 {
 		return signalResult{}, false, nil
 	}
 	results, err := a.store.Coverage().ListResults(ctx, runID)
 	if err != nil {
 		return signalResult{}, false, fmt.Errorf("list coverage results: %w", err)
 	}
-	pass, skipOnly, featurePassed := classifyCoverageResults(results, wanted, featureID)
+	pass, skipOnly, featurePassed, testSeen := classifyCoverageResults(results, wanted, testSyms, featureID)
 	if featurePassed {
-		// E2E-style coverage applies to the whole feature; credit every
-		// linked symbol so the signal reflects "the user-visible feature
-		// works" rather than "we couldn't map the test to a symbol."
+		// A test annotated to this feature passed (or an E2E feature-level
+		// result landed). Credit the feature: if impl symbols are linked,
+		// mark them all covered; if the feature has only test-role links
+		// (the common go-test case — results key to the test function, not
+		// the impl symbol — see issue #82), the passing test alone IS the
+		// coverage evidence.
+		if len(wanted) == 0 {
+			return signalResult{score: 100, note: coverageNote(1, 1, 100)}, true, nil
+		}
 		for sid := range wanted {
 			pass[sid] = true
 		}
 	}
 	denom, numer := coverageRatio(wanted, pass, skipOnly)
 	if denom == 0 {
+		// No impl-symbol evidence. If we DID see a non-passing test result
+		// for this feature, surface 0% coverage (tests exist but don't pass);
+		// otherwise there's simply no coverage signal for it.
+		if testSeen {
+			return signalResult{score: 0, note: coverageNote(0, 1, 0)}, true, nil
+		}
 		return signalResult{}, false, nil
 	}
 	score := 100.0 * float64(numer) / float64(denom)
@@ -267,6 +280,20 @@ func wantedSymbolIDs(links []store.FeatureSymbolLink) map[int64]bool {
 	return wanted
 }
 
+// testSymbolIDs returns the feature's test-role linked symbols. go-test (and
+// vitest/jest) coverage results resolve to the TEST function symbol, so a
+// passing result keyed to one of these is the bridge from "the annotated test
+// passed" to "the feature is covered". See issue #82.
+func testSymbolIDs(links []store.FeatureSymbolLink) map[int64]bool {
+	m := make(map[int64]bool, len(links))
+	for _, l := range links {
+		if l.Role == store.RoleTest {
+			m[l.SymbolID] = true
+		}
+	}
+	return m
+}
+
 // classifyCoverageResults walks `results` and returns three buckets:
 //
 //   - pass:          symbol_id → at least one passing result
@@ -277,16 +304,36 @@ func wantedSymbolIDs(links []store.FeatureSymbolLink) map[int64]bool {
 func classifyCoverageResults(
 	results []store.CoverageResult,
 	wanted map[int64]bool,
+	testSyms map[int64]bool,
 	featureID shared.FeatureID,
-) (pass, skipOnly map[int64]bool, featurePassed bool) {
+) (pass, skipOnly map[int64]bool, featurePassed, testSeen bool) {
 	pass = make(map[int64]bool, len(wanted))
 	skipOnly = make(map[int64]bool, len(wanted))
 	for _, r := range results {
 		if r.SymbolID == nil {
-			if r.FeatureID != nil && *r.FeatureID == featureID && r.Status == store.StatusPass {
-				featurePassed = true
+			// Feature-level result (E2E-style; SymbolID nil, FeatureID set).
+			if r.FeatureID != nil && *r.FeatureID == featureID {
+				switch r.Status {
+				case store.StatusPass:
+					featurePassed = true
+					testSeen = true
+				case store.StatusFail:
+					testSeen = true
+				}
 			}
 			continue
+		}
+		// A result keyed to one of this feature's TEST symbols bridges
+		// "test ran/passed" → "feature covered" (issue #82). Skips don't
+		// count as evidence either way.
+		if testSyms[*r.SymbolID] {
+			switch r.Status {
+			case store.StatusPass:
+				featurePassed = true
+				testSeen = true
+			case store.StatusFail:
+				testSeen = true
+			}
 		}
 		if !wanted[*r.SymbolID] {
 			continue
@@ -300,7 +347,7 @@ func classifyCoverageResults(
 			}
 		}
 	}
-	return pass, skipOnly, featurePassed
+	return pass, skipOnly, featurePassed, testSeen
 }
 
 // coverageRatio collapses the buckets into the (denominator, numerator)
