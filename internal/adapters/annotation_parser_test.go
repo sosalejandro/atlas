@@ -587,6 +587,50 @@ func TestParseAnnotationPayload(t *testing.T) {
 			wantIDs:   []string{"auth.login", "meals.log"},
 			wantFlags: []string{"#real"},
 		},
+		// Regression tests for issue #77: bare tag keywords and stray words must NOT
+		// become phantom feature IDs.
+		{
+			name:      "bare mocked keyword without hash is rejected",
+			payload:   "auth.login mocked",
+			wantIDs:   []string{"auth.login"},
+			wantFlags: nil,
+		},
+		{
+			name:      "bare real keyword without hash is rejected",
+			payload:   "auth.login real",
+			wantIDs:   []string{"auth.login"},
+			wantFlags: nil,
+		},
+		{
+			name:      "bare unit keyword without hash is rejected",
+			payload:   "auth.login unit",
+			wantIDs:   []string{"auth.login"},
+			wantFlags: nil,
+		},
+		{
+			name:      "stray bare word alongside valid ID is rejected",
+			payload:   "billing.org-tiers humatier mocked",
+			wantIDs:   []string{"billing.org-tiers"},
+			wantFlags: nil,
+		},
+		{
+			name:      "multiple stray words with valid ID are all rejected",
+			payload:   "the auth.login is a package",
+			wantIDs:   []string{"auth.login"},
+			wantFlags: nil,
+		},
+		{
+			name:      "bare word without dot separator is rejected",
+			payload:   "nodot",
+			wantIDs:   nil,
+			wantFlags: nil,
+		},
+		{
+			name:      "hash-prefixed tag keyword is still accepted as flag",
+			payload:   "auth.login #mocked #real",
+			wantIDs:   []string{"auth.login"},
+			wantFlags: []string{"#mocked", "#real"},
+		},
 	}
 
 	for _, tt := range tests {

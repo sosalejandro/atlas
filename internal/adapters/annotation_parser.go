@@ -343,6 +343,11 @@ func parseAnnotationLine(line string, lineNum int) *annotation {
 	return parseAnnotationPayload(payload, lineNum)
 }
 
+// legacyIDValidationRe matches valid dotted-kebab feature IDs (e.g. "auth.login", "billing.org-tiers").
+// Bare words without a dot separator (e.g. "mocked", "humatier", "the") and tag keywords
+// that appear without a "#" prefix are rejected by this pattern.
+var legacyIDValidationRe = regexp.MustCompile(`^[a-z0-9_-]+(\.[a-z0-9_-]+)+$`)
+
 // parseAnnotationPayload parses the content after @testreg into feature IDs and flags.
 func parseAnnotationPayload(payload string, lineNum int) *annotation {
 	parts := strings.Fields(payload)
@@ -356,7 +361,10 @@ func parseAnnotationPayload(payload string, lineNum int) *annotation {
 			ids := strings.Split(p, ",")
 			for _, id := range ids {
 				id = strings.TrimSpace(id)
-				if id != "" {
+				// Validate: must match dotted-kebab pattern (e.g. "auth.login").
+				// Bare tag keywords (mocked/real/unit without "#") and stray words
+				// are silently skipped to prevent phantom feature IDs.
+				if id != "" && legacyIDValidationRe.MatchString(id) {
 					ann.featureIDs = append(ann.featureIDs, id)
 				}
 			}
