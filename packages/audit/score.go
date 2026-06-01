@@ -229,7 +229,7 @@ func (a *auditImpl) coverageSignal(
 	runID int64,
 ) (signalResult, bool, error) {
 	testSyms := testSymbolIDs(links)
-	// Prefer the call-graph-derived impl surface — real production execution
+	// Tier 1: call-graph-derived impl surface — real production execution
 	// from a coverprofile run is attributed to these symbols. When it's
 	// non-empty we score the executed fraction directly (no blanket test-pass
 	// credit). When empty (e.g. e2e-only features, or a gotest-pass/fail run
@@ -263,6 +263,43 @@ func (a *auditImpl) coverageSignal(
 		}
 	}
 	denom, numer := coverageRatio(wanted, pass, skipOnly)
+
+	// Tier 2 (package-anchor fallback, issue #84): when the call-edge surface
+	// is empty AND the direct-link model's denominator contains only test-file
+	// symbols (numer=0 because those symbols are never in the production execution
+	// profile), attempt to attribute coverage via Go package co-location.
+	//
+	// This handles the "annotation root is a test stub with zero outgoing call
+	// edges" case — common for nopXxx / noopXxx stubs emitted by the Go scanner
+	// as impl-linked symbols whose file_path is a _test.go file. The coverage
+	// profile records statement execution for PRODUCTION symbols; test-file symbols
+	// in the wanted set that are absent from the profile produce denom>0, numer=0.
+	//
+	// The fallback is gated by MaxPackageAnchorSymbols (default 200): packages
+	// larger than this threshold are skipped because they are likely shared
+	// infrastructure layers (handlers, middleware) whose execution rate reflects
+	// many features, not just this one.
+	//
+	// Activation conditions (all must hold):
+	//  - tier 1 call-edge surface is empty (useSurface=false)
+	//  - the direct-link numerator is 0 (no production execution credited yet)
+	//  - every wanted symbol that contributed to denom is a test file (non-production)
+	if !useSurface && numer == 0 && allTestFileWanted(wanted, a.symbolCache) {
+		pkgSurface, pkgErr := a.featurePackageAnchorSurface(ctx, links, a.opts.MaxPackageAnchorSymbols)
+		if pkgErr != nil {
+			return signalResult{}, false, fmt.Errorf("package-anchor surface: %w", pkgErr)
+		}
+		if len(pkgSurface) > 0 {
+			pkgPass, pkgSkipOnly, _, _ := classifyCoverageResults(results, pkgSurface, testSyms, featureID)
+			pkgDenom, pkgNumer := coverageRatio(pkgSurface, pkgPass, pkgSkipOnly)
+			if pkgDenom > 0 {
+				score := 100.0 * float64(pkgNumer) / float64(pkgDenom)
+				note := coverageNoteWithSuffix(pkgNumer, pkgDenom, score, " (package-anchor)")
+				return signalResult{score: score, note: note}, true, nil
+			}
+		}
+	}
+
 	if denom == 0 {
 		if testSeen && !useSurface {
 			return signalResult{score: 0, note: coverageNote(0, 1, 0)}, true, nil
@@ -378,18 +415,25 @@ func coverageRatio(wanted, pass, skipOnly map[int64]bool) (denom, numer int) {
 // coverageNote formats the per-feature explanatory note for the coverage
 // signal. Score == 100 → no note (empty signalNote with zero weight).
 func coverageNote(numer, denom int, score float64) signalNote {
+	return coverageNoteWithSuffix(numer, denom, score, "")
+}
+
+// coverageNoteWithSuffix is the implementation of coverageNote with an
+// optional suffix appended to the message (used by the package-anchor
+// fallback to tag its coarser signal so operators can identify it).
+func coverageNoteWithSuffix(numer, denom int, score float64, suffix string) signalNote {
 	switch {
 	case score >= 100:
 		return signalNote{}
 	case score == 0:
 		return signalNote{
 			weight:  100,
-			message: fmt.Sprintf("coverage: 0/%d symbols passing in latest run", denom),
+			message: fmt.Sprintf("coverage: 0/%d symbols passing in latest run%s", denom, suffix),
 		}
 	default:
 		return signalNote{
 			weight:  100 - score,
-			message: fmt.Sprintf("coverage: %d/%d symbols passing (%.0f%%)", numer, denom, score),
+			message: fmt.Sprintf("coverage: %d/%d symbols passing (%.0f%%)%s", numer, denom, score, suffix),
 		}
 	}
 }
@@ -590,6 +634,99 @@ func (a *auditImpl) featureImplSurface(ctx context.Context, links []store.Featur
 		}
 	}
 	return impl, nil
+}
+
+// featurePackageAnchorSurface is the THIRD-TIER fallback for coverageSignal
+// (issue #84). It fires only when featureImplSurface returns empty AND the
+// direct wantedSymbolIDs model yields no coverage hits — the case where
+// annotation roots are test stubs with no outgoing call edges (nopXxx,
+// noopXxx, mockXxx patterns emitted by the Go scanner as zero-edge nodes).
+//
+// The function:
+//  1. Collects the Go package name from each linked symbol via the symbolCache.
+//  2. For each distinct non-empty package, counts the production-file symbols
+//     in that package (already loaded in symbolCache).
+//  3. If a package's production-symbol count is ≤ maxPackageAnchor, adds all
+//     those symbols to the surface.
+//
+// The guard prevents large shared packages (e.g. infrastructure/http/handlers
+// with 896 symbols) from producing a flat unrelated score. Only focused domain
+// packages (application/services, domain/aggregates, etc.) pass the guard.
+//
+// Returns an empty map when no linked symbol carries a Package value or every
+// matching package exceeds the size limit — the caller then falls back to the
+// annotation_presence floor unchanged.
+func (a *auditImpl) featurePackageAnchorSurface(ctx context.Context, links []store.FeatureSymbolLink, maxPackageAnchor int) (map[int64]bool, error) {
+	if maxPackageAnchor <= 0 {
+		return nil, nil
+	}
+	// Gather the distinct package names from linked symbols.
+	// lookupSymbolByID populates a.symbolCache on first call, so the
+	// subsequent cache walk is O(N) over already-loaded data.
+	pkgNames := make(map[string]bool, len(links))
+	for _, l := range links {
+		row, err := a.lookupSymbolByID(ctx, l.SymbolID)
+		if err != nil {
+			continue
+		}
+		if row.Package != nil && *row.Package != "" {
+			pkgNames[*row.Package] = true
+		}
+	}
+	if len(pkgNames) == 0 {
+		return nil, nil
+	}
+
+	// Build a package → []production-symbol-ids index from the cache.
+	// O(N) single pass over the already-loaded symbol cache.
+	pkgProdSymbols := make(map[string][]int64, len(pkgNames))
+	for id, row := range a.symbolCache {
+		if row.Package == nil || *row.Package == "" {
+			continue
+		}
+		if !pkgNames[*row.Package] {
+			continue
+		}
+		if !isProductionFile(row.FilePath) {
+			continue
+		}
+		pkgProdSymbols[*row.Package] = append(pkgProdSymbols[*row.Package], id)
+	}
+
+	// Add production symbols from packages that pass the size guard.
+	surface := make(map[int64]bool)
+	for _, symIDs := range pkgProdSymbols {
+		if len(symIDs) > maxPackageAnchor {
+			// Package is too large — likely a shared infrastructure monolith;
+			// skip to avoid attributing unrelated execution to this feature.
+			continue
+		}
+		for _, id := range symIDs {
+			surface[id] = true
+		}
+	}
+	return surface, nil
+}
+
+// allTestFileWanted returns true when every symbol in `wanted` is a test-file
+// symbol (i.e. !isProductionFile). This is used by the package-anchor fallback
+// guard: if any wanted symbol IS a production file, the direct-link model can
+// already give meaningful coverage attribution and the fallback should not fire.
+//
+// An empty `wanted` set returns true (vacuously — the caller gates on numer==0
+// which also catches the denom==0 case, so an empty wanted set reaching here
+// means something else is providing signal via testSeen).
+func allTestFileWanted(wanted map[int64]bool, cache map[int64]store.SymbolRow) bool {
+	for sid := range wanted {
+		row, ok := cache[sid]
+		if !ok {
+			continue
+		}
+		if isProductionFile(row.FilePath) {
+			return false // at least one production-file symbol in wanted → don't use fallback
+		}
+	}
+	return true
 }
 
 // isProductionFile reports whether a path is non-test production source.

@@ -75,6 +75,20 @@ type Options struct {
 
 	// Now overrides time.Now() for deterministic tests. Zero = use real time.
 	Now func() time.Time
+
+	// MaxPackageAnchorSymbols gates the package-anchor fallback introduced in
+	// issue #84. When call-edge traversal yields no production impl surface,
+	// coverageSignal falls back to all production symbols in the Go packages
+	// co-located with the feature's annotated test symbols — but ONLY when
+	// those packages contain at most MaxPackageAnchorSymbols production symbols.
+	//
+	// The guard prevents large shared packages (e.g. infrastructure/http/handlers
+	// with 896 symbols) from polluting scores with unrelated execution results.
+	// Focused domain packages (application/services, domain/aggregates, etc.) stay
+	// well under this threshold and benefit from the fallback.
+	//
+	// Default: 200. Set to 0 to disable the fallback entirely.
+	MaxPackageAnchorSymbols int
 }
 
 // defaultWeights returns the spec-default signal weights.
@@ -87,6 +101,11 @@ func defaultWeights() map[string]float64 {
 		SignalAnnotationPresence: 0.10,
 	}
 }
+
+// defaultMaxPackageAnchorSymbols is the default cap for the package-anchor
+// fallback (issue #84). 200 admits focused domain packages while rejecting
+// shared infrastructure monoliths like handlers (896+ symbols).
+const defaultMaxPackageAnchorSymbols = 200
 
 // applyDefaults fills zero-valued Options fields with the package defaults.
 func (o Options) applyDefaults() Options {
@@ -101,6 +120,9 @@ func (o Options) applyDefaults() Options {
 	}
 	if o.Now == nil {
 		o.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if o.MaxPackageAnchorSymbols == 0 {
+		o.MaxPackageAnchorSymbols = defaultMaxPackageAnchorSymbols
 	}
 	return o
 }
