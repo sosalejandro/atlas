@@ -19,6 +19,19 @@ type ProfileIngestStats struct {
 	FilesInProfile  int
 	FilesMatched    int
 	SymbolsExecuted int
+	// FilesUnmatched counts profile files that reconciled to NO atlas file
+	// (issue #85 — best-effort visibility into attribution misses). A high
+	// value relative to FilesInProfile means the suffix path-reconciliation
+	// is dropping production execution on the floor.
+	FilesUnmatched int
+}
+
+// symbolCounts accumulates the statement-level coverage for one owned symbol
+// (Tier B). covered is Σ NumStmts of blocks that ran; total is Σ NumStmts of
+// every block attributed to the symbol's span.
+type symbolCounts struct {
+	covered int
+	total   int
 }
 
 // symSpan is a symbol's effective source range for span attribution.
@@ -44,8 +57,8 @@ func IngestGoProfile(ctx context.Context, s *store.Store, framework store.Framew
 		return stats, fmt.Errorf("coverage: parse profile: %w", err)
 	}
 	stats.BlocksParsed = len(blocks)
-	spansByFile := gocover.ExecutedSpansByFile(blocks)
-	stats.FilesInProfile = len(spansByFile)
+	blocksByFile := gocover.BlocksByFile(blocks)
+	stats.FilesInProfile = len(blocksByFile)
 
 	syms, err := s.Symbols().List(ctx, store.SymbolFilter{})
 	if err != nil {
@@ -53,14 +66,31 @@ func IngestGoProfile(ctx context.Context, s *store.Store, framework store.Framew
 	}
 	byFile := indexSymbolsByFile(syms)
 
-	executed, matched := attributeExecution(spansByFile, byFile)
+	counts, matched, unmatched := attributeStatements(blocksByFile, byFile)
 	stats.FilesMatched = matched
-	stats.SymbolsExecuted = len(executed)
+	stats.FilesUnmatched = unmatched
+	stats.SymbolsExecuted = len(counts)
+	if s.Logger() != nil && unmatched > 0 {
+		s.Logger().Debug(ctx, "gocover ingest: unmatched profile files",
+			"files_in_profile", stats.FilesInProfile,
+			"files_matched", matched,
+			"files_unmatched", unmatched)
+	}
 
-	results := make([]store.CoverageResult, 0, len(executed))
-	for _, sid := range sortedKeys(executed) {
+	results := make([]store.CoverageResult, 0, len(counts))
+	for _, sid := range sortedCountKeys(counts) {
 		v := sid
-		results = append(results, store.CoverageResult{SymbolID: &v, Status: store.StatusPass})
+		c := counts[sid]
+		status := store.StatusFail
+		if c.covered > 0 {
+			status = store.StatusPass
+		}
+		results = append(results, store.CoverageResult{
+			SymbolID:     &v,
+			Status:       status,
+			CoveredStmts: c.covered,
+			TotalStmts:   c.total,
+		})
 	}
 	now := time.Now().UTC()
 	runID, err := s.Coverage().InsertRunWithResults(ctx, store.CoverageRun{
@@ -112,32 +142,67 @@ func indexSymbolsByFile(syms []store.SymbolRow) map[string][]symSpan {
 	return out
 }
 
-// attributeExecution maps each profile file's executed line spans onto the
-// symbols whose range overlaps them, returning the set of executed symbol ids
-// and the count of profile files that matched an atlas file.
-func attributeExecution(spansByFile map[string][][2]int, byFile map[string][]symSpan) (executed map[int64]bool, filesMatched int) {
-	executed = map[int64]bool{}
+// attributeStatements maps each profile file's blocks onto the owning symbol
+// (the symbol whose [start,end] span contains the block's start line) and
+// accumulates per-symbol statement counts: total = Σ NumStmts, covered =
+// Σ NumStmts of executed (Count>0) blocks. Returns the per-symbol counts, the
+// number of profile files that reconciled to an atlas file, and the number
+// that did not (issue #85 visibility).
+//
+// Attribution is by the block's START line falling inside the symbol span
+// (rather than range-overlap) so a block is charged to exactly one symbol and
+// statements are never double-counted across adjacent symbols — the basis for
+// a per-feature fraction that tracks `go tool cover -func`.
+func attributeStatements(blocksByFile map[string][]gocover.Block, byFile map[string][]symSpan) (counts map[int64]symbolCounts, filesMatched, filesUnmatched int) {
+	counts = map[int64]symbolCounts{}
 	// Index atlas files by basename for suffix-match reconciliation.
 	byBase := map[string][]string{}
 	for f := range byFile {
 		byBase[path.Base(f)] = append(byBase[path.Base(f)], f)
 	}
-	for pf, spans := range spansByFile {
+	for pf, blocks := range blocksByFile {
 		af := reconcilePath(pf, byBase)
 		if af == "" {
+			filesUnmatched++
 			continue
 		}
 		filesMatched++
 		syms := byFile[af]
-		for _, sp := range spans {
-			for _, sr := range syms {
-				if sp[0] <= sr.end && sr.start <= sp[1] { // overlap
-					executed[sr.id] = true
-				}
+		for _, b := range blocks {
+			sid, ok := owningSymbol(syms, b.StartLine)
+			if !ok {
+				continue
+			}
+			c := counts[sid]
+			c.total += b.NumStmts
+			if b.Executed() {
+				c.covered += b.NumStmts
+			}
+			counts[sid] = c
+		}
+	}
+	return counts, filesMatched, filesUnmatched
+}
+
+// owningSymbol returns the id of the symbol whose [start,end] span contains
+// `line`. When several symbols' spans contain the line (e.g. an overly-broad
+// EOF fallback overlapping a later symbol), the tightest (smallest) span
+// wins — that is the most specific owner.
+func owningSymbol(syms []symSpan, line int) (int64, bool) {
+	best := int64(0)
+	bestSpan := 1<<31 - 1
+	found := false
+	for _, sr := range syms {
+		if sr.start <= line && line <= sr.end {
+			span := sr.end - sr.start
+			if !found || span < bestSpan {
+				best = sr.id
+				bestSpan = span
+				found = true
 			}
 		}
 	}
-	return executed, filesMatched
+	return best, found
 }
 
 // reconcilePath finds the atlas (repo-relative) file path that the import-
@@ -168,7 +233,7 @@ func hasPathSuffix(full, suffix string) bool {
 	return full[len(full)-len(suffix)-1] == '/'
 }
 
-func sortedKeys(m map[int64]bool) []int64 {
+func sortedCountKeys(m map[int64]symbolCounts) []int64 {
 	ks := make([]int64, 0, len(m))
 	for k := range m {
 		ks = append(ks, k)

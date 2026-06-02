@@ -142,3 +142,17 @@ func ExecutedSpansByFile(blocks []Block) map[string][][2]int {
 	}
 	return out
 }
+
+// BlocksByFile groups ALL blocks (executed or not) by file. Used by the
+// ingest layer (Tier B) to compute, per owned symbol, the statement-level
+// fraction: Σ NumStmts of blocks whose span falls within the symbol's
+// [line, end_line] range, and the executed subset of that sum. This is the
+// raw material for line-weighted per-feature coverage that tracks
+// `go tool cover -func`.
+func BlocksByFile(blocks []Block) map[string][]Block {
+	out := map[string][]Block{}
+	for _, b := range blocks {
+		out[b.File] = append(out[b.File], b)
+	}
+	return out
+}
