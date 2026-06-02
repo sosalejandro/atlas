@@ -250,7 +250,7 @@ func (a *auditImpl) coverageSignal(
 	if err != nil {
 		return signalResult{}, false, fmt.Errorf("list coverage results: %w", err)
 	}
-	pass, skipOnly, featurePassed, testSeen := classifyCoverageResults(results, wanted, testSyms, featureID)
+	pass, skipOnly, stmts, featurePassed, testSeen := classifyCoverageResults(results, wanted, testSyms, featureID)
 	if featurePassed && !useSurface {
 		// gotest pass/fail mode (no execution profile): a passing annotated
 		// test credits the feature. With an impl surface we instead trust the
@@ -290,9 +290,15 @@ func (a *auditImpl) coverageSignal(
 			return signalResult{}, false, fmt.Errorf("package-anchor surface: %w", pkgErr)
 		}
 		if len(pkgSurface) > 0 {
-			pkgPass, pkgSkipOnly, _, _ := classifyCoverageResults(results, pkgSurface, testSyms, featureID)
+			pkgPass, pkgSkipOnly, pkgStmts, _, _ := classifyCoverageResults(results, pkgSurface, testSyms, featureID)
 			pkgDenom, pkgNumer := coverageRatio(pkgSurface, pkgPass, pkgSkipOnly)
 			if pkgDenom > 0 {
+				// Line-weighted (Tier B) when statement counts are present;
+				// otherwise the binary symbol-pass fraction (graceful fallback).
+				if lineScore, covered, total, ok := lineWeightedScore(pkgSurface, pkgSkipOnly, pkgPass, pkgStmts); ok {
+					note := lineCoverageNote(covered, total, lineScore, " (package-anchor)")
+					return signalResult{score: lineScore, note: note}, true, nil
+				}
 				score := 100.0 * float64(pkgNumer) / float64(pkgDenom)
 				note := coverageNoteWithSuffix(pkgNumer, pkgDenom, score, " (package-anchor)")
 				return signalResult{score: score, note: note}, true, nil
@@ -306,8 +312,56 @@ func (a *auditImpl) coverageSignal(
 		}
 		return signalResult{}, false, nil
 	}
+	// Line-weighted (Tier B): when the run carries per-symbol statement counts
+	// (gocover ingest, migration 0009), score the feature as
+	// 100 * Σ(covered_stmts) / Σ(total_stmts) over the wanted symbols — a real
+	// line fraction that tracks `go tool cover -func`. Falls back to the binary
+	// symbol-pass fraction when no statement data is present (older runs,
+	// gotest pass/fail mode, e2e feature-level credit).
+	if lineScore, covered, total, ok := lineWeightedScore(wanted, skipOnly, pass, stmts); ok {
+		return signalResult{score: lineScore, note: lineCoverageNote(covered, total, lineScore, "")}, true, nil
+	}
 	score := 100.0 * float64(numer) / float64(denom)
 	return signalResult{score: score, note: coverageNote(numer, denom, score)}, true, nil
+}
+
+// stmtCounts is a per-symbol statement tally read from coverage_results
+// (migration 0009): covered = executed statements, total = total statements.
+type stmtCounts struct {
+	covered int
+	total   int
+}
+
+// lineWeightedScore computes the Tier-B line-weighted coverage fraction over
+// `wanted`: 100 * Σ(covered_stmts) / Σ(total_stmts), summing only symbols that
+// are NOT skip-only (matching coverageRatio's denominator policy) and that
+// carry statement data. Returns ok=false when no wanted symbol has any
+// statement total — the caller then falls back to the binary symbol-pass
+// fraction so older runs and statement-less frameworks behave exactly as
+// before.
+func lineWeightedScore(wanted, skipOnly, pass map[int64]bool, stmts map[int64]stmtCounts) (score float64, covered, total int, ok bool) {
+	for sid := range wanted {
+		if skipOnly[sid] && !pass[sid] {
+			continue // skip-only symbols drop out of the denominator
+		}
+		c, present := stmts[sid]
+		if !present {
+			continue
+		}
+		covered += c.covered
+		total += c.total
+	}
+	if total == 0 {
+		return 0, 0, 0, false
+	}
+	score = 100.0 * float64(covered) / float64(total)
+	if score < 0 {
+		score = 0
+	}
+	if score > 100 {
+		score = 100
+	}
+	return score, covered, total, true
 }
 
 // wantedSymbolIDs returns the set of feature_symbols.symbol_id values that
@@ -350,9 +404,10 @@ func classifyCoverageResults(
 	wanted map[int64]bool,
 	testSyms map[int64]bool,
 	featureID shared.FeatureID,
-) (pass, skipOnly map[int64]bool, featurePassed, testSeen bool) {
+) (pass, skipOnly map[int64]bool, stmts map[int64]stmtCounts, featurePassed, testSeen bool) {
 	pass = make(map[int64]bool, len(wanted))
 	skipOnly = make(map[int64]bool, len(wanted))
+	stmts = make(map[int64]stmtCounts, len(wanted))
 	for _, r := range results {
 		if r.SymbolID == nil {
 			// Feature-level result (E2E-style; SymbolID nil, FeatureID set).
@@ -382,6 +437,15 @@ func classifyCoverageResults(
 		if !wanted[*r.SymbolID] {
 			continue
 		}
+		// Accumulate statement counts (migration 0009). A symbol may have
+		// several results across files/blocks in one run; sum them so the
+		// line-weighted score reflects the symbol's whole statement footprint.
+		if r.TotalStmts > 0 {
+			c := stmts[*r.SymbolID]
+			c.covered += r.CoveredStmts
+			c.total += r.TotalStmts
+			stmts[*r.SymbolID] = c
+		}
 		switch r.Status {
 		case store.StatusPass:
 			pass[*r.SymbolID] = true
@@ -391,7 +455,7 @@ func classifyCoverageResults(
 			}
 		}
 	}
-	return pass, skipOnly, featurePassed, testSeen
+	return pass, skipOnly, stmts, featurePassed, testSeen
 }
 
 // coverageRatio collapses the buckets into the (denominator, numerator)
@@ -434,6 +498,27 @@ func coverageNoteWithSuffix(numer, denom int, score float64, suffix string) sign
 		return signalNote{
 			weight:  100 - score,
 			message: fmt.Sprintf("coverage: %d/%d symbols passing (%.0f%%)%s", numer, denom, score, suffix),
+		}
+	}
+}
+
+// lineCoverageNote formats the per-feature explanatory note for the Tier-B
+// line-weighted coverage signal: it reports executed/total STATEMENTS (not
+// symbols), matching how the score is actually computed. Score == 100 → no
+// note (empty signalNote with zero weight).
+func lineCoverageNote(covered, total int, score float64, suffix string) signalNote {
+	switch {
+	case score >= 100:
+		return signalNote{}
+	case score == 0:
+		return signalNote{
+			weight:  100,
+			message: fmt.Sprintf("coverage: 0/%d statements executed in latest run%s", total, suffix),
+		}
+	default:
+		return signalNote{
+			weight:  100 - score,
+			message: fmt.Sprintf("coverage: %d/%d statements executed (%.0f%%)%s", covered, total, score, suffix),
 		}
 	}
 }

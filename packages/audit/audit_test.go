@@ -171,6 +171,105 @@ func TestCoverageSignal_AllSkipsTreatedAsNoSignal(t *testing.T) {
 	}
 }
 
+// seedCoverageStmts writes a run + per-symbol results carrying line/statement
+// counts (Tier B). counts[sid] = {covered, total}; status is derived (pass
+// when covered>0, else fail) to mirror the gocover ingest.
+func seedCoverageStmts(t *testing.T, s *store.Store, framework store.Framework, counts map[int64][2]int) int64 {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	results := make([]store.CoverageResult, 0, len(counts))
+	for sid, ct := range counts {
+		v := sid
+		st := store.StatusFail
+		if ct[0] > 0 {
+			st = store.StatusPass
+		}
+		results = append(results, store.CoverageResult{
+			SymbolID:     &v,
+			Status:       st,
+			CoveredStmts: ct[0],
+			TotalStmts:   ct[1],
+		})
+	}
+	id, err := s.Coverage().InsertRunWithResults(ctx, store.CoverageRun{
+		Framework: framework, StartedAt: now, FinishedAt: now,
+	}, results)
+	if err != nil {
+		t.Fatalf("InsertRunWithResults: %v", err)
+	}
+	return id
+}
+
+// TestCoverageSignal_LineWeighted is the Tier-B core: with statement counts
+// present, the coverage score is 100 * Σcovered / Σtotal — NOT the binary
+// fraction of passing symbols. Here sym0 ran 2/10 stmts and sym1 ran 8/10:
+// binary would say 2/2 = 100% (both "pass"), but the honest line fraction is
+// 10/20 = 50%.
+func TestCoverageSignal_LineWeighted(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	ids := seedFeature(t, s, seedSpec{
+		FeatureID: "auth.login", Title: "Login", NumSymbols: 2, SymbolFile: "auth/login.go",
+	})
+	seedCoverageStmts(t, s, store.FrameworkGoTest, map[int64][2]int{
+		ids[0]: {2, 10}, ids[1]: {8, 10},
+	})
+	a := New(s, Options{})
+	got, err := a.ScoreFeature(ctx, "auth.login")
+	if err != nil {
+		t.Fatalf("ScoreFeature: %v", err)
+	}
+	if v := got.Components[SignalCoverage]; v != 50 {
+		t.Errorf("coverage = %.1f, want 50 (10/20 stmts, not binary 100)", v)
+	}
+}
+
+// TestCoverageSignal_LineWeightedFullCoverage: every statement executed → 100,
+// and no coverage reason note is emitted (the perfect-coverage case).
+func TestCoverageSignal_LineWeightedFullCoverage(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	ids := seedFeature(t, s, seedSpec{
+		FeatureID: "auth.login", Title: "Login", NumSymbols: 2, SymbolFile: "auth/login.go",
+	})
+	seedCoverageStmts(t, s, store.FrameworkGoTest, map[int64][2]int{
+		ids[0]: {7, 7}, ids[1]: {3, 3},
+	})
+	a := New(s, Options{})
+	got, err := a.ScoreFeature(ctx, "auth.login")
+	if err != nil {
+		t.Fatalf("ScoreFeature: %v", err)
+	}
+	if v := got.Components[SignalCoverage]; v != 100 {
+		t.Errorf("coverage = %.1f, want 100 (10/10 stmts)", v)
+	}
+}
+
+// TestCoverageSignal_BinaryFallbackWhenNoStmts asserts the graceful fallback:
+// when results carry NO statement counts (total_stmts=0, e.g. pre-0009 runs
+// or gotest pass/fail), scoring reverts to the binary passing-symbol fraction.
+func TestCoverageSignal_BinaryFallbackWhenNoStmts(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	ids := seedFeature(t, s, seedSpec{
+		FeatureID: "auth.login", Title: "Login", NumSymbols: 4, SymbolFile: "auth/login.go",
+	})
+	// No stmt counts → binary: 2 pass / 4 = 50.
+	seedCoverage(t, s, store.FrameworkGoTest, map[int64]store.CoverageStatus{
+		ids[0]: store.StatusPass, ids[1]: store.StatusPass,
+		ids[2]: store.StatusFail, ids[3]: store.StatusFail,
+	})
+	a := New(s, Options{})
+	got, err := a.ScoreFeature(ctx, "auth.login")
+	if err != nil {
+		t.Fatalf("ScoreFeature: %v", err)
+	}
+	if v := got.Components[SignalCoverage]; v != 50 {
+		t.Errorf("coverage = %.1f, want 50 (binary fallback)", v)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Annotation freshness signal — unit tests
 // -----------------------------------------------------------------------------
