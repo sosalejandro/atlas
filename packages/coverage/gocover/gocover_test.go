@@ -49,6 +49,39 @@ func TestParse_MalformedFailsLoudly(t *testing.T) {
 	}
 }
 
+func TestMergeBlocks_DedupesMaxCount(t *testing.T) {
+	// A -coverpkg=./... profile repeats every span once per tested package.
+	// Here svc.go:12-15 appears 3x (counts 0,0,1) and svc.go:18-20 appears 2x
+	// (both 0). Merge must collapse to one span each, taking the max count.
+	blocks := []Block{
+		{File: "svc.go", StartLine: 12, EndLine: 15, NumStmts: 2, Count: 0},
+		{File: "svc.go", StartLine: 12, EndLine: 15, NumStmts: 2, Count: 0},
+		{File: "svc.go", StartLine: 12, EndLine: 15, NumStmts: 2, Count: 1},
+		{File: "svc.go", StartLine: 18, EndLine: 20, NumStmts: 3, Count: 0},
+		{File: "svc.go", StartLine: 18, EndLine: 20, NumStmts: 3, Count: 0},
+	}
+	got := MergeBlocks(blocks)
+	want := []Block{
+		{File: "svc.go", StartLine: 12, EndLine: 15, NumStmts: 2, Count: 1},
+		{File: "svc.go", StartLine: 18, EndLine: 20, NumStmts: 3, Count: 0},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("MergeBlocks = %+v\nwant %+v", got, want)
+	}
+	// Statement accounting on the merged set: 2 covered / 5 total = 40%.
+	// On the RAW set a naive sum would read 2/13 ≈ 15% — the bug this guards.
+	var cov, tot int
+	for _, b := range got {
+		tot += b.NumStmts
+		if b.Executed() {
+			cov += b.NumStmts
+		}
+	}
+	if cov != 2 || tot != 5 {
+		t.Fatalf("merged accounting = %d/%d, want 2/5", cov, tot)
+	}
+}
+
 func TestExecutedSpansByFile(t *testing.T) {
 	blocks, _ := Parse(strings.NewReader(sampleProfile))
 	spans := ExecutedSpansByFile(blocks)

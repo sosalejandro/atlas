@@ -22,7 +22,7 @@ import (
 // VCS revision. The defaults below are only the last-resort sentinel
 // values — see internal/cli/buildinfo.go for the resolution contract.
 var (
-	Version   = "v0.12.0"
+	Version   = "v0.12.1"
 	Commit    = "fba0d11"
 	BuildDate = "2026-05-24T01:31:52Z"
 )

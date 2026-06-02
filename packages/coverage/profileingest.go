@@ -56,6 +56,11 @@ func IngestGoProfile(ctx context.Context, s *store.Store, framework store.Framew
 	if err != nil {
 		return stats, fmt.Errorf("coverage: parse profile: %w", err)
 	}
+	// Merge duplicate blocks (max count per span) BEFORE statement accounting.
+	// A `-coverpkg=./...` profile repeats every span once per tested package;
+	// summing raw NumStmts would inflate totals ~Nx and deflate the ratio. This
+	// makes per-symbol covered/total track `go tool cover`'s "(statements)".
+	blocks = gocover.MergeBlocks(blocks)
 	stats.BlocksParsed = len(blocks)
 	blocksByFile := gocover.BlocksByFile(blocks)
 	stats.FilesInProfile = len(blocksByFile)
