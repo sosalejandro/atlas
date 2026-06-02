@@ -37,8 +37,9 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	// 5 in Phase 6a (audit_snapshot_runs table), 6 by issue #21
 	// (drop the unused legacy audit_snapshots table), 7 by issue #57
 	// (widen edges.kind CHECK to admit Python polyglot kinds), and
-	// 8 by issue #16 (edges.edge_meta column for per-edge scope tags).
-	const expected = 8
+	// 8 by issue #16 (edges.edge_meta column for per-edge scope tags), and
+	// 9 by Tier B (coverage_results.covered_stmts / total_stmts columns).
+	const expected = 9
 	if v != expected {
 		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}
