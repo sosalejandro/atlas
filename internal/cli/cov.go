@@ -47,7 +47,12 @@ func newCovSyncCmd() *cobra.Command {
 run + per-test rows through the Coverage port.
 
 Supported frameworks (--framework):
-  go-test, go-cover, playwright, vitest, jest, maestro
+  go-test, go-cover, playwright, vitest, jest, maestro, istanbul
+
+go-cover and istanbul are STATEMENT-coverage tracks (Tier B): go-cover
+ingests a Go coverprofile (go test -coverprofile); istanbul ingests a
+front-end coverage-final.json (vitest/jest v8 JSON reporter). Both
+attribute line-weighted covered/total statements to the symbols that ran.
 
 When --framework is omitted, cov sync attempts to auto-detect from the
 filename (.json patterns from each framework) and the file's top-level
@@ -60,7 +65,7 @@ Input source: --input <path> (a file) or "-" / unset for stdin.`,
 		},
 	}
 	cmd.Flags().StringVar(&framework, "framework", "",
-		"framework tag (go-test|go-cover|playwright|vitest|jest|maestro); auto-detected when omitted")
+		"framework tag (go-test|go-cover|playwright|vitest|jest|maestro|istanbul); auto-detected when omitted")
 	cmd.Flags().StringVar(&input, "input", "-",
 		"report file path, or '-' for stdin")
 	return cmd
@@ -121,6 +126,29 @@ func runCovSync(cmd *cobra.Command, framework, input string) error {
 		fmt.Fprintf(cmd.OutOrStdout(),
 			"coverprofile ingest complete  run_id=%d blocks=%d files=%d/%d symbols_executed=%d\n",
 			stats.RunID, stats.BlocksParsed, stats.FilesMatched, stats.FilesInProfile, stats.SymbolsExecuted)
+		return nil
+	}
+
+	// istanbul: a front-end `coverage-final.json` (vitest/jest v8 JSON
+	// reporter). Like go-cover this is a STATEMENT-coverage source, not a
+	// pass/fail framework — it attributes line-weighted covered/total
+	// statements to the FE symbols that ran (file_path apps/web-*/src/...).
+	// Persisted under the 'vitest' framework tag — istanbul coverage IS
+	// vitest/jest coverage, and this avoids a CHECK-constraint migration
+	// (the same trick go-cover uses with the 'go-test' tag).
+	if framework == string(coverage.FrameworkIstanbul) {
+		stats, err := coverage.IngestIstanbul(ctx, s, store.FrameworkVitest, r)
+		if err != nil {
+			return fmt.Errorf("cov sync (istanbul): %w", err)
+		}
+		res := covSyncResult{RunID: stats.RunID, Framework: framework, Input: input}
+		if flags.JSON {
+			return emitJSON(stdoutOrJSON(cmd), "cov.sync",
+				map[string]any{"framework": framework, "input": input}, res, nil)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(),
+			"istanbul ingest complete  run_id=%d stmts=%d files=%d/%d symbols_covered=%d unmatched=%d\n",
+			stats.RunID, stats.StmtsParsed, stats.FilesMatched, stats.FilesInReport, stats.SymbolsCovered, stats.FilesUnmatched)
 		return nil
 	}
 
@@ -188,6 +216,10 @@ func openCovInput(path string) (io.Reader, func(), error) {
 func sniffFramework(path string) string {
 	base := strings.ToLower(filepath.Base(path))
 	switch {
+	case base == "coverage-final.json",
+		strings.HasSuffix(base, "coverage-final.json"),
+		strings.Contains(base, "istanbul"):
+		return string(coverage.FrameworkIstanbul)
 	case strings.HasSuffix(base, ".cover"),
 		strings.HasSuffix(base, "cover.out"),
 		strings.Contains(base, "coverprofile"),

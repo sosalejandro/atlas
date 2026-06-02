@@ -27,6 +27,12 @@ const (
 	FrameworkVitest     Framework = "vitest"
 	FrameworkJest       Framework = "jest"
 	FrameworkMaestro    Framework = "maestro"
+	// FrameworkIstanbul is the FE statement-coverage track (coverage-final.json
+	// from vitest/jest/nyc v8). Like go-cover it is a STATEMENT-coverage source,
+	// not a pass/fail framework, so it is ingested via IngestIstanbul (not the
+	// Parser interface) and persisted under FrameworkVitest to stay within the
+	// coverage_runs.framework CHECK constraint.
+	FrameworkIstanbul Framework = "istanbul"
 )
 
 // Run is the parser-level summary of a single test execution.
