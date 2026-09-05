@@ -65,3 +65,14 @@ ORDER BY file_path, line, qualified_name;
 
 -- Note: FindByPattern still uses raw SQL in symbols.go because sqlc's
 -- sqlite engine handles JSON-substring matchers poorly.
+
+-- name: ListSymbolNamesByFile :many
+-- Every symbol currently stored for a file, as (id, qualified_name). Used by
+-- Ingest to prune rows a rescan of that file no longer produces: a renamed,
+-- moved or deleted declaration would otherwise keep its row (and its stale
+-- line..end_line span) forever, which silently corrupts the coverage
+-- attribution that keys executed statements to those spans.
+SELECT id, qualified_name FROM symbols WHERE file_path = ?;
+
+-- name: DeleteSymbolByID :exec
+DELETE FROM symbols WHERE id = ?;

@@ -236,7 +236,7 @@ CREATE INDEX symbols_bc_idx       ON symbols(bc_path);
 | Column            | Type      | Notes                                                                                                                          |
 | ----------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `id`              | INTEGER   | Surrogate PK; lets edges + feature_symbols use compact integer FKs.                                                            |
-| `qualified_name`  | TEXT      | Fully qualified, language-aware. Go: `github.com/foo/bar/pkg.Type.Method`. TS: `apps/web/src/foo.tsx::useFoo`. **UNIQUE.**     |
+| `qualified_name`  | TEXT      | Language-aware symbol id. Go: `Type.Method` / `pkg.Func`, package-qualified (`contexts/billing/domain.Type.Method`) when that short form is already taken by another package — see *Symbol identity* below. TS: `apps/web/src/foo.tsx::useFoo`. **UNIQUE.** |
 | `kind`            | TEXT      | One of `type`, `func`, `method`, `interface`, `var`, `const`. Mirrors `domain.NodeKind` where applicable.                       |
 | `file_path`       | TEXT      | Path **relative to the project root** so the DB is portable across worktrees.                                                  |
 | `line`            | INTEGER   | 1-based first line of the symbol's declaration.                                                                                |
@@ -249,6 +249,32 @@ CREATE INDEX symbols_bc_idx       ON symbols(bc_path);
 The unique constraint on `qualified_name` is the cache key. Re-scanning the
 same file yields the same qualified name, so subsequent runs `INSERT OR
 IGNORE` and skip duplicates without writes.
+
+#### Symbol identity (Go)
+
+The Go scanner registers a declaration under its **short** id — `Type.Method`
+for methods, `pkg.Func` for plain functions — because that is what
+`@atlas:feature` annotations, `atlas trace` arguments and stored feature links
+refer to. Short ids are not globally unique: any monorepo where two bounded
+contexts each declare a `Chat` or a `NewAvailabilityService` produces
+collisions. When a short id is already taken by a declaration in a **different
+file**, the scanner falls back, in order, to:
+
+1. `<packageDir>.<Type>.<Method>` (or `<packageDir>.<Func>`), then
+2. `<packageDir>.<Type>.<Method>#<file>.go` — two packages in one directory.
+
+Walk order is lexical, so which declaration keeps the short id is stable for a
+given file set, and every collision is reported as a scan warning. Before this
+rule the second declaration was silently dropped from the graph — and with it
+every other symbol in its file, which is what made ~25% of a coverage profile
+unattributable (issue #85).
+
+`end_line` matters for the same reason: the coverage ingest charges an
+executed statement to the symbol whose `[line, end_line]` span contains it.
+When `end_line` is NULL the span is guessed from the next symbol's start line,
+so statements belonging to declarations atlas did not index get charged to
+whichever neighbour precedes them, and the last symbol in a file absorbs
+everything to EOF. The Go scanner always emits it.
 
 ### 5.5 `edges` — directed call / implement / embed / construct relationships
 

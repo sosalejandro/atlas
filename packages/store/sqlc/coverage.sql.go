@@ -123,15 +123,25 @@ WHERE run_id = ?
 ORDER BY id
 `
 
-func (q *Queries) ListCoverageResults(ctx context.Context, runID int64) ([]CoverageResult, error) {
+type ListCoverageResultsRow struct {
+	ID         int64   `db:"id" json:"id"`
+	RunID      int64   `db:"run_id" json:"run_id"`
+	SymbolID   *int64  `db:"symbol_id" json:"symbol_id"`
+	FeatureID  *string `db:"feature_id" json:"feature_id"`
+	Status     string  `db:"status" json:"status"`
+	DurationMs int64   `db:"duration_ms" json:"duration_ms"`
+	Message    *string `db:"message" json:"message"`
+}
+
+func (q *Queries) ListCoverageResults(ctx context.Context, runID int64) ([]ListCoverageResultsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listCoverageResults, runID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CoverageResult{}
+	items := []ListCoverageResultsRow{}
 	for rows.Next() {
-		var i CoverageResult
+		var i ListCoverageResultsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.RunID,
