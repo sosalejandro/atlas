@@ -27,6 +27,14 @@ type IstanbulIngestStats struct {
 	// or a path-shape mismatch between the reporter's paths and atlas's
 	// repo-relative paths).
 	FilesUnmatched int
+
+	// StmtsAttributed / StmtsUnattributed split the report's statements into
+	// the ones charged to a symbol and the ones atlas could not place; Gaps
+	// enumerates the latter per file, biggest loss first (issue #85's FE
+	// analogue — same reporting contract as ProfileIngestStats).
+	StmtsAttributed   int
+	StmtsUnattributed int
+	Gaps              []FileGap
 }
 
 // IngestIstanbul parses an Istanbul / V8 `coverage-final.json` report and
@@ -63,15 +71,21 @@ func IngestIstanbul(ctx context.Context, s *store.Store, framework store.Framewo
 	}
 	byFile := indexSymbolsByFile(syms)
 
-	counts, matched, unmatched := attributeIstanbulStatements(byFileStmts, byFile)
-	stats.FilesMatched = matched
-	stats.FilesUnmatched = unmatched
+	rep := attributeIstanbulStatements(byFileStmts, byFile)
+	counts := rep.counts
+	stats.FilesMatched = rep.filesMatched
+	stats.FilesUnmatched = rep.filesUnmatched
+	stats.StmtsAttributed = rep.stmtsAttributed
+	stats.StmtsUnattributed = rep.stmtsUnattributed
+	stats.Gaps = rep.gaps()
 	stats.SymbolsCovered = len(counts)
-	if s.Logger() != nil && unmatched > 0 {
-		s.Logger().Debug(ctx, "istanbul ingest: unmatched report files",
+	if s.Logger() != nil && rep.stmtsUnattributed > 0 {
+		s.Logger().Debug(ctx, "istanbul ingest: unattributed execution",
 			"files_in_report", stats.FilesInReport,
-			"files_matched", matched,
-			"files_unmatched", unmatched)
+			"files_matched", rep.filesMatched,
+			"files_unmatched", rep.filesUnmatched,
+			"stmts_attributed", rep.stmtsAttributed,
+			"stmts_unattributed", rep.stmtsUnattributed)
 	}
 
 	results := make([]store.CoverageResult, 0, len(counts))
@@ -112,8 +126,12 @@ func IngestIstanbul(ctx context.Context, s *store.Store, framework store.Framewo
 // (tightest span wins via owningSymbol) so each statement is charged to exactly
 // one symbol and is never double-counted across adjacent symbols — the basis
 // for a per-feature fraction that tracks the istanbul "% Stmts" column.
-func attributeIstanbulStatements(byFileStmts map[string][]istanbul.Statement, byFile map[string][]symSpan) (counts map[int64]symbolCounts, filesMatched, filesUnmatched int) {
-	counts = map[int64]symbolCounts{}
+func attributeIstanbulStatements(byFileStmts map[string][]istanbul.Statement, byFile map[string][]symSpan) attributionReport {
+	rep := attributionReport{
+		counts:       map[int64]symbolCounts{},
+		lostByFile:   map[string]int{},
+		reasonByFile: map[string]string{},
+	}
 	// Index atlas files by basename for suffix-match reconciliation.
 	byBase := map[string][]string{}
 	for f := range byFile {
@@ -122,23 +140,30 @@ func attributeIstanbulStatements(byFileStmts map[string][]istanbul.Statement, by
 	for rf, stmts := range byFileStmts {
 		af := reconcilePath(rf, byBase)
 		if af == "" {
-			filesUnmatched++
+			rep.filesUnmatched++
+			rep.stmtsUnattributed += len(stmts)
+			rep.lostByFile[rf] = len(stmts)
+			rep.reasonByFile[rf] = ReasonNoIndexedSymbol
 			continue
 		}
-		filesMatched++
+		rep.filesMatched++
 		syms := byFile[af]
 		for _, st := range stmts {
 			sid, ok := owningSymbol(syms, st.StartLine)
 			if !ok {
+				rep.stmtsUnattributed++
+				rep.lostByFile[rf]++
+				rep.reasonByFile[rf] = ReasonOutsideSymbolSpans
 				continue
 			}
-			c := counts[sid]
+			c := rep.counts[sid]
 			c.total++
 			if st.Executed() {
 				c.covered++
 			}
-			counts[sid] = c
+			rep.counts[sid] = c
+			rep.stmtsAttributed++
 		}
 	}
-	return counts, filesMatched, filesUnmatched
+	return rep
 }

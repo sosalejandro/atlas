@@ -76,6 +76,54 @@ type covSyncResult struct {
 	RunID     int64  `json:"run_id"`
 	Framework string `json:"framework"`
 	Input     string `json:"input,omitempty"`
+
+	// Attribution is populated for the statement-coverage frameworks
+	// (go-cover, istanbul). It answers "how much of what ran did atlas
+	// actually attribute?" — the question issue #85 was filed about.
+	Attribution *covAttribution `json:"attribution,omitempty"`
+}
+
+// covAttribution reports how much of the ingested profile atlas could place
+// on a symbol, and enumerates what it could not.
+type covAttribution struct {
+	FilesInProfile    int                `json:"files_in_profile"`
+	FilesMatched      int                `json:"files_matched"`
+	FilesUnmatched    int                `json:"files_unmatched"`
+	StmtsAttributed   int                `json:"stmts_attributed"`
+	StmtsUnattributed int                `json:"stmts_unattributed"`
+	Gaps              []coverage.FileGap `json:"gaps,omitempty"`
+}
+
+// maxGapLines caps the human-readable gap list. --json always carries the
+// full set; the terminal gets the biggest losses plus a "+N more" line.
+const maxGapLines = 25
+
+// renderAttributionGaps prints the attribution summary and, with --verbose,
+// the per-file gap list. Silent when every statement was attributed.
+func renderAttributionGaps(cmd *cobra.Command, a covAttribution) {
+	if a.StmtsUnattributed == 0 && a.FilesUnmatched == 0 {
+		return
+	}
+	out := cmd.OutOrStdout()
+	total := a.StmtsAttributed + a.StmtsUnattributed
+	pct := 0.0
+	if total > 0 {
+		pct = 100 * float64(a.StmtsUnattributed) / float64(total)
+	}
+	fmt.Fprintf(out,
+		"attribution gap: %d/%d statements (%.1f%%) in %d file(s) could not be charged to a symbol\n",
+		a.StmtsUnattributed, total, pct, len(a.Gaps))
+	if !flags.Verbose {
+		fmt.Fprintf(out, "  re-run with --verbose (or --json) to list them\n")
+		return
+	}
+	for i, g := range a.Gaps {
+		if i == maxGapLines {
+			fmt.Fprintf(out, "  ... +%d more\n", len(a.Gaps)-maxGapLines)
+			break
+		}
+		fmt.Fprintf(out, "  %6d stmts  %-22s %s\n", g.Stmts, g.Reason, g.Path)
+	}
 }
 
 func runCovSync(cmd *cobra.Command, framework, input string) error {
@@ -118,14 +166,25 @@ func runCovSync(cmd *cobra.Command, framework, input string) error {
 		if err != nil {
 			return fmt.Errorf("cov sync (go-cover): %w", err)
 		}
-		res := covSyncResult{RunID: stats.RunID, Framework: framework, Input: input}
+		attr := covAttribution{
+			FilesInProfile:    stats.FilesInProfile,
+			FilesMatched:      stats.FilesMatched,
+			FilesUnmatched:    stats.FilesUnmatched,
+			StmtsAttributed:   stats.StmtsAttributed,
+			StmtsUnattributed: stats.StmtsUnattributed,
+			Gaps:              stats.Gaps,
+		}
+		res := covSyncResult{RunID: stats.RunID, Framework: framework, Input: input, Attribution: &attr}
 		if flags.JSON {
 			return emitJSON(stdoutOrJSON(cmd), "cov.sync",
 				map[string]any{"framework": framework, "input": input}, res, nil)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(),
-			"coverprofile ingest complete  run_id=%d blocks=%d files=%d/%d symbols_executed=%d\n",
-			stats.RunID, stats.BlocksParsed, stats.FilesMatched, stats.FilesInProfile, stats.SymbolsExecuted)
+			"coverprofile ingest complete  run_id=%d blocks=%d files=%d/%d unmatched=%d symbols_executed=%d stmts=%d/%d\n",
+			stats.RunID, stats.BlocksParsed, stats.FilesMatched, stats.FilesInProfile,
+			stats.FilesUnmatched, stats.SymbolsExecuted,
+			stats.StmtsAttributed, stats.StmtsAttributed+stats.StmtsUnattributed)
+		renderAttributionGaps(cmd, attr)
 		return nil
 	}
 
@@ -141,7 +200,15 @@ func runCovSync(cmd *cobra.Command, framework, input string) error {
 		if err != nil {
 			return fmt.Errorf("cov sync (istanbul): %w", err)
 		}
-		res := covSyncResult{RunID: stats.RunID, Framework: framework, Input: input}
+		attr := covAttribution{
+			FilesInProfile:    stats.FilesInReport,
+			FilesMatched:      stats.FilesMatched,
+			FilesUnmatched:    stats.FilesUnmatched,
+			StmtsAttributed:   stats.StmtsAttributed,
+			StmtsUnattributed: stats.StmtsUnattributed,
+			Gaps:              stats.Gaps,
+		}
+		res := covSyncResult{RunID: stats.RunID, Framework: framework, Input: input, Attribution: &attr}
 		if flags.JSON {
 			return emitJSON(stdoutOrJSON(cmd), "cov.sync",
 				map[string]any{"framework": framework, "input": input}, res, nil)
@@ -149,6 +216,7 @@ func runCovSync(cmd *cobra.Command, framework, input string) error {
 		fmt.Fprintf(cmd.OutOrStdout(),
 			"istanbul ingest complete  run_id=%d stmts=%d files=%d/%d symbols_covered=%d unmatched=%d\n",
 			stats.RunID, stats.StmtsParsed, stats.FilesMatched, stats.FilesInReport, stats.SymbolsCovered, stats.FilesUnmatched)
+		renderAttributionGaps(cmd, attr)
 		return nil
 	}
 

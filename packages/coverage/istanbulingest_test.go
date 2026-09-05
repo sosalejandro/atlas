@@ -34,7 +34,8 @@ func TestAttributeIstanbulStatements_LineWeightedAndPathSuffix(t *testing.T) {
 			{StartLine: 6, EndLine: 6, Count: 1},
 		},
 	}
-	counts, matched, unmatched := attributeIstanbulStatements(byFileStmts, byFile)
+	rep := attributeIstanbulStatements(byFileStmts, byFile)
+	counts, matched, unmatched := rep.counts, rep.filesMatched, rep.filesUnmatched
 	if matched != 2 {
 		t.Errorf("filesMatched = %d, want 2", matched)
 	}
@@ -67,7 +68,8 @@ func TestAttributeIstanbulStatements_UnmatchedFileCounted(t *testing.T) {
 			{StartLine: 3, EndLine: 4, Count: 1},
 		},
 	}
-	counts, matched, unmatched := attributeIstanbulStatements(byFileStmts, byFile)
+	rep := attributeIstanbulStatements(byFileStmts, byFile)
+	counts, matched, unmatched := rep.counts, rep.filesMatched, rep.filesUnmatched
 	if matched != 1 || unmatched != 1 {
 		t.Errorf("matched=%d unmatched=%d, want 1/1", matched, unmatched)
 	}
@@ -89,7 +91,7 @@ func TestAttributeIstanbulStatements_NoDoubleCountAdjacentSymbols(t *testing.T) 
 			{StartLine: 50, EndLine: 50, Count: 1}, // inside both → tightest (sym2) wins
 		},
 	}
-	counts, _, _ := attributeIstanbulStatements(byFileStmts, byFile)
+	counts := attributeIstanbulStatements(byFileStmts, byFile).counts
 	if c := counts[2]; c.total != 1 || c.covered != 1 {
 		t.Errorf("sym2 = %+v, want 1/1 (tightest span owns line 50)", c)
 	}

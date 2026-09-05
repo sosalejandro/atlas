@@ -52,7 +52,8 @@ func TestAttributeStatements_LineWeightedAndPathSuffix(t *testing.T) {
 			{File: "other.go", StartLine: 6, EndLine: 6, NumStmts: 1, Count: 1},
 		},
 	}
-	counts, matched, unmatched := attributeStatements(blocksByFile, byFile)
+	rep := attributeStatements(blocksByFile, byFile)
+	counts, matched, unmatched := rep.counts, rep.filesMatched, rep.filesUnmatched
 	if matched != 2 {
 		t.Errorf("filesMatched = %d, want 2", matched)
 	}
@@ -82,7 +83,8 @@ func TestAttributeStatements_UnmatchedFileCounted(t *testing.T) {
 			{File: "ghost.go", StartLine: 3, EndLine: 4, NumStmts: 5, Count: 1},
 		},
 	}
-	counts, matched, unmatched := attributeStatements(blocksByFile, byFile)
+	rep := attributeStatements(blocksByFile, byFile)
+	counts, matched, unmatched := rep.counts, rep.filesMatched, rep.filesUnmatched
 	if matched != 1 || unmatched != 1 {
 		t.Errorf("matched=%d unmatched=%d, want 1/1", matched, unmatched)
 	}

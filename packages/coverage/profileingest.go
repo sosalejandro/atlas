@@ -20,10 +20,48 @@ type ProfileIngestStats struct {
 	FilesMatched    int
 	SymbolsExecuted int
 	// FilesUnmatched counts profile files that reconciled to NO atlas file
-	// (issue #85 — best-effort visibility into attribution misses). A high
-	// value relative to FilesInProfile means the suffix path-reconciliation
-	// is dropping production execution on the floor.
+	// (issue #85 — visibility into attribution misses). A high value
+	// relative to FilesInProfile means production execution is being
+	// dropped: either the file was never indexed (generated code, symbols
+	// lost to a name collision) or the suffix path-reconciliation missed.
 	FilesUnmatched int
+
+	// StmtsAttributed / StmtsUnattributed split the profile's statements
+	// into the ones charged to a symbol and the ones atlas could not place.
+	// StmtsUnattributed is the honest size of the coverage blind spot: it
+	// is what separates "code that ran" from "code atlas knows about".
+	StmtsAttributed   int
+	StmtsUnattributed int
+
+	// Gaps enumerates, per profile file, the statements that could not be
+	// attributed and why — sorted by statements lost, descending. This is
+	// what `cov sync --verbose` prints so the gap is inspectable rather
+	// than silently absorbed.
+	Gaps []FileGap
+}
+
+// Gap reasons for FileGap.Reason.
+const (
+	// ReasonNoIndexedSymbol: the profile file reconciled to no atlas file
+	// at all — atlas has zero symbols for it (never scanned, skipped as
+	// generated, or every symbol in it lost a short-name collision).
+	ReasonNoIndexedSymbol = "no-indexed-symbol"
+	// ReasonOutsideSymbolSpans: the file IS indexed, but these statements
+	// fall outside every indexed symbol's [line, end_line] span — code in
+	// declarations atlas did not index (e.g. package-private helpers when
+	// SkipUnexportedFuncs is on, or stale symbol positions).
+	ReasonOutsideSymbolSpans = "outside-symbol-spans"
+)
+
+// FileGap is one profile file's unattributed execution.
+type FileGap struct {
+	// Path is the file as it appears in the coverage profile
+	// (import-path-qualified, e.g. github.com/org/repo/pkg/svc.go).
+	Path string `json:"path"`
+	// Stmts is the number of statements atlas could not attribute.
+	Stmts int `json:"stmts"`
+	// Reason is one of ReasonNoIndexedSymbol / ReasonOutsideSymbolSpans.
+	Reason string `json:"reason"`
 }
 
 // symbolCounts accumulates the statement-level coverage for one owned symbol
@@ -71,15 +109,21 @@ func IngestGoProfile(ctx context.Context, s *store.Store, framework store.Framew
 	}
 	byFile := indexSymbolsByFile(syms)
 
-	counts, matched, unmatched := attributeStatements(blocksByFile, byFile)
-	stats.FilesMatched = matched
-	stats.FilesUnmatched = unmatched
+	rep := attributeStatements(blocksByFile, byFile)
+	counts := rep.counts
+	stats.FilesMatched = rep.filesMatched
+	stats.FilesUnmatched = rep.filesUnmatched
+	stats.StmtsAttributed = rep.stmtsAttributed
+	stats.StmtsUnattributed = rep.stmtsUnattributed
+	stats.Gaps = rep.gaps()
 	stats.SymbolsExecuted = len(counts)
-	if s.Logger() != nil && unmatched > 0 {
-		s.Logger().Debug(ctx, "gocover ingest: unmatched profile files",
+	if s.Logger() != nil && rep.stmtsUnattributed > 0 {
+		s.Logger().Debug(ctx, "gocover ingest: unattributed execution",
 			"files_in_profile", stats.FilesInProfile,
-			"files_matched", matched,
-			"files_unmatched", unmatched)
+			"files_matched", rep.filesMatched,
+			"files_unmatched", rep.filesUnmatched,
+			"stmts_attributed", rep.stmtsAttributed,
+			"stmts_unattributed", rep.stmtsUnattributed)
 	}
 
 	results := make([]store.CoverageResult, 0, len(counts))
@@ -147,19 +191,61 @@ func indexSymbolsByFile(syms []store.SymbolRow) map[string][]symSpan {
 	return out
 }
 
+// attributionReport is the per-run accounting attributeStatements produces:
+// the per-symbol statement counts plus everything that could NOT be placed.
+type attributionReport struct {
+	counts            map[int64]symbolCounts
+	filesMatched      int
+	filesUnmatched    int
+	stmtsAttributed   int
+	stmtsUnattributed int
+	// lostByFile is the profile path → unattributed statements, and
+	// reasonByFile why. Both are keyed by the PROFILE path (not the atlas
+	// path) so the report names files the way the profile does.
+	lostByFile   map[string]int
+	reasonByFile map[string]string
+}
+
+// gaps renders the report's unattributed execution as a stable, sorted list:
+// biggest loss first, ties broken by path so output is deterministic.
+func (r attributionReport) gaps() []FileGap {
+	out := make([]FileGap, 0, len(r.lostByFile))
+	for p, n := range r.lostByFile {
+		if n <= 0 {
+			continue
+		}
+		out = append(out, FileGap{Path: p, Stmts: n, Reason: r.reasonByFile[p]})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Stmts != out[j].Stmts {
+			return out[i].Stmts > out[j].Stmts
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out
+}
+
 // attributeStatements maps each profile file's blocks onto the owning symbol
 // (the symbol whose [start,end] span contains the block's start line) and
 // accumulates per-symbol statement counts: total = Σ NumStmts, covered =
-// Σ NumStmts of executed (Count>0) blocks. Returns the per-symbol counts, the
-// number of profile files that reconciled to an atlas file, and the number
-// that did not (issue #85 visibility).
+// Σ NumStmts of executed (Count>0) blocks.
+//
+// Everything it cannot place is recorded rather than dropped (issue #85):
+// a profile file that reconciles to no atlas file is counted whole, and a
+// block inside a reconciled file that falls outside every symbol span is
+// counted against that file. The caller reports both, so the difference
+// between "code that ran" and "code atlas knows about" is visible.
 //
 // Attribution is by the block's START line falling inside the symbol span
 // (rather than range-overlap) so a block is charged to exactly one symbol and
 // statements are never double-counted across adjacent symbols — the basis for
 // a per-feature fraction that tracks `go tool cover -func`.
-func attributeStatements(blocksByFile map[string][]gocover.Block, byFile map[string][]symSpan) (counts map[int64]symbolCounts, filesMatched, filesUnmatched int) {
-	counts = map[int64]symbolCounts{}
+func attributeStatements(blocksByFile map[string][]gocover.Block, byFile map[string][]symSpan) attributionReport {
+	rep := attributionReport{
+		counts:       map[int64]symbolCounts{},
+		lostByFile:   map[string]int{},
+		reasonByFile: map[string]string{},
+	}
 	// Index atlas files by basename for suffix-match reconciliation.
 	byBase := map[string][]string{}
 	for f := range byFile {
@@ -168,25 +254,36 @@ func attributeStatements(blocksByFile map[string][]gocover.Block, byFile map[str
 	for pf, blocks := range blocksByFile {
 		af := reconcilePath(pf, byBase)
 		if af == "" {
-			filesUnmatched++
+			rep.filesUnmatched++
+			lost := 0
+			for _, b := range blocks {
+				lost += b.NumStmts
+			}
+			rep.stmtsUnattributed += lost
+			rep.lostByFile[pf] = lost
+			rep.reasonByFile[pf] = ReasonNoIndexedSymbol
 			continue
 		}
-		filesMatched++
+		rep.filesMatched++
 		syms := byFile[af]
 		for _, b := range blocks {
 			sid, ok := owningSymbol(syms, b.StartLine)
 			if !ok {
+				rep.stmtsUnattributed += b.NumStmts
+				rep.lostByFile[pf] += b.NumStmts
+				rep.reasonByFile[pf] = ReasonOutsideSymbolSpans
 				continue
 			}
-			c := counts[sid]
+			c := rep.counts[sid]
 			c.total += b.NumStmts
 			if b.Executed() {
 				c.covered += b.NumStmts
 			}
-			counts[sid] = c
+			rep.counts[sid] = c
+			rep.stmtsAttributed += b.NumStmts
 		}
 	}
-	return counts, filesMatched, filesUnmatched
+	return rep
 }
 
 // owningSymbol returns the id of the symbol whose [start,end] span contains
