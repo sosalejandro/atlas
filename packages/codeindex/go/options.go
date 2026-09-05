@@ -73,6 +73,19 @@ type Options struct {
 	// deliberately so the Go zero value (false) matches Atlas's intended
 	// default of "include tests" without requiring a constructor.
 	SkipTests bool
+
+	// SkipUnexportedFuncs, when true, excludes unexported plain functions
+	// (package-private `func helper()`) from the index. The default (zero
+	// value: false) is to INCLUDE them because the Go compiler instruments
+	// every function body for coverage: a helper that atlas does not index
+	// has no source span, so its executed statements are either dropped or
+	// charged to whichever neighbouring symbol's span swallows them —
+	// exactly the silent under-attribution tracked in issue #85.
+	//
+	// Set SkipUnexportedFuncs=true for graph-only audits where package-
+	// private helpers are noise. Named with inverse polarity deliberately,
+	// like SkipTests, so the zero value matches Atlas's intended default.
+	SkipUnexportedFuncs bool
 }
 
 // LayerRules extends the built-in directory→SymbolKind classification.

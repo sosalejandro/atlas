@@ -105,12 +105,18 @@ type FilePosition struct {
 // JSON tags follow the docs/api/<verb>.md contract conventions: lowerCamel
 // in v1; additive-only changes within a major.
 type Symbol struct {
-	ID        SymbolID     `json:"id"`
-	Kind      SymbolKind   `json:"kind"`
-	Position  FilePosition `json:"position"`
-	Doc       string       `json:"doc,omitempty"`
-	Signature string       `json:"signature,omitempty"`
-	Package   string       `json:"package,omitempty"`
+	ID       SymbolID     `json:"id"`
+	Kind     SymbolKind   `json:"kind"`
+	Position FilePosition `json:"position"`
+	// EndLine is the last source line of the symbol's declaration (the
+	// closing brace for a func). Zero means "unknown" — consumers that
+	// need a span (coverage attribution) then fall back to guessing the
+	// range from the next symbol's start line, which mis-attributes
+	// statements from any declaration the scanner did not index.
+	EndLine   int    `json:"end_line,omitempty"`
+	Doc       string `json:"doc,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Package   string `json:"package,omitempty"`
 }
 
 // AnnotationKind is the closed enum of @atlas:<kind> values the parser
