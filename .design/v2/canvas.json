@@ -1,0 +1,35 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Workflow" },
+    { "id": "page-2", "name": "Diagram surfaces" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html",             "x": 0,    "y": 0,    "w": 1440, "h": 900, "page": "page-1", "title": "Since main" },
+    { "file": "Capabilities.dc.html",     "x": 1580, "y": 0,    "w": 1440, "h": 900, "page": "page-1", "title": "Capabilities" },
+    { "file": "CapabilityDetail.dc.html", "x": 3160, "y": 0,    "w": 1440, "h": 900, "page": "page-1", "title": "Capability detail" },
+    { "file": "Specs.dc.html",            "x": 4740, "y": 0,    "w": 1440, "h": 900, "page": "page-1", "title": "Specifications" },
+    { "file": "Trust.dc.html",            "x": 0,    "y": 1100, "w": 1440, "h": 900, "page": "page-1", "title": "Trust" },
+    { "file": "Matrix.dc.html",           "x": 1580, "y": 1100, "w": 1440, "h": 900, "page": "page-1", "title": "Matrix" },
+    { "file": "Workspace.dc.html",        "x": 3160, "y": 1100, "w": 1440, "h": 900, "page": "page-1", "title": "Workspace" },
+
+    { "file": "Sequence.dc.html",         "x": 0,    "y": 0,    "w": 1440, "h": 900, "page": "page-2", "title": "Sequence" },
+    { "file": "Flow.dc.html",             "x": 1580, "y": 0,    "w": 1440, "h": 900, "page": "page-2", "title": "Process flow" },
+    { "file": "ERD.dc.html",              "x": 3160, "y": 0,    "w": 1440, "h": 900, "page": "page-2", "title": "Data model" },
+    { "file": "StateMachine.dc.html",     "x": 4740, "y": 0,    "w": 1440, "h": 900, "page": "page-2", "title": "State machine" },
+    { "file": "DiagramEditor.dc.html",    "x": 0,    "y": 1100, "w": 1440, "h": 900, "page": "page-2", "title": "Authoring + verify" },
+    { "file": "Diagrams.dc.html",         "x": 1580, "y": 1100, "w": 1440, "h": 900, "page": "page-2", "title": "All diagrams" }
+  ],
+  "annotations": [
+    { "id": "note-shape", "page": "page-1", "x": 0, "y": -210, "w": 1440,
+      "text": "Seven screens, not twelve. The first canvas mapped the CLI verbs; this one maps the workflow.\n\nThe app opens on \"Since main\" — what changed, what broke, what the CI gate would say. Overview folded into it; Sprint and Hotspots became sort orders on Capabilities; Metrics split between Trust and capability detail." },
+    { "id": "note-states", "page": "page-1", "x": 3160, "y": -210, "w": 1440,
+      "text": "Four verification states, one component set, used identically on capabilities, diagram nodes, requirements, scenario steps and repos:\n\nVERIFIED — the claim holds, evidence attached.\nDRIFTED — claim and code disagree. The only loud state.\nUNVERIFIABLE — atlas cannot see enough to judge. Hatched, never green, never red.\nNOT BUILT — declared, no implementation.\n\nMaking \"unverifiable\" first-class is the design consequence of #85: never paint a confident number over a blind spot." },
+    { "id": "note-trust", "page": "page-1", "x": 0, "y": 2040, "w": 1440,
+      "text": "The status bar carries the attribution figure on every screen. A coverage percentage means something different at 91% attribution than at 67%." },
+    { "id": "note-diagrams", "page": "page-2", "x": 0, "y": -230, "w": 1440,
+      "text": "Four diagram kinds, drawn in real notation and shaded by evidence — the part the first canvas was missing.\n\nSEQUENCE — lifelines, activation, returns. Message arrows carry state: solid green where a real call edge is covered, dashed red where the edge exists but nothing tests it, dashed grey where there is no evidence at all.\nPROCESS FLOW — decision diamonds and terminators, from @atlas:saga / @atlas:consumer. The compensation branch nobody tests is visible as a red path.\nDATA MODEL — entities with keys and types, crow's-foot relations, each table annotated with the sqlc queries that touch it and their coverage. An orphan table and a migration-only table read at a glance.\nSTATE MACHINE — authored, not generated: a status field and a switch statement do not announce themselves as a machine. Every drawn transition must map to a method, and every method that mutates status must appear in the drawing." },
+    { "id": "note-editor", "page": "page-2", "x": 0, "y": 2040, "w": 1440,
+      "text": "Authoring is where the binding becomes concrete: mermaid source on the left with anchors resolving inline (and a symbol picker that knows RetryQueue.Push was deleted in a41c9e2), the live preview shaded by the latest run on the right, and the findings that `atlas diagram verify` would report at the bottom. Save runs the check." }
+  ],
+  "launch": { "view": "canvas", "page": "page-2" }
+}
