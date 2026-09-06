@@ -24,7 +24,7 @@ The Go scanner walks every `.go` file under the project root (including
 
 | What                                                  | Symbol kind     | Notes                                                                        |
 | ----------------------------------------------------- | --------------- | ---------------------------------------------------------------------------- |
-| Package-level functions                               | `function`      | `func DoThing(...) {...}`                                                    |
+| Package-level functions                               | `function`      | `func DoThing(...) {...}` — exported **and** package-private (`func helper()`), because the compiler instruments both for coverage. |
 | Methods on a receiver                                 | `function`      | `func (h *Handler) Login(...) {...}` — qualified name includes receiver.    |
 | Struct type declarations                              | `type`          | Carry `@atlas:aggregate` annotations when applicable.                        |
 | Interface declarations                                | `type`          |                                                                              |
@@ -45,6 +45,14 @@ The scanner skips by default:
 `@atlas:feature` lives most often. Pass
 `codeindex/go.Options.SkipTests = true` via the library API if a caller
 needs production-only indexing.
+
+Package-private functions are **included** by default too. They carry no
+annotations and rarely matter to a trace, but they do carry statements: a
+helper atlas hasn't indexed has no source span, so `atlas cov sync
+--framework go-cover` cannot charge its executed statements to anything.
+Pass `codeindex/go.Options.SkipUnexportedFuncs = true` for a graph-only
+audit where they are noise — accepting that coverage attribution then
+under-reports.
 
 ## Sample project layout
 
@@ -144,7 +152,24 @@ Either rename the directory to include `generated/` in the path, or
 configure `codeindex/go.Options.IgnorePackages` programmatically via the
 library API.
 
-### 3. Receivers vs free functions in qualified names
+### 3. Duplicated type names across packages get package-qualified ids
+
+Symbol ids are short by design (`Chat.MarkLoaded`, not the full import
+path) because that is what annotations and `atlas trace` arguments use. In a
+monorepo where several bounded contexts each declare a `Chat`, only one
+declaration can own the short id: the first in lexical walk order. The others
+are indexed under `<packageDir>.<Type>.<Method>`, e.g.
+
+```
+Chat.MarkLoaded                                    src/contexts/messaging/domain/aggregates/chat.go
+src/contexts/ai-chat/domain/aggregates.Chat.MarkLoaded   src/contexts/ai-chat/domain/aggregates/chat.go
+```
+
+`atlas scan` prints a warning for every collision. If a feature annotation
+resolves to the wrong context's symbol, that warning is why — reference the
+package-qualified id explicitly, or rename the type.
+
+### 4. Receivers vs free functions in qualified names
 
 A method `func (h *AuthHandler) Login(...)` has the qualified name
 `AuthHandler.Login` — the receiver type wins; the package path is
@@ -153,7 +178,7 @@ qualified name `Login` (no receiver). This means a free function named
 the same as a method shadows the method in suffix-match queries; always
 disambiguate with `symbol:<pkg>.<name>` when both exist.
 
-### 4. `init()` and `main()` are indexed but rarely useful in traces
+### 5. `init()` and `main()` are indexed but rarely useful in traces
 
 `init()` functions don't link cleanly into the call graph — they fire
 implicitly. They're stored as symbols so `atlas codebase find init`

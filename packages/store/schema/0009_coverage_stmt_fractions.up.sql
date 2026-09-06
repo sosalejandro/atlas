@@ -1,0 +1,32 @@
+-- 0009_coverage_stmt_fractions.up.sql
+--
+-- Tier B: turns per-feature coverage into a REAL line/statement fraction
+-- (matching `go tool cover`) instead of the binary symbol-pass model.
+--
+-- Until now a `coverage_results` row carried only a pass/fail/skip status:
+-- a symbol whose [line,end_line] range overlapped ANY executed coverprofile
+-- block was recorded as `pass`, regardless of whether 5% or 95% of its
+-- statements actually ran. Aggregating those binary verdicts per feature
+-- produced the "module 84% but feature 10%" distortion — a precision /
+-- under-credit artifact, not a true reading.
+--
+-- These two columns let the gocover ingest persist, per owned symbol, the
+-- statement counts the coverprofile already carries (Block.NumStmts and
+-- Block.Count>0). The audit coverage signal then scores a feature as
+-- 100 * Σ(covered_stmts) / Σ(total_stmts) over its wanted symbols — a
+-- line-weighted fraction that tracks `go tool cover -func` totals.
+--
+-- Schema-shape notes:
+--
+--   * Both columns are NOT NULL DEFAULT 0. Older runs (gotest framework
+--     pass/fail rows, pre-0009 gocover ingests) leave them at 0; the audit
+--     layer detects an all-zero total_stmts denominator and gracefully
+--     falls back to the prior binary behaviour, so nothing breaks.
+--
+--   * SQLite supports ADD COLUMN with a constant DEFAULT in place (no table
+--     rebuild). Migrations are one-way (.up.sql only) — the store is a
+--     re-derivable cache, so a failure is recovered by deleting atlas.db
+--     and re-running atlas init.
+
+ALTER TABLE coverage_results ADD COLUMN covered_stmts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE coverage_results ADD COLUMN total_stmts INTEGER NOT NULL DEFAULT 0;

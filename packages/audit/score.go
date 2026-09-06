@@ -33,57 +33,29 @@ func (a *auditImpl) scoreFromFeature(
 		return FeatureHealth{}, fmt.Errorf("list feature_symbols: %w", err)
 	}
 
-	components := make(map[string]float64)
-	available := make(map[string]bool)
-	var notes []signalNote
+	set := newSignalSet()
 
-	// --- Coverage signal -------------------------------------------------
 	if hasCov && len(links) > 0 {
 		cov, ok, err := a.coverageSignal(ctx, feat.ID, links, latestRun)
-		if err != nil {
-			return FeatureHealth{}, fmt.Errorf("coverage signal: %w", err)
-		}
-		if ok {
-			components[SignalCoverage] = cov.score
-			available[SignalCoverage] = true
-			notes = append(notes, cov.note)
+		if err := set.add(SignalCoverage, "coverage", cov, ok, err); err != nil {
+			return FeatureHealth{}, err
 		}
 	}
-
-	// --- Annotation freshness signal ------------------------------------
 	if a.opts.GitBlame != nil && len(links) > 0 {
 		fresh, ok, err := a.annotationFreshnessSignal(ctx, links, now)
-		if err != nil {
-			return FeatureHealth{}, fmt.Errorf("annotation freshness signal: %w", err)
-		}
-		if ok {
-			components[SignalAnnotationFresh] = fresh.score
-			available[SignalAnnotationFresh] = true
-			notes = append(notes, fresh.note)
+		if err := set.add(SignalAnnotationFresh, "annotation freshness", fresh, ok, err); err != nil {
+			return FeatureHealth{}, err
 		}
 	}
-
-	// --- Pattern compliance signal --------------------------------------
 	pat, ok, err := a.patternComplianceSignal(ctx, feat.ID, links)
-	if err != nil {
-		return FeatureHealth{}, fmt.Errorf("pattern compliance signal: %w", err)
+	if err := set.add(SignalPatternCompliance, "pattern compliance", pat, ok, err); err != nil {
+		return FeatureHealth{}, err
 	}
-	if ok {
-		components[SignalPatternCompliance] = pat.score
-		available[SignalPatternCompliance] = true
-		notes = append(notes, pat.note)
-	}
-
-	// --- Contract drift signal ------------------------------------------
 	drift, ok, err := a.contractDriftSignal(ctx, feat.ID, now)
-	if err != nil {
-		return FeatureHealth{}, fmt.Errorf("contract drift signal: %w", err)
+	if err := set.add(SignalContractDrift, "contract drift", drift, ok, err); err != nil {
+		return FeatureHealth{}, err
 	}
-	if ok {
-		components[SignalContractDrift] = drift.score
-		available[SignalContractDrift] = true
-		notes = append(notes, drift.note)
-	}
+	components, available, notes := set.components, set.available, set.notes
 
 	// --- Annotation presence: a FLOOR, not a re-normalising signal -------
 	// weightedAverage re-normalises over available signals, so adding
@@ -229,19 +201,9 @@ func (a *auditImpl) coverageSignal(
 	runID int64,
 ) (signalResult, bool, error) {
 	testSyms := testSymbolIDs(links)
-	// Tier 1: call-graph-derived impl surface — real production execution
-	// from a coverprofile run is attributed to these symbols. When it's
-	// non-empty we score the executed fraction directly (no blanket test-pass
-	// credit). When empty (e.g. e2e-only features, or a gotest-pass/fail run
-	// with no profile), fall back to the direct-link + test-pass model (#82).
-	surface, err := a.featureImplSurface(ctx, links)
+	wanted, useSurface, err := a.resolveWantedSet(ctx, links)
 	if err != nil {
-		return signalResult{}, false, fmt.Errorf("impl surface: %w", err)
-	}
-	useSurface := len(surface) > 0
-	wanted := surface
-	if !useSurface {
-		wanted = wantedSymbolIDs(links)
+		return signalResult{}, false, err
 	}
 	if len(wanted) == 0 && len(testSyms) == 0 {
 		return signalResult{}, false, nil
@@ -250,64 +212,227 @@ func (a *auditImpl) coverageSignal(
 	if err != nil {
 		return signalResult{}, false, fmt.Errorf("list coverage results: %w", err)
 	}
-	pass, skipOnly, featurePassed, testSeen := classifyCoverageResults(results, wanted, testSyms, featureID)
-	if featurePassed && !useSurface {
-		// gotest pass/fail mode (no execution profile): a passing annotated
-		// test credits the feature. With an impl surface we instead trust the
-		// executed fraction below — a passing test does NOT imply all impl ran.
-		if len(wanted) == 0 {
-			return signalResult{score: 100, note: coverageNote(1, 1, 100)}, true, nil
-		}
-		for sid := range wanted {
-			pass[sid] = true
-		}
+	pass, skipOnly, stmts, featurePassed, testSeen := classifyCoverageResults(results, wanted, testSyms, featureID)
+	if res, done := creditPassingTest(featurePassed, useSurface, wanted, pass); done {
+		return res, true, nil
 	}
 	denom, numer := coverageRatio(wanted, pass, skipOnly)
 
-	// Tier 2 (package-anchor fallback, issue #84): when the call-edge surface
-	// is empty AND the direct-link model's denominator contains only test-file
-	// symbols (numer=0 because those symbols are never in the production execution
-	// profile), attempt to attribute coverage via Go package co-location.
-	//
-	// This handles the "annotation root is a test stub with zero outgoing call
-	// edges" case — common for nopXxx / noopXxx stubs emitted by the Go scanner
-	// as impl-linked symbols whose file_path is a _test.go file. The coverage
-	// profile records statement execution for PRODUCTION symbols; test-file symbols
-	// in the wanted set that are absent from the profile produce denom>0, numer=0.
-	//
-	// The fallback is gated by MaxPackageAnchorSymbols (default 200): packages
-	// larger than this threshold are skipped because they are likely shared
-	// infrastructure layers (handlers, middleware) whose execution rate reflects
-	// many features, not just this one.
-	//
-	// Activation conditions (all must hold):
-	//  - tier 1 call-edge surface is empty (useSurface=false)
-	//  - the direct-link numerator is 0 (no production execution credited yet)
-	//  - every wanted symbol that contributed to denom is a test file (non-production)
-	if !useSurface && numer == 0 && allTestFileWanted(wanted, a.symbolCache) {
-		pkgSurface, pkgErr := a.featurePackageAnchorSurface(ctx, links, a.opts.MaxPackageAnchorSymbols)
-		if pkgErr != nil {
-			return signalResult{}, false, fmt.Errorf("package-anchor surface: %w", pkgErr)
+	if a.shouldTryPackageAnchor(useSurface, numer, wanted) {
+		anchored, ok, err := a.packageAnchorSignal(ctx, links, results, testSyms, featureID)
+		if err != nil {
+			return signalResult{}, false, err
 		}
-		if len(pkgSurface) > 0 {
-			pkgPass, pkgSkipOnly, _, _ := classifyCoverageResults(results, pkgSurface, testSyms, featureID)
-			pkgDenom, pkgNumer := coverageRatio(pkgSurface, pkgPass, pkgSkipOnly)
-			if pkgDenom > 0 {
-				score := 100.0 * float64(pkgNumer) / float64(pkgDenom)
-				note := coverageNoteWithSuffix(pkgNumer, pkgDenom, score, " (package-anchor)")
-				return signalResult{score: score, note: note}, true, nil
-			}
+		if ok {
+			return anchored, true, nil
 		}
 	}
 
 	if denom == 0 {
-		if testSeen && !useSurface {
-			return signalResult{score: 0, note: coverageNote(0, 1, 0)}, true, nil
-		}
-		return signalResult{}, false, nil
+		return emptyDenominatorResult(testSeen, useSurface)
+	}
+	return scoreCoverage(wanted, pass, skipOnly, stmts, numer, denom, ""), true, nil
+}
+
+// creditPassingTest applies the gotest pass/fail credit (#82): with no
+// execution profile, a passing annotated test credits the feature. It returns
+// done=true only when the feature is scored outright (nothing linked but a
+// passing test); otherwise it marks the wanted symbols passed in place and
+// leaves scoring to the caller.
+//
+// With an impl surface the credit does not apply at all — a passing test does
+// NOT imply every impl symbol ran, and the executed fraction is the truth.
+func creditPassingTest(
+	featurePassed, useSurface bool,
+	wanted map[int64]bool,
+	pass map[int64]bool,
+) (signalResult, bool) {
+	if !featurePassed || useSurface {
+		return signalResult{}, false
+	}
+	if len(wanted) == 0 {
+		return signalResult{score: 100, note: coverageNote(1, 1, 100)}, true
+	}
+	for sid := range wanted {
+		pass[sid] = true
+	}
+	return signalResult{}, false
+}
+
+// shouldTryPackageAnchor reports whether the Tier 2 fallback applies: the
+// call-edge surface was empty, the direct-link model credited nothing, and
+// every wanted symbol lives in a test file (so it can never appear in a
+// production execution profile). See packageAnchorSignal.
+func (a *auditImpl) shouldTryPackageAnchor(useSurface bool, numer int, wanted map[int64]bool) bool {
+	if useSurface || numer != 0 {
+		return false
+	}
+	return allTestFileWanted(wanted, a.symbolCache)
+}
+
+// emptyDenominatorResult decides what "nothing to score" means: a test was
+// seen for this feature in the run but nothing it links to executed (score 0,
+// a real signal), versus no evidence at all (not available, so the weighted
+// average re-normalises over the other signals).
+func emptyDenominatorResult(testSeen, useSurface bool) (signalResult, bool, error) {
+	if testSeen && !useSurface {
+		return signalResult{score: 0, note: coverageNote(0, 1, 0)}, true, nil
+	}
+	return signalResult{}, false, nil
+}
+
+// signalSet accumulates the per-signal outputs of a feature's audit. Every
+// signal has the same shape — score, availability, note — and the same error
+// handling, so collecting them through one method keeps scoreFromFeature a
+// readable list of signals rather than four copies of the same eight lines.
+type signalSet struct {
+	components map[string]float64
+	available  map[string]bool
+	notes      []signalNote
+}
+
+func newSignalSet() *signalSet {
+	return &signalSet{
+		components: make(map[string]float64),
+		available:  make(map[string]bool),
+	}
+}
+
+// add records one signal. `what` names the signal in the wrapped error. An
+// unavailable signal (ok=false) is not an error: weightedAverage re-normalises
+// over the signals that ARE available, so a feature with no aggregates and no
+// contracts is scored fairly on coverage and freshness alone.
+func (s *signalSet) add(name, what string, res signalResult, ok bool, err error) error {
+	if err != nil {
+		return fmt.Errorf("%s signal: %w", what, err)
+	}
+	if !ok {
+		return nil
+	}
+	s.components[name] = res.score
+	s.available[name] = true
+	s.notes = append(s.notes, res.note)
+	return nil
+}
+
+// resolveWantedSet picks the symbol set a feature's coverage is scored over.
+//
+// Tier 1 is the call-graph-derived impl surface: real production execution from
+// a coverprofile run is attributed to those symbols, and when it is non-empty
+// the executed fraction is scored directly (no blanket test-pass credit).
+// When it is empty — an e2e-only feature, or a gotest pass/fail run with no
+// profile — the caller falls back to the direct-link + test-pass model (#82),
+// which `useSurface=false` signals.
+func (a *auditImpl) resolveWantedSet(
+	ctx context.Context,
+	links []store.FeatureSymbolLink,
+) (map[int64]bool, bool, error) {
+	surface, err := a.featureImplSurface(ctx, links)
+	if err != nil {
+		return nil, false, fmt.Errorf("impl surface: %w", err)
+	}
+	if len(surface) > 0 {
+		return surface, true, nil
+	}
+	return wantedSymbolIDs(links), false, nil
+}
+
+// scoreCoverage turns a classified result set into the signal.
+//
+// Line-weighted (Tier B) when the run carries per-symbol statement counts
+// (gocover ingest, migration 0009): 100 * Σ(covered_stmts) / Σ(total_stmts)
+// over the wanted symbols, a real line fraction that tracks
+// `go tool cover -func`. Falls back to the binary symbol-pass fraction when no
+// statement data is present (older runs, gotest pass/fail mode, e2e
+// feature-level credit). `suffix` labels the derivation in the note.
+func scoreCoverage(
+	wanted map[int64]bool,
+	pass map[int64]bool,
+	skipOnly map[int64]bool,
+	stmts map[int64]stmtCounts,
+	numer, denom int,
+	suffix string,
+) signalResult {
+	if lineScore, covered, total, ok := lineWeightedScore(wanted, skipOnly, pass, stmts); ok {
+		return signalResult{score: lineScore, note: lineCoverageNote(covered, total, lineScore, suffix)}
 	}
 	score := 100.0 * float64(numer) / float64(denom)
-	return signalResult{score: score, note: coverageNote(numer, denom, score)}, true, nil
+	return signalResult{score: score, note: coverageNoteWithSuffix(numer, denom, score, suffix)}
+}
+
+// packageAnchorSignal is the Tier 2 fallback (issue #84): when the call-edge
+// surface is empty AND the direct-link model credited nothing (numer=0 because
+// every wanted symbol lives in a _test.go file and so never appears in a
+// production execution profile), attribute coverage by Go package
+// co-location instead.
+//
+// This handles the "annotation root is a test stub with zero outgoing call
+// edges" case — common for the nopXxx / noopXxx stubs the Go scanner emits as
+// impl-linked symbols. The fallback is gated by MaxPackageAnchorSymbols
+// (default 200): larger packages are skipped because they are likely shared
+// infrastructure whose execution rate reflects many features, not this one.
+//
+// Reports ok=false when the anchor surface is empty or contributes no
+// denominator, leaving the caller's normal path in charge.
+func (a *auditImpl) packageAnchorSignal(
+	ctx context.Context,
+	links []store.FeatureSymbolLink,
+	results []store.CoverageResult,
+	testSyms map[int64]bool,
+	featureID shared.FeatureID,
+) (signalResult, bool, error) {
+	pkgSurface, err := a.featurePackageAnchorSurface(ctx, links, a.opts.MaxPackageAnchorSymbols)
+	if err != nil {
+		return signalResult{}, false, fmt.Errorf("package-anchor surface: %w", err)
+	}
+	if len(pkgSurface) == 0 {
+		return signalResult{}, false, nil
+	}
+	pkgPass, pkgSkipOnly, pkgStmts, _, _ := classifyCoverageResults(results, pkgSurface, testSyms, featureID)
+	pkgDenom, pkgNumer := coverageRatio(pkgSurface, pkgPass, pkgSkipOnly)
+	if pkgDenom == 0 {
+		return signalResult{}, false, nil
+	}
+	return scoreCoverage(pkgSurface, pkgPass, pkgSkipOnly, pkgStmts, pkgNumer, pkgDenom, " (package-anchor)"), true, nil
+}
+
+// stmtCounts is a per-symbol statement tally read from coverage_results
+// (migration 0009): covered = executed statements, total = total statements.
+type stmtCounts struct {
+	covered int
+	total   int
+}
+
+// lineWeightedScore computes the Tier-B line-weighted coverage fraction over
+// `wanted`: 100 * Σ(covered_stmts) / Σ(total_stmts), summing only symbols that
+// are NOT skip-only (matching coverageRatio's denominator policy) and that
+// carry statement data. Returns ok=false when no wanted symbol has any
+// statement total — the caller then falls back to the binary symbol-pass
+// fraction so older runs and statement-less frameworks behave exactly as
+// before.
+func lineWeightedScore(wanted, skipOnly, pass map[int64]bool, stmts map[int64]stmtCounts) (score float64, covered, total int, ok bool) {
+	for sid := range wanted {
+		if skipOnly[sid] && !pass[sid] {
+			continue // skip-only symbols drop out of the denominator
+		}
+		c, present := stmts[sid]
+		if !present {
+			continue
+		}
+		covered += c.covered
+		total += c.total
+	}
+	if total == 0 {
+		return 0, 0, 0, false
+	}
+	score = 100.0 * float64(covered) / float64(total)
+	if score < 0 {
+		score = 0
+	}
+	if score > 100 {
+		score = 100
+	}
+	return score, covered, total, true
 }
 
 // wantedSymbolIDs returns the set of feature_symbols.symbol_id values that
@@ -350,9 +475,10 @@ func classifyCoverageResults(
 	wanted map[int64]bool,
 	testSyms map[int64]bool,
 	featureID shared.FeatureID,
-) (pass, skipOnly map[int64]bool, featurePassed, testSeen bool) {
+) (pass, skipOnly map[int64]bool, stmts map[int64]stmtCounts, featurePassed, testSeen bool) {
 	pass = make(map[int64]bool, len(wanted))
 	skipOnly = make(map[int64]bool, len(wanted))
+	stmts = make(map[int64]stmtCounts, len(wanted))
 	for _, r := range results {
 		if r.SymbolID == nil {
 			// Feature-level result (E2E-style; SymbolID nil, FeatureID set).
@@ -382,6 +508,15 @@ func classifyCoverageResults(
 		if !wanted[*r.SymbolID] {
 			continue
 		}
+		// Accumulate statement counts (migration 0009). A symbol may have
+		// several results across files/blocks in one run; sum them so the
+		// line-weighted score reflects the symbol's whole statement footprint.
+		if r.TotalStmts > 0 {
+			c := stmts[*r.SymbolID]
+			c.covered += r.CoveredStmts
+			c.total += r.TotalStmts
+			stmts[*r.SymbolID] = c
+		}
 		switch r.Status {
 		case store.StatusPass:
 			pass[*r.SymbolID] = true
@@ -391,7 +526,7 @@ func classifyCoverageResults(
 			}
 		}
 	}
-	return pass, skipOnly, featurePassed, testSeen
+	return pass, skipOnly, stmts, featurePassed, testSeen
 }
 
 // coverageRatio collapses the buckets into the (denominator, numerator)
@@ -434,6 +569,27 @@ func coverageNoteWithSuffix(numer, denom int, score float64, suffix string) sign
 		return signalNote{
 			weight:  100 - score,
 			message: fmt.Sprintf("coverage: %d/%d symbols passing (%.0f%%)%s", numer, denom, score, suffix),
+		}
+	}
+}
+
+// lineCoverageNote formats the per-feature explanatory note for the Tier-B
+// line-weighted coverage signal: it reports executed/total STATEMENTS (not
+// symbols), matching how the score is actually computed. Score == 100 → no
+// note (empty signalNote with zero weight).
+func lineCoverageNote(covered, total int, score float64, suffix string) signalNote {
+	switch {
+	case score >= 100:
+		return signalNote{}
+	case score == 0:
+		return signalNote{
+			weight:  100,
+			message: fmt.Sprintf("coverage: 0/%d statements executed in latest run%s", total, suffix),
+		}
+	default:
+		return signalNote{
+			weight:  100 - score,
+			message: fmt.Sprintf("coverage: %d/%d statements executed (%.0f%%)%s", covered, total, score, suffix),
 		}
 	}
 }

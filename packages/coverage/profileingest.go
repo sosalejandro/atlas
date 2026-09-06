@@ -19,6 +19,57 @@ type ProfileIngestStats struct {
 	FilesInProfile  int
 	FilesMatched    int
 	SymbolsExecuted int
+	// FilesUnmatched counts profile files that reconciled to NO atlas file
+	// (issue #85 — visibility into attribution misses). A high value
+	// relative to FilesInProfile means production execution is being
+	// dropped: either the file was never indexed (generated code, symbols
+	// lost to a name collision) or the suffix path-reconciliation missed.
+	FilesUnmatched int
+
+	// StmtsAttributed / StmtsUnattributed split the profile's statements
+	// into the ones charged to a symbol and the ones atlas could not place.
+	// StmtsUnattributed is the honest size of the coverage blind spot: it
+	// is what separates "code that ran" from "code atlas knows about".
+	StmtsAttributed   int
+	StmtsUnattributed int
+
+	// Gaps enumerates, per profile file, the statements that could not be
+	// attributed and why — sorted by statements lost, descending. This is
+	// what `cov sync --verbose` prints so the gap is inspectable rather
+	// than silently absorbed.
+	Gaps []FileGap
+}
+
+// Gap reasons for FileGap.Reason.
+const (
+	// ReasonNoIndexedSymbol: the profile file reconciled to no atlas file
+	// at all — atlas has zero symbols for it (never scanned, skipped as
+	// generated, or every symbol in it lost a short-name collision).
+	ReasonNoIndexedSymbol = "no-indexed-symbol"
+	// ReasonOutsideSymbolSpans: the file IS indexed, but these statements
+	// fall outside every indexed symbol's [line, end_line] span — code in
+	// declarations atlas did not index (e.g. package-private helpers when
+	// SkipUnexportedFuncs is on, or stale symbol positions).
+	ReasonOutsideSymbolSpans = "outside-symbol-spans"
+)
+
+// FileGap is one profile file's unattributed execution.
+type FileGap struct {
+	// Path is the file as it appears in the coverage profile
+	// (import-path-qualified, e.g. github.com/org/repo/pkg/svc.go).
+	Path string `json:"path"`
+	// Stmts is the number of statements atlas could not attribute.
+	Stmts int `json:"stmts"`
+	// Reason is one of ReasonNoIndexedSymbol / ReasonOutsideSymbolSpans.
+	Reason string `json:"reason"`
+}
+
+// symbolCounts accumulates the statement-level coverage for one owned symbol
+// (Tier B). covered is Σ NumStmts of blocks that ran; total is Σ NumStmts of
+// every block attributed to the symbol's span.
+type symbolCounts struct {
+	covered int
+	total   int
 }
 
 // symSpan is a symbol's effective source range for span attribution.
@@ -43,9 +94,14 @@ func IngestGoProfile(ctx context.Context, s *store.Store, framework store.Framew
 	if err != nil {
 		return stats, fmt.Errorf("coverage: parse profile: %w", err)
 	}
+	// Merge duplicate blocks (max count per span) BEFORE statement accounting.
+	// A `-coverpkg=./...` profile repeats every span once per tested package;
+	// summing raw NumStmts would inflate totals ~Nx and deflate the ratio. This
+	// makes per-symbol covered/total track `go tool cover`'s "(statements)".
+	blocks = gocover.MergeBlocks(blocks)
 	stats.BlocksParsed = len(blocks)
-	spansByFile := gocover.ExecutedSpansByFile(blocks)
-	stats.FilesInProfile = len(spansByFile)
+	blocksByFile := gocover.BlocksByFile(blocks)
+	stats.FilesInProfile = len(blocksByFile)
 
 	syms, err := s.Symbols().List(ctx, store.SymbolFilter{})
 	if err != nil {
@@ -53,14 +109,37 @@ func IngestGoProfile(ctx context.Context, s *store.Store, framework store.Framew
 	}
 	byFile := indexSymbolsByFile(syms)
 
-	executed, matched := attributeExecution(spansByFile, byFile)
-	stats.FilesMatched = matched
-	stats.SymbolsExecuted = len(executed)
+	rep := attributeStatements(blocksByFile, byFile)
+	counts := rep.counts
+	stats.FilesMatched = rep.filesMatched
+	stats.FilesUnmatched = rep.filesUnmatched
+	stats.StmtsAttributed = rep.stmtsAttributed
+	stats.StmtsUnattributed = rep.stmtsUnattributed
+	stats.Gaps = rep.gaps()
+	stats.SymbolsExecuted = len(counts)
+	if s.Logger() != nil && rep.stmtsUnattributed > 0 {
+		s.Logger().Debug(ctx, "gocover ingest: unattributed execution",
+			"files_in_profile", stats.FilesInProfile,
+			"files_matched", rep.filesMatched,
+			"files_unmatched", rep.filesUnmatched,
+			"stmts_attributed", rep.stmtsAttributed,
+			"stmts_unattributed", rep.stmtsUnattributed)
+	}
 
-	results := make([]store.CoverageResult, 0, len(executed))
-	for _, sid := range sortedKeys(executed) {
+	results := make([]store.CoverageResult, 0, len(counts))
+	for _, sid := range sortedCountKeys(counts) {
 		v := sid
-		results = append(results, store.CoverageResult{SymbolID: &v, Status: store.StatusPass})
+		c := counts[sid]
+		status := store.StatusFail
+		if c.covered > 0 {
+			status = store.StatusPass
+		}
+		results = append(results, store.CoverageResult{
+			SymbolID:     &v,
+			Status:       status,
+			CoveredStmts: c.covered,
+			TotalStmts:   c.total,
+		})
 	}
 	now := time.Now().UTC()
 	runID, err := s.Coverage().InsertRunWithResults(ctx, store.CoverageRun{
@@ -94,7 +173,7 @@ func indexSymbolsByFile(syms []store.SymbolRow) map[string][]symSpan {
 		spans := make([]symSpan, 0, len(ls))
 		for i, l := range ls {
 			start := int(l.start)
-			end := start
+			var end int
 			if l.end != nil && *l.end >= start {
 				end = *l.end
 			} else if i+1 < len(ls) {
@@ -112,32 +191,120 @@ func indexSymbolsByFile(syms []store.SymbolRow) map[string][]symSpan {
 	return out
 }
 
-// attributeExecution maps each profile file's executed line spans onto the
-// symbols whose range overlaps them, returning the set of executed symbol ids
-// and the count of profile files that matched an atlas file.
-func attributeExecution(spansByFile map[string][][2]int, byFile map[string][]symSpan) (executed map[int64]bool, filesMatched int) {
-	executed = map[int64]bool{}
+// attributionReport is the per-run accounting attributeStatements produces:
+// the per-symbol statement counts plus everything that could NOT be placed.
+type attributionReport struct {
+	counts            map[int64]symbolCounts
+	filesMatched      int
+	filesUnmatched    int
+	stmtsAttributed   int
+	stmtsUnattributed int
+	// lostByFile is the profile path → unattributed statements, and
+	// reasonByFile why. Both are keyed by the PROFILE path (not the atlas
+	// path) so the report names files the way the profile does.
+	lostByFile   map[string]int
+	reasonByFile map[string]string
+}
+
+// gaps renders the report's unattributed execution as a stable, sorted list:
+// biggest loss first, ties broken by path so output is deterministic.
+func (r attributionReport) gaps() []FileGap {
+	out := make([]FileGap, 0, len(r.lostByFile))
+	for p, n := range r.lostByFile {
+		if n <= 0 {
+			continue
+		}
+		out = append(out, FileGap{Path: p, Stmts: n, Reason: r.reasonByFile[p]})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Stmts != out[j].Stmts {
+			return out[i].Stmts > out[j].Stmts
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out
+}
+
+// attributeStatements maps each profile file's blocks onto the owning symbol
+// (the symbol whose [start,end] span contains the block's start line) and
+// accumulates per-symbol statement counts: total = Σ NumStmts, covered =
+// Σ NumStmts of executed (Count>0) blocks.
+//
+// Everything it cannot place is recorded rather than dropped (issue #85):
+// a profile file that reconciles to no atlas file is counted whole, and a
+// block inside a reconciled file that falls outside every symbol span is
+// counted against that file. The caller reports both, so the difference
+// between "code that ran" and "code atlas knows about" is visible.
+//
+// Attribution is by the block's START line falling inside the symbol span
+// (rather than range-overlap) so a block is charged to exactly one symbol and
+// statements are never double-counted across adjacent symbols — the basis for
+// a per-feature fraction that tracks `go tool cover -func`.
+func attributeStatements(blocksByFile map[string][]gocover.Block, byFile map[string][]symSpan) attributionReport {
+	rep := attributionReport{
+		counts:       map[int64]symbolCounts{},
+		lostByFile:   map[string]int{},
+		reasonByFile: map[string]string{},
+	}
 	// Index atlas files by basename for suffix-match reconciliation.
 	byBase := map[string][]string{}
 	for f := range byFile {
 		byBase[path.Base(f)] = append(byBase[path.Base(f)], f)
 	}
-	for pf, spans := range spansByFile {
+	for pf, blocks := range blocksByFile {
 		af := reconcilePath(pf, byBase)
 		if af == "" {
+			rep.filesUnmatched++
+			lost := 0
+			for _, b := range blocks {
+				lost += b.NumStmts
+			}
+			rep.stmtsUnattributed += lost
+			rep.lostByFile[pf] = lost
+			rep.reasonByFile[pf] = ReasonNoIndexedSymbol
 			continue
 		}
-		filesMatched++
+		rep.filesMatched++
 		syms := byFile[af]
-		for _, sp := range spans {
-			for _, sr := range syms {
-				if sp[0] <= sr.end && sr.start <= sp[1] { // overlap
-					executed[sr.id] = true
-				}
+		for _, b := range blocks {
+			sid, ok := owningSymbol(syms, b.StartLine)
+			if !ok {
+				rep.stmtsUnattributed += b.NumStmts
+				rep.lostByFile[pf] += b.NumStmts
+				rep.reasonByFile[pf] = ReasonOutsideSymbolSpans
+				continue
+			}
+			c := rep.counts[sid]
+			c.total += b.NumStmts
+			if b.Executed() {
+				c.covered += b.NumStmts
+			}
+			rep.counts[sid] = c
+			rep.stmtsAttributed += b.NumStmts
+		}
+	}
+	return rep
+}
+
+// owningSymbol returns the id of the symbol whose [start,end] span contains
+// `line`. When several symbols' spans contain the line (e.g. an overly-broad
+// EOF fallback overlapping a later symbol), the tightest (smallest) span
+// wins — that is the most specific owner.
+func owningSymbol(syms []symSpan, line int) (int64, bool) {
+	best := int64(0)
+	bestSpan := 1<<31 - 1
+	found := false
+	for _, sr := range syms {
+		if sr.start <= line && line <= sr.end {
+			span := sr.end - sr.start
+			if !found || span < bestSpan {
+				best = sr.id
+				bestSpan = span
+				found = true
 			}
 		}
 	}
-	return executed, filesMatched
+	return best, found
 }
 
 // reconcilePath finds the atlas (repo-relative) file path that the import-
@@ -168,7 +335,7 @@ func hasPathSuffix(full, suffix string) bool {
 	return full[len(full)-len(suffix)-1] == '/'
 }
 
-func sortedKeys(m map[int64]bool) []int64 {
+func sortedCountKeys(m map[int64]symbolCounts) []int64 {
 	ks := make([]int64, 0, len(m))
 	for k := range m {
 		ks = append(ks, k)

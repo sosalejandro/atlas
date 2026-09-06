@@ -31,13 +31,15 @@ type Config struct {
 }
 
 type CoverageResult struct {
-	ID         int64   `db:"id" json:"id"`
-	RunID      int64   `db:"run_id" json:"run_id"`
-	SymbolID   *int64  `db:"symbol_id" json:"symbol_id"`
-	FeatureID  *string `db:"feature_id" json:"feature_id"`
-	Status     string  `db:"status" json:"status"`
-	DurationMs int64   `db:"duration_ms" json:"duration_ms"`
-	Message    *string `db:"message" json:"message"`
+	ID           int64   `db:"id" json:"id"`
+	RunID        int64   `db:"run_id" json:"run_id"`
+	SymbolID     *int64  `db:"symbol_id" json:"symbol_id"`
+	FeatureID    *string `db:"feature_id" json:"feature_id"`
+	Status       string  `db:"status" json:"status"`
+	DurationMs   int64   `db:"duration_ms" json:"duration_ms"`
+	Message      *string `db:"message" json:"message"`
+	CoveredStmts int64   `db:"covered_stmts" json:"covered_stmts"`
+	TotalStmts   int64   `db:"total_stmts" json:"total_stmts"`
 }
 
 type CoverageRun struct {

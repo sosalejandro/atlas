@@ -16,6 +16,7 @@ type Querier interface {
 	DeleteFeature(ctx context.Context, id string) (int64, error)
 	DeleteFileHash(ctx context.Context, filePath string) error
 	DeleteSnapshot(ctx context.Context, id int64) (int64, error)
+	DeleteSymbolByID(ctx context.Context, id int64) error
 	DeleteSymbolsByFile(ctx context.Context, filePath string) error
 	// Inserts a feature row from the ingest path. Pure INSERT OR IGNORE -- if
 	// the row already exists with richer metadata (title/owner/kind/etc set
@@ -50,7 +51,7 @@ type Querier interface {
 	ListAnnotationsByFile(ctx context.Context, filePath string) ([]Annotation, error)
 	ListAuditSnapshotRuns(ctx context.Context, limit int64) ([]AuditSnapshotRun, error)
 	ListConfig(ctx context.Context) ([]Config, error)
-	ListCoverageResults(ctx context.Context, runID int64) ([]CoverageResult, error)
+	ListCoverageResults(ctx context.Context, runID int64) ([]ListCoverageResultsRow, error)
 	ListCoverageRunsByFramework(ctx context.Context, framework string) ([]CoverageRun, error)
 	ListEdgesIn(ctx context.Context, toSymbolID int64) ([]ListEdgesInRow, error)
 	ListEdgesOut(ctx context.Context, fromSymbolID int64) ([]ListEdgesOutRow, error)
@@ -59,6 +60,14 @@ type Querier interface {
 	ListFeaturesByKind(ctx context.Context, kind string) ([]Feature, error)
 	ListFileHashes(ctx context.Context) ([]FileHash, error)
 	ListSnapshotsByGitRef(ctx context.Context, gitRef string) ([]Snapshot, error)
+	// Note: FindByPattern still uses raw SQL in symbols.go because sqlc's
+	// sqlite engine handles JSON-substring matchers poorly.
+	// Every symbol currently stored for a file, as (id, qualified_name). Used by
+	// Ingest to prune rows a rescan of that file no longer produces: a renamed,
+	// moved or deleted declaration would otherwise keep its row (and its stale
+	// line..end_line span) forever, which silently corrupts the coverage
+	// attribution that keys executed statements to those spans.
+	ListSymbolNamesByFile(ctx context.Context, filePath string) ([]ListSymbolNamesByFileRow, error)
 	// Returns rows that match every non-empty filter, ordered deterministically.
 	// Each filter is opt-in via the sentinel-empty-string idiom: pass the empty
 	// string for a column to disable that predicate; pass a value to match it

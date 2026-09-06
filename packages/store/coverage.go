@@ -54,6 +54,16 @@ type CoverageResult struct {
 	Status     CoverageStatus    `json:"status"`
 	DurationMS int64             `json:"duration_ms"`
 	Message    *string           `json:"message,omitempty"`
+
+	// CoveredStmts / TotalStmts carry the line/statement fractions added in
+	// migration 0009 (Tier B). The gocover ingest fills them per owned symbol
+	// from the coverprofile's per-block NumStmts; the audit coverage signal
+	// scores a feature as 100 * Σ(covered)/Σ(total) over its wanted symbols.
+	// Both default to 0 for pre-0009 rows and for frameworks that don't carry
+	// statement counts (gotest pass/fail, playwright, …) — the audit layer
+	// falls back to the binary pass model when the total is zero everywhere.
+	CoveredStmts int `json:"covered_stmts"`
+	TotalStmts   int `json:"total_stmts"`
 }
 
 // Coverage is the narrow port for the `coverage_runs` + `coverage_results`
@@ -191,7 +201,7 @@ func (c *coverageStore) InsertResults(ctx context.Context, runID int64, results 
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if err := insertCoverageResultsQ(ctx, c.q.WithTx(tx), runID, results); err != nil {
+	if err := insertCoverageResultsQ(ctx, tx, runID, results); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -218,7 +228,7 @@ func (c *coverageStore) InsertRunWithResults(ctx context.Context, run CoverageRu
 		return 0, err
 	}
 	if len(results) > 0 {
-		if err := insertCoverageResultsQ(ctx, qtx, runID, results); err != nil {
+		if err := insertCoverageResultsQ(ctx, tx, runID, results); err != nil {
 			return 0, err
 		}
 	}
@@ -228,9 +238,19 @@ func (c *coverageStore) InsertRunWithResults(ctx context.Context, run CoverageRu
 	return runID, nil
 }
 
-// insertCoverageResultsQ writes `results` against whichever sqlc.Queries
-// handle is passed in (caller decides the tx scope).
-func insertCoverageResultsQ(ctx context.Context, q *sqlc.Queries, runID int64, results []CoverageResult) error {
+// insertCoverageResultRawSQL is the RAW insert used in place of the sqlc-
+// generated InsertCoverageResult: it adds the covered_stmts / total_stmts
+// columns (migration 0009) without regenerating sqlc. The column list is
+// explicit so it stays stable if the generated path is ever regenerated.
+const insertCoverageResultRawSQL = `INSERT INTO coverage_results ` +
+	`(run_id, symbol_id, feature_id, status, duration_ms, message, covered_stmts, total_stmts) ` +
+	`VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+
+// insertCoverageResultsQ writes `results` against the passed-in executor
+// (a *sql.Tx so the caller controls the tx scope). Uses raw SQL — rather
+// than the sqlc-generated InsertCoverageResult — to persist the new
+// covered_stmts / total_stmts columns without running `sqlc generate`.
+func insertCoverageResultsQ(ctx context.Context, exec sqlc.DBTX, runID int64, results []CoverageResult) error {
 	for i, r := range results {
 		if r.Status == "" {
 			return fmt.Errorf("coverage InsertResults: result %d has empty status", i)
@@ -247,41 +267,70 @@ func insertCoverageResultsQ(ctx context.Context, q *sqlc.Queries, runID int64, r
 			v := string(*r.FeatureID)
 			featureID = &v
 		}
-		if err := q.InsertCoverageResult(ctx, sqlc.InsertCoverageResultParams{
-			RunID:      runID,
-			SymbolID:   symbolID,
-			FeatureID:  featureID,
-			Status:     string(r.Status),
-			DurationMs: r.DurationMS,
-			Message:    r.Message,
-		}); err != nil {
+		if _, err := exec.ExecContext(ctx, insertCoverageResultRawSQL,
+			runID,
+			symbolID,
+			featureID,
+			string(r.Status),
+			r.DurationMS,
+			r.Message,
+			r.CoveredStmts,
+			r.TotalStmts,
+		); err != nil {
 			return fmt.Errorf("coverage InsertResults exec row %d: %w", i, err)
 		}
 	}
 	return nil
 }
 
+// listCoverageResultsRawSQL is the RAW select used in place of the sqlc-
+// generated ListCoverageResults: it reads the covered_stmts / total_stmts
+// columns (migration 0009) without regenerating sqlc.
+const listCoverageResultsRawSQL = `SELECT id, run_id, symbol_id, feature_id, status, ` +
+	`duration_ms, message, covered_stmts, total_stmts ` +
+	`FROM coverage_results WHERE run_id = ? ORDER BY id`
+
 func (c *coverageStore) ListResults(ctx context.Context, runID int64) ([]CoverageResult, error) {
-	rows, err := c.q.ListCoverageResults(ctx, runID)
+	rows, err := c.db.sqlDB().QueryContext(ctx, listCoverageResultsRawSQL, runID)
 	if err != nil {
 		return nil, fmt.Errorf("coverage ListResults: %w", err)
 	}
-	out := make([]CoverageResult, 0, len(rows))
-	for _, r := range rows {
-		var fid *shared.FeatureID
-		if r.FeatureID != nil {
-			f := shared.FeatureID(*r.FeatureID)
-			fid = &f
+	defer func() { _ = rows.Close() }()
+	out := make([]CoverageResult, 0)
+	for rows.Next() {
+		var (
+			r            CoverageResult
+			symbolID     *int64
+			featureID    *string
+			status       string
+			coveredStmts int
+			totalStmts   int
+		)
+		if err := rows.Scan(
+			&r.ID,
+			&r.RunID,
+			&symbolID,
+			&featureID,
+			&status,
+			&r.DurationMS,
+			&r.Message,
+			&coveredStmts,
+			&totalStmts,
+		); err != nil {
+			return nil, fmt.Errorf("coverage ListResults scan: %w", err)
 		}
-		out = append(out, CoverageResult{
-			ID:         r.ID,
-			RunID:      r.RunID,
-			SymbolID:   r.SymbolID,
-			FeatureID:  fid,
-			Status:     CoverageStatus(r.Status),
-			DurationMS: r.DurationMs,
-			Message:    r.Message,
-		})
+		r.SymbolID = symbolID
+		if featureID != nil {
+			f := shared.FeatureID(*featureID)
+			r.FeatureID = &f
+		}
+		r.Status = CoverageStatus(status)
+		r.CoveredStmts = coveredStmts
+		r.TotalStmts = totalStmts
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("coverage ListResults rows: %w", err)
 	}
 	return out, nil
 }

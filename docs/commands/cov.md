@@ -26,10 +26,17 @@ Supported frameworks (`--framework`):
 | Framework      | Typical report shape                                                          |
 | -------------- | ----------------------------------------------------------------------------- |
 | `go-test`      | `go test -json ./...` line-delimited JSON.                                    |
+| `go-cover`     | `go test -coverprofile=cover.out ./...` profile (statement coverage).         |
 | `playwright`   | `playwright test --reporter=json` JSON document.                              |
 | `vitest`       | `vitest run --reporter=json` JSON document.                                   |
 | `jest`         | `jest --json` JSON document.                                                  |
 | `maestro`      | `maestro test --format=json` JSON document.                                   |
+| `istanbul`     | `coverage-final.json` from the vitest/jest v8 reporter (statement coverage).  |
+
+`go-cover` and `istanbul` are the **statement-coverage** tracks: instead of
+recording one pass/fail row per TEST, they attribute each executed statement
+to the production symbol whose source span contains it, which is what makes
+per-feature coverage a real line fraction rather than a test tally.
 
 When `--framework` is omitted, `cov sync` attempts to auto-detect from the
 filename and the file's top-level shape. Failed detection is fatal — pass
@@ -77,6 +84,49 @@ coverage ingest complete  run_id=12 framework=go-test
 
 Atlas does not buffer the entire input — it streams the line-delimited
 JSON one record at a time, so very large test runs don't blow memory.
+
+#### Example: ingest a Go coverprofile, and read the attribution gap
+
+```bash
+# Run from: a Go project root, after `atlas scan`
+$ go test ./... -coverprofile=cover.out
+$ atlas cov sync --framework go-cover --input cover.out
+coverprofile ingest complete  run_id=4 blocks=980247 files=852/852 unmatched=0 symbols_executed=6912 stmts=1204331/1204331
+```
+
+The trailing counters are the **attribution accounting** — the answer to
+"how much of the code that actually ran did atlas manage to charge to a
+symbol?":
+
+| Counter             | Meaning                                                                                       |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| `files=M/N`         | Profile files that reconciled to an indexed atlas file, out of all files in the profile.       |
+| `unmatched=U`       | Profile files atlas has **no symbols for** — their execution cannot be attributed at all.      |
+| `stmts=A/T`         | Statements charged to a symbol, out of all statements in the profile.                          |
+
+When anything is unattributed, `cov sync` prints the size of the blind spot
+and can enumerate it:
+
+```bash
+$ atlas cov sync --framework go-cover --input cover.out --verbose
+coverprofile ingest complete  run_id=5 blocks=980247 files=641/852 unmatched=211 symbols_executed=4706 stmts=812004/1204331
+attribution gap: 392327/1204331 statements (32.6%) in 254 file(s) could not be charged to a symbol
+    5312 stmts  no-indexed-symbol      github.com/org/repo/src/infrastructure/persistence/generated/scheduling.sql.go
+     871 stmts  outside-symbol-spans   github.com/org/repo/src/contexts/billing/service.go
+   ...
+```
+
+Two reasons are reported:
+
+| Reason                 | What it means                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `no-indexed-symbol`    | Atlas has zero symbols for the file: it was never scanned, it is generated code (`**/generated/**` is skipped), or the profile path could not be reconciled to a repo-relative path. |
+| `outside-symbol-spans` | The file IS indexed, but those statements fall outside every symbol's `[line, end_line]` span — declarations the scanner did not index. |
+
+`--json` carries the same accounting under `result.attribution`, with the
+full `gaps` list (the terminal view caps at 25 rows). Treat a large
+`no-indexed-symbol` bucket as a **scan** problem, not a test problem: the
+tests ran, atlas just doesn't know what they touched.
 
 ### `status`
 

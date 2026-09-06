@@ -126,7 +126,11 @@ func lineOf(lc string) (int, error) {
 	if dot < 0 {
 		return 0, fmt.Errorf("missing '.' in %q", lc)
 	}
-	return strconv.Atoi(lc[:dot])
+	line, err := strconv.Atoi(lc[:dot])
+	if err != nil {
+		return 0, fmt.Errorf("line number %q: %w", lc[:dot], err)
+	}
+	return line, nil
 }
 
 // ExecutedSpansByFile collapses blocks to the set of executed line spans per
@@ -139,6 +143,55 @@ func ExecutedSpansByFile(blocks []Block) map[string][][2]int {
 			continue
 		}
 		out[b.File] = append(out[b.File], [2]int{b.StartLine, b.EndLine})
+	}
+	return out
+}
+
+// MergeBlocks collapses duplicate coverage blocks, taking the max execution
+// count per distinct span. This is REQUIRED before any statement-level
+// accounting: a profile captured with `go test ./... -coverpkg=./...` makes
+// every package's test binary emit a full block set for every instrumented
+// file, so the raw profile contains each span N times (N = packages tested).
+// Naively summing NumStmts over raw blocks inflates the denominator ~Nx and,
+// because a span executed in only 1 of N binaries contributes its statements
+// to `covered` once but to `total` N times, deflates the coverage ratio.
+// `go tool cover` merges identically (max count per span for set-mode), which
+// is why its "(statements)" total is the ground truth this must track.
+//
+// Spans are keyed by (file, startLine, endLine, numStmts) — gocover drops
+// columns, so two column-distinct blocks on the same line range collapse, but
+// they share NumStmts and the OR-of-executed verdict is unchanged.
+func MergeBlocks(blocks []Block) []Block {
+	type key struct {
+		file              string
+		start, end, stmts int
+	}
+	idx := map[key]int{}
+	out := make([]Block, 0, len(blocks))
+	for _, b := range blocks {
+		k := key{b.File, b.StartLine, b.EndLine, b.NumStmts}
+		if i, ok := idx[k]; ok {
+			if b.Count > out[i].Count {
+				out[i].Count = b.Count
+			}
+			continue
+		}
+		idx[k] = len(out)
+		out = append(out, b)
+	}
+	return out
+}
+
+// BlocksByFile groups ALL blocks (executed or not) by file. Used by the
+// ingest layer (Tier B) to compute, per owned symbol, the statement-level
+// fraction: Σ NumStmts of blocks whose span falls within the symbol's
+// [line, end_line] range, and the executed subset of that sum. This is the
+// raw material for line-weighted per-feature coverage that tracks
+// `go tool cover -func`.
+func BlocksByFile(blocks []Block) map[string][]Block {
+	out := map[string][]Block{}
+	for _, b := range blocks {
+		out[b.File] = append(out[b.File], b)
 	}
 	return out
 }

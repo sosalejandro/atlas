@@ -28,6 +28,7 @@ type IngestStats struct {
 	FeatureSymbolsLinked             int           `json:"feature_symbols_linked"`
 	OrphanAnnotationsSkipped         int           `json:"orphan_annotations_skipped"`
 	TestAnnotationsWithoutImplSymbol int           `json:"test_annotations_without_impl_symbol"`
+	SymbolsPruned                    int           `json:"symbols_pruned"`
 	FilesScanned                     int           `json:"files_scanned"`
 	FilesSkipped                     int           `json:"files_skipped"`
 	Duration                         time.Duration `json:"duration"`
@@ -86,6 +87,24 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 	qtx := s.q.WithTx(tx)
 
 	// 2. Upsert symbols (skip those declared in unchanged files).
+	//
+	// freshByFile records what this scan saw per file so step 2b can prune
+	// the rows it no longer produces; rescanned is the set of files this scan
+	// actually re-read (walked and changed), which bounds that pruning.
+	freshByFile := map[string]map[string]bool{}
+	rescanned := map[string]bool{}
+	for path := range idx.FileHashes {
+		if !unchanged[path] {
+			rescanned[path] = true
+		}
+	}
+	// A scan run without --hash-files carries no FileHashes; fall back to the
+	// files the index produced symbols for, so pruning still works there.
+	for _, sym := range idx.Symbols {
+		if p := sym.Position.Path; p != "" && !unchanged[p] {
+			rescanned[p] = true
+		}
+	}
 	symbolIDByQualifiedName := make(map[shared.SymbolID]int64, len(idx.Symbols))
 	for _, sym := range idx.Symbols {
 		if sym.ID == "" {
@@ -104,7 +123,13 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 			}
 			continue
 		}
-		id, inserted, err := upsertSymbolTx(ctx, qtx, s.logger, sym)
+		if path != "" {
+			if freshByFile[path] == nil {
+				freshByFile[path] = map[string]bool{}
+			}
+			freshByFile[path][string(sym.ID)] = true
+		}
+		id, inserted, err := upsertSymbolTx(ctx, tx, qtx, s.logger, sym)
 		if err != nil {
 			return nil, err
 		}
@@ -121,6 +146,14 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 		}
 		symbolIDByQualifiedName[sym.ID] = id
 	}
+
+	// 2b. Prune the symbols a rescanned file no longer declares (renamed,
+	// deleted, or moved elsewhere). See pruneStaleSymbolsTx.
+	pruned, err := pruneStaleSymbolsTx(ctx, qtx, freshByFile, rescanned)
+	if err != nil {
+		return nil, err
+	}
+	stats.SymbolsPruned = pruned
 
 	// 3. Upsert edges. Skip edges where either endpoint lives in an unchanged
 	// file — the existing rows are already authoritative. Also skip edges
@@ -404,6 +437,14 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 	return stats, nil
 }
 
+// updateSymbolPositionSQL refreshes a known symbol's location in place. Kept
+// as raw SQL rather than a sqlc query because sqlc's sqlite grammar (v1.31.x)
+// garbles a multi-column UPDATE ... WHERE — the same class of bug already
+// documented for FindByPattern in symbols.go.
+const updateSymbolPositionSQL = `UPDATE symbols
+SET kind = ?, file_path = ?, line = ?, end_line = ?, package = ?, bc_path = ?
+WHERE qualified_name = ?`
+
 // upsertSymbolTx inserts a shared.Symbol via the sqlc tx and returns the
 // row's surrogate id plus whether the insert created a new row.
 //
@@ -411,7 +452,7 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 // Warn record emitted by normalizeKindForWrite when an unknown kind has to
 // be collapsed to KindFunc. Pass shared.NopLogger{} in tests that don't
 // care about the warning side channel.
-func upsertSymbolTx(ctx context.Context, qtx *sqlc.Queries, logger shared.Logger, sym shared.Symbol) (int64, bool, error) {
+func upsertSymbolTx(ctx context.Context, tx *sql.Tx, qtx *sqlc.Queries, logger shared.Logger, sym shared.Symbol) (int64, bool, error) {
 	kind := normalizeKindForWrite(ctx, logger, "ingest.upsertSymbolTx", sym.ID, sym.Kind)
 	var pkg *string
 	if sym.Package != "" {
@@ -436,23 +477,62 @@ func upsertSymbolTx(ctx context.Context, qtx *sqlc.Queries, logger shared.Logger
 		line = 1
 	}
 
+	// end_line is the symbol's closing line. It is what the coverage
+	// ingest uses to decide which executed statements belong to this
+	// symbol; when it is NULL the span has to be guessed from the next
+	// symbol's start line, which mis-attributes every statement in between
+	// (issue #85). Scanners that cannot supply it leave it zero → NULL.
+	var endLine *int64
+	if sym.EndLine >= line {
+		v := int64(sym.EndLine)
+		endLine = &v
+	}
+
 	res, err := qtx.InsertSymbol(ctx, sqlc.InsertSymbolParams{
 		QualifiedName: string(sym.ID),
 		Kind:          string(kind),
 		FilePath:      path,
 		Line:          int64(line),
-		EndLine:       nil,
+		EndLine:       endLine,
 		Package:       pkg,
 		BcPath:        bc,
 	})
 	if err != nil {
 		return 0, false, fmt.Errorf("ingest symbol %q: %w", sym.ID, err)
 	}
-	id, _ := res.LastInsertId()
-	if id != 0 {
+	// Whether the row is NEW must come from RowsAffected, not LastInsertId:
+	// SQLite leaves last_insert_rowid untouched when INSERT OR IGNORE skips a
+	// conflicting row, so LastInsertId returns the id of whatever was
+	// inserted BEFORE — in this loop, a neighbouring symbol. Trusting it made
+	// every already-known symbol resolve to another symbol's surrogate id on
+	// re-scan, so edges, feature links and coverage results were written
+	// against the wrong rows.
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, false, fmt.Errorf("ingest symbol %q: rows affected: %w", sym.ID, err)
+	}
+	if affected > 0 {
+		id, err := res.LastInsertId()
+		if err != nil {
+			return 0, false, fmt.Errorf("ingest symbol %q: last insert id: %w", sym.ID, err)
+		}
 		return id, true, nil
 	}
-	// Already existed — fetch the surrogate id.
+	// Already existed — refresh its position, then fetch the surrogate id.
+	//
+	// INSERT OR IGNORE alone would leave the FIRST location this symbol was
+	// ever seen at. A declaration that merely moved (an import added above
+	// it, a helper hoisted to the top of the file, a function relocated to a
+	// sibling file) would keep its stale [line, end_line] span, and the
+	// coverage ingest would keep charging executed statements to a range the
+	// function no longer occupies. Updating in place — rather than
+	// delete+insert — preserves the surrogate id, so coverage history and
+	// feature_symbols links survive the edit.
+	if _, err := tx.ExecContext(ctx, updateSymbolPositionSQL,
+		string(kind), path, int64(line), endLine, pkg, bc, string(sym.ID),
+	); err != nil {
+		return 0, false, fmt.Errorf("ingest symbol %q: refresh position: %w", sym.ID, err)
+	}
 	id, ok, err := lookupSymbolIDTx(ctx, qtx, sym.ID)
 	if err != nil {
 		return 0, false, err
@@ -461,6 +541,40 @@ func upsertSymbolTx(ctx context.Context, qtx *sqlc.Queries, logger shared.Logger
 		return 0, false, fmt.Errorf("ingest symbol %q: row vanished after INSERT OR IGNORE", sym.ID)
 	}
 	return id, false, nil
+}
+
+// pruneStaleSymbolsTx deletes the symbol rows a rescan no longer produces.
+//
+// Scope is deliberately narrow: only files this scan actually re-read (walked
+// AND changed since the last scan) are pruned, so a partial or filtered scan
+// never deletes another file's symbols. Within those files, a stored symbol
+// whose qualified name is absent from the fresh index is gone from the source
+// — renamed, deleted, or moved to another file — and its row is stale. Left
+// in place it keeps a [line, end_line] span that no longer holds any code,
+// which the coverage ingest happily attributes executed statements to, and
+// which `atlas codebase dead` reports as a live-but-uncalled symbol.
+//
+// Deleting cascades to that symbol's edges, feature links and coverage rows —
+// all of which describe a declaration that no longer exists.
+func pruneStaleSymbolsTx(ctx context.Context, qtx *sqlc.Queries, freshByFile map[string]map[string]bool, rescanned map[string]bool) (int, error) {
+	pruned := 0
+	for file := range rescanned {
+		rows, err := qtx.ListSymbolNamesByFile(ctx, file)
+		if err != nil {
+			return pruned, fmt.Errorf("store ingest: list symbols for %q: %w", file, err)
+		}
+		fresh := freshByFile[file]
+		for _, r := range rows {
+			if fresh[r.QualifiedName] {
+				continue
+			}
+			if err := qtx.DeleteSymbolByID(ctx, r.ID); err != nil {
+				return pruned, fmt.Errorf("store ingest: prune symbol %q: %w", r.QualifiedName, err)
+			}
+			pruned++
+		}
+	}
+	return pruned, nil
 }
 
 func lookupSymbolIDTx(ctx context.Context, qtx *sqlc.Queries, qn shared.SymbolID) (int64, bool, error) {

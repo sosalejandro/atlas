@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -23,9 +24,9 @@ import (
 // graph. The two views are derived from the same underlying records, so a
 // round-trip through either is lossless.
 type Result struct {
-	Graph    *graph.Graph     `json:"graph"`
-	Symbols  []shared.Symbol  `json:"symbols"`
-	Warnings []string         `json:"warnings,omitempty"`
+	Graph    *graph.Graph    `json:"graph"`
+	Symbols  []shared.Symbol `json:"symbols"`
+	Warnings []string        `json:"warnings,omitempty"`
 }
 
 // Scan runs the 4-phase Go AST scan on rootDir and returns a Result.
@@ -74,6 +75,12 @@ func Scan(ctx context.Context, rootDir string, opts Options) (*Result, error) {
 		ctx2.extractCalls()
 	}
 
+	if ctx2.collisions > maxCollisionWarnings {
+		ctx2.warnings = append(ctx2.warnings, fmt.Sprintf(
+			"%d symbol name collisions total (%d listed); colliding declarations are indexed under package-qualified ids",
+			ctx2.collisions, maxCollisionWarnings))
+	}
+
 	// Materialise the flat Symbol view.
 	symbols := make([]shared.Symbol, 0, len(ctx2.graph.Nodes))
 	for _, n := range ctx2.graph.Nodes {
@@ -115,6 +122,27 @@ type scanContext struct {
 	ignorePackages  map[string]bool
 	ignoreFuncGlobs []string
 
+	// byMethod indexes declarations by the segment after the FIRST dot of
+	// their short id ("Type.Method" -> "Method"), and byLastSegment by the
+	// segment after the LAST dot of any id. Both replace full scans of
+	// funcLookup in the fuzzy resolvers and in handler-ref resolution, which
+	// were O(symbols) per unresolved call - and, being map iterations, also
+	// returned a different winner from run to run.
+	byMethod      map[string][]shared.SymbolID
+	byLastSegment map[string][]shared.SymbolID
+
+	// idsByPkg maps pkgKey(pkgDir, shortID) → the SymbolID the declaration
+	// was actually registered under. Consulted by call resolution so a call
+	// prefers the callee declared in the caller's own package over a
+	// same-named declaration in another one.
+	idsByPkg map[string]shared.SymbolID
+
+	// collisions counts short-name clashes seen during discovery, and
+	// qualifiedIDs records the ids that exist only because of one — they are
+	// the same declaration under a longer name, not a rival candidate.
+	collisions   int
+	qualifiedIDs map[shared.SymbolID]bool
+
 	warnings []string
 }
 
@@ -127,6 +155,7 @@ type funcInfo struct {
 	fset     *token.FileSet
 	file     *ast.File
 	receiver string // empty for plain functions
+	pkgDir   string // backend-relative package directory
 }
 
 func newScanContext(projectRoot, backendAbs string, opts Options) *scanContext {
@@ -148,6 +177,10 @@ func newScanContext(projectRoot, backendAbs string, opts Options) *scanContext {
 		projectRoot:           projectRoot,
 		backendAbs:            backendAbs,
 		funcLookup:            make(map[shared.SymbolID]*funcInfo),
+		idsByPkg:              make(map[string]shared.SymbolID),
+		byMethod:              make(map[string][]shared.SymbolID),
+		byLastSegment:         make(map[string][]shared.SymbolID),
+		qualifiedIDs:          make(map[shared.SymbolID]bool),
 		structFields:          make(map[string]map[string]string),
 		sqlcMethods:           sqlcMethods,
 		interfaceBindings:     bindings,
@@ -320,26 +353,29 @@ func (c *scanContext) registerFunction(fn *ast.FuncDecl, fset *token.FileSet, fi
 	if fn.Name == nil {
 		return
 	}
-	if !fn.Name.IsExported() {
-		// Per the original scanner: unexported plain functions are skipped
-		// (low signal), but unexported METHODS are kept (they may be called
-		// internally by other methods on the same receiver).
-		if fn.Recv == nil {
-			return
-		}
+	if !fn.Name.IsExported() && fn.Recv == nil && c.opts.SkipUnexportedFuncs {
+		// Graph-only audits can opt out of package-private helpers; the
+		// default indexes them because the compiler instruments them for
+		// coverage (see Options.SkipUnexportedFuncs).
+		return
 	}
 	receiver := receiverTypeName(fn)
 	funcName := fn.Name.Name
 
-	var id shared.SymbolID
+	var short shared.SymbolID
 	if receiver != "" {
-		id = shared.SymbolID(receiver + "." + funcName)
+		short = shared.SymbolID(receiver + "." + funcName)
 	} else {
-		id = shared.SymbolID(file.Name.Name + "." + funcName)
+		short = shared.SymbolID(file.Name.Name + "." + funcName)
+	}
+	id := c.uniqueSymbolID(short, receiver, funcName, relPath, pkgDir)
+	if id == "" {
+		return
 	}
 
 	kind := classifyNodeKind(pkgDir, c.opts.LayerRules)
 	line := fset.Position(fn.Pos()).Line
+	endLine := fset.Position(fn.End()).Line
 
 	doc := ""
 	if fn.Doc != nil {
@@ -351,6 +387,7 @@ func (c *scanContext) registerFunction(fn *ast.FuncDecl, fset *token.FileSet, fi
 			ID:        id,
 			Kind:      kind,
 			Position:  shared.FilePosition{Path: relPath, Line: line},
+			EndLine:   endLine,
 			Doc:       doc,
 			Signature: buildSignature(fn),
 			Package:   pkgDir,
@@ -363,6 +400,129 @@ func (c *scanContext) registerFunction(fn *ast.FuncDecl, fset *token.FileSet, fi
 		fset:     fset,
 		file:     file,
 		receiver: receiver,
+		pkgDir:   pkgDir,
+	}
+	c.idsByPkg[pkgKey(pkgDir, short)] = id
+	c.indexSymbolName(id)
+}
+
+// indexSymbolName records a registered id in the name indexes. Slices are
+// kept in insertion (lexical walk) order and looked up read-only, so every
+// resolver that consults them sees a stable candidate order.
+func (c *scanContext) indexSymbolName(id shared.SymbolID) {
+	if parts := strings.SplitN(string(id), ".", 2); len(parts) == 2 {
+		c.byMethod[parts[1]] = append(c.byMethod[parts[1]], id)
+	}
+	if i := strings.LastIndexByte(string(id), '.'); i >= 0 {
+		last := string(id)[i+1:]
+		c.byLastSegment[last] = append(c.byLastSegment[last], id)
+	}
+}
+
+// pkgKey is the lookup key for "the declaration of <short> that lives in
+// package directory <pkgDir>". Call resolution consults it before the bare
+// short ID so a call inside package P binds to P's own declaration rather
+// than to whichever package happened to be walked first.
+func pkgKey(pkgDir string, short shared.SymbolID) string {
+	return pkgDir + "\x00" + string(short)
+}
+
+// resolveInScope returns the SymbolID a short name is registered under,
+// preferring the declaration that lives in the CALLER's own package. Without
+// this preference, a call to `Chat.MarkLoaded` inside the ai-chat context
+// would bind to the messaging context's identically-named method purely
+// because messaging was walked first — a wrong call edge, and one of the
+// reasons a feature's impl surface reaches the wrong symbols (issue #84).
+func (c *scanContext) resolveInScope(caller *funcInfo, short shared.SymbolID) (shared.SymbolID, bool) {
+	if caller != nil {
+		if id, ok := c.idsByPkg[pkgKey(caller.pkgDir, short)]; ok {
+			return id, true
+		}
+	}
+	if _, ok := c.funcLookup[short]; ok {
+		return short, true
+	}
+	return "", false
+}
+
+// qualifiedSymbolID renders the package-qualified form of a declaration:
+// "<pkgDir>.<Receiver>.<Method>" for methods, "<pkgDir>.<Func>" for plain
+// functions (the package name is already the leading segment of pkgDir, so
+// repeating it would read as "services.services.NewChatService").
+func qualifiedSymbolID(pkgDir, receiver, funcName string) shared.SymbolID {
+	prefix := pkgDir
+	if prefix == "" || prefix == "." {
+		return ""
+	}
+	if receiver != "" {
+		return shared.SymbolID(prefix + "." + receiver + "." + funcName)
+	}
+	return shared.SymbolID(prefix + "." + funcName)
+}
+
+// uniqueSymbolID returns the ID to register this declaration under.
+//
+// The graph keys nodes by SymbolID, so two declarations sharing a short name
+// — endemic in monorepos where every bounded context declares its own `Chat`
+// or `NewAvailabilityService` — used to collapse into one node: the first
+// walked won, and every symbol in the losing FILE disappeared from the store.
+// On a 39-module workspace that silently dropped 210 production files, which
+// is why a quarter of the coverage profile reconciled to zero symbols
+// (issue #85).
+//
+// Resolution order, first free wins:
+//  1. the bare short ID (so existing annotations, traces and stored symbol
+//     names keep resolving for the overwhelmingly common unique case),
+//  2. the package-qualified ID,
+//  3. the package-qualified ID plus the file's base name (two packages in
+//     one directory — e.g. `foo` and `foo_test`).
+//
+// Walk order is lexical, so which declaration keeps the bare ID is stable
+// for a given file set. A collision is reported as a scan warning: an
+// ambiguous short name degrades call-edge precision even when both symbols
+// are indexed.
+func (c *scanContext) uniqueSymbolID(short shared.SymbolID, receiver, funcName, relPath, pkgDir string) shared.SymbolID {
+	existing, taken := c.funcLookup[short]
+	if !taken {
+		return short
+	}
+	if existing.node.Position.Path == relPath && existing.node.Position.Line > 0 {
+		// Same file, same short name: a genuine redeclaration (or a repeated
+		// scan of one file). Keep the first — re-registering would just
+		// overwrite identical data.
+		return ""
+	}
+	c.noteCollision(short, existing.node.Position.Path, relPath)
+	if qualified := qualifiedSymbolID(pkgDir, receiver, funcName); qualified != "" {
+		if _, taken := c.funcLookup[qualified]; !taken {
+			c.qualifiedIDs[qualified] = true
+			return qualified
+		}
+		withFile := shared.SymbolID(string(qualified) + "#" + path.Base(relPath))
+		if _, taken := c.funcLookup[withFile]; !taken {
+			c.qualifiedIDs[withFile] = true
+			return withFile
+		}
+	}
+	// Every candidate id is taken (a package-less root file whose short name
+	// clashes, or a third declaration in one directory). Dropping is the last
+	// resort — say so, because a dropped declaration is invisible to coverage.
+	c.warnings = append(c.warnings, fmt.Sprintf(
+		"symbol %s in %s could not be given a unique id and is NOT indexed", short, relPath))
+	return ""
+}
+
+// maxCollisionWarnings caps the per-collision detail lines so a monorepo
+// with thousands of duplicated short names doesn't drown the scan output;
+// the summary count is always reported.
+const maxCollisionWarnings = 20
+
+func (c *scanContext) noteCollision(short shared.SymbolID, firstFile, secondFile string) {
+	c.collisions++
+	if c.collisions <= maxCollisionWarnings {
+		c.warnings = append(c.warnings, fmt.Sprintf(
+			"symbol name collision: %s declared in both %s and %s — the second is indexed under a package-qualified id",
+			short, firstFile, secondFile))
 	}
 }
 
@@ -537,27 +697,26 @@ func (c *scanContext) resolveHandlerRefs() {
 		if methodName == "" {
 			continue
 		}
-		suffix := "." + methodName
 		var matches []shared.SymbolID
-		for id, info := range c.funcLookup {
-			if strings.HasSuffix(string(id), suffix) && info.node.Kind == shared.KindHandler {
-				lower := strings.ToLower(info.node.Position.Path)
-				if strings.Contains(lower, "test") || strings.Contains(lower, "mock") {
-					continue
-				}
-				matches = append(matches, id)
+		for _, id := range c.byLastSegment[methodName] {
+			info, ok := c.funcLookup[id]
+			if !ok || info.node.Kind != shared.KindHandler {
+				continue
 			}
+			lower := strings.ToLower(info.node.Position.Path)
+			if strings.Contains(lower, "test") || strings.Contains(lower, "mock") {
+				continue
+			}
+			matches = append(matches, id)
 		}
+		matches = c.narrowHandlerMatches(matches)
 		switch len(matches) {
 		case 1:
 			c.graph.MergeNode(placeholderID, c.funcLookup[matches[0]].node)
 		case 0:
 			// Broaden across all kinds.
-			for id := range c.funcLookup {
-				if strings.HasSuffix(string(id), suffix) {
-					matches = append(matches, id)
-				}
-			}
+			matches = append(matches, c.byLastSegment[methodName]...)
+			matches = c.narrowHandlerMatches(matches)
 			if len(matches) == 1 {
 				c.graph.MergeNode(placeholderID, c.funcLookup[matches[0]].node)
 			}
@@ -569,6 +728,51 @@ func (c *scanContext) resolveHandlerRefs() {
 			}
 		}
 	}
+}
+
+// narrowHandlerMatches applies two tie-breaks to a set of same-method-name
+// candidates before the caller decides between "merge" and "ambiguous":
+//
+//  1. an exported method beats unexported ones — a route's handler is always
+//     exported, so a package-private helper that happens to end in the same
+//     name is not a candidate;
+//  2. a bare id beats the package-qualified id of a colliding declaration —
+//     those extra candidates only exist because some OTHER package declares
+//     the same short name, so treating them as rival handlers would turn
+//     every duplicated handler name in a monorepo ambiguous.
+//
+// Each tie-break is applied only when it leaves exactly one candidate;
+// anything else is genuinely ambiguous and is reported as such.
+func (c *scanContext) narrowHandlerMatches(matches []shared.SymbolID) []shared.SymbolID {
+	if len(matches) <= 1 {
+		return matches
+	}
+	var exported []shared.SymbolID
+	for _, id := range matches {
+		name := string(id)
+		if i := strings.LastIndexByte(name, '.'); i >= 0 {
+			name = name[i+1:]
+		}
+		if name != "" && strings.ToUpper(name[:1]) == name[:1] {
+			exported = append(exported, id)
+		}
+	}
+	if len(exported) == 1 {
+		return exported
+	}
+	if len(exported) > 1 {
+		matches = exported
+	}
+	var bare []shared.SymbolID
+	for _, id := range matches {
+		if !c.qualifiedIDs[id] {
+			bare = append(bare, id)
+		}
+	}
+	if len(bare) == 1 {
+		return bare
+	}
+	return matches
 }
 
 func (c *scanContext) removePlaceholder(placeholderID shared.SymbolID) {
@@ -717,8 +921,8 @@ func (c *scanContext) resolveCall(caller *funcInfo, call *ast.CallExpr) (shared.
 		return c.resolveSelectorCall(caller, fn)
 	case *ast.Ident:
 		if caller.file != nil {
-			id := shared.SymbolID(caller.file.Name.Name + "." + fn.Name)
-			if _, ok := c.funcLookup[id]; ok {
+			short := shared.SymbolID(caller.file.Name.Name + "." + fn.Name)
+			if id, ok := c.resolveInScope(caller, short); ok {
 				return id, false
 			}
 		}
@@ -738,8 +942,8 @@ func (c *scanContext) resolveSelectorCall(caller *funcInfo, sel *ast.SelectorExp
 			fieldType := c.resolveFieldType(caller.receiver, ident.Name, fieldName)
 			if fieldType != "" {
 				calleeID := shared.SymbolID(fieldType + "." + method)
-				if _, ok := c.funcLookup[calleeID]; ok {
-					return calleeID, false
+				if id, ok := c.resolveInScope(caller, calleeID); ok {
+					return id, false
 				}
 				if strings.Contains(fieldType, "Queries") {
 					if _, ok := c.sqlcMethods[method]; ok {
@@ -759,15 +963,15 @@ func (c *scanContext) resolveSelectorCall(caller *funcInfo, sel *ast.SelectorExp
 		varName := ident.Name
 		if caller.receiver != "" && (varName == "r" || varName == "s" || varName == "h" || varName == "a") {
 			calleeID := shared.SymbolID(caller.receiver + "." + method)
-			if _, ok := c.funcLookup[calleeID]; ok {
-				return calleeID, false
+			if id, ok := c.resolveInScope(caller, calleeID); ok {
+				return id, false
 			}
 		}
 		fieldType := c.resolveFieldType(caller.receiver, "", varName)
 		if fieldType != "" {
 			calleeID := shared.SymbolID(fieldType + "." + method)
-			if _, ok := c.funcLookup[calleeID]; ok {
-				return calleeID, false
+			if id, ok := c.resolveInScope(caller, calleeID); ok {
+				return id, false
 			}
 			if resolved := c.fuzzyResolveMethod(fieldType, method); resolved != "" {
 				return resolved, false
@@ -775,8 +979,8 @@ func (c *scanContext) resolveSelectorCall(caller *funcInfo, sel *ast.SelectorExp
 			return calleeID, true
 		}
 		calleeID := shared.SymbolID(varName + "." + method)
-		if _, ok := c.funcLookup[calleeID]; ok {
-			return calleeID, false
+		if id, ok := c.resolveInScope(caller, calleeID); ok {
+			return id, false
 		}
 		return c.fuzzyResolve(varName, method)
 	}
@@ -814,7 +1018,7 @@ func (c *scanContext) fuzzyResolveMethod(fieldType, method string) shared.Symbol
 	// Priority 2: fuzzy name matching.
 	lowerIface := strings.ToLower(shortIface)
 	var candidates []shared.SymbolID
-	for id := range c.funcLookup {
+	for _, id := range c.byMethod[method] {
 		parts := strings.SplitN(string(id), ".", 2)
 		if len(parts) != 2 || parts[1] != method {
 			continue
@@ -849,16 +1053,12 @@ func (c *scanContext) fuzzyResolveMethod(fieldType, method string) shared.Symbol
 
 func (c *scanContext) fuzzyResolve(varName, method string) (shared.SymbolID, bool) {
 	lower := strings.ToLower(varName)
-	for id := range c.funcLookup {
+	for _, id := range c.byMethod[method] {
 		parts := strings.SplitN(string(id), ".", 2)
-		if len(parts) != 2 {
+		if len(parts) != 2 || parts[1] != method {
 			continue
 		}
-		typeName, m := parts[0], parts[1]
-		if m != method {
-			continue
-		}
-		if strings.Contains(strings.ToLower(typeName), lower) {
+		if strings.Contains(strings.ToLower(parts[0]), lower) {
 			return id, true
 		}
 	}

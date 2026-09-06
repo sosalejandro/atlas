@@ -10,6 +10,15 @@ import (
 	"database/sql"
 )
 
+const deleteSymbolByID = `-- name: DeleteSymbolByID :exec
+DELETE FROM symbols WHERE id = ?
+`
+
+func (q *Queries) DeleteSymbolByID(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteSymbolByID, id)
+	return err
+}
+
 const deleteSymbolsByFile = `-- name: DeleteSymbolsByFile :exec
 DELETE FROM symbols WHERE file_path = ?
 `
@@ -80,6 +89,46 @@ func (q *Queries) InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql
 		arg.Package,
 		arg.BcPath,
 	)
+}
+
+const listSymbolNamesByFile = `-- name: ListSymbolNamesByFile :many
+
+SELECT id, qualified_name FROM symbols WHERE file_path = ?
+`
+
+type ListSymbolNamesByFileRow struct {
+	ID            int64  `db:"id" json:"id"`
+	QualifiedName string `db:"qualified_name" json:"qualified_name"`
+}
+
+// Note: FindByPattern still uses raw SQL in symbols.go because sqlc's
+// sqlite engine handles JSON-substring matchers poorly.
+// Every symbol currently stored for a file, as (id, qualified_name). Used by
+// Ingest to prune rows a rescan of that file no longer produces: a renamed,
+// moved or deleted declaration would otherwise keep its row (and its stale
+// line..end_line span) forever, which silently corrupts the coverage
+// attribution that keys executed statements to those spans.
+func (q *Queries) ListSymbolNamesByFile(ctx context.Context, filePath string) ([]ListSymbolNamesByFileRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSymbolNamesByFile, filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSymbolNamesByFileRow{}
+	for rows.Next() {
+		var i ListSymbolNamesByFileRow
+		if err := rows.Scan(&i.ID, &i.QualifiedName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listSymbols = `-- name: ListSymbols :many
