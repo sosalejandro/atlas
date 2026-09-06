@@ -177,6 +177,8 @@ are defined by the `Config` struct in
 | `db_path`                        | string      | `.atlas/atlas.db`        | SQLite store path. Relative paths anchor at the git repo root.     |
 | `scan.skip_dirs`                 | []string    | `[vendor, node_modules, dist, build]` | Directory names skipped by the scanner.                |
 | `scan.skip_ts`                   | bool        | `false`                  | Skip the TS scanner entirely (Go-only mode).                       |
+| `scan.generated`                 | []string    | `[]`                     | Extra path globs identifying machine-written code, on top of the built-in header and `generated/` rules. |
+| `scan.include_generated`         | bool        | `false`                  | Index generated files instead of excluding them.                   |
 | `audit.freshness_window_days`    | int         | `30`                     | How recently a feature must have been touched to count "fresh".    |
 | `audit.contract_drift_window_days` | int       | `30`                     | Grace window before contract drift gets flagged.                   |
 | `sprint.default_top_n`           | int         | `10`                     | Default `--top` for `atlas sprint` when the flag is omitted.       |
@@ -209,6 +211,8 @@ db_path: .atlas/atlas.db
 scan:
   skip_dirs: [vendor, node_modules, dist, build]
   skip_ts: false
+  generated: []
+  include_generated: false
 
 audit:
   freshness_window_days: 30

@@ -497,12 +497,12 @@ func walkSymbolChain(ctx context.Context, s *store.Store, row store.SymbolRow, m
 // maxDepth semantics (issue #61):
 //
 //   - maxDepth >  0 → emit at most that many levels of children below
-//                     the root. --depth 3 yields nodes at depths 0..3
-//                     (the root plus three layers).
+//     the root. --depth 3 yields nodes at depths 0..3
+//     (the root plus three layers).
 //   - maxDepth == 0 → root only — no children emitted. Intentional
-//                     "what does this symbol look like" probe.
+//     "what does this symbol look like" probe.
 //   - maxDepth <  0 → unlimited recursion; cycle detection is what
-//                     prevents the walk from running forever.
+//     prevents the walk from running forever.
 //
 // Cycle detection is per-chain (the set of ancestors of the node we're
 // about to visit). A node visited twice down the SAME chain becomes a

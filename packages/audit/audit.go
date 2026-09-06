@@ -25,6 +25,13 @@ type FeatureHealth struct {
 	Components map[string]float64 `json:"components"`
 	Reasons    []string           `json:"reasons,omitempty"`
 	SampledAt  time.Time          `json:"sampled_at"`
+
+	// SurfaceSource names how the feature's implementation surface was
+	// derived: dynamic (per-test execution evidence), static (call-edge
+	// walk), package-anchor, or direct-links. A coverage number whose
+	// provenance is invisible is how issue #84 survived three releases, so
+	// every score carries it.
+	SurfaceSource string `json:"surface_source,omitempty"`
 }
 
 // Signal names — closed enum used as keys in FeatureHealth.Components.
@@ -89,7 +96,27 @@ type Options struct {
 	//
 	// Default: 200. Set to 0 to disable the fallback entirely.
 	MaxPackageAnchorSymbols int
+
+	// UbiquityCutoff is the fraction of the test suite above which a symbol
+	// counts as shared runtime rather than any feature's implementation, used
+	// by the dynamic surface derivation (issue #104). A symbol executed by
+	// more than this share of tests is the logger, the DI container or the
+	// middleware chain - real code, but not evidence of a relationship to the
+	// feature under test.
+	//
+	// Default: 0.5. Ignored for suites smaller than a handful of tests, where
+	// the ratio carries no signal.
+	UbiquityCutoff float64
 }
+
+// defaultUbiquityCutoff and minTestsForUbiquityCutoff govern the dynamic
+// surface's shared-runtime filter. The floor exists because in a five-test
+// suite "executed by more than half the tests" describes a shared domain
+// service, not framework plumbing.
+const (
+	defaultUbiquityCutoff     = 0.5
+	minTestsForUbiquityCutoff = 8
+)
 
 // defaultWeights returns the spec-default signal weights.
 func defaultWeights() map[string]float64 {
@@ -151,6 +178,23 @@ type auditImpl struct {
 	// nil = not yet populated.
 	symbolCache map[int64]store.SymbolRow
 
+	// lastSurfaceSource records how the most recent coverage signal derived
+	// its impl surface, so scoreFromFeature can report it. Scoring is
+	// sequential per feature, which is what makes this safe; a parallel
+	// scorer would carry it through the signal result instead.
+	lastSurfaceSource string
+
+	// covPool memoises the carryforward resolution of ONE frontier
+	// (issue #136). Resolution depends on the frontier and the window, not on
+	// the feature, but it costs three grouped scans over the carry window;
+	// resolving it per feature made ScoreAll pay that N times for an identical
+	// answer. covPoolKey identifies the frontier the cached pool belongs to,
+	// and covPoolReady distinguishes "not resolved yet" from "resolved and
+	// empty" — an empty pool is a real answer for a store with no coverage.
+	covPool      coveragePool
+	covPoolKey   string
+	covPoolReady bool
+
 	// callAdj lazily holds the whole `call`-edge adjacency (from→[]to),
 	// loaded once for per-feature impl-surface BFS. nil = not yet loaded;
 	// callAdjLoaded distinguishes "not loaded" from "loaded but empty".
@@ -210,16 +254,16 @@ func (a *auditImpl) ScoreAll(ctx context.Context) ([]FeatureHealth, error) {
 	if len(feats) == 0 {
 		return []FeatureHealth{}, nil
 	}
-	// Cache the latest coverage run once per ScoreAll call — looking it up
-	// per-feature would multiply DB chatter by O(features).
-	latest, hasCov, err := a.latestCoverageRun(ctx)
+	// Resolve the frontier once per ScoreAll call — looking it up per-feature
+	// would multiply DB chatter by O(features).
+	frontier, err := a.latestCoverageFrontier(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("audit ScoreAll: latest coverage: %w", err)
+		return nil, fmt.Errorf("audit ScoreAll: %w", err)
 	}
 
 	out := make([]FeatureHealth, 0, len(feats))
 	for _, feat := range feats {
-		health, err := a.scoreFromFeature(ctx, feat, latest, hasCov)
+		health, err := a.scoreFromFeature(ctx, feat, frontier)
 		if err != nil {
 			return nil, fmt.Errorf("audit ScoreAll: %q: %w", feat.ID, err)
 		}
@@ -238,11 +282,11 @@ func (a *auditImpl) ScoreAll(ctx context.Context) ([]FeatureHealth, error) {
 // scoreOne wraps scoreFromFeature with a per-call coverage lookup. Used by
 // ScoreFeature where there is no batch-amortisation opportunity.
 func (a *auditImpl) scoreOne(ctx context.Context, feat store.Feature) (FeatureHealth, error) {
-	latest, hasCov, err := a.latestCoverageRun(ctx)
+	frontier, err := a.latestCoverageFrontier(ctx)
 	if err != nil {
-		return FeatureHealth{}, fmt.Errorf("latest coverage: %w", err)
+		return FeatureHealth{}, err
 	}
-	return a.scoreFromFeature(ctx, feat, latest, hasCov)
+	return a.scoreFromFeature(ctx, feat, frontier)
 }
 
 // PersistSnapshot serialises scores as JSON and writes one row into the
@@ -286,34 +330,22 @@ func (a *auditImpl) LoadSnapshot(ctx context.Context, snapshotID int64) ([]Featu
 	return out, nil
 }
 
-// latestCoverageRun returns the latest coverage_run.ID and a `hasCov` bool
-// indicating whether any coverage run has been ingested. The "latest" choice
-// is the most recent finished_at across all frameworks — Atlas treats a
-// project as having ONE current coverage frontier, even when multiple
-// frameworks contribute to it.
+// latestCoverageFrontier returns the coverage runs the audit scores against.
 //
-// When no coverage runs exist, returns (0, false, nil) — NOT an error.
-func (a *auditImpl) latestCoverageRun(ctx context.Context) (int64, bool, error) {
-	runs, err := a.store.Coverage().ListRuns(ctx, "")
+// Atlas treats a project as having ONE current coverage frontier, but a
+// polyglot repo builds that frontier out of several runs — one per framework
+// per CI build. The store resolves them from the newest run outward: a run
+// tagged with a run group brings its whole group along, an untagged run
+// stands alone (which is the pre-#86 "newest run wins" behaviour, so every
+// store ingested before run groups scores exactly as it did).
+//
+// An empty frontier means no coverage has been ingested — NOT an error.
+func (a *auditImpl) latestCoverageFrontier(ctx context.Context) (store.CoverageFrontier, error) {
+	front, err := a.store.Coverage().LatestFrontier(ctx)
 	if err != nil {
-		return 0, false, fmt.Errorf("list coverage runs: %w", err)
+		return store.CoverageFrontier{}, fmt.Errorf("latest coverage frontier: %w", err)
 	}
-	if len(runs) == 0 {
-		return 0, false, nil
-	}
-	// ListRuns returns rows in stored order — pick the row with the highest
-	// finished_at to be framework-agnostic.
-	var (
-		latestID   int64
-		latestTime time.Time
-	)
-	for _, r := range runs {
-		if r.FinishedAt.After(latestTime) {
-			latestTime = r.FinishedAt
-			latestID = r.ID
-		}
-	}
-	return latestID, latestID != 0, nil
+	return front, nil
 }
 
 // patternsCanonicalServiceName is exported indirectly: we import

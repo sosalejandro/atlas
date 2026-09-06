@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/audit"
+	"github.com/sosalejandro/atlas/packages/churn"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -21,6 +22,16 @@ type SprintItem struct {
 	Priority  float64          `json:"priority"`
 	Reasons   []string         `json:"reasons,omitempty"`
 	Cost      string           `json:"cost"`
+
+	// Churn and WeightedPriority are populated only when Options.Churn is
+	// wired. Priority keeps its existing meaning either way: churn changes
+	// the ORDER, not what the gap-weighted score says, so a caller that
+	// reads Priority sees the same number it always did.
+	//
+	// WeightedPriority is Priority * Churn.Score / 100 and is what Rank
+	// sorts on when churn is available.
+	Churn            *churn.FeatureChurn `json:"churn,omitempty"`
+	WeightedPriority float64             `json:"weighted_priority,omitempty"`
 }
 
 // CostBucket constants. These are the only valid Cost values.
@@ -63,6 +74,12 @@ type Options struct {
 
 	// Now overrides time.Now() for determinism. Zero = real time.
 	Now func() time.Time
+
+	// Churn, when non-nil, switches Rank to change-frequency-weighted
+	// ordering and enables Hotspots. It is opt-in because it changes what
+	// the top of the backlog means, and a ranking model should not change
+	// under a team without them asking for it.
+	Churn *churn.Report
 }
 
 // applyDefaults fills zero-value Options fields with the spec defaults.
@@ -96,6 +113,10 @@ func (o Options) applyDefaults() Options {
 type Planner interface {
 	Rank(ctx context.Context) ([]SprintItem, error)
 	TopN(ctx context.Context, n int) ([]SprintItem, error)
+
+	// Hotspots ranks by churn x gap alone — the standalone view behind
+	// `atlas hotspots`. Requires Options.Churn.
+	Hotspots(ctx context.Context) ([]Hotspot, error)
 }
 
 // New wires the Planner against a Store and an Audit produced by
@@ -118,6 +139,9 @@ func (*nilPlanner) Rank(context.Context) ([]SprintItem, error) {
 	return nil, errNilStore
 }
 func (*nilPlanner) TopN(context.Context, int) ([]SprintItem, error) {
+	return nil, errNilStore
+}
+func (*nilPlanner) Hotspots(context.Context) ([]Hotspot, error) {
 	return nil, errNilStore
 }
 
@@ -174,13 +198,24 @@ func (p *planner) Rank(ctx context.Context) ([]SprintItem, error) {
 		out = append(out, item)
 	}
 
+	sortItems(out, p.opts.Churn != nil)
+	return out, nil
+}
+
+// sortItems orders the backlog worst-first on whichever score is in play,
+// breaking ties by feature id so repeated runs over unchanged data produce
+// byte-identical output.
+func sortItems(out []SprintItem, weighted bool) {
+	key := func(it SprintItem) float64 { return it.Priority }
+	if weighted {
+		key = func(it SprintItem) float64 { return it.WeightedPriority }
+	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Priority != out[j].Priority {
-			return out[i].Priority > out[j].Priority
+		if key(out[i]) != key(out[j]) {
+			return key(out[i]) > key(out[j])
 		}
 		return out[i].FeatureID < out[j].FeatureID
 	})
-	return out, nil
 }
 
 // TopN returns the top-n items from Rank.
@@ -247,12 +282,38 @@ func (p *planner) itemFor(
 	cost := costBucket(len(links))
 	reasons := buildReasons(h, bug, recency, cost)
 
-	return SprintItem{
+	item := SprintItem{
 		FeatureID: h.FeatureID,
 		Priority:  priority,
 		Reasons:   reasons,
 		Cost:      cost,
-	}, nil
+	}
+	if p.opts.Churn != nil {
+		fc, err := p.featureChurn(ctx, links)
+		if err != nil {
+			return SprintItem{}, fmt.Errorf("feature churn: %w", err)
+		}
+		item.Churn = &fc
+		item.WeightedPriority = priority * fc.Score / 100
+		item.Reasons = append(item.Reasons, churnReason(fc))
+	}
+	return item, nil
+}
+
+// churnReason renders the change-frequency factor as one readable line.
+// It always names the file the number came from, because "churn 71" on its
+// own is a claim the reader has no way to check.
+func churnReason(fc churn.FeatureChurn) string {
+	if fc.Status != churn.StatusKnown {
+		return fmt.Sprintf(
+			"churn %.0f (UNKNOWN: no history for %d of this feature's files; "+
+				"scored neutral, not zero)", fc.Score, fc.FilesUnknown)
+	}
+	if fc.Commits == 0 {
+		return "churn 0: no qualifying commits in the window, this code is not moving"
+	}
+	return fmt.Sprintf("churn %.0f: %d commits by %d author(s), hottest %s",
+		fc.Score, fc.Commits, fc.Authors, fc.HotFile)
 }
 
 // bugSignal returns the count of failing coverage results for this

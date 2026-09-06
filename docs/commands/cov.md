@@ -1,14 +1,21 @@
 # atlas cov
 
-`atlas cov` groups the coverage-ingest verb (`sync`) and the coverage-status
-view (`status`). Coverage is what feeds the `coverage_pass_rate` audit
-component, so a project that never runs `cov sync` will see the audit
-fall back to other signals (annotation freshness, aggregate linkage, etc.).
+`atlas cov` groups the coverage-ingest verb (`sync`), the coverage-status view
+(`status`), and the patch-coverage gate (`diff`). Coverage is what feeds the
+`coverage_pass_rate` audit component, so a project that never runs `cov sync`
+will see the audit fall back to other signals (annotation freshness, aggregate
+linkage, etc.).
 
-| Subcommand                | Purpose                                                                        |
-| ------------------------- | ------------------------------------------------------------------------------ |
-| [`sync`](#sync)           | Ingest a test framework's report into the atlas store.                         |
-| [`status`](#status)       | Per-feature coverage view from the latest coverage run.                        |
+`sync` writes; `status` and `diff` read. `status` answers "how covered is the
+codebase", which no single pull request can move; `diff` answers "how covered
+is what this branch changed", which is the number a CI gate can actually fail
+on.
+
+| Subcommand                          | Purpose                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------ |
+| [`sync`](#sync)                     | Ingest a test framework's report into the atlas store.                         |
+| [`status`](#status)                 | Per-feature coverage view, and the attribution gap, from the latest run.       |
+| [`diff`](./cov-diff.md)             | Coverage of the lines this branch changed, with a `--fail-under` CI gate.      |
 
 ## Subcommand reference
 
@@ -44,12 +51,31 @@ filename and the file's top-level shape. Failed detection is fatal — pass
 
 Input source: `--input <path>` (a file) or `-` / unset for stdin.
 
+**Run groups.** A polyglot repo measures itself more than once per build.
+Pass the SAME `--run-group` to every sync of one build (a git SHA, a CI run
+id) and the audit reads those runs as one coverage frontier. Without it each
+sync stands alone and the last one to land is the only one scored — ingest
+istanbul after go-cover and every Go capability scores as if the Go suite
+never ran.
+
+```bash
+GROUP="$(git rev-parse HEAD)"
+atlas cov sync --framework go-cover --input cover.out       --run-group "$GROUP"
+atlas cov sync --framework istanbul --input coverage-final.json --run-group "$GROUP"
+```
+
+Atlas never interprets the key. Forgetting the flag is safe: the run stands
+alone, which is the behaviour that predates run groups — it never merges into
+whatever stale group happens to be named.
+
 #### Flags
 
 | Flag                          | Default               | Description                                                                                       |
 | ----------------------------- | --------------------- | ------------------------------------------------------------------------------------------------- |
 | `--framework`                 | (auto-detect)         | Framework tag — one of `go-test`, `playwright`, `vitest`, `jest`, `maestro`.                      |
 | `--input`                     | `-` (stdin)           | Report file path, or `-` for stdin.                                                                |
+| `--per-test`                  | (off)                 | Directory of per-test coverprofiles named `<TestSymbol>.out` (go-cover only).                       |
+| `--run-group`                 | (none)                | Correlation key tying this sync to the other frameworks measured in the same build.                 |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                              |
 | `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                    |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                      |
@@ -128,21 +154,158 @@ full `gaps` list (the terminal view caps at 25 rows). Treat a large
 `no-indexed-symbol` bucket as a **scan** problem, not a test problem: the
 tests ran, atlas just doesn't know what they touched.
 
+All of it is also **persisted with the run** — the counters as columns on
+`coverage_runs`, the per-file list as `coverage_run_gaps` rows that cascade
+with it. So the blind spot stays inspectable long after the ingest that
+measured it, via [`cov status --gaps`](#example-the-attribution-gap-of-the-latest-run),
+without re-running the profile. The stored gap list is capped at 500 files
+per run; when it is cut, the number of files dropped is recorded on the run
+and reported, and the statement totals stay exact regardless — a truncated
+list never passes itself off as a complete one.
+
+#### Example: per-test evidence (what each test actually ran)
+
+```bash
+# One profile per test, named <qualified test symbol>.out
+$ ls .atlas/per-test/
+billing.TestCheckout_Idempotent.out   measurements.TestLogEntry.out   ...
+
+$ atlas cov sync --framework go-cover --per-test .atlas/per-test
+per-test ingest complete  run_id=6 tests=1122 rows=214883 symbols_executed=6912
+```
+
+This writes the same union run as a whole-run ingest **plus** a row per
+(test, symbol executed) pair. That evidence changes how a feature's
+implementation surface is derived: instead of walking `call` edges out of the
+annotated test and hoping the scanner resolved them, atlas takes the union of
+what the feature's own tests actually executed, minus the symbols nearly every
+test executes (the logger, the DI container, the middleware chain).
+
+That derivation is correct through interface dispatch, DI containers,
+reflection and string-routed handlers — none of which a static walk can follow.
+`atlas audit --json` reports which derivation produced each score:
+
+```json
+{ "feature_id": "measurements.log-entry", "score": 78.4, "surface_source": "dynamic" }
+```
+
+| `surface_source` | Meaning |
+| ---------------- | -------- |
+| `dynamic`        | union of what this feature's tests executed (strongest) |
+| `static`         | call-edge walk from the annotated test symbols |
+| `package-anchor` | production symbols co-located with the feature's test package |
+| `direct-links`   | the annotated symbols themselves, with the gotest pass/fail model |
+
+**Collecting per-test profiles (Go).** Go writes coverage counters at process
+exit, so per-test granularity needs the counters cleared and dumped around each
+test — `runtime/coverage.ClearCounters()` and `WriteCountersDir()` (Go 1.20+)
+from a `TestMain` shim, or a `-run` pass per test for small suites. Python's
+`coverage.py` has this natively (`dynamic_context = test_function`); for
+JS/TS the granularity is per test file.
+
 ### `status`
 
 ```
 atlas cov status [flags]
 ```
 
-`cov status` pulls the most recent coverage run from the store and
-summarises pass/fail/skip counts grouped by `feature_id`. With `--feature`
-the output is filtered to a single feature.
+`cov status` summarises pass/fail/skip counts grouped by `feature_id` over
+the current coverage **frontier** — the same runs the audit scores. With
+`--feature` the output is filtered to a single feature.
+
+The frontier resolves from the newest run outward: a run synced with
+`--run-group` brings its whole group along, an ungrouped run stands alone.
+So a build that tagged every sync shows one combined picture, and one that
+did not shows only its last sync — which is exactly what the audit will
+score. `--group` breaks the frontier into the runs that compose it, which is
+how you check that every framework in a build actually landed under the same
+key.
+
+With `--gaps` it also reports the frontier's **attribution accounting** —
+read back from the store, not recomputed — so "how much of what ran can
+atlas actually see?" is answerable by anything that did not run the ingest
+itself. The counters sum across the frontier: the reports do not overlap
+(go-cover measures Go files, istanbul the front end), so the sum is the
+build's total blind spot.
+
+#### Carryforward: what this build did not re-measure
+
+A run group unions the runs of one build. A symbol that **no** run in the
+group measured used to fall out of the picture entirely — which is right when
+the symbol is genuinely new, and wrong in the case that actually happens: a CI
+job that failed, timed out, or was skipped. The Go suite crashes, only the
+front-end sync lands under the group, and every Go capability's denominator
+quietly shrinks to what the front end touched. Coverage goes **up** because
+testing went **down**.
+
+So the last build that *did* measure those symbols stands in for them, marked
+as carried (issue #136). A carry is one of two things:
+
+| Kind                 | What it contributes                                       | When                                                                             |
+| -------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **evidence**         | Its covered *and* total statements — it stands in for a reading. | Inside the window **and** the symbol still occupies the span it was measured in.  |
+| **denominator only** | Its total statements only; zero credit, status `fail`.    | Too old, the symbol's span moved, or the measurement predates schema `0017`.       |
+
+The window is `--carry-builds` grouped frontiers back (default **3**) **and**
+`--carry-max-age` of wall clock (default **72h**); the tighter bound wins.
+Three builds is chosen to span "the job failed, someone retried it, it failed
+again" without spanning a working week — a result from ten builds ago is closer
+to a lie than to evidence, because ten builds is long enough for the code under
+it to have been rewritten. The wall-clock bound is the backstop for repos that
+build rarely, where "three builds back" can be a month. Beyond either bound the
+symbol is not dropped; it holds its place in the denominator with nothing
+credited to it, which can push a number down but never up. Nothing measured
+more than 30 days ago is looked at at all.
+
+A symbol whose span changed is not the symbol that was measured, and that is
+checked rather than assumed: every coverage result records the symbol's
+`(file_path, line, end_line)` at ingest time in `coverage_symbol_spans`
+(schema `0017`), and a carry whose recorded span no longer matches the symbol
+is downgraded to denominator-only.
+
+**Only grouped frontiers carry.** A run group is the declaration that a set of
+syncs is one build; without it "the previous build" has no meaning, so an
+ungrouped frontier reads exactly as it did before this feature existed — and
+`cov status` says that carryforward *did not run*, rather than that nothing
+needed carrying. Those are the same empty carry list and very different facts,
+and run groups are opt-in, so the second one is what most stores are looking at.
+`--json` carries the same distinction as `carry.ran` plus `carry.skip_reason`.
+
+**The carried reading is a BUILD's, not a run's.** A build routinely measures
+one symbol from two runs — a unit job and an integration job over the same
+package. The carry sums every result the source build recorded for the symbol,
+which is exactly how a live frontier pools the runs of the current build; taking
+only the run that finished last would understate the inherited denominator.
+
+**A source beyond the window has no distance.** The build-ordinal scan reads
+`--carry-builds` + 1 frontiers, so a source older than that gets no ordinal at
+all. It renders as `beyond the carry window`, and `builds_back` is `-1` in the
+JSON — not `0`, which would read as "the current build measured it".
+
+**The flags tune `cov status`, not `atlas audit`.** The audit carries on the
+package defaults (3 builds / 72h); `--carry-builds` and `--carry-max-age` exist
+so you can see what a different window WOULD do to the frontier before deciding
+the defaults are wrong for your pipeline.
+
+**`pass`/`fail`/`skip` and `pass_rate` stay OBSERVED counts.** That is
+deliberate, and it is the answer to "does a carried result count as covered for
+a gate?" — it does not. A CI gate exists to catch the build that stopped
+measuring, so a carry that satisfied the gate would defeat it. Carried results
+hold the denominator; the gate reads this build's own measurement. The
+`carried` / `carried_evidence` fields sit beside the observed ones, and the
+audit's coverage note reports the observed fraction over the stable
+denominator, which is the number that collapses when a job dies.
 
 #### Flags
 
 | Flag                          | Default               | Description                                              |
 | ----------------------------- | --------------------- | -------------------------------------------------------- |
 | `--feature`                   | (all features)        | Restrict output to one feature id.                       |
+| `--gaps`                      | off                   | Also report the frontier's attribution accounting and the files whose execution could not be attributed. |
+| `--group`                     | off                   | Break the frontier down into the runs that compose it.   |
+| `--carry`                     | on                    | Stand in for symbols this build did not measure with the last build that did. `--carry=false` reads the frontier alone (the pre-#136 behaviour). |
+| `--carry-builds`              | `0` → 3               | How many grouped builds back a carried measurement may come from and still count as evidence. |
+| `--carry-max-age`             | `0` → `72h`           | Wall-clock bound on the same window, for repos that build rarely. |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                    |
 | `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                          |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope.                           |
@@ -153,8 +316,131 @@ the output is filtered to a single feature.
 ```
 # Run from: /tmp/atlas-fixture (after the go-test ingest above)
 $ atlas cov status
-Coverage run 1 (go-test, finished 2026-05-22 00:00:01)
+Coverage run 1 (ungrouped)
   <unassigned>                              pass=1 fail=1 skip=0  (50%)
+```
+
+#### Example: a grouped polyglot build
+
+```
+# Run from: a repo whose CI syncs both suites under one --run-group
+$ atlas cov status --group
+Coverage frontier "9f2c1ab" (2 runs, newest 2)
+  billing                                   pass=1 fail=0 skip=0  (100%)
+  web                                       pass=1 fail=0 skip=0  (100%)
+frontier runs (2):
+  run 1      go-test      2026-09-05T12:00:00Z  results=1
+  run 2      vitest       2026-09-05T12:01:00Z  results=1
+```
+
+A run listed with `results=0` landed in the group but contributed nothing —
+usually a sync that ran before `atlas scan` indexed the code it measured.
+
+#### Example: a build whose second job never landed
+
+The fixture is a two-package Go project (`billing/charge.go`,
+`shipping/ship.go`), both annotated `@atlas:feature billing.charge`. Build 1
+synced a coverprofile for each package under `--run-group build-1`; build 2
+synced only the shipping profile under `--run-group build-2`, standing in for
+a Go job that crashed.
+
+```
+$ atlas cov status
+Coverage frontier "build-2" (1 runs, newest 3)
+  <unassigned>                              pass=1 fail=0 skip=0  (100%)
+carryforward: 1 result(s) carried (1 as evidence, 0 holding the denominator only), window 3 builds / 72h0m0s
+  1 from build "build-1" (1 build back)
+  pass/fail/skip above are OBSERVED counts - a CI gate should read those, not the carried ones
+```
+
+`--json` carries the same accounting under `result.carry`, plus per-feature
+`carried` / `carried_evidence` counts beside the observed ones:
+
+```json
+"carry": {
+  "enabled": true,
+  "max_builds": 3,
+  "max_age": "72h0m0s",
+  "ran": true,
+  "results": 1,
+  "evidence": 1,
+  "denominator_only": 0,
+  "sources": [
+    { "group": "build-1", "builds_back": 1, "results": 1 }
+  ]
+}
+```
+
+`atlas audit` scores the same pool, and says so in the feature's reasons:
+
+```
+coverage: 5/6 statements executed (83%); 3/6 statements carried from build "build-1" (1 build back), observed 3/6 (50%)
+```
+
+Build 1 scores `billing.charge` at 83.3 (5 of 6 statements). The same build-2
+sync ingested into a store with no earlier build to inherit from — which is
+what the old behaviour amounted to — scores it at **100**: up, on the strength
+of having measured less. The observed fraction (3/6 = 50%) is the half of the
+reason line a CI gate should read: it falls as soon as a job stops reporting,
+while the score deliberately does not.
+
+Turning it off restores the older reading, which is how you tell whether
+carryforward is what moved a number:
+
+```
+$ atlas cov status --carry=false
+Coverage frontier "build-2" (1 runs, newest 3)
+  <unassigned>                              pass=1 fail=0 skip=0  (100%)
+carryforward: off (--carry=false); symbols this build did not measure are simply absent
+```
+
+#### Example: a store that never tagged its syncs
+
+Without `--run-group` there is no previous build to inherit from, so the carry
+never runs. Saying "nothing carried" here would report an unknown as a
+measurement, so it says what actually happened and what to do about it:
+
+```
+# Run from: a repo whose CI syncs without --run-group
+$ atlas cov status
+Coverage run 1 (ungrouped)
+  <unassigned>                              pass=1 fail=0 skip=0  (100%)
+carryforward: did not run - this frontier has no run group, so "the previous build" is undefined; tag the syncs of one build with 'atlas cov sync --run-group <id>' to enable it
+```
+
+In `--json` that is `carry.ran: false` with `carry.skip_reason:
+"ungrouped-frontier"`. The other two reasons are `"disabled"` (`--carry=false`)
+and `"no-frontier"` (no coverage runs at all).
+
+#### Example: the attribution gap of the latest run
+
+```
+# Run from: a Go project root, after `atlas cov sync --framework go-cover`
+$ atlas cov status --gaps
+Coverage run 5 (go-test, finished 2026-09-05 11:20:14)
+  billing.checkout                          pass=412 fail=0 skip=0  (100%)
+attribution: 392327/1204331 statements (32.6%) unattributed, files 641/852 matched
+    5312 stmts  no-indexed-symbol      github.com/org/repo/src/infrastructure/persistence/generated/scheduling.sql.go
+     871 stmts  outside-symbol-spans   github.com/org/repo/src/contexts/billing/service.go
+  ... +229 more
+```
+
+The counters and the per-file list come from the `coverage_runs` row and the
+`coverage_run_gaps` table respectively; nothing is recomputed, so this is
+cheap enough to run in CI on every build. `--json` carries the whole thing
+under `result.attribution`, which is what a gate like "fail if
+`stmts_unattributed` exceeds 10% of the total" reads.
+
+A run that recorded no accounting — one ingested before schema `0011`, or by
+a framework with no statement coverage (`playwright`, `maestro`, the
+`go-test` pass/fail model) — says so rather than reporting a flawless
+zero-of-zero:
+
+```
+$ atlas cov status --gaps
+Coverage run 1 (playwright, finished 2026-05-22 00:00:01)
+  <unassigned>                              pass=1 fail=1 skip=0  (50%)
+run 1 carries no attribution metadata (ingested before schema 0011, or by a framework without statement coverage)
 ```
 
 `<unassigned>` is the bucket for tests that didn't link to a feature —
@@ -174,8 +460,27 @@ annotated with `// @atlas:feature auth.login` would group under
 3. `cov status` pulls the highest `run_id` from `coverage_runs`, joins
    `coverage_tests` against `feature_symbols`, and emits the pass / fail /
    skip rollup per feature.
+4. The statement-coverage ingests additionally stamp their attribution
+   accounting onto the `coverage_runs` row and write one `coverage_run_gaps`
+   row per file they could not attribute. Both cascade with the run, so the
+   accounting cannot outlive the run it describes — and `cov status --gaps`
+   reads them straight back.
+5. [`cov diff`](./cov-diff.md) reads the same frontier, but joins it against
+   the line ranges of `git diff <base>...HEAD` instead of against whole
+   features. That join is only valid where the symbol index still describes
+   the files on disk, so it re-hashes every changed file first and refuses the
+   ones that have moved under it.
 
-There is no "merge with previous run" mode — each `cov sync` is a
-standalone run. To see history across runs, query the `coverage_runs`
-table directly via sqlite3 or use [`atlas diff`](./diff.md)'s `coverage:`
-slice.
+6. `cov status` and the audit then resolve that frontier through the
+   carryforward port: for every symbol no run in the frontier measured, the
+   newest prior measurement inside the lookback horizon is pulled in, checked
+   against the span snapshot the ingest recorded (`coverage_symbol_spans`,
+   schema `0017`), and marked either as evidence or as denominator-only.
+
+There is still no "merge with previous run" mode — each `cov sync` is a
+standalone run, and runs are pooled only when they share a `--run-group`.
+Carryforward is not a merge either: it never mixes two builds' readings of the
+same symbol, it only fills in symbols the current build produced no reading for
+at all, and it labels what it filled in. To see history across runs, query the
+`coverage_runs` table directly via sqlite3 or use
+[`atlas diff`](./diff.md)'s `coverage:` slice.

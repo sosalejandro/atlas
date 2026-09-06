@@ -60,6 +60,11 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return OpenWithLogger(ctx, path, shared.NopLogger{})
 }
 
+// escapeDBPath makes path safe inside a `file:` DSN. The reasoning, and the
+// fuzz finding behind it, live on shared.EscapeSQLitePath -- three packages
+// build such a DSN and a second copy is how one of them keeps the bug.
+func escapeDBPath(path string) string { return shared.EscapeSQLitePath(path) }
+
 // OpenWithLogger is Open with a caller-supplied Logger. Production code
 // uses shared.NewSlogLogger; tests use shared.NopLogger (the default in
 // the Open shorthand).
@@ -72,7 +77,7 @@ func OpenWithLogger(ctx context.Context, path string, logger shared.Logger) (*St
 	}
 	dsn := fmt.Sprintf(
 		"file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)",
-		path,
+		escapeDBPath(path),
 	)
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {

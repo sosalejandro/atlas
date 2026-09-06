@@ -88,7 +88,7 @@ type symSpan struct {
 //
 // Profile file paths are import-path-qualified (module prefix); atlas symbol
 // file paths are repo-relative. They are reconciled by suffix match.
-func IngestGoProfile(ctx context.Context, s *store.Store, framework store.Framework, r io.Reader) (ProfileIngestStats, error) {
+func IngestGoProfile(ctx context.Context, s *store.Store, meta RunMeta, r io.Reader) (ProfileIngestStats, error) {
 	var stats ProfileIngestStats
 	blocks, err := gocover.Parse(r)
 	if err != nil {
@@ -142,13 +142,17 @@ func IngestGoProfile(ctx context.Context, s *store.Store, framework store.Framew
 		})
 	}
 	now := time.Now().UTC()
-	runID, err := s.Coverage().InsertRunWithResults(ctx, store.CoverageRun{
-		Framework: framework, StartedAt: now, FinishedAt: now,
-	}, results)
+	runID, err := s.Coverage().InsertRunWithResults(ctx, rep.withAttribution(store.CoverageRun{
+		Framework: meta.Framework, StartedAt: now, FinishedAt: now,
+		RunGroup: meta.runGroup(),
+	}), results)
 	if err != nil {
 		return stats, fmt.Errorf("coverage: persist profile run: %w", err)
 	}
 	stats.RunID = runID
+	if _, err := s.CoverageGaps().Insert(ctx, runID, rep.gapRows()); err != nil {
+		return stats, fmt.Errorf("coverage: persist profile gaps: %w", err)
+	}
 	return stats, nil
 }
 
@@ -194,16 +198,112 @@ func indexSymbolsByFile(syms []store.SymbolRow) map[string][]symSpan {
 // attributionReport is the per-run accounting attributeStatements produces:
 // the per-symbol statement counts plus everything that could NOT be placed.
 type attributionReport struct {
-	counts            map[int64]symbolCounts
-	filesMatched      int
-	filesUnmatched    int
-	stmtsAttributed   int
-	stmtsUnattributed int
+	counts map[int64]symbolCounts
+	// attributedByFile is the profile path -> statements charged to a symbol.
+	// Per file rather than one running total for the same reason lostByFile
+	// is: the per-test ingest folds many profiles, and only a per-file key
+	// lets merge() tell "the same file again" from "another file".
+	attributedByFile map[string]int
+	// files records every report file and whether it reconciled to an atlas
+	// file. It is the file SET rather than a pair of counters because the
+	// per-test ingest folds many profiles that all describe the same
+	// codebase; counting per profile would multiply one file by the number
+	// of tests that compiled it in.
+	files map[string]bool
 	// lostByFile is the profile path → unattributed statements, and
 	// reasonByFile why. Both are keyed by the PROFILE path (not the atlas
 	// path) so the report names files the way the profile does.
 	lostByFile   map[string]int
 	reasonByFile map[string]string
+
+	// Derived by finalize() from the maps above; never written directly.
+	filesMatched      int
+	filesUnmatched    int
+	stmtsAttributed   int
+	stmtsUnattributed int
+}
+
+// newAttributionReport allocates an empty report ready to accumulate into.
+func newAttributionReport() attributionReport {
+	return attributionReport{
+		counts:           map[int64]symbolCounts{},
+		files:            map[string]bool{},
+		attributedByFile: map[string]int{},
+		lostByFile:       map[string]int{},
+		reasonByFile:     map[string]string{},
+	}
+}
+
+// finalize recomputes the scalar counters from the per-file maps. Keeping one
+// source of truth is what lets merge() fold profiles by union without having
+// to hold a second set of running totals consistent with them.
+func (r *attributionReport) finalize() {
+	r.filesMatched, r.filesUnmatched = 0, 0
+	r.stmtsAttributed, r.stmtsUnattributed = 0, 0
+	for _, matched := range r.files {
+		if matched {
+			r.filesMatched++
+		} else {
+			r.filesUnmatched++
+		}
+	}
+	for _, n := range r.attributedByFile {
+		r.stmtsAttributed += n
+	}
+	for _, n := range r.lostByFile {
+		r.stmtsUnattributed += n
+	}
+}
+
+// merge folds another profile's report into r with UNION semantics, and is
+// how the per-test ingest aggregates one profile per test.
+//
+// Union, not sum, because every per-test profile describes the SAME codebase:
+// a `-coverpkg=./...` profile names every file whether or not that test
+// touched it, so a file atlas cannot index appears in all 1,122 profiles.
+// Summing would report a blind spot 1,122x larger than the code that exists.
+// Whether a statement CAN be attributed is a property of the symbol index,
+// identical in every profile, so per file the largest value seen is the true
+// one — and summing those per-file maxima gives the run's total, which is
+// correct whether the profiles all describe the whole tree or each names only
+// its own package.
+func (r *attributionReport) merge(o attributionReport) {
+	for f, matched := range o.files {
+		r.files[f] = matched
+	}
+	for f, n := range o.attributedByFile {
+		if n > r.attributedByFile[f] {
+			r.attributedByFile[f] = n
+		}
+	}
+	for f, n := range o.lostByFile {
+		if n > r.lostByFile[f] {
+			r.lostByFile[f] = n
+			r.reasonByFile[f] = o.reasonByFile[f]
+		}
+	}
+	r.finalize()
+}
+
+// gapRows renders the report's gaps as store rows, ready to persist.
+func (r attributionReport) gapRows() []store.CoverageGap {
+	gaps := r.gaps()
+	out := make([]store.CoverageGap, 0, len(gaps))
+	for _, g := range gaps {
+		out = append(out, store.CoverageGap{Path: g.Path, Stmts: g.Stmts, Reason: g.Reason})
+	}
+	return out
+}
+
+// withAttribution stamps the report's accounting onto a run row so it is
+// persisted with the run rather than printed once and dropped (issue #100).
+func (r attributionReport) withAttribution(run store.CoverageRun) store.CoverageRun {
+	run.FilesInReport = len(r.files)
+	run.FilesMatched = r.filesMatched
+	run.FilesUnmatched = r.filesUnmatched
+	run.StmtsAttributed = r.stmtsAttributed
+	run.StmtsUnattributed = r.stmtsUnattributed
+	return run
 }
 
 // gaps renders the report's unattributed execution as a stable, sorted list:
@@ -241,11 +341,7 @@ func (r attributionReport) gaps() []FileGap {
 // statements are never double-counted across adjacent symbols — the basis for
 // a per-feature fraction that tracks `go tool cover -func`.
 func attributeStatements(blocksByFile map[string][]gocover.Block, byFile map[string][]symSpan) attributionReport {
-	rep := attributionReport{
-		counts:       map[int64]symbolCounts{},
-		lostByFile:   map[string]int{},
-		reasonByFile: map[string]string{},
-	}
+	rep := newAttributionReport()
 	// Index atlas files by basename for suffix-match reconciliation.
 	byBase := map[string][]string{}
 	for f := range byFile {
@@ -253,23 +349,20 @@ func attributeStatements(blocksByFile map[string][]gocover.Block, byFile map[str
 	}
 	for pf, blocks := range blocksByFile {
 		af := reconcilePath(pf, byBase)
+		rep.files[pf] = af != ""
 		if af == "" {
-			rep.filesUnmatched++
 			lost := 0
 			for _, b := range blocks {
 				lost += b.NumStmts
 			}
-			rep.stmtsUnattributed += lost
 			rep.lostByFile[pf] = lost
 			rep.reasonByFile[pf] = ReasonNoIndexedSymbol
 			continue
 		}
-		rep.filesMatched++
 		syms := byFile[af]
 		for _, b := range blocks {
 			sid, ok := owningSymbol(syms, b.StartLine)
 			if !ok {
-				rep.stmtsUnattributed += b.NumStmts
 				rep.lostByFile[pf] += b.NumStmts
 				rep.reasonByFile[pf] = ReasonOutsideSymbolSpans
 				continue
@@ -280,9 +373,10 @@ func attributeStatements(blocksByFile map[string][]gocover.Block, byFile map[str
 				c.covered += b.NumStmts
 			}
 			rep.counts[sid] = c
-			rep.stmtsAttributed += b.NumStmts
+			rep.attributedByFile[pf] += b.NumStmts
 		}
 	}
+	rep.finalize()
 	return rep
 }
 

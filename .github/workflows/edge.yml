@@ -1,0 +1,168 @@
+name: release (edge channel)
+
+# The edge channel: every commit on main, built and signed by the same
+# pipeline as stable, published to a single rolling prerelease tagged
+# `edge`.
+#
+# What "edge" promises, precisely (docs/install.md says the same thing to
+# users, and the two must not drift):
+#
+#   - the same build guarantees as stable: reproducible, cgo-free, signed
+#     with the same keyless identity, covered by the same SHA256SUMS, and
+#     carrying the same SLSA provenance attestation
+#   - nothing else. No compatibility promise between one edge build and the
+#     next, for the CLI surface, the --json envelope or the on-disk store
+#     schema. The `edge` tag is force-moved, so yesterday's edge binary is
+#     not retrievable from this channel.
+#
+# Asset names are FIXED (`atlas_edge_<goos>_<goarch>`), not describe-stamped
+# — see edge-assets.sh. A rolling channel needs a URL that does not move,
+# and the consumer action asks for exactly those names.
+#
+# It exists because "wait for the next release to find out whether the fix
+# works" is how a gate stops being adopted, not because edge is a place to
+# ship half-finished work.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Never two edge publishes at once: they race on force-moving the same
+  # tag, and the loser silently leaves assets from one commit attached to a
+  # release pointing at another.
+  group: edge-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  edge:
+    name: build, sign and publish edge (blocking)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # move the `edge` tag and replace its release assets
+      id-token: write # OIDC token for cosign keyless signing + provenance
+      attestations: write # store the SLSA provenance attestation
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Read the pinned Go toolchain
+        id: toolchain
+        run: echo "version=$(tr -d '[:space:]' < .github/scripts/toolchain.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+          cache: true
+
+      - name: Derive the edge version
+        id: version
+        # `git describe` against the last release tag, e.g.
+        # v0.13.0-7-gabc1234: the base release, how far past it this commit
+        # is, and which commit it is. It sorts BELOW v0.13.0 under semver
+        # precedence even though it is newer code — that is a known
+        # property of the convention, and the reason edge carries no
+        # ordering promise against stable.
+        run: |
+          set -euo pipefail
+          VERSION="$(git describe --tags --match 'v[0-9]*' --always HEAD)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Cross-compile every shipped target
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: .github/scripts/build-matrix.sh
+
+      - name: Prove the build is reproducible
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TARGETS: linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
+        run: .github/scripts/verify-repro.sh
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/atlas_${{ steps.version.outputs.version }}_sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Give the assets the edge channel's fixed names
+        # Before SHA256SUMS on purpose: the manifest, and the signature over
+        # it, must cover the names consumers actually download. The binaries
+        # keep their describe-stamped version internally.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: .github/scripts/edge-assets.sh --dist dist --version "$VERSION"
+
+      - name: Write SHA256SUMS
+        run: .github/scripts/checksums.sh dist
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - name: Sign SHA256SUMS (keyless)
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --bundle dist/SHA256SUMS.cosign.bundle \
+            dist/SHA256SUMS
+
+      - name: Attest build provenance (SLSA)
+        # The channels table in docs/install.md promises edge the same
+        # provenance as stable, and the consumer action defaults
+        # verify-provenance to true for every channel. Both were false
+        # while this step was missing.
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'dist/atlas_edge_*'
+
+      - name: Publish the rolling edge release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Delete the release first, then move the tag, then recreate.
+          # --cleanup-tag is deliberately NOT used: deleting the tag while
+          # the release still references it leaves a window where the
+          # download URL 404s for everyone, and edge is meant to be
+          # installable at any moment.
+          gh release delete edge --yes || true
+          git tag -f edge "$GITHUB_SHA"
+          git push -f origin refs/tags/edge
+
+          # Notes via a file rather than an inline multi-line argument: a
+          # block scalar in YAML keeps its indentation, which would show up
+          # verbatim on the release page.
+          {
+            printf 'Rolling build of `main` at `%s`.\n\n' "$VERSION"
+            printf 'Same pipeline as a stable release: reproducible, cgo-free, signed with the\n'
+            printf 'same keyless Sigstore identity, covered by the same `SHA256SUMS`, and\n'
+            printf 'attested with the same SLSA build provenance.\n\n'
+            printf 'Assets are named `atlas_edge_<os>_<arch>` — fixed, not version-stamped, so\n'
+            printf 'the download URL does not move when this tag does. The binary itself still\n'
+            printf 'reports `%s` from `atlas version`.\n\n' "$VERSION"
+            printf 'No compatibility promise of any kind between edge builds. CLI flags, the\n'
+            printf '`--json` envelope and the store schema may all change without notice, and this\n'
+            printf 'tag is force-moved on every commit to `main`, so this build will not be\n'
+            printf 'retrievable once the next one lands. Use a `vX.Y.Z` release if you need any of\n'
+            printf 'that to hold.\n\n'
+            printf 'Verification instructions: docs/install.md.\n'
+          } > "$RUNNER_TEMP/edge-notes.md"
+
+          gh release create edge dist/* \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "edge ($VERSION)" \
+            --notes-file "$RUNNER_TEMP/edge-notes.md"

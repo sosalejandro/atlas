@@ -17,9 +17,16 @@ testreg
 *.out
 coverage.html
 # ...except checked-in coverage fixtures, which are test data, not build
-# output: packages/coverage/testdata/**/cover.out is the verbatim profile the
-# attribution acceptance test asserts against.
-!packages/coverage/testdata/**/*.out
+# output. A coverprofile committed under a testdata/ directory is an input a
+# test asserts against, and `*.out` swallowing one is a failure that only shows
+# up in CI: the file is present on the machine that generated it, so the local
+# suite passes and the pushed branch does not. It has cost this repo two
+# debugging sessions (the attribution fixture, then the control-flow one).
+#
+# Anything under a testdata/ directory is therefore un-ignored, whatever its
+# extension. New fixtures should also prefer a .coverprofile suffix, which no
+# build-output rule claims in the first place.
+!**/testdata/**
 
 # Go workspace file
 go.work
@@ -45,3 +52,18 @@ Thumbs.db
 /bin/
 .testreg-cache/
 node_modules/
+
+# Design canvases: the .dc.html artboards and canvas.json are source and are
+# tracked; the seeded single-file canvas is a 3 MB build artifact.
+.design/**/atlas-*.html
+.design/**/docs-that-fail-ci.html
+
+# `atlas onboard` writes its provisional capability map here on every run,
+# including the runs this repo's own docs are recorded from. It is a derived
+# proposal set, regenerated from scratch each time, so it is not committed
+# here — a project that wants its proposals in review can un-ignore it.
+.atlas/provisional/
+
+# Agent worktrees live inside the repo and would otherwise be committed as
+# embedded repositories — and would be matched by ./... in go test and lint.
+.claude/worktrees/

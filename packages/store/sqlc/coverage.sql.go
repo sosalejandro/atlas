@@ -12,7 +12,9 @@ import (
 )
 
 const getCoverageRun = `-- name: GetCoverageRun :one
-SELECT id, framework, started_at, finished_at, raw_path, summary_json
+SELECT id, framework, started_at, finished_at, raw_path, summary_json,
+       files_in_report, files_matched, files_unmatched,
+       stmts_attributed, stmts_unattributed, gaps_truncated, run_group
 FROM coverage_runs
 WHERE id = ?
 `
@@ -27,6 +29,13 @@ func (q *Queries) GetCoverageRun(ctx context.Context, id int64) (CoverageRun, er
 		&i.FinishedAt,
 		&i.RawPath,
 		&i.SummaryJson,
+		&i.FilesInReport,
+		&i.FilesMatched,
+		&i.FilesUnmatched,
+		&i.StmtsAttributed,
+		&i.StmtsUnattributed,
+		&i.GapsTruncated,
+		&i.RunGroup,
 	)
 	return i, err
 }
@@ -58,16 +67,26 @@ func (q *Queries) InsertCoverageResult(ctx context.Context, arg InsertCoverageRe
 }
 
 const insertCoverageRun = `-- name: InsertCoverageRun :execresult
-INSERT INTO coverage_runs (framework, started_at, finished_at, raw_path, summary_json)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO coverage_runs (
+  framework, started_at, finished_at, raw_path, summary_json, run_group,
+  files_in_report, files_matched, files_unmatched,
+  stmts_attributed, stmts_unattributed
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertCoverageRunParams struct {
-	Framework   string    `db:"framework" json:"framework"`
-	StartedAt   time.Time `db:"started_at" json:"started_at"`
-	FinishedAt  time.Time `db:"finished_at" json:"finished_at"`
-	RawPath     *string   `db:"raw_path" json:"raw_path"`
-	SummaryJson string    `db:"summary_json" json:"summary_json"`
+	Framework         string    `db:"framework" json:"framework"`
+	StartedAt         time.Time `db:"started_at" json:"started_at"`
+	FinishedAt        time.Time `db:"finished_at" json:"finished_at"`
+	RawPath           *string   `db:"raw_path" json:"raw_path"`
+	SummaryJson       string    `db:"summary_json" json:"summary_json"`
+	RunGroup          *string   `db:"run_group" json:"run_group"`
+	FilesInReport     int64     `db:"files_in_report" json:"files_in_report"`
+	FilesMatched      int64     `db:"files_matched" json:"files_matched"`
+	FilesUnmatched    int64     `db:"files_unmatched" json:"files_unmatched"`
+	StmtsAttributed   int64     `db:"stmts_attributed" json:"stmts_attributed"`
+	StmtsUnattributed int64     `db:"stmts_unattributed" json:"stmts_unattributed"`
 }
 
 func (q *Queries) InsertCoverageRun(ctx context.Context, arg InsertCoverageRunParams) (sql.Result, error) {
@@ -77,11 +96,19 @@ func (q *Queries) InsertCoverageRun(ctx context.Context, arg InsertCoverageRunPa
 		arg.FinishedAt,
 		arg.RawPath,
 		arg.SummaryJson,
+		arg.RunGroup,
+		arg.FilesInReport,
+		arg.FilesMatched,
+		arg.FilesUnmatched,
+		arg.StmtsAttributed,
+		arg.StmtsUnattributed,
 	)
 }
 
 const listAllCoverageRuns = `-- name: ListAllCoverageRuns :many
-SELECT id, framework, started_at, finished_at, raw_path, summary_json
+SELECT id, framework, started_at, finished_at, raw_path, summary_json,
+       files_in_report, files_matched, files_unmatched,
+       stmts_attributed, stmts_unattributed, gaps_truncated, run_group
 FROM coverage_runs
 ORDER BY finished_at DESC, id DESC
 `
@@ -102,6 +129,13 @@ func (q *Queries) ListAllCoverageRuns(ctx context.Context) ([]CoverageRun, error
 			&i.FinishedAt,
 			&i.RawPath,
 			&i.SummaryJson,
+			&i.FilesInReport,
+			&i.FilesMatched,
+			&i.FilesUnmatched,
+			&i.StmtsAttributed,
+			&i.StmtsUnattributed,
+			&i.GapsTruncated,
+			&i.RunGroup,
 		); err != nil {
 			return nil, err
 		}
@@ -164,8 +198,54 @@ func (q *Queries) ListCoverageResults(ctx context.Context, runID int64) ([]ListC
 	return items, nil
 }
 
+const listCoverageResultsByGroup = `-- name: ListCoverageResultsByGroup :many
+SELECT r.id, r.run_id, r.symbol_id, r.feature_id, r.status, r.duration_ms, r.message,
+       r.covered_stmts, r.total_stmts
+FROM coverage_results r
+JOIN coverage_runs g ON g.id = r.run_id
+WHERE g.run_group = ?
+ORDER BY r.run_id, r.id
+`
+
+// One join rather than a query per run: the audit reads a frontier once per
+// feature, so a round trip per framework would multiply across a large repo.
+func (q *Queries) ListCoverageResultsByGroup(ctx context.Context, runGroup *string) ([]CoverageResult, error) {
+	rows, err := q.db.QueryContext(ctx, listCoverageResultsByGroup, runGroup)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CoverageResult{}
+	for rows.Next() {
+		var i CoverageResult
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.SymbolID,
+			&i.FeatureID,
+			&i.Status,
+			&i.DurationMs,
+			&i.Message,
+			&i.CoveredStmts,
+			&i.TotalStmts,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCoverageRunsByFramework = `-- name: ListCoverageRunsByFramework :many
-SELECT id, framework, started_at, finished_at, raw_path, summary_json
+SELECT id, framework, started_at, finished_at, raw_path, summary_json,
+       files_in_report, files_matched, files_unmatched,
+       stmts_attributed, stmts_unattributed, gaps_truncated, run_group
 FROM coverage_runs
 WHERE framework = ?
 ORDER BY finished_at DESC, id DESC
@@ -187,6 +267,13 @@ func (q *Queries) ListCoverageRunsByFramework(ctx context.Context, framework str
 			&i.FinishedAt,
 			&i.RawPath,
 			&i.SummaryJson,
+			&i.FilesInReport,
+			&i.FilesMatched,
+			&i.FilesUnmatched,
+			&i.StmtsAttributed,
+			&i.StmtsUnattributed,
+			&i.GapsTruncated,
+			&i.RunGroup,
 		); err != nil {
 			return nil, err
 		}
@@ -199,4 +286,82 @@ func (q *Queries) ListCoverageRunsByFramework(ctx context.Context, framework str
 		return nil, err
 	}
 	return items, nil
+}
+
+const listCoverageRunsByGroup = `-- name: ListCoverageRunsByGroup :many
+SELECT id, framework, started_at, finished_at, raw_path, summary_json,
+       files_in_report, files_matched, files_unmatched,
+       stmts_attributed, stmts_unattributed, gaps_truncated, run_group
+FROM coverage_runs
+WHERE run_group = ?
+ORDER BY finished_at DESC, id DESC
+`
+
+func (q *Queries) ListCoverageRunsByGroup(ctx context.Context, runGroup *string) ([]CoverageRun, error) {
+	rows, err := q.db.QueryContext(ctx, listCoverageRunsByGroup, runGroup)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CoverageRun{}
+	for rows.Next() {
+		var i CoverageRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.Framework,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.RawPath,
+			&i.SummaryJson,
+			&i.FilesInReport,
+			&i.FilesMatched,
+			&i.FilesUnmatched,
+			&i.StmtsAttributed,
+			&i.StmtsUnattributed,
+			&i.GapsTruncated,
+			&i.RunGroup,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const newestCoverageRun = `-- name: NewestCoverageRun :one
+SELECT id, framework, started_at, finished_at, raw_path, summary_json,
+       files_in_report, files_matched, files_unmatched,
+       stmts_attributed, stmts_unattributed, gaps_truncated, run_group
+FROM coverage_runs
+ORDER BY finished_at DESC, id DESC
+LIMIT 1
+`
+
+// The single most recent run, used as the seed for the coverage frontier: its
+// group (if any) is what the audit scores over.
+func (q *Queries) NewestCoverageRun(ctx context.Context) (CoverageRun, error) {
+	row := q.db.QueryRowContext(ctx, newestCoverageRun)
+	var i CoverageRun
+	err := row.Scan(
+		&i.ID,
+		&i.Framework,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.RawPath,
+		&i.SummaryJson,
+		&i.FilesInReport,
+		&i.FilesMatched,
+		&i.FilesUnmatched,
+		&i.StmtsAttributed,
+		&i.StmtsUnattributed,
+		&i.GapsTruncated,
+		&i.RunGroup,
+	)
+	return i, err
 }

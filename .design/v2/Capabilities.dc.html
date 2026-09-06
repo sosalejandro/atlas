@@ -1,0 +1,176 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #10141a; color: #dfe2eb;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased; }
+    a { color: #a2c9ff; text-decoration: none; }
+    a:hover { color: #58a6ff; }
+    .mono { font-family: 'JetBrains Mono', monospace; font-feature-settings: "tnum"; }
+  </style>
+</helmet>
+<div style="width:1440px;height:900px;display:flex;flex-direction:column;background:#10141a;overflow:hidden">
+  <header style="height:48px;flex:0 0 48px;background:#0a0e14;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid #414752"><div style="display:flex;align-items:center;gap:12px"><div style="display:flex;align-items:center;gap:8px"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="#a2c9ff" stroke-width="1.6"><circle cx="10" cy="10" r="7.2"/><circle cx="10" cy="10" r="2.4" fill="#a2c9ff" stroke="none"/></svg><span style="font-size:15px;font-weight:700;color:#dfe2eb;letter-spacing:-.01em">atlas</span></div><div style="width:1px;height:16px;background:#414752"></div><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#a2c9ff;font-weight:500">nutrition-v2-go</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#8b919d">main @ 8523b6c</span></div><div style="display:flex;align-items:center;gap:8px"><div style="display:flex;align-items:center;gap:6px;background:linear-gradient(to bottom,#a2c9ff,#58a6ff);color:#00315c;padding:5px 11px;border-radius:3px;font-size:11px;font-weight:700;letter-spacing:.08em"><svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="#00315c" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2.6"/><path d="M10 3v2.5M10 14.5V17M3 10h2.5M14.5 10H17"/></svg><span>SCAN</span></div><div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#8b919d"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2M10 15.4v2M17.4 10h-2M5 10H3M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2 4.8 4.8"/></svg></div></div></header>
+  <div style="flex:1 1 auto;display:flex;min-height:0">
+    <aside style="width:200px;flex:0 0 200px;background:#0a0e14;display:flex;flex-direction:column;border-right:1px solid #414752"><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M4 5h9M4 5 6.5 2.5M4 5l2.5 2.5"/><path d="M16 15H7m9 0-2.5-2.5M16 15l-2.5 2.5"/></svg><span>Since main</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:rgba(162,201,255,0.10);color:#a2c9ff;border-left:3px solid #a2c9ff;font-size:13px;font-weight:600"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M3 5h14M3 10h14M3 15h9"/></svg><span>Capabilities</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="10" cy="4" r="2"/><circle cx="4.5" cy="15" r="2"/><circle cx="15.5" cy="15" r="2"/><path d="M10 6v3m0 0-4.5 4M10 9l4.5 4"/></svg><span>Diagrams</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/></svg><span>Matrix</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M10 2.5 3.5 5v4.2c0 3.9 2.7 7.1 6.5 8.3 3.8-1.2 6.5-4.4 6.5-8.3V5L10 2.5Z"/><path d="m7.4 10 1.9 1.9 3.5-3.6"/></svg><span>Trust</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="5" cy="5" r="2"/><circle cx="15" cy="10" r="2"/><circle cx="5" cy="15" r="2"/><path d="M7 6.5 13 9M7 13.5 13 11"/></svg><span>Workspace</span></div><div style="margin-top:auto;padding:14px 16px"><div style="padding:8px 10px;background:#181c22;border-radius:4px;display:flex;flex-direction:column;gap:1px"><span style="font-size:9px;letter-spacing:.16em;font-weight:700;color:#8b919d">ATLAS</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#c0c7d4">v0.14.0</span></div></div></aside>
+    <main style="flex:1 1 auto;min-width:0;overflow:hidden;padding:20px 24px">
+
+<div style="display:flex;gap:16px;height:96px;margin-bottom:16px">
+  <div style="flex:1;background:#1c2026;border:1px solid #414752;border-top:2px solid #67df70;border-radius:8px;padding:13px 15px;display:flex;flex-direction:column;justify-content:space-between">
+    <div style="font-size:10px;letter-spacing:.1em;font-weight:700;color:#8b919d">DECLARED &AMP; VERIFIED</div>
+    <div style="font-size:26px;font-weight:700;color:#dfe2eb" class="mono">148</div>
+  </div><div style="flex:1;background:#1c2026;border:1px solid #414752;border-top:2px solid #ffb4ab;border-radius:8px;padding:13px 15px;display:flex;flex-direction:column;justify-content:space-between">
+    <div style="font-size:10px;letter-spacing:.1em;font-weight:700;color:#8b919d">DECLARED, DRIFTED</div>
+    <div style="font-size:26px;font-weight:700;color:#dfe2eb" class="mono">39</div>
+  </div><div style="flex:1;background:#1c2026;border:1px solid #414752;border-top:2px solid #414752;border-radius:8px;padding:13px 15px;display:flex;flex-direction:column;justify-content:space-between">
+    <div style="font-size:10px;letter-spacing:.1em;font-weight:700;color:#8b919d">DECLARED, NOT BUILT</div>
+    <div style="font-size:26px;font-weight:700;color:#dfe2eb" class="mono">27</div>
+  </div><div style="flex:1;background:#1c2026;border:1px solid #414752;border-top:2px solid #ffd479;border-radius:8px;padding:13px 15px;display:flex;flex-direction:column;justify-content:space-between">
+    <div style="font-size:10px;letter-spacing:.1em;font-weight:700;color:#8b919d">CODE, UNDECLARED</div>
+    <div style="font-size:26px;font-weight:700;color:#dfe2eb" class="mono">97</div>
+  </div>
+</div>
+<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+  <div style="flex:1;display:flex;align-items:center;gap:8px;background:#1c2026;border:1px solid #414752;border-radius:4px;padding:7px 11px">
+    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="#8b919d" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 4 4"/></svg><span style="font-size:12px;color:#8b919d">Search capabilities&hellip;</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;background:#1c2026;border:1px solid #414752;border-radius:4px;padding:7px 11px;font-size:12px;color:#c0c7d4">repo: all <span style="color:#8b919d">&#9662;</span></div><div style="display:flex;align-items:center;gap:6px;background:#1c2026;border:1px solid #414752;border-radius:4px;padding:7px 11px;font-size:12px;color:#c0c7d4">state: all <span style="color:#8b919d">&#9662;</span></div><div style="display:flex;align-items:center;gap:6px;background:#1c2026;border:1px solid #414752;border-radius:4px;padding:7px 11px;font-size:12px;color:#c0c7d4">sort: churn x gap <span style="color:#8b919d">&#9662;</span></div>
+  <span style="font-size:11px;color:#8b919d;margin-left:4px" class="mono">311</span>
+</div>
+<div style="background:#1c2026;border:1px solid #414752;border-radius:8px;overflow:hidden">
+  <div style="display:flex;gap:12px;padding:9px 14px;background:#181c22;font-size:10px;letter-spacing:.1em;font-weight:700;color:#8b919d">
+    <span style="width:14px"></span><span style="flex:1.7">CAPABILITY</span><span style="flex:1">DOMAIN</span>
+    <span style="width:118px;text-align:right">COVERAGE</span><span style="width:112px">EVIDENCE</span>
+    <span style="width:56px;text-align:right">TESTS</span><span style="width:110px;text-align:right">STATE</span>
+  </div>
+  <div style="display:flex;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid #414752;font-size:12px">
+    <span style="width:14px"><span style="width:8px;height:8px;border-radius:50%;background:#67df70;flex:0 0 auto"></span></span>
+    <span style="flex:1.7;color:#dfe2eb" class="mono">identity.login</span>
+    <span style="flex:1;color:#8b919d" class="mono">identity</span>
+    <span style="width:118px;display:flex;align-items:center;gap:8px;justify-content:flex-end">
+      <span style="width:54px"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:91%;height:100%;background:#67df70;border-radius:2px"></div></div></span>
+      <span style="color:#67df70;width:34px;text-align:right" class="mono">91%</span>
+    </span>
+    <span style="width:112px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#c0c7d4;background:#31353c;padding:2px 7px;border-radius:3px;white-space:nowrap">dynamic</span></span>
+    <span style="width:56px;text-align:right;color:#c0c7d4" class="mono">32</span>
+    <span style="width:110px;text-align:right"><span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#67df70;background:rgba(103,223,112,0.12);padding:2px 7px;border-radius:3px">VERIFIED</span></span>
+  </div><div style="display:flex;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid #414752;font-size:12px">
+    <span style="width:14px"><span style="width:8px;height:8px;border-radius:50%;background:#67df70;flex:0 0 auto"></span></span>
+    <span style="flex:1.7;color:#dfe2eb" class="mono">identity.session</span>
+    <span style="flex:1;color:#8b919d" class="mono">identity</span>
+    <span style="width:118px;display:flex;align-items:center;gap:8px;justify-content:flex-end">
+      <span style="width:54px"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:84%;height:100%;background:#67df70;border-radius:2px"></div></div></span>
+      <span style="color:#67df70;width:34px;text-align:right" class="mono">84%</span>
+    </span>
+    <span style="width:112px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#c0c7d4;background:#31353c;padding:2px 7px;border-radius:3px;white-space:nowrap">dynamic</span></span>
+    <span style="width:56px;text-align:right;color:#c0c7d4" class="mono">18</span>
+    <span style="width:110px;text-align:right"><span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#67df70;background:rgba(103,223,112,0.12);padding:2px 7px;border-radius:3px">VERIFIED</span></span>
+  </div><div style="display:flex;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid #414752;font-size:12px">
+    <span style="width:14px"><span style="width:8px;height:8px;border-radius:50%;background:#67df70;flex:0 0 auto"></span></span>
+    <span style="flex:1.7;color:#dfe2eb" class="mono">billing.checkout</span>
+    <span style="flex:1;color:#8b919d" class="mono">billing</span>
+    <span style="width:118px;display:flex;align-items:center;gap:8px;justify-content:flex-end">
+      <span style="width:54px"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:91%;height:100%;background:#67df70;border-radius:2px"></div></div></span>
+      <span style="color:#67df70;width:34px;text-align:right" class="mono">91%</span>
+    </span>
+    <span style="width:112px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#c0c7d4;background:#31353c;padding:2px 7px;border-radius:3px;white-space:nowrap">dynamic</span></span>
+    <span style="width:56px;text-align:right;color:#c0c7d4" class="mono">24</span>
+    <span style="width:110px;text-align:right"><span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#67df70;background:rgba(103,223,112,0.12);padding:2px 7px;border-radius:3px">VERIFIED</span></span>
+  </div><div style="display:flex;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid #414752;font-size:12px">
+    <span style="width:14px"><span style="width:8px;height:8px;border-radius:50%;background:#ffb4ab;flex:0 0 auto"></span></span>
+    <span style="flex:1.7;color:#dfe2eb" class="mono">billing.dunning</span>
+    <span style="flex:1;color:#8b919d" class="mono">billing</span>
+    <span style="width:118px;display:flex;align-items:center;gap:8px;justify-content:flex-end">
+      <span style="width:54px"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:66%;height:100%;background:#ffd479;border-radius:2px"></div></div></span>
+      <span style="color:#ffd479;width:34px;text-align:right" class="mono">66%</span>
+    </span>
+    <span style="width:112px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#c0c7d4;background:#31353c;padding:2px 7px;border-radius:3px;white-space:nowrap">dynamic</span></span>
+    <span style="width:56px;text-align:right;color:#c0c7d4" class="mono">11</span>
+    <span style="width:110px;text-align:right"><span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.06em;color:#ffdad6;background:#93000a;padding:2px 7px;border-radius:3px">DRIFTED</span></span>
+  </div><div style="display:flex;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid #414752;font-size:12px">
+    <span style="width:14px"><span style="width:8px;height:8px;border-radius:50%;background:#ffb4ab;flex:0 0 auto"></span></span>
+    <span style="flex:1.7;color:#dfe2eb" class="mono">measurements.log-entry</span>
+    <span style="flex:1;color:#8b919d" class="mono">measurements</span>
+    <span style="width:118px;display:flex;align-items:center;gap:8px;justify-content:flex-end">
+      <span style="width:54px"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:8%;height:100%;background:#ffb4ab;border-radius:2px"></div></div></span>
+      <span style="color:#ffb4ab;width:34px;text-align:right" class="mono">8%</span>
+    </span>
+    <span style="width:112px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#c0c7d4;background:#31353c;padding:2px 7px;border-radius:3px;white-space:nowrap">dynamic</span></span>
+    <span style="width:56px;text-align:right;color:#c0c7d4" class="mono">2</span>
+    <span style="width:110px;text-align:right"><span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.06em;color:#ffdad6;background:#93000a;padding:2px 7px;border-radius:3px">DRIFTED</span></span>
+  </div><div style="display:flex;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid #414752;font-size:12px">
+    <span style="width:14px"><span style="width:8px;height:8px;border-radius:50%;border:1px solid #8b919d;flex:0 0 auto"></span></span>
+    <span style="flex:1.7;color:#dfe2eb" class="mono">measurements.weekly-summary</span>
+    <span style="flex:1;color:#8b919d" class="mono">measurements</span>
+    <span style="width:118px;display:flex;align-items:center;gap:8px;justify-content:flex-end">
+      <span style="width:54px;height:5px;border-radius:3px;background:repeating-linear-gradient(135deg,rgba(139,145,157,0.25) 0 3px,transparent 3px 6px)"></span>
+      <span style="color:#8b919d;width:34px;text-align:right" class="mono">&mdash;</span>
+    </span>
+    <span style="width:112px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#8b919d;background:#31353c;padding:2px 7px;border-radius:3px;white-space:nowrap">none</span></span>
+    <span style="width:56px;text-align:right;color:#c0c7d4" class="mono">&mdash;</span>
+    <span style="width:110px;text-align:right"><span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#8b919d;background:repeating-linear-gradient(135deg,rgba(139,145,157,0.10) 0 4px,transparent 4px 8px);border:1px solid #414752;padding:1px 6px;border-radius:3px">UNVERIFIABLE</span></span>
+  </div><div style="display:flex;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid #414752;font-size:12px">
+    <span style="width:14px"><span style="width:8px;height:8px;border-radius:50%;background:#67df70;flex:0 0 auto"></span></span>
+    <span style="flex:1.7;color:#dfe2eb" class="mono">communication.thread</span>
+    <span style="flex:1;color:#8b919d" class="mono">direct-messaging</span>
+    <span style="width:118px;display:flex;align-items:center;gap:8px;justify-content:flex-end">
+      <span style="width:54px"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:88%;height:100%;background:#67df70;border-radius:2px"></div></div></span>
+      <span style="color:#67df70;width:34px;text-align:right" class="mono">88%</span>
+    </span>
+    <span style="width:112px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#c0c7d4;background:#31353c;padding:2px 7px;border-radius:3px;white-space:nowrap">dynamic</span></span>
+    <span style="width:56px;text-align:right;color:#c0c7d4" class="mono">14</span>
+    <span style="width:110px;text-align:right"><span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#67df70;background:rgba(103,223,112,0.12);padding:2px 7px;border-radius:3px">VERIFIED</span></span>
+  </div><div style="display:flex;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid #414752;font-size:12px">
+    <span style="width:14px"><span style="width:8px;height:8px;border-radius:50%;background:#67df70;flex:0 0 auto"></span></span>
+    <span style="flex:1.7;color:#dfe2eb" class="mono">commerce.refund</span>
+    <span style="flex:1;color:#8b919d" class="mono">commerce</span>
+    <span style="width:118px;display:flex;align-items:center;gap:8px;justify-content:flex-end">
+      <span style="width:54px"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:61%;height:100%;background:#ffd479;border-radius:2px"></div></div></span>
+      <span style="color:#ffd479;width:34px;text-align:right" class="mono">61%</span>
+    </span>
+    <span style="width:112px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#c0c7d4;background:#31353c;padding:2px 7px;border-radius:3px;white-space:nowrap">static</span></span>
+    <span style="width:56px;text-align:right;color:#c0c7d4" class="mono">6</span>
+    <span style="width:110px;text-align:right"><span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#67df70;background:rgba(103,223,112,0.12);padding:2px 7px;border-radius:3px">VERIFIED</span></span>
+  </div><div style="display:flex;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid #414752;font-size:12px">
+    <span style="width:14px"><span style="width:8px;height:8px;border-radius:50%;border:1px dashed #414752;flex:0 0 auto"></span></span>
+    <span style="flex:1.7;color:#dfe2eb" class="mono">pantry.grocery-list</span>
+    <span style="flex:1;color:#8b919d" class="mono">pantry</span>
+    <span style="width:118px;display:flex;align-items:center;gap:8px;justify-content:flex-end">
+      <span style="width:54px;height:5px;border-radius:3px;background:repeating-linear-gradient(135deg,rgba(139,145,157,0.25) 0 3px,transparent 3px 6px)"></span>
+      <span style="color:#8b919d;width:34px;text-align:right" class="mono">&mdash;</span>
+    </span>
+    <span style="width:112px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#8b919d;background:#31353c;padding:2px 7px;border-radius:3px;white-space:nowrap">none</span></span>
+    <span style="width:56px;text-align:right;color:#c0c7d4" class="mono">&mdash;</span>
+    <span style="width:110px;text-align:right"><span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#414752;border:1px dashed #414752;padding:1px 6px;border-radius:3px">NOT BUILT</span></span>
+  </div><div style="display:flex;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid #414752;font-size:12px">
+    <span style="width:14px"><span style="width:8px;height:8px;border-radius:50%;background:#ffb4ab;flex:0 0 auto"></span></span>
+    <span style="flex:1.7;color:#dfe2eb" class="mono">training.dashboard</span>
+    <span style="flex:1;color:#8b919d" class="mono">training</span>
+    <span style="width:118px;display:flex;align-items:center;gap:8px;justify-content:flex-end">
+      <span style="width:54px"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:35%;height:100%;background:#ffb4ab;border-radius:2px"></div></div></span>
+      <span style="color:#ffb4ab;width:34px;text-align:right" class="mono">35%</span>
+    </span>
+    <span style="width:112px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#c0c7d4;background:#31353c;padding:2px 7px;border-radius:3px;white-space:nowrap">package-anchor</span></span>
+    <span style="width:56px;text-align:right;color:#c0c7d4" class="mono">4</span>
+    <span style="width:110px;text-align:right"><span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.06em;color:#ffdad6;background:#93000a;padding:2px 7px;border-radius:3px">DRIFTED</span></span>
+  </div>
+</div>
+<div style="display:flex;align-items:center;gap:10px;margin-top:14px;font-size:11px;color:#8b919d">
+  <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="#8b919d" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M10 2.5 3.5 5v4.2c0 3.9 2.7 7.1 6.5 8.3 3.8-1.2 6.5-4.4 6.5-8.3V5L10 2.5Z"/><path d="m7.4 10 1.9 1.9 3.5-3.6"/></svg>
+  <span>&ldquo;Evidence&rdquo; is how the surface was derived: <span class="mono" style="color:#c0c7d4">dynamic</span> (what the capability&rsquo;s own tests executed) beats <span class="mono">static</span> (a call-edge walk) beats <span class="mono">package-anchor</span>. A number without evidence is not shown as a number.</span>
+</div>
+    </main>
+  </div>
+  <footer style="height:32px;flex:0 0 32px;border-top:1px solid #414752;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#8b919d"><span>311 capabilities &middot; 97 undeclared &middot; 27 not built</span><span>attribution 91.4% &middot; sorted by churn x gap</span></footer>
+</div>
+</x-dc>
+</body>
+</html>

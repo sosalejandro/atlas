@@ -18,6 +18,24 @@
 // Cost is a discrete bucket — S (≤3 symbols), M (4–15), L (>15) — based on
 // the count of impl/contract symbols linked to the feature.
 //
+// # Churn weighting
+//
+// Options.Churn turns on the hotspot model from issue #93: every item's
+// priority is multiplied by how often the feature's files actually change,
+// mined from git by packages/churn.
+//
+//	WeightedPriority = Priority * Churn.Score / 100
+//
+// The two factors multiply rather than add, because the failure this
+// exists to fix is a backlog where code that is bad and DEAD ranks
+// alongside code that is bad and edited weekly — and only the second is
+// worth a sprint. Adding the terms would leave the dead code near the top.
+//
+// It is opt-in. Priority keeps its meaning either way; churn changes the
+// ORDER, and both factors stay visible on the item so the ordering can be
+// argued with. Hotspots is the same model with the bug/recency terms
+// dropped: gap x churn and nothing else.
+//
 // The package is intentionally read-only against Store; it doesn't mutate
 // the database. Callers persist results separately when needed.
 package sprintplan

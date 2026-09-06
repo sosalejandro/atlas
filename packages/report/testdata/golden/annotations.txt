@@ -1,0 +1,3 @@
+::error file=internal/billing/invoice.go,line=42,endLine=87,title=atlas/feature-uncovered::feature billing.invoice scores 12.0/100 (coverage 4.0)
+::warning file=internal/legacy/shim.go,line=7,title=atlas/dead-code::Shim has 0 incoming import edges (dead-code candidate)
+::notice file=internal/worker/queue.go,line=1,title=atlas/coverage-unattributed::118 statements executed but charged to no indexed symbol (reason: no-indexed-symbol)

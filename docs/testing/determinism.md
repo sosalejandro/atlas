@@ -1,0 +1,207 @@
+# Determinism
+
+Atlas's pitch is "the numbers are true". A number that changes when nothing
+in the source changed is not true, it is a coin flip with a decimal point.
+This document describes the property, the tests that enforce it, the corpus
+they run against, and the places where the property does not hold yet.
+
+## The property
+
+> For a fixed source tree and fixed options, every scan produces the same
+> symbols, the same edges, the same positions, the same annotations and the
+> same persisted rows — independent of iteration order, scheduling, and the
+> absolute path of the checkout.
+
+Ordering of the *containers* is not part of the contract: `Result.Symbols`
+is materialised by ranging over `Graph.Nodes`, which is a map, so the slice
+order genuinely varies run to run. Content is part of the contract. The
+tests therefore compare canonicalised (sorted) renderings, which keeps the
+comparison ordering-independent without making it content-insensitive —
+duplicates survive as duplicate lines, so counts stay pinned too.
+
+## Why this is a test and not a code review
+
+Two determinism bugs reached `main` this year and both were found by hand:
+
+- map-iteration order in the fuzzy resolvers (PR #99);
+- `LastInsertId` returning a neighbouring row's id (#97), which wired edges
+  to the wrong symbols while `symbols: N  edges: M` stayed reassuringly
+  stable.
+
+Neither would have been caught by any test in the repo. Both are
+disqualifying for the regulated tier (#119), where "the tool produces the
+same answer twice" is evidence you have to be able to produce. And the
+moment #109 parallelises the scan, the whole class comes back silently.
+
+## The suite
+
+| Test | Package | What it pins |
+| --- | --- | --- |
+| `TestDeterminism_GoScanner_ScanIsReproducible` | `packages/codeindex/go` | Repeated scans of the corpus under varying `GOMAXPROCS`, across four option sets (plain, pre-resolved routes, `SkipTests`, `EntryPoints`), render byte-identical. |
+| `TestDeterminism_GoScanner_IsRootRelative` | `packages/codeindex/go` | The corpus copied into two differently-named temp directories scans identically, and no absolute path leaks into the output. |
+| `TestGoldenCorpus_SymbolsAndEdgesMatchSnapshot` | `packages/codeindex/go` | The corpus scan matches the snapshot checked in beside it. |
+| `TestDeterminism_Ingest_TwoStoresAgree` | `packages/store` | Two independent scan-and-ingest runs of the same tree produce identical `symbols`, `edges`, `annotations`, `features` and `feature_symbols` rows. |
+| `TestDeterminism_Ingest_SurrogateIDsFollowQualifiedNames` | `packages/store` | Every persisted edge resolves, through surrogate ids, back to the same pair of qualified names the scanned graph recorded. |
+
+CI runs `go test ./... -race`, so all of them run on every push. There is no
+build tag and no opt-in.
+
+### What actually shakes the scanner
+
+`GOMAXPROCS` buys nothing today — `goscan.Scan` is single-threaded. It is
+varied anyway as a forward guard for #109, and it costs milliseconds.
+
+The thing with teeth right now is Go's per-`range` map-order randomisation.
+`scanContext.funcLookup`, `scanContext.structFields` and `Graph.Nodes` are
+all maps that every `Scan` call ranges over afresh, so repeated scans in one
+process really do walk them in different orders. This was verified by
+deleting the `sort.Strings` from the canonicaliser: the "identical" runs
+then differ on most lines.
+
+### The store side is not a repeat of the scanner side
+
+Ingest turns qualified names into surrogate row ids, and a surrogate id is
+exactly where a determinism bug hides without moving a single count. So the
+store tests read every row back **through qualified names**, never through
+ids: a mis-assigned surrogate surfaces as an edge between the wrong two
+names. That is the query that would have caught #97.
+
+The two runs go into two independent stores rather than one store ingested
+twice. A second ingest into the same store takes the `INSERT OR IGNORE`
+paths and would pass even if the first ingest had written wrong rows.
+
+## The golden corpus
+
+`packages/codeindex/go/testdata/goldencorpus/` is a layered Go service in 23
+source files — `cmd` -> `handlers` -> `services` -> `persistence`, plus a
+platform package and an outward-facing client. It is small enough to read
+in one sitting and shaped like real code, which matters: the private
+monorepo behind `NUTRITION_ROOT` is a bus factor and a CI hole, and every
+claim verified only there is a claim nobody else can check.
+
+It deliberately carries the hazards we have been bitten by:
+
+| Hazard | Where |
+| --- | --- |
+| SymbolID collision across packages | `internal/platform/config` and `internal/persistence` both declare `Config.Validate` |
+| Unexported plain function (dropped) vs unexported method (kept) | `config.isBlank` vs `StdLogger.write` |
+| Interface with two implementations | `persistence.OrderRepository`, implemented by the memory and postgres repositories |
+| Two handler types sharing a method name | `OrderHandler.Get` and `AdminHandler.Get` |
+| Generated code, both shapes | `internal/persistence/queries_gen.go` (scanned) and `internal/persistence/generated/` (skipped) |
+| Feature annotations on tests | three `_test.go` files carrying `@atlas:feature` |
+
+Nothing in it compiles, and it is not supposed to. The scanner is AST-only
+(no `go/types`, no module resolution), so the import paths are fictional.
+
+### Reading the snapshot
+
+`.golden/symbols_edges.txt` holds one record per line, sorted:
+
+```
+# symbols=49 edges=41 warnings=0
+EDGE	<from>	<to>	<kind>	<line>	cycle=<bool>	ambiguous=<bool>	meta=<meta>
+SYM	<id>	<kind>	<path>	<line>	<col>	<package>	<signature>	<doc>
+```
+
+Signature and doc are Go-quoted so a newline inside a doc comment cannot
+forge a record boundary.
+
+The snapshot is **not a correctness oracle**. Several lines record
+behaviour we would like to change — `Config.Validate` resolving to whichever
+package the directory walk reached first, the interface-typed
+`OrderRepository` calls being dropped rather than recorded. It is a change
+detector: a scanner edit that moves a symbol, drops an edge or reclassifies
+a kind shows up as a reviewable diff in the PR that causes it, and the
+author either explains the improvement or discovers a regression.
+
+### Regenerating it
+
+```
+go test ./packages/codeindex/go -run TestGoldenCorpus -update
+```
+
+Commit the regenerated file in the same commit as the change that moved it,
+and say in the commit body why each group of lines moved.
+
+### Adding to the corpus
+
+Two footguns, both discovered while building it:
+
+1. **The `@api` proximity rule.** The scanner attaches an `@api` annotation
+   to the next function declared within ten lines of it. Putting a small
+   unexported helper just after an annotated handler silently creates an
+   endpoint -> helper edge. `internal/handlers/decode.go` exists to keep
+   `OrderHandler.decode` outside that window.
+2. **`fuzzyResolve` picks the first map hit.** Any call site whose variable
+   name is a substring of two receiver type names that share the called
+   method is genuinely non-deterministic today (see below). Do not add one
+   unless you are also fixing the resolver.
+
+## Known gaps
+
+### `fuzzyResolve` is still order-dependent
+
+`(*scanContext).fuzzyResolve` in `packages/codeindex/go/scanner.go` returns
+the first matching entry from a `range` over `funcLookup`. When two receiver
+types both contain the variable name and both declare the method, the callee
+is chosen by map order. This is the same class as PR #99, in a resolver that
+PR did not reach.
+
+Minimal reproduction — scanning this single file 50 times resolved
+`handler.Get` to `AdminHandler.Get` 45 times and to `OrderHandler.Get` 5
+times:
+
+```go
+package handlers
+
+type AdminHandler struct{}
+
+func (h *AdminHandler) Get(id string) string { return id }
+
+type OrderHandler struct{}
+
+func (h *OrderHandler) Get(id string) string { return id }
+
+func Dispatch(id string) string {
+	handler := &OrderHandler{}
+	return handler.Get(id)
+}
+```
+
+The golden corpus deliberately does **not** contain such a call site, because
+the suite has to be green while the resolver is not fixed. The fix belongs
+with `scanner.go`: either return the sole candidate or nothing (the shape
+`fuzzyResolveMethod` already uses), or sort the candidates and take a stable
+winner. Once it lands, add the snippet above to the corpus and the coverage
+follows for free.
+
+### Cycle flags depend on edge insertion order
+
+`Graph.AddEdgeKindLineMeta` sets `Edge.Cycle` from `hasPath(to, from)`
+against the graph *as built so far*, and `extractCalls` ranges over
+`funcLookup`. In a source tree with a genuine call cycle, which edge of the
+cycle gets flagged therefore depends on map order. The corpus has no call
+cycle, so the suite does not currently exercise this; adding one would make
+the suite red until the flag is computed as a post-pass over the finished
+graph.
+
+### Coverage of the other scanners
+
+The suite covers the Go scanner and the store. The TS and Python
+sub-scanners run out of process and are not yet in the corpus — issue #120
+asks for one corpus per language plus a polyglot one, and this is the Go
+slice of that. `NUTRITION_ROOT` remains an optional extra
+(`packages/store/ingest_nutrition_integration_test.go`), not the only real
+test bed.
+
+## Rules of thumb for new code
+
+- Never let a `range` over a map decide an output value. Collect, sort,
+  then pick — or require exactly one candidate.
+- Never let a wall clock into a derived value. `GeneratedAt`,
+  `last_scanned` and `created_at` are recorded state; nothing downstream may
+  branch on them.
+- Prefer a stable key over a surrogate id in anything that crosses a
+  process or file boundary.
+- When you add a resolution heuristic, add the ambiguous case to the corpus
+  in the same PR.

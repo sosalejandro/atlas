@@ -1,0 +1,28 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Decision screens" },
+    { "id": "page-2", "name": "Ported pages" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html",       "x": 0,    "y": 0,    "w": 1440, "h": 900, "page": "page-1", "title": "Index trust" },
+    { "file": "ChangeView.dc.html", "x": 1580, "y": 0,    "w": 1440, "h": 900, "page": "page-1", "title": "Change / patch coverage" },
+    { "file": "Hotspots.dc.html",   "x": 0,    "y": 1100, "w": 1440, "h": 900, "page": "page-1", "title": "Hotspots" },
+    { "file": "Affected.dc.html",   "x": 1580, "y": 1100, "w": 1440, "h": 900, "page": "page-1", "title": "Affected tests" },
+
+    { "file": "Overview.dc.html",   "x": 0,    "y": 0,    "w": 1440, "h": 900, "page": "page-2", "title": "Overview" },
+    { "file": "Features.dc.html",   "x": 1580, "y": 0,    "w": 1440, "h": 900, "page": "page-2", "title": "Features" },
+    { "file": "Graph.dc.html",      "x": 3160, "y": 0,    "w": 1440, "h": 900, "page": "page-2", "title": "Graph" },
+    { "file": "Contract.dc.html",   "x": 4740, "y": 0,    "w": 1440, "h": 900, "page": "page-2", "title": "Contract" },
+    { "file": "Sprint.dc.html",     "x": 0,    "y": 1100, "w": 1440, "h": 900, "page": "page-2", "title": "Sprint" },
+    { "file": "Metrics.dc.html",    "x": 1580, "y": 1100, "w": 1440, "h": 900, "page": "page-2", "title": "Metrics" },
+    { "file": "Diff.dc.html",       "x": 3160, "y": 1100, "w": 1440, "h": 900, "page": "page-2", "title": "Diff" },
+    { "file": "Diagnose.dc.html",   "x": 4740, "y": 1100, "w": 1440, "h": 900, "page": "page-2", "title": "Diagnose" }
+  ],
+  "annotations": [
+    { "id": "note-decisions", "page": "page-1", "x": 0, "y": -190, "w": 1440,
+      "text": "Four screens organised around a decision, not a CLI verb. None of them exist in the current dashboard.\n\nIndex trust (#88, #100) — how much of what ran can atlas actually see. No comparable tool reports its own blind spot.\nChange (#89) — patch coverage for the diff, as a gate. Codecov's patch status, but scoped to features.\nHotspots (#93) — churn x gap, CodeScene's idea at feature granularity.\nAffected (#90) — the minimal test set for a diff, with an honest fallback when a changed file is not indexed." },
+    { "id": "note-ported", "page": "page-2", "x": 0, "y": -190, "w": 1440,
+      "text": "The eight pages specced in docs/GUI_WIREFRAMES.md, rebuilt on the SQLite model (packages/store) instead of the YAML registry the current internal/server reads.\n\nTokens are lifted from the implemented app — internal/server/templates/base.html (Material-3 dark) and static/style.css — not from the GitHub palette in the wireframes doc, which the implementation has already moved away from.\n\nTwo additions carry the #85 lesson into these screens: Overview ends with an attribution caveat, and Diff separates raw delta from like-for-like delta." }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

@@ -14,8 +14,8 @@ import (
 )
 
 // scoreFromFeature is the core scoring routine. It takes a Feature row
-// (already loaded by the caller) plus the latest coverage_run id (if any)
-// and produces the FeatureHealth record.
+// (already loaded by the caller) plus the current coverage frontier (which
+// may be empty) and produces the FeatureHealth record.
 //
 // Each signal independently reports "available?" — when unavailable, the
 // weighted-average step re-normalises over the remaining signals. A feature
@@ -24,8 +24,7 @@ import (
 func (a *auditImpl) scoreFromFeature(
 	ctx context.Context,
 	feat store.Feature,
-	latestRun int64,
-	hasCov bool,
+	frontier store.CoverageFrontier,
 ) (FeatureHealth, error) {
 	now := a.opts.Now()
 	links, err := a.store.FeatureSymbols().ListByFeature(ctx, feat.ID)
@@ -34,9 +33,10 @@ func (a *auditImpl) scoreFromFeature(
 	}
 
 	set := newSignalSet()
+	a.lastSurfaceSource = ""
 
-	if hasCov && len(links) > 0 {
-		cov, ok, err := a.coverageSignal(ctx, feat.ID, links, latestRun)
+	if !frontier.Empty() && len(links) > 0 {
+		cov, ok, err := a.coverageSignal(ctx, feat.ID, links, frontier)
 		if err := set.add(SignalCoverage, "coverage", cov, ok, err); err != nil {
 			return FeatureHealth{}, err
 		}
@@ -94,11 +94,12 @@ func (a *auditImpl) scoreFromFeature(
 	}
 
 	return FeatureHealth{
-		FeatureID:  feat.ID,
-		Score:      score,
-		Components: components,
-		Reasons:    topReasons(notes, 3),
-		SampledAt:  now,
+		FeatureID:     feat.ID,
+		Score:         score,
+		Components:    components,
+		Reasons:       topReasons(notes, 3),
+		SampledAt:     now,
+		SurfaceSource: a.lastSurfaceSource,
 	}, nil
 }
 
@@ -186,35 +187,50 @@ func weightedAverage(scores map[string]float64, available map[string]bool, weigh
 // ---------------------------------------------------------------------------
 
 // coverageSignal returns the fraction of the feature's linked symbols that
-// have at least one `pass` coverage result in the latest run. "Skip"-only
-// results are treated as NO SIGNAL — they don't count toward the
+// have at least one `pass` coverage result on the current frontier.
+// "Skip"-only results are treated as NO SIGNAL — they don't count toward the
 // denominator. Otherwise a feature whose tests are explicitly disabled in
 // CI would always score 0%, which is the wrong reading.
 //
+// The frontier's runs are read as ONE pool of results (issue #86), which is
+// also how a per-symbol disagreement between frameworks resolves:
+// classification ORs the buckets, so a symbol the Go suite executed counts as
+// covered even when a frontend run in the same group never touched it.
+// Merging toward the higher covered fraction is the only direction that
+// cannot invent a regression out of another framework's blind spot.
+//
 // Returns (result, true, nil) when at least one symbol has a usable result.
 // Returns (zero, false, nil) when every linked symbol is skip-only or
-// completely absent from the run.
-func (a *auditImpl) coverageSignal(
+// completely absent from the frontier.
+// The result pool is resolved by the CALLER (coverageSignal, in
+// carryforward.go) rather than read here, because what the frontier measured
+// is no longer the whole reading: symbols this build did not re-measure are
+// carried from the last build that did (issue #136). Passing the pool in keeps
+// that policy in one place and keeps this function about scoring.
+func (a *auditImpl) coverageSignalPooled(
 	ctx context.Context,
 	featureID shared.FeatureID,
 	links []store.FeatureSymbolLink,
-	runID int64,
+	frontier store.CoverageFrontier,
+	pool coveragePool,
 ) (signalResult, bool, error) {
 	testSyms := testSymbolIDs(links)
-	wanted, useSurface, err := a.resolveWantedSet(ctx, links)
+	// The surface is resolved against the frontier PLUS the runs the carries
+	// came from (coveragePool.surfaceFrontier). Resolving it against the
+	// frontier alone makes the preferred tier shrink by exactly the symbols a
+	// dead job measured, which filters the carried results back out again.
+	wanted, useSurface, source, err := a.resolveWantedSet(ctx, links, pool.surfaceFrontier(frontier))
+	a.lastSurfaceSource = source
 	if err != nil {
 		return signalResult{}, false, err
 	}
 	if len(wanted) == 0 && len(testSyms) == 0 {
 		return signalResult{}, false, nil
 	}
-	results, err := a.store.Coverage().ListResults(ctx, runID)
-	if err != nil {
-		return signalResult{}, false, fmt.Errorf("list coverage results: %w", err)
-	}
+	results := pool.results
 	pass, skipOnly, stmts, featurePassed, testSeen := classifyCoverageResults(results, wanted, testSyms, featureID)
 	if res, done := creditPassingTest(featurePassed, useSurface, wanted, pass); done {
-		return res, true, nil
+		return pool.annotate(res, wanted, testSyms), true, nil
 	}
 	denom, numer := coverageRatio(wanted, pass, skipOnly)
 
@@ -224,14 +240,15 @@ func (a *auditImpl) coverageSignal(
 			return signalResult{}, false, err
 		}
 		if ok {
-			return anchored, true, nil
+			a.lastSurfaceSource = SurfacePackageAnchor
+			return pool.annotate(anchored, wanted, testSyms), true, nil
 		}
 	}
 
 	if denom == 0 {
 		return emptyDenominatorResult(testSeen, useSurface)
 	}
-	return scoreCoverage(wanted, pass, skipOnly, stmts, numer, denom, ""), true, nil
+	return pool.annotate(scoreCoverage(wanted, pass, skipOnly, stmts, numer, denom, ""), wanted, testSyms), true, nil
 }
 
 // creditPassingTest applies the gotest pass/fail credit (#82): with no
@@ -315,26 +332,154 @@ func (s *signalSet) add(name, what string, res signalResult, ok bool, err error)
 	return nil
 }
 
-// resolveWantedSet picks the symbol set a feature's coverage is scored over.
+// Surface derivations, reported per feature so a coverage number always says
+// where its denominator came from.
+const (
+	// SurfaceDynamic: the union of what the feature's own tests executed,
+	// minus shared runtime. Evidence, not inference.
+	SurfaceDynamic = "dynamic"
+	// SurfaceStatic: a call-edge walk from the annotated test symbols.
+	SurfaceStatic = "static"
+	// SurfacePackageAnchor: production symbols co-located with the feature's
+	// test package (issue #84's tier 2).
+	SurfacePackageAnchor = "package-anchor"
+	// SurfaceDirectLinks: the annotated symbols themselves, with the gotest
+	// pass/fail model on top (issue #82).
+	SurfaceDirectLinks = "direct-links"
+)
+
+// resolveWantedSet picks the symbol set a feature's coverage is scored over,
+// in descending order of evidential strength.
 //
-// Tier 1 is the call-graph-derived impl surface: real production execution from
-// a coverprofile run is attributed to those symbols, and when it is non-empty
-// the executed fraction is scored directly (no blanket test-pass credit).
-// When it is empty — an e2e-only feature, or a gotest pass/fail run with no
-// profile — the caller falls back to the direct-link + test-pass model (#82),
-// which `useSurface=false` signals.
+// Tier 0 — dynamic. If the run carries per-test evidence (schema 0010), the
+// surface is the union of the symbols the feature's OWN tests executed, minus
+// symbols nearly every test executes. This is the dynamic feature-location
+// technique, and it is the only tier that cannot be fooled by interface
+// dispatch, DI containers, reflection or string-routed handlers (issue #104).
+//
+// Tier 1 — static. A call-edge walk from the annotated test symbols. Only
+// reaches what the scanner resolved, which is why an e2e-rooted annotation can
+// miss the domain code its feature was thoroughly unit-testing (issue #84).
+//
+// Fallback. With neither, the caller uses the direct-link + test-pass model
+// (issue #82), which `useSurface=false` signals.
 func (a *auditImpl) resolveWantedSet(
 	ctx context.Context,
 	links []store.FeatureSymbolLink,
-) (map[int64]bool, bool, error) {
+	frontier store.CoverageFrontier,
+) (map[int64]bool, bool, string, error) {
+	dynamic, err := a.dynamicImplSurface(ctx, links, frontier)
+	if err != nil {
+		return nil, false, "", fmt.Errorf("dynamic impl surface: %w", err)
+	}
+	if len(dynamic) > 0 {
+		return dynamic, true, SurfaceDynamic, nil
+	}
 	surface, err := a.featureImplSurface(ctx, links)
 	if err != nil {
-		return nil, false, fmt.Errorf("impl surface: %w", err)
+		return nil, false, "", fmt.Errorf("impl surface: %w", err)
 	}
 	if len(surface) > 0 {
-		return surface, true, nil
+		return surface, true, SurfaceStatic, nil
 	}
-	return wantedSymbolIDs(links), false, nil
+	return wantedSymbolIDs(links), false, SurfaceDirectLinks, nil
+}
+
+// dynamicImplSurface derives a feature's implementation from execution
+// evidence: every symbol the feature's annotated tests ran, minus the symbols
+// that nearly the whole suite runs.
+//
+// The subtraction is what makes it usable. Without it every surface would
+// include the logger, the DI container, config loading and the middleware
+// chain — code that runs under every test and belongs to no feature.
+// UbiquityCutoff is the fraction of the suite above which a symbol counts as
+// shared runtime; it is a tunable with real failure modes in both directions,
+// so the value in force is reported rather than hidden.
+//
+// Returns an empty set (not an error) when no run on the frontier carries
+// per-test evidence, so a store ingested the old way behaves exactly as
+// before.
+//
+// Across a frontier the surfaces are derived per run and then unioned, rather
+// than pooling every run's evidence into one denominator. Ubiquity is a
+// property of a SUITE: a symbol run by 90% of the Go tests is Go's shared
+// runtime, and merging the Go and Playwright suites into a single test count
+// would dilute both cutoffs by whichever suite happened to be larger.
+func (a *auditImpl) dynamicImplSurface(
+	ctx context.Context,
+	links []store.FeatureSymbolLink,
+	frontier store.CoverageFrontier,
+) (map[int64]bool, error) {
+	tests := testSymbolIDs(links)
+	if len(tests) == 0 {
+		return nil, nil
+	}
+	surface := map[int64]bool{}
+	for _, runID := range frontier.RunIDs() {
+		perRun, err := a.dynamicImplSurfaceForRun(ctx, tests, runID)
+		if err != nil {
+			return nil, err
+		}
+		for sid := range perRun {
+			surface[sid] = true
+		}
+	}
+	if len(surface) == 0 {
+		return nil, nil
+	}
+	return surface, nil
+}
+
+// dynamicImplSurfaceForRun is dynamicImplSurface against a single run, where
+// the ubiquity cutoff is meaningful.
+func (a *auditImpl) dynamicImplSurfaceForRun(
+	ctx context.Context,
+	tests map[int64]bool,
+	runID int64,
+) (map[int64]bool, error) {
+	if runID == 0 {
+		return nil, nil
+	}
+	totalTests, err := a.store.TestCoverage().CountTests(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	if totalTests == 0 {
+		return nil, nil
+	}
+	fanIn, err := a.store.TestCoverage().FanIn(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	cutoff := a.opts.UbiquityCutoff
+	if cutoff <= 0 || cutoff > 1 {
+		cutoff = defaultUbiquityCutoff
+	}
+	// A suite too small for the ratio to mean anything: with three tests, a
+	// symbol shared by two is not shared runtime, it is a domain service two
+	// features legitimately use.
+	maxFanIn := totalTests
+	if totalTests >= minTestsForUbiquityCutoff {
+		maxFanIn = int(float64(totalTests) * cutoff)
+		if maxFanIn < 1 {
+			maxFanIn = 1
+		}
+	}
+
+	surface := map[int64]bool{}
+	for testID := range tests {
+		rows, err := a.store.TestCoverage().SymbolsExecutedBy(ctx, runID, testID)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			if fanIn[r.SymbolID] > maxFanIn {
+				continue
+			}
+			surface[r.SymbolID] = true
+		}
+	}
+	return surface, nil
 }
 
 // scoreCoverage turns a classified result set into the signal.

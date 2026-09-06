@@ -42,6 +42,10 @@ type IngestOptions struct {
 	// Now overrides time.Now (test seam). When nil, time.Now().UTC() is
 	// used to backfill empty StartedAt/FinishedAt on the run row.
 	Now func() time.Time
+	// RunGroup is the correlation key that joins this run to the other
+	// frameworks measured in the same build (issue #86). See RunMeta.Group;
+	// blank means the run stands alone.
+	RunGroup string
 }
 
 // Ingest parses r with parser and writes the resulting Run + Results
@@ -97,6 +101,7 @@ func Ingest(ctx context.Context, s *store.Store, parser Parser, r io.Reader, opt
 		FinishedAt:  run.FinishedAt,
 		RawPath:     opts.RawPath,
 		SummaryJSON: run.SummaryJSON,
+		RunGroup:    RunMeta{Group: opts.RunGroup}.runGroup(),
 	}
 	if storeRun.StartedAt.IsZero() {
 		storeRun.StartedAt = now().UTC()
@@ -159,3 +164,33 @@ type ParseFunc func(r io.Reader) (Run, []Result, error)
 
 // Parse satisfies the Parser interface.
 func (p ParseFunc) Parse(r io.Reader) (Run, []Result, error) { return p(r) }
+
+// RunMeta is the identity Atlas stamps on a coverage run: which framework
+// produced it, and which measurement it belongs to.
+//
+// It exists because a coverage run is no longer self-contained. A polyglot
+// repo measures itself several times per CI build -- go-cover, then istanbul,
+// then Playwright -- and Group is the correlation key that lets the audit read
+// those runs as ONE frontier instead of letting the last sync erase the
+// earlier ones (issue #86). Atlas never interprets the key: a git SHA or a CI
+// run id is the intended shape.
+//
+// A zero Group is not an error and not a default group. It reproduces the
+// pre-#86 semantics exactly -- the run stands alone as its own frontier -- so
+// an operator who forgets the flag gets the old behaviour rather than a silent
+// merge into whatever stale group happens to be named.
+type RunMeta struct {
+	Framework store.Framework
+	Group     string
+}
+
+// runGroup returns the group as the nullable column wants it. Blank is NULL,
+// so a caller passing an empty string cannot open a group that every other
+// blank-key run then joins.
+func (m RunMeta) runGroup() *string {
+	if m.Group == "" {
+		return nil
+	}
+	g := m.Group
+	return &g
+}

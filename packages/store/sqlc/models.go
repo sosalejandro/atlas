@@ -24,10 +24,74 @@ type AuditSnapshotRun struct {
 	ScoreJson  string    `db:"score_json" json:"score_json"`
 }
 
+type CfgBlock struct {
+	SymbolID   int64  `db:"symbol_id" json:"symbol_id"`
+	BlockIndex int64  `db:"block_index" json:"block_index"`
+	Kind       string `db:"kind" json:"kind"`
+	StartLine  int64  `db:"start_line" json:"start_line"`
+	EndLine    int64  `db:"end_line" json:"end_line"`
+}
+
+type CfgDecisionCoverage struct {
+	SymbolID          int64     `db:"symbol_id" json:"symbol_id"`
+	OutcomesTotal     int64     `db:"outcomes_total" json:"outcomes_total"`
+	OutcomesDecidable int64     `db:"outcomes_decidable" json:"outcomes_decidable"`
+	OutcomesTaken     int64     `db:"outcomes_taken" json:"outcomes_taken"`
+	Source            string    `db:"source" json:"source"`
+	MeasuredAt        time.Time `db:"measured_at" json:"measured_at"`
+}
+
+type CfgEdge struct {
+	SymbolID  int64  `db:"symbol_id" json:"symbol_id"`
+	EdgeIndex int64  `db:"edge_index" json:"edge_index"`
+	FromBlock int64  `db:"from_block" json:"from_block"`
+	ToBlock   int64  `db:"to_block" json:"to_block"`
+	Kind      string `db:"kind" json:"kind"`
+	Condition string `db:"condition" json:"condition"`
+}
+
+type CfgFinding struct {
+	SymbolID     int64  `db:"symbol_id" json:"symbol_id"`
+	FindingIndex int64  `db:"finding_index" json:"finding_index"`
+	Kind         string `db:"kind" json:"kind"`
+	Confidence   string `db:"confidence" json:"confidence"`
+	Line         int64  `db:"line" json:"line"`
+	RelatedLine  int64  `db:"related_line" json:"related_line"`
+	Detail       string `db:"detail" json:"detail"`
+}
+
+type CfgSymbol struct {
+	SymbolID              int64     `db:"symbol_id" json:"symbol_id"`
+	Complexity            int64     `db:"complexity" json:"complexity"`
+	Decisions             int64     `db:"decisions" json:"decisions"`
+	BranchArms            int64     `db:"branch_arms" json:"branch_arms"`
+	Conditions            int64     `db:"conditions" json:"conditions"`
+	ConditionsIndependent int64     `db:"conditions_independent" json:"conditions_independent"`
+	Defers                int64     `db:"defers" json:"defers"`
+	UnreachableBlocks     int64     `db:"unreachable_blocks" json:"unreachable_blocks"`
+	BuiltAt               time.Time `db:"built_at" json:"built_at"`
+}
+
 type Config struct {
 	Key       string    `db:"key" json:"key"`
 	Value     string    `db:"value" json:"value"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type CoverageHistory struct {
+	ID          int64     `db:"id" json:"id"`
+	CommitSha   string    `db:"commit_sha" json:"commit_sha"`
+	MeasuredAt  time.Time `db:"measured_at" json:"measured_at"`
+	Score       *float64  `db:"score" json:"score"`
+	Denominator int64     `db:"denominator" json:"denominator"`
+	Note        *string   `db:"note" json:"note"`
+}
+
+type CoverageHistoryFeature struct {
+	HistoryID   int64    `db:"history_id" json:"history_id"`
+	FeatureID   string   `db:"feature_id" json:"feature_id"`
+	Score       *float64 `db:"score" json:"score"`
+	Denominator int64    `db:"denominator" json:"denominator"`
 }
 
 type CoverageResult struct {
@@ -43,12 +107,34 @@ type CoverageResult struct {
 }
 
 type CoverageRun struct {
-	ID          int64     `db:"id" json:"id"`
-	Framework   string    `db:"framework" json:"framework"`
-	StartedAt   time.Time `db:"started_at" json:"started_at"`
-	FinishedAt  time.Time `db:"finished_at" json:"finished_at"`
-	RawPath     *string   `db:"raw_path" json:"raw_path"`
-	SummaryJson string    `db:"summary_json" json:"summary_json"`
+	ID                int64     `db:"id" json:"id"`
+	Framework         string    `db:"framework" json:"framework"`
+	StartedAt         time.Time `db:"started_at" json:"started_at"`
+	FinishedAt        time.Time `db:"finished_at" json:"finished_at"`
+	RawPath           *string   `db:"raw_path" json:"raw_path"`
+	SummaryJson       string    `db:"summary_json" json:"summary_json"`
+	FilesInReport     int64     `db:"files_in_report" json:"files_in_report"`
+	FilesMatched      int64     `db:"files_matched" json:"files_matched"`
+	FilesUnmatched    int64     `db:"files_unmatched" json:"files_unmatched"`
+	StmtsAttributed   int64     `db:"stmts_attributed" json:"stmts_attributed"`
+	StmtsUnattributed int64     `db:"stmts_unattributed" json:"stmts_unattributed"`
+	GapsTruncated     int64     `db:"gaps_truncated" json:"gaps_truncated"`
+	RunGroup          *string   `db:"run_group" json:"run_group"`
+}
+
+type CoverageRunGap struct {
+	RunID  int64  `db:"run_id" json:"run_id"`
+	Path   string `db:"path" json:"path"`
+	Stmts  int64  `db:"stmts" json:"stmts"`
+	Reason string `db:"reason" json:"reason"`
+}
+
+type CoverageSymbolSpan struct {
+	RunID    int64  `db:"run_id" json:"run_id"`
+	SymbolID int64  `db:"symbol_id" json:"symbol_id"`
+	FilePath string `db:"file_path" json:"file_path"`
+	Line     int64  `db:"line" json:"line"`
+	EndLine  *int64 `db:"end_line" json:"end_line"`
 }
 
 type Edge struct {
@@ -87,6 +173,13 @@ type FileHash struct {
 	LastScanned time.Time `db:"last_scanned" json:"last_scanned"`
 }
 
+type SkippedFile struct {
+	FilePath  string    `db:"file_path" json:"file_path"`
+	Rule      string    `db:"rule" json:"rule"`
+	Detail    *string   `db:"detail" json:"detail"`
+	ScannedAt time.Time `db:"scanned_at" json:"scanned_at"`
+}
+
 type Snapshot struct {
 	ID         int64     `db:"id" json:"id"`
 	GitRef     string    `db:"git_ref" json:"git_ref"`
@@ -94,6 +187,65 @@ type Snapshot struct {
 	IndexJson  string    `db:"index_json" json:"index_json"`
 	AuditJson  *string   `db:"audit_json" json:"audit_json"`
 	Notes      *string   `db:"notes" json:"notes"`
+}
+
+type SqlIndex struct {
+	TableName string `db:"table_name" json:"table_name"`
+	Name      string `db:"name" json:"name"`
+	Columns   string `db:"columns" json:"columns"`
+	IsUnique  int64  `db:"is_unique" json:"is_unique"`
+	Predicate string `db:"predicate" json:"predicate"`
+	Origin    string `db:"origin" json:"origin"`
+	FilePath  string `db:"file_path" json:"file_path"`
+	Line      int64  `db:"line" json:"line"`
+}
+
+type SqlOperation struct {
+	ID               int64     `db:"id" json:"id"`
+	Ref              string    `db:"ref" json:"ref"`
+	Source           string    `db:"source" json:"source"`
+	Name             string    `db:"name" json:"name"`
+	FilePath         string    `db:"file_path" json:"file_path"`
+	Line             int64     `db:"line" json:"line"`
+	SymbolID         *int64    `db:"symbol_id" json:"symbol_id"`
+	SymbolName       string    `db:"symbol_name" json:"symbol_name"`
+	Kind             string    `db:"kind" json:"kind"`
+	Resolved         int64     `db:"resolved" json:"resolved"`
+	UnresolvedReason string    `db:"unresolved_reason" json:"unresolved_reason"`
+	SqlText          string    `db:"sql_text" json:"sql_text"`
+	RowScan          string    `db:"row_scan" json:"row_scan"`
+	ParamCount       int64     `db:"param_count" json:"param_count"`
+	Interpolation    string    `db:"interpolation" json:"interpolation"`
+	CallerData       int64     `db:"caller_data" json:"caller_data"`
+	HasLimit         int64     `db:"has_limit" json:"has_limit"`
+	HasOffset        int64     `db:"has_offset" json:"has_offset"`
+	HasOrderBy       int64     `db:"has_order_by" json:"has_order_by"`
+	Keyset           int64     `db:"keyset" json:"keyset"`
+	SelectStar       int64     `db:"select_star" json:"select_star"`
+	OffsetBound      string    `db:"offset_bound" json:"offset_bound"`
+	Suppressions     string    `db:"suppressions" json:"suppressions"`
+	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+}
+
+type SqlOperationPredicate struct {
+	OperationID int64  `db:"operation_id" json:"operation_id"`
+	Clause      string `db:"clause" json:"clause"`
+	TableName   string `db:"table_name" json:"table_name"`
+	ColumnName  string `db:"column_name" json:"column_name"`
+	Operator    string `db:"operator" json:"operator"`
+	Bound       int64  `db:"bound" json:"bound"`
+}
+
+type SqlOperationTable struct {
+	OperationID int64  `db:"operation_id" json:"operation_id"`
+	TableName   string `db:"table_name" json:"table_name"`
+	Access      string `db:"access" json:"access"`
+}
+
+type SqlTable struct {
+	Name     string `db:"name" json:"name"`
+	FilePath string `db:"file_path" json:"file_path"`
+	Line     int64  `db:"line" json:"line"`
 }
 
 type Symbol struct {
@@ -107,4 +259,12 @@ type Symbol struct {
 	BcPath         *string   `db:"bc_path" json:"bc_path"`
 	CreatedAt      time.Time `db:"created_at" json:"created_at"`
 	PatternMatches *string   `db:"pattern_matches" json:"pattern_matches"`
+}
+
+type TestCoverage struct {
+	RunID        int64 `db:"run_id" json:"run_id"`
+	TestSymbolID int64 `db:"test_symbol_id" json:"test_symbol_id"`
+	SymbolID     int64 `db:"symbol_id" json:"symbol_id"`
+	CoveredStmts int64 `db:"covered_stmts" json:"covered_stmts"`
+	TotalStmts   int64 `db:"total_stmts" json:"total_stmts"`
 }

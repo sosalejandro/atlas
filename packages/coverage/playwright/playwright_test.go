@@ -201,10 +201,10 @@ func TestParse_LargeReport(t *testing.T) {
 
 func TestInferFromPath(t *testing.T) {
 	cases := map[string]string{
-		"e2e/auth/login.spec.ts":         "auth.login",
-		"e2e/checkout.spec.ts":           "checkout",
+		"e2e/auth/login.spec.ts":            "auth.login",
+		"e2e/checkout.spec.ts":              "checkout",
 		"tests/web/billing/upgrade.spec.ts": "billing.upgrade",
-		"":                               "",
+		"":                                  "",
 	}
 	for in, want := range cases {
 		if got := inferFromPath(in); got != want {

@@ -37,9 +37,17 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	// 5 in Phase 6a (audit_snapshot_runs table), 6 by issue #21
 	// (drop the unused legacy audit_snapshots table), 7 by issue #57
 	// (widen edges.kind CHECK to admit Python polyglot kinds), and
-	// 8 by issue #16 (edges.edge_meta column for per-edge scope tags), and
-	// 9 by Tier B (coverage_results.covered_stmts / total_stmts columns).
-	const expected = 9
+	// 8 by issue #16 (edges.edge_meta column for per-edge scope tags),
+	// 9 by Tier B (coverage_results.covered_stmts / total_stmts columns), and
+	// 10 by issue #104 (test_coverage: per-test execution evidence), and
+	// 11 by issue #100 (coverage_runs attribution counters + coverage_run_gaps),
+	// and 12 by issue #86 (coverage_runs.run_group for named coverage frontiers),
+	// and 13 by issue #92 (coverage_history + coverage_history_features: the
+	// per-commit measurement series behind `atlas trend`), and
+	// 17 by issue #136 (coverage_symbol_spans + its AFTER INSERT trigger: the
+	// span each coverage result was measured against, which is what lets a
+	// carried result be invalidated when the symbol moves).
+	const expected = 17
 	if v != expected {
 		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}
@@ -90,6 +98,7 @@ func TestOpen_AllTablesCreated(t *testing.T) {
 	want := []string{
 		"config", "features", "symbols", "edges", "feature_symbols",
 		"file_hashes", "coverage_runs", "coverage_results",
+		"coverage_run_gaps",
 		"audit_snapshot_runs", "annotations",
 		"schema_migrations", "snapshots",
 	}

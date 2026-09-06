@@ -131,11 +131,11 @@ func TestParse_SoloTestSuite(t *testing.T) {
 
 func TestInferFromFlow(t *testing.T) {
 	cases := map[string]string{
-		"auth-login":      "auth.login",
-		"checkout":        "checkout",
-		"meal_log_food":   "meal.log",
-		"feature flag x":  "feature.flag",
-		"":                "",
+		"auth-login":     "auth.login",
+		"checkout":       "checkout",
+		"meal_log_food":  "meal.log",
+		"feature flag x": "feature.flag",
+		"":               "",
 	}
 	for in, want := range cases {
 		if got := inferFromFlow(in, ""); got != want {

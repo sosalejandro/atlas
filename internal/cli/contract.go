@@ -23,8 +23,8 @@ func newContractCmd() *cobra.Command {
 // newContractListCmd implements `atlas contract list [--kind <k>]`.
 func newContractListCmd() *cobra.Command {
 	var (
-		kind     string
-		rootArg  string
+		kind    string
+		rootArg string
 	)
 	cmd := &cobra.Command{
 		Use:   "list",

@@ -22,10 +22,134 @@ atlas scan [flags]
 | `--root`                      | repo root / cwd       | Project root to scan.                                                                                                |
 | `--hash-files`                | `true`                | Compute SHA-256 of every scanned file. Pin to `false` only if hashing dominates wall time on a giant repo.           |
 | `--node-modules-path`         | auto-detected         | Absolute path to a `node_modules/` directory the TS scanner can borrow `typescript` from. Repeatable.                |
+| `--include-generated`         | off                   | Index machine-written files instead of excluding them. See "Generated code" below.                                   |
+| `--skipped`                   | off                   | Do not scan. Print the exclusion ledger the last scan wrote. See "Why is this file not indexed?" below.              |
+| `--skipped-path`              | none                  | Print the ledger entry for one file. Implies `--skipped`.                                                            |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                                                |
 | `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                                      |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                                        |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                                                                                       |
+
+
+## Generated code
+
+Machine-written files are EXCLUDED from the index by default. Generated
+statements execute constantly -- a protobuf accessor runs under every test
+that touches the message -- so indexing them lets them dominate any coverage
+or complexity reading taken over hand-written code.
+
+Two rules apply without any configuration:
+
+1. Go's conventional `// Code generated ... DO NOT EDIT.` header, checked
+   before anything else because it is the signal the file itself declares.
+2. A `generated` path segment, which catches legacy trees that carry no
+   header.
+
+Which OTHER files a codebase generates is a property of the codebase, not of
+the invocation, so extra patterns belong in `atlas.yaml`:
+
+```yaml
+scan:
+  generated:
+    - "**/*.pb.go"
+    - "**/*_gen.go"
+    - "mocks/**"
+```
+
+`--include-generated` turns exclusion off for one run -- the escape hatch for
+"why did my symbol disappear?". `scan.include_generated: true` makes that the
+default for the project. The flag can only turn exclusion off; it is not a
+second place to configure the default, so a config that asks to index
+generated code cannot be switched back from the command line.
+
+`atlas scan --json` reports what was skipped and under which rule, so an
+over-broad glob is visible rather than silent.
+
+## Why is this file not indexed?
+
+Exclusion is silent by design, and that is its danger. A symbol that was
+never indexed does not show up as uncovered, unlinked or missing -- it shows
+up as nothing at all. An over-broad glob (`**/*_gen.go` catching a
+hand-written `token_gen.go`) quietly removes real code from every coverage
+and audit number, and the only trace is the scan output that scrolled away.
+
+So every scan persists what it excluded, and `--skipped` reads it back --
+from the store, without re-walking the tree:
+
+```
+$ atlas scan --skipped
+Excluded from the index by the last scan (db: /repo/.atlas/atlas.db): 4 file(s)
+  api/schema.pb.go          generated-glob    **/*.pb.go
+  db/queries.sql.go         generated-header
+  generated/legacy.go       generated-dir     generated
+  generated/with_header.go  generated-header
+```
+
+The third column is the rule's parameter, and it is the actionable half:
+`**/*.pb.go` is the line of `.atlas.yaml` to narrow. The rule names the
+specific check that claimed the file, never a category -- "generated" would
+say what happened without saying what to change.
+
+A file matched by more than one rule is listed under the ONE that claimed
+it. `db/queries.sql.go` above matches `**/*.sql.go` too, but the header rule
+runs first (strongest signal first: a `// Code generated ... DO NOT EDIT.`
+line travels with the file, a glob only describes where it landed), so the
+header is what the ledger records.
+
+For a single file:
+
+```
+$ atlas scan --skipped-path api/schema.pb.go
+Excluded from the index by the last scan (db: /repo/.atlas/atlas.db): 1 file(s)
+  api/schema.pb.go  generated-glob  **/*.pb.go
+
+$ atlas scan --skipped-path internal/auth/login.go
+internal/auth/login.go is not in the exclusion ledger written by the last scan
+(recorded 2026-05-01T12:00:00Z) (db: /repo/.atlas/atlas.db)
+  The last scan did not exclude it. Whether it was indexed is a separate
+  question this ledger does not answer.
+```
+
+Not being in the ledger is an answer, not an error -- the exit code stays 0.
+It is also a NARROWER answer than "the file is indexed": the ledger records
+exclusions and nothing else, so a path it does not mention may equally have
+been outside the scan root, deleted since, or spelled for another tree. Use
+`atlas symbols` to ask whether a file made it into the index.
+
+`--skipped-path` accepts the path in any of the spellings a shell or an
+editor produces -- `./api/schema.pb.go`, `api/schema.pb.go`, or the absolute
+path -- and normalises it to the project-relative, slash-separated key the
+ledger is written with. The output names that key, so a miss reads as "this
+key is absent" rather than "your spelling was wrong". An absolute path
+outside `--root` stays as-is and misses, which is the honest answer: it was
+never walked.
+
+### An empty ledger is not a missing one
+
+Zero rows has two causes that mean opposite things, and the command
+distinguishes them:
+
+```
+$ atlas scan --skipped        # after a scan that excluded nothing
+The last scan excluded no files (recorded 2026-05-01T12:00:00Z) (db: /repo/.atlas/atlas.db)
+
+$ atlas scan --skipped        # against a database no scan has written a ledger into
+No exclusion ledger has been recorded in this database (db: /repo/.atlas/atlas.db)
+  This is not the same as a scan that excluded nothing. Run 'atlas scan' to
+  record a ledger.
+```
+
+The second is a fresh database, or one built before the ledger existed. It
+is an absence, not a measurement, and reporting it as "excluded no files"
+would be a confident wrong answer. Under `--json` the two are separated by
+`ledger_present`.
+
+The ledger is REPLACED by every scan, never appended to: a file that stops
+matching a rule leaves it. It therefore describes the current index and not
+the history of every rule ever tried, and it is written in the same
+transaction as the symbols, so it can never describe a scan that did not
+finish. `atlas scan` prints `files_excluded=N` when a scan excluded
+anything; `--skipped` is the detail behind that number.
 
 ## Examples
 
@@ -85,6 +209,17 @@ is `atlas trace --fresh`, which re-walks live without touching the store.
    - Otherwise, re-parse it, diff the resulting symbols/edges/annotations
      against the cached set, and write the delta.
 3. Re-materialise the `features` and `feature_symbols` join tables.
+4. Replace `skipped_files` with the files this walk declined to index and
+   the rule that claimed each one, and stamp the
+   `scan.skipped_ledger_written_at` marker that proves a ledger was written
+   at all (docs/schema-v1.md §5.17).
+
+`atlas init` writes the same ledger, with the same glob detail. `atlas
+snapshot` also ingests, and it walks with the SAME scan options as `scan` so
+its ingest rewrites the ledger with an identical answer rather than one from
+a differently-configured walk. If you ever run `snapshot --root` against a
+different tree than the one you scanned, expect the ledger to describe that
+tree instead -- the ledger always belongs to the most recent ingest.
 
 This means `scan` is safe to run from a git pre-commit hook on monorepos:
 warm scans finish in single-digit milliseconds because the AST walker only

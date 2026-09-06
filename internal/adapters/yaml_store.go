@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/sosalejandro/atlas/internal/domain"
 	"gopkg.in/yaml.v3"
@@ -115,8 +114,10 @@ func (s *YAMLStore) writeFile(filePath string, df *domain.DomainFile) error {
 		return fmt.Errorf("creating temp file %s: %w", tmpPath, err)
 	}
 
-	// Acquire an exclusive lock on the temp file to prevent concurrent writes
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	// Acquire an exclusive lock on the temp file to prevent concurrent writes.
+	// The primitive differs by platform (flock on unix, LockFileEx on Windows)
+	// -- see filelock_unix.go / filelock_windows.go.
+	if err := lockFile(f); err != nil {
 		f.Close()
 		os.Remove(tmpPath)
 		return fmt.Errorf("acquiring lock on %s: %w", tmpPath, err)
@@ -126,21 +127,21 @@ func (s *YAMLStore) writeFile(filePath string, df *domain.DomainFile) error {
 	encoder.SetIndent(2)
 
 	if err := encoder.Encode(df); err != nil {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = unlockFile(f)
 		f.Close()
 		os.Remove(tmpPath)
 		return fmt.Errorf("encoding YAML to %s: %w", filePath, err)
 	}
 
 	if err := encoder.Close(); err != nil {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = unlockFile(f)
 		f.Close()
 		os.Remove(tmpPath)
 		return fmt.Errorf("closing encoder for %s: %w", filePath, err)
 	}
 
 	// Release lock and close
-	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	_ = unlockFile(f)
 	if err := f.Close(); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("closing %s: %w", tmpPath, err)

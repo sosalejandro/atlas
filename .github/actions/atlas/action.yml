@@ -1,0 +1,145 @@
+name: 'atlas'
+description: 'Install a verified atlas release and run it as a pull-request gate.'
+author: 'sosalejandro'
+
+branding:
+  icon: 'map'
+  color: 'blue'
+
+# Three lines in a consumer's workflow:
+#
+#   - uses: sosalejandro/atlas/.github/actions/atlas@v0.14.0
+#     with:
+#       args: audit --json
+#
+# The version is taken from the ref the action itself was pinned to
+# (github.action_ref), so the binary can never float away from the action.
+# An action that resolved `@v1` to "whatever is newest" at run time would
+# be a supply-chain hole in a supply-chain tool, and the same argument
+# applies to the binary it downloads.
+
+inputs:
+  version:
+    description: >-
+      Release to install, e.g. v0.14.0, or `edge`. Defaults to the ref this
+      action was pinned to, which is the right answer whenever the action is
+      referenced by tag. Set it explicitly when pinning the action by commit
+      SHA, since a SHA does not name a release.
+    required: false
+    default: ''
+  args:
+    description: >-
+      Arguments passed to atlas. Empty means install only, leaving the
+      binary on PATH for later steps.
+    required: false
+    default: ''
+  working-directory:
+    description: 'Directory to run atlas in.'
+    required: false
+    default: '.'
+  verify:
+    description: >-
+      Verify the Sigstore signature over the release checksum manifest.
+      Leave this on. Turning it off reduces the install to "trust whatever
+      the URL served", which is the posture this tool exists to argue
+      against.
+    required: false
+    default: 'true'
+  verify-provenance:
+    description: >-
+      Additionally verify the SLSA build provenance attestation with
+      `gh attestation verify`. Requires the workflow token to have read
+      access to this repository.
+    required: false
+    default: 'true'
+  repository:
+    description: 'Repository to download releases from. For forks and testing.'
+    required: false
+    default: 'sosalejandro/atlas'
+
+outputs:
+  atlas-path:
+    description: 'Absolute path to the installed atlas binary.'
+    value: ${{ steps.install.outputs.path }}
+  version:
+    description: 'The release actually installed.'
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the version to install
+      id: resolve
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        set -euo pipefail
+        VERSION="${INPUT_VERSION:-$ACTION_REF}"
+        if [ -z "$VERSION" ]; then
+          echo "could not determine which atlas release to install" >&2
+          echo "pass one explicitly:  with: { version: v0.14.0 }" >&2
+          exit 1
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+    - name: Install cosign
+      if: inputs.verify == 'true'
+      # Pinned to a commit. This action's own dependencies get the same
+      # treatment it asks of its consumers; a floating @v3 here would let
+      # whoever controls that tag run code inside every workflow that uses
+      # atlas as a gate.
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      with:
+        cosign-release: v3.1.3
+
+    - name: Download and verify atlas
+      id: install
+      shell: bash
+      env:
+        VERSION: ${{ steps.resolve.outputs.version }}
+        VERIFY: ${{ inputs.verify }}
+        REPO: ${{ inputs.repository }}
+        RUNNER_OS_NAME: ${{ runner.os }}
+        RUNNER_ARCH_NAME: ${{ runner.arch }}
+      run: |
+        set -euo pipefail
+        DEST="${RUNNER_TEMP}/atlas-bin"
+        PATH_OUT="$("${GITHUB_ACTION_PATH}/install.sh" \
+          --version "$VERSION" \
+          --os "$RUNNER_OS_NAME" \
+          --arch "$RUNNER_ARCH_NAME" \
+          --repo "$REPO" \
+          --verify "$VERIFY" \
+          --dest "$DEST")"
+        echo "$DEST" >> "$GITHUB_PATH"
+        echo "path=$PATH_OUT" >> "$GITHUB_OUTPUT"
+
+    - name: Verify build provenance
+      if: inputs.verify-provenance == 'true'
+      shell: bash
+      env:
+        BIN: ${{ steps.install.outputs.path }}
+        REPO: ${{ inputs.repository }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        # This is the check the checksum and signature cannot make: it ties
+        # the artifact to the workflow run and commit that built it, rather
+        # than to whoever held a signing identity.
+        gh attestation verify "$BIN" --repo "$REPO"
+
+    - name: Run atlas
+      if: inputs.args != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ATLAS_ARGS: ${{ inputs.args }}
+      run: |
+        set -euo pipefail
+        atlas version
+        # Word-split deliberately: `args` is a command line, and the caller
+        # controls it in their own workflow.
+        # shellcheck disable=SC2086
+        atlas $ATLAS_ARGS

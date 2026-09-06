@@ -1,0 +1,171 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #10141a; color: #dfe2eb;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased; }
+    a { color: #a2c9ff; text-decoration: none; }
+    a:hover { color: #58a6ff; }
+    .mono { font-family: 'JetBrains Mono', monospace; font-feature-settings: "tnum"; }
+  </style>
+</helmet>
+<div style="width:1440px;height:900px;display:flex;flex-direction:column;background:#10141a;overflow:hidden">
+  <header style="height:48px;flex:0 0 48px;background:#0a0e14;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid #414752"><div style="display:flex;align-items:center;gap:12px"><div style="display:flex;align-items:center;gap:8px"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="#a2c9ff" stroke-width="1.6"><circle cx="10" cy="10" r="7.2"/><circle cx="10" cy="10" r="2.4" fill="#a2c9ff" stroke="none"/></svg><span style="font-size:15px;font-weight:700;color:#dfe2eb;letter-spacing:-.01em">atlas</span></div><div style="width:1px;height:16px;background:#414752"></div><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#a2c9ff;font-weight:500">nutrition-v2-go</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#8b919d">main @ 8523b6c</span></div><div style="display:flex;align-items:center;gap:8px"><div style="display:flex;align-items:center;gap:6px;background:linear-gradient(to bottom,#a2c9ff,#58a6ff);color:#00315c;padding:5px 11px;border-radius:3px;font-size:11px;font-weight:700;letter-spacing:.08em"><svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="#00315c" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2.6"/><path d="M10 3v2.5M10 14.5V17M3 10h2.5M14.5 10H17"/></svg><span>SCAN</span></div><div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#8b919d"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2M10 15.4v2M17.4 10h-2M5 10H3M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2 4.8 4.8"/></svg></div></div></header>
+  <div style="flex:1 1 auto;display:flex;min-height:0">
+    <aside style="width:200px;flex:0 0 200px;background:#0a0e14;display:flex;flex-direction:column;border-right:1px solid #414752"><div style="padding:16px 16px 6px;font-size:10px;letter-spacing:.14em;font-weight:700;color:#8b919d">DECISIONS</div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M10 2.5 3.5 5v4.2c0 3.9 2.7 7.1 6.5 8.3 3.8-1.2 6.5-4.4 6.5-8.3V5L10 2.5Z"/><path d="m7.4 10 1.9 1.9 3.5-3.6"/></svg><span>Index trust</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M4 5h9M4 5 6.5 2.5M4 5l2.5 2.5"/><path d="M16 15H7m9 0-2.5-2.5M16 15l-2.5 2.5"/></svg><span>Change</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M10 2.5c2.4 2.6 3.6 4.8 3.6 6.6 0 1.4-.6 2.4-1.7 3 .5-1.6.2-3-.9-4.2.1 2.3-.9 3.8-3 4.6"/><path d="M10 17.5a5 5 0 0 0 5-5c0-1-.3-2-.8-3"/><path d="M10 17.5a5 5 0 0 1-5-5c0-2 1-4 3-6"/></svg><span>Hotspots</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="5" cy="5" r="2"/><circle cx="15" cy="10" r="2"/><circle cx="5" cy="15" r="2"/><path d="M7 6.5 13 9M7 13.5 13 11"/></svg><span>Affected</span></div><div style="padding:16px 16px 6px;font-size:10px;letter-spacing:.14em;font-weight:700;color:#8b919d">EXPLORE</div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/></svg><span>Overview</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M3 5h14M3 10h14M3 15h9"/></svg><span>Features</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="10" cy="4" r="2"/><circle cx="4.5" cy="15" r="2"/><circle cx="15.5" cy="15" r="2"/><path d="M10 6v3m0 0-4.5 4M10 9l4.5 4"/></svg><span>Graph</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M5 2.5h7l3.5 3.5v11.5H5z"/><path d="M12 2.5V6h3.5"/><path d="M7.5 10h5M7.5 13h5"/></svg><span>Contract</span></div><div style="padding:16px 16px 6px;font-size:10px;letter-spacing:.14em;font-weight:700;color:#8b919d">TRACK</div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M4 17V4M4 4h9l-1.5 3L13 10H4"/></svg><span>Sprint</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M3 16.5h14"/><path d="M5.5 13v3M9 8.5V16M12.5 11V16M16 5.5V16"/></svg><span>Metrics</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:rgba(162,201,255,0.10);color:#a2c9ff;border-left:3px solid #a2c9ff;font-size:13px;font-weight:600"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M6 3v9M6 17.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M14 17V8M14 6.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M6 8h5a3 3 0 0 1 3 3"/></svg><span>Diff</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 4 4"/></svg><span>Diagnose</span></div><div style="margin-top:auto;padding:14px 16px"><div style="padding:8px 10px;background:#181c22;border-radius:4px;display:flex;flex-direction:column;gap:1px"><span style="font-size:9px;letter-spacing:.16em;font-weight:700;color:#8b919d">ATLAS</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#c0c7d4">v0.14.0</span></div></div></aside>
+    <main style="flex:1 1 auto;min-width:0;overflow:hidden;padding:20px 24px">
+
+<div style="display:flex;gap:16px;height:186px;margin-bottom:16px">
+  <div style="flex:1.4;background:#1c2026;border:1px solid #414752;border-radius:8px;padding:16px">
+    <div style="font-size:10px;letter-spacing:.14em;font-weight:700;color:#8b919d">SNAPSHOTS</div>
+    <div style="margin-top:11px;border:1px solid #414752;border-radius:6px;overflow:hidden">
+      <div style="display:flex;gap:12px;padding:7px 12px;background:#181c22;font-size:10px;letter-spacing:.1em;font-weight:700;color:#8b919d">
+        <span style="flex:1.4">NAME</span><span style="width:110px">TAKEN</span><span style="width:80px;text-align:right">FEATURES</span><span style="width:80px;text-align:right">HEALTH</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:7px 12px;border-top:1px solid #414752;font-size:11px" class="mono">
+        <span style="flex:1.4;color:#dfe2eb">sprint-12-start</span><span style="width:110px;color:#8b919d">Mar 18</span>
+        <span style="width:80px;text-align:right;color:#c0c7d4">298</span>
+        <span style="width:80px;text-align:right;color:#ffb4ab">41%</span>
+      </div><div style="display:flex;gap:12px;padding:7px 12px;border-top:1px solid #414752;font-size:11px" class="mono">
+        <span style="flex:1.4;color:#dfe2eb">sprint-12-end</span><span style="width:110px;color:#8b919d">Apr 1</span>
+        <span style="width:80px;text-align:right;color:#c0c7d4">311</span>
+        <span style="width:80px;text-align:right;color:#ffd479">57%</span>
+      </div><div style="display:flex;gap:12px;padding:7px 12px;border-top:1px solid #414752;font-size:11px" class="mono">
+        <span style="flex:1.4;color:#dfe2eb">latest</span><span style="width:110px;color:#8b919d">Apr 5</span>
+        <span style="width:80px;text-align:right;color:#c0c7d4">311</span>
+        <span style="width:80px;text-align:right;color:#ffd479">63%</span>
+      </div>
+    </div>
+  </div>
+  <div style="flex:1;background:#1c2026;border:1px solid #414752;border-radius:8px;padding:16px;display:flex;flex-direction:column">
+    <div style="font-size:10px;letter-spacing:.14em;font-weight:700;color:#8b919d">COMPARE</div>
+    <div style="display:flex;align-items:center;gap:9px;margin-top:12px">
+      <div style="flex:1;background:#181c22;border:1px solid #414752;border-radius:4px;padding:7px 10px;font-size:12px;color:#c0c7d4" class="mono">sprint-12-start</div>
+      <span style="color:#8b919d">&rarr;</span>
+      <div style="flex:1;background:#181c22;border:1px solid #414752;border-radius:4px;padding:7px 10px;font-size:12px;color:#c0c7d4" class="mono">latest</div>
+    </div>
+    <div style="display:flex;gap:22px;margin-top:auto">
+      <div><div style="font-size:22px;font-weight:700;color:#67df70" class="mono">+12</div><div style="font-size:10px;letter-spacing:.1em;color:#8b919d;font-weight:700">IMPROVED</div></div><div><div style="font-size:22px;font-weight:700;color:#ffb4ab" class="mono">2</div><div style="font-size:10px;letter-spacing:.1em;color:#8b919d;font-weight:700">REGRESSED</div></div><div><div style="font-size:22px;font-weight:700;color:#8b919d" class="mono">297</div><div style="font-size:10px;letter-spacing:.1em;color:#8b919d;font-weight:700">UNCHANGED</div></div><div><div style="font-size:22px;font-weight:700;color:#67df70" class="mono">+15.4%</div><div style="font-size:10px;letter-spacing:.1em;color:#8b919d;font-weight:700">AVERAGE</div></div>
+    </div>
+  </div>
+</div>
+<div style="display:flex;gap:16px;height:562px">
+  <div style="flex:1;background:#1c2026;border:1px solid #414752;border-radius:8px;padding:16px;min-width:0">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="width:8px;height:8px;border-radius:2px;background:#67df70"></span>
+      <div style="font-size:10px;letter-spacing:.14em;font-weight:700;color:#8b919d">IMPROVED &middot; 12</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
+          <span style="color:#dfe2eb" class="mono">identity.login</span>
+          <span style="color:#67df70" class="mono">+91%</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:0%;height:100%;background:#414752;border-radius:2px"></div></div></span><span style="color:#8b919d;font-size:10px" class="mono">0%</span>
+          <span style="color:#8b919d">&rarr;</span>
+          <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:91%;height:100%;background:#67df70;border-radius:2px"></div></div></span><span style="color:#67df70;font-size:10px" class="mono">91%</span>
+        </div>
+      </div><div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
+          <span style="color:#dfe2eb" class="mono">billing.checkout</span>
+          <span style="color:#67df70" class="mono">+47%</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:44%;height:100%;background:#414752;border-radius:2px"></div></div></span><span style="color:#8b919d;font-size:10px" class="mono">44%</span>
+          <span style="color:#8b919d">&rarr;</span>
+          <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:91%;height:100%;background:#67df70;border-radius:2px"></div></div></span><span style="color:#67df70;font-size:10px" class="mono">91%</span>
+        </div>
+      </div><div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
+          <span style="color:#dfe2eb" class="mono">recipes.create</span>
+          <span style="color:#67df70" class="mono">+58%</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:30%;height:100%;background:#414752;border-radius:2px"></div></div></span><span style="color:#8b919d;font-size:10px" class="mono">30%</span>
+          <span style="color:#8b919d">&rarr;</span>
+          <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:88%;height:100%;background:#67df70;border-radius:2px"></div></div></span><span style="color:#67df70;font-size:10px" class="mono">88%</span>
+        </div>
+      </div><div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
+          <span style="color:#dfe2eb" class="mono">nutrition.history</span>
+          <span style="color:#67df70" class="mono">+38%</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:62%;height:100%;background:#414752;border-radius:2px"></div></div></span><span style="color:#8b919d;font-size:10px" class="mono">62%</span>
+          <span style="color:#8b919d">&rarr;</span>
+          <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:100%;height:100%;background:#67df70;border-radius:2px"></div></div></span><span style="color:#67df70;font-size:10px" class="mono">100%</span>
+        </div>
+      </div><div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
+          <span style="color:#dfe2eb" class="mono">commerce.refund</span>
+          <span style="color:#67df70" class="mono">+23%</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:38%;height:100%;background:#414752;border-radius:2px"></div></div></span><span style="color:#8b919d;font-size:10px" class="mono">38%</span>
+          <span style="color:#8b919d">&rarr;</span>
+          <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:61%;height:100%;background:#67df70;border-radius:2px"></div></div></span><span style="color:#67df70;font-size:10px" class="mono">61%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="flex:1;display:flex;flex-direction:column;gap:16px;min-width:0">
+    <div style="background:#1c2026;border:1px solid #414752;border-radius:8px;padding:16px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:8px;height:8px;border-radius:2px;background:#ffb4ab"></span>
+        <div style="font-size:10px;letter-spacing:.14em;font-weight:700;color:#8b919d">REGRESSED &middot; 2</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
+            <span style="color:#dfe2eb" class="mono">nutrition.meal-log</span>
+            <span style="color:#ffb4ab" class="mono">-18%</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px">
+            <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:80%;height:100%;background:#414752;border-radius:2px"></div></div></span><span style="color:#8b919d;font-size:10px" class="mono">80%</span>
+            <span style="color:#8b919d">&rarr;</span>
+            <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:62%;height:100%;background:#ffb4ab;border-radius:2px"></div></div></span><span style="color:#ffb4ab;font-size:10px" class="mono">62%</span>
+          </div>
+        </div><div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
+            <span style="color:#dfe2eb" class="mono">identity.session</span>
+            <span style="color:#ffb4ab" class="mono">-5%</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px">
+            <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:79%;height:100%;background:#414752;border-radius:2px"></div></div></span><span style="color:#8b919d;font-size:10px" class="mono">79%</span>
+            <span style="color:#8b919d">&rarr;</span>
+            <span style="flex:1"><div style="width:100%;height:5px;background:#31353c;border-radius:2px;overflow:hidden"><div style="width:74%;height:100%;background:#ffb4ab;border-radius:2px"></div></div></span><span style="color:#ffb4ab;font-size:10px" class="mono">74%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;background:#1c2026;border:1px solid #414752;border-left:3px solid #ffd479;border-radius:8px;padding:16px">
+      <div style="font-size:10px;letter-spacing:.14em;font-weight:700;color:#ffd479">READ THIS BEFORE CELEBRATING</div>
+      <div style="font-size:12px;color:#c0c7d4;line-height:1.65;margin-top:9px">
+        Both snapshots must cover the same ground for a delta to mean anything. Attribution moved from
+        <span class="mono" style="color:#dfe2eb">54.1%</span> to
+        <span class="mono" style="color:#dfe2eb">67.4%</span> across this range, so part of the
+        &ldquo;+15.4% average&rdquo; is code atlas could not see before, not code newly tested.
+      </div>
+      <div style="margin-top:12px;padding:10px 12px;background:#181c22;border-radius:6px;font-size:11px;color:#c0c7d4;line-height:1.6">
+        Like-for-like on the symbols present in both snapshots:
+        <span class="mono" style="color:#67df70">+9.1%</span>
+      </div>
+    </div>
+  </div>
+</div>
+    </main>
+  </div>
+  <footer style="height:32px;flex:0 0 32px;border-top:1px solid #414752;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#8b919d"><span>sprint-12-start &rarr; latest &middot; 311 features</span><span>+12 improved &middot; 2 regressed &middot; like-for-like +9.1%</span></footer>
+</div>
+</x-dc>
+</body>
+</html>
