@@ -139,7 +139,7 @@ func TestOnboard_ReportHasFindingsLimitsAndCISnippet(t *testing.T) {
 	}
 	for _, want := range []string{
 		"WHAT ATLAS CANNOT SEE",
-		"atlas audit", // the CI snippet turns the map into a gate
+		"atlas health", // the CI snippet turns the map into a gate
 		"atlas onboard promote",
 	} {
 		if !strings.Contains(stdout, want) {

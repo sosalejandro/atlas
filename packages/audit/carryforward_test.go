@@ -155,7 +155,7 @@ func TestAudit_Issue136_LostRunMustNotRaiseCoverage(t *testing.T) {
 
 // A number assembled from two builds must not present itself as one
 // measurement: the reason string has to say how much of the reading is
-// carried. FeatureHealth.Reasons is what `atlas audit --json` emits, so this
+// carried. FeatureHealth.Reasons is what `atlas health --json` emits, so this
 // covers the "distinguishable in both the note and --json" acceptance.
 func TestAudit_Issue136_NoteReportsCarriedShare(t *testing.T) {
 	s := openTestStore(t)

@@ -34,6 +34,118 @@ If a developer's database gets into a weird state, the answer is always
 
 ---
 
+### 1.1 The four data planes
+
+Issue #112. The tables below have very different lifetimes, owners and trust
+levels, and the schema did not say so anywhere. Naming the planes is what
+makes "which of this can be shared across repositories?" (#115) and "which of
+this can be synced to a server?" (#116) answerable by looking at a table
+rather than by arguing.
+
+| Plane        | Contents                                                                                      | Lifetime                               | Scope                                    |
+| ------------ | --------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------- |
+| **Index**    | declarations, anchors, edges, file hashes, control flow, SQL operations                        | derived, disposable, rebuilt by a scan | one repository; never leaves the machine |
+| **Registry** | capabilities (features), contracts, ownership, annotations as authored                         | authored, versioned alongside the code | spans repositories — **the only plane worth syncing** |
+| **Evidence** | coverage runs and results, per-test attribution, run gaps, span snapshots, history, snapshots  | append-only, prunable time series      | one run                                  |
+| **Views**    | matrices, diagrams, reports, health scores                                                     | pure functions of the three above      | recomputable; never stored as truth      |
+
+Per table:
+
+| Table                             | Plane    | Note                                                                                                                                   |
+| --------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `config`                          | Registry | Authored knobs, not derived from source.                                                                                                 |
+| `features`                        | Registry | The capability list. Authored via annotations, versioned with the code that carries them.                                                |
+| `symbols`                         | Index    | Both classes (§5.19). Rebuilt by `atlas scan`.                                                                                            |
+| `edges`                           | Index    |                                                                                                                                          |
+| `feature_symbols`                 | Index    | The *link* is derived by resolving an authored annotation against a scanned symbol; the annotation is Registry, the resolution is not.    |
+| `file_hashes`                     | Index    | The incremental-scan driver; meaningless off this machine.                                                                                |
+| `annotations`                     | Registry | Raw, pre-resolution — the authored text as found.                                                                                        |
+| `coverage_runs`                   | Evidence |                                                                                                                                          |
+| `coverage_results`                | Evidence |                                                                                                                                          |
+| `coverage_run_gaps`               | Evidence | What a run could NOT attribute — evidence about the evidence.                                                                            |
+| `coverage_symbol_spans`           | Evidence | The span a result was measured against.                                                                                                  |
+| `coverage_history`                | Evidence | The per-commit series behind `atlas trend`.                                                                                              |
+| `test_coverage`                   | Evidence | Per-test execution.                                                                                                                      |
+| `sql_operations`, `sql_operation_tables`, `sql_operation_predicates`, `sql_tables`, `sql_indexes` | Index | The data-access layer read out of source. |
+| `cfg_symbols`, `cfg_blocks`, `cfg_edges`, `cfg_findings` | Index | Control flow, derived per symbol.                                                                              |
+| `cfg_decision_coverage`           | Evidence | Derived control flow crossed with a profile — it cannot exist without a run.                                                             |
+| `skipped_files`                   | Index    | The exclusion ledger for one scan.                                                                                                       |
+| `snapshots`                       | Evidence | A point-in-time capture, appended.                                                                                                       |
+| `audit_snapshot_runs`             | Evidence | One row per `atlas health` run that was recorded.                                                                                        |
+| `coverage_history_features`       | Evidence | The per-feature detail of a `coverage_history` point.                                                                                    |
+| `schema_migrations`               | —        | golang-migrate's own bookkeeping; not Atlas data.                                                                                        |
+
+Health scores, matrices and diagrams appear in NO table. That is the Views
+plane doing its job: a score is a pure function of Index + Registry +
+Evidence, and storing one as truth is how a number outlives the data that
+justified it. `atlas health` recomputes on every invocation; `atlas snapshot`
+stores a score only as an explicitly-labelled historical Evidence row, never
+as an answer to "what is the score now".
+
+The planes also explain a boundary the code already respects: the Index is
+the only plane a scan may delete rows from. `pruneStaleSymbolsTx` removing a
+declaration the source no longer has is routine; the same operation against
+`features` would be Atlas deciding a capability no longer exists because it
+could not find it, which is a different and much worse claim.
+
+---
+
+### 1.2 The vocabulary
+
+Issue #112 also fixed the words. Every one of these was overloaded, collided
+with an industry term, or encoded one architecture's dialect into a column
+every repository has to carry. All of them were cheap to change while the
+JSON API was still unfrozen (#101), and none of them would have been after.
+
+| Was          | Is                                            | Why                                                                                                                                                        |
+| ------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `atlas trace`| `atlas chain`                                 | "Trace" is a distributed trace to every engineer who has opened Jaeger, and #94 ingests real OTel spans. **`trace` is now reserved for the runtime concept.** |
+| `coverage`   | `execution` / `verification` / `attribution`  | One word for three things: which statements RAN, whether a capability is VERIFIED by passing tests, and how much of the execution atlas could PLACE against a symbol. |
+| `contract`   | `contract` / `chain` / `drift`                | The intended interface (OpenAPI, Goa, proto) keeps the word. The actual path is a `chain`. The difference between them is `drift`.                          |
+| `symbol`     | `declaration` / `anchor`                      | The table mixed real code with vertices atlas invented. Now a column — see §5.19.                                                                            |
+| `atlas audit`| `atlas health`                                | The command said audit, the type said `FeatureHealth`, the docs said score. `audit` stays as an alias; the compliance reading of the word is an asset.       |
+| `bc_path`    | `domain`                                      | "Bounded context" is DDD's word. A repo that does not do DDD still has product areas. Kept as the display name, dropped as the schema's claim.                |
+
+**Every renamed CLI verb keeps a working alias for one minor version**, and
+prints a one-line deprecation note on stderr when invoked under the old name
+(`internal/cli/renames.go`). That is the same forward-compatibility promise
+`docs/annotations.md` already makes for annotation kinds, applied to the
+command surface — a verb is a harder dependency than an annotation, because
+it lives in someone's CI file rather than in their source.
+
+What changed in the JSON envelopes:
+
+- `command` is `chain` / `health`, under either name.
+- `components.coverage` is `components.verification`.
+- Health reasons begin `verification:` (symbols passing) or `execution:`
+  (statements executed) rather than both beginning `coverage:`.
+- `symbols.bc_path` is `symbols.domain`; `symbol_info` reports `domain`.
+- `codebase dead`'s `external_excluded` is `anchors_excluded`.
+
+Scores did not move. That is the acceptance criterion the rename was held to:
+on this repository, all 63 scored features produce identical score, component
+value, surface source and decision-coverage readings before and after --
+once the `coverage` -> `verification` key and the reason prefixes above are
+mapped through, nothing else differs. Verified two ways: a fresh scan with
+each binary over the same working tree, and a v18 store built by the old
+binary then opened (and migrated) by the new one. The declaration/anchor
+backfill classifies exactly the 79 rows the old `external:py` prefix check
+excluded, and `atlas codebase dead` returns the same 5124 candidates.
+
+Still carrying the old vocabulary, deliberately out of scope for #112 and
+worth a follow-up:
+
+- `internal/domain` and `internal/app` — the legacy testreg port — still name
+  their walk `TraceFrom` / `TraceNode`. `packages/graph`, the kernel package a
+  public API would expose, was renamed to `ChainFrom` / `ChainNode`.
+- The `@atlas:bc` annotation kind still says `bc`. Renaming an annotation kind
+  is a change to authored source in other people's repositories, which is what
+  `atlas migrate-annotations` exists for and what the issue's "taxonomy pass"
+  note anticipates.
+- The MCP tool names (`symbol_info`, `coverage_for`) are unchanged.
+
+---
+
 ## 2. Storage Location
 
 Default path: `atlas-state.db` at the project root (sibling of `.atlas.yaml`).
@@ -213,6 +325,8 @@ recomputed views (see §7 read patterns).
 
 ### 5.4 `symbols` — every named entity discovered by the scanner
 
+> **Plane: Index.** Derived from source, disposable, rebuilt by `atlas scan`.
+
 ```sql
 CREATE TABLE symbols (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -222,15 +336,17 @@ CREATE TABLE symbols (
   line            INTEGER NOT NULL,
   end_line        INTEGER,
   package         TEXT,
-  bc_path         TEXT,
+  domain          TEXT,   -- renamed from bc_path in migration 0019
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   pattern_matches TEXT,   -- Phase 6f, added in migration 0003
+  node_class      TEXT,   -- declaration | anchor, added in migration 0019
   CHECK (kind IN ('type', 'func', 'method', 'interface', 'var', 'const'))
 );
 
-CREATE INDEX symbols_file_idx     ON symbols(file_path);
-CREATE INDEX symbols_package_idx  ON symbols(package);
-CREATE INDEX symbols_bc_idx       ON symbols(bc_path);
+CREATE INDEX symbols_file_idx       ON symbols(file_path);
+CREATE INDEX symbols_package_idx    ON symbols(package);
+CREATE INDEX symbols_domain_idx     ON symbols(domain);
+CREATE INDEX symbols_node_class_idx ON symbols(node_class);
 ```
 
 | Column            | Type      | Notes                                                                                                                          |
@@ -242,9 +358,10 @@ CREATE INDEX symbols_bc_idx       ON symbols(bc_path);
 | `line`            | INTEGER   | 1-based first line of the symbol's declaration.                                                                                |
 | `end_line`        | INTEGER   | 1-based last line. NULL if the scanner couldn't determine it (e.g. some TS expression contexts).                                |
 | `package`         | TEXT      | Go: import path of the package. TS: the nearest `package.json`'s `name`. Optional.                                              |
-| `bc_path`         | TEXT      | Bounded context path, e.g. `src/contexts/identity`. Computed once on insert from `file_path`. Optional for non-BC code.        |
+| `domain`          | TEXT      | Product-area path, e.g. `src/contexts/identity` — "bounded context" is the DDD-flavoured display name. Computed on insert from `file_path`. NULL for code outside the convention. Was `bc_path` before migration 0019. |
 | `created_at`      | TIMESTAMP | First time this symbol was indexed.                                                                                            |
 | `pattern_matches` | TEXT      | JSON-encoded `[]patterns.Match` set produced by codeindex/patterns recognisers (Phase 6f). NULL when the symbol has no hits.    |
+| `node_class`      | TEXT      | `declaration` (authored code) or `anchor` (a vertex Atlas minted so an edge has somewhere to land). See §5.19. |
 
 The unique constraint on `qualified_name` is the cache key. Re-scanning the
 same file yields the same qualified name, so subsequent runs `INSERT OR
@@ -254,7 +371,7 @@ IGNORE` and skip duplicates without writes.
 
 The Go scanner registers a declaration under its **short** id — `Type.Method`
 for methods, `pkg.Func` for plain functions — because that is what
-`@atlas:feature` annotations, `atlas trace` arguments and stored feature links
+`@atlas:feature` annotations, `atlas chain` arguments and stored feature links
 refer to. Short ids are not globally unique: any monorepo where two bounded
 contexts each declare a `Chat` or a `NewAvailabilityService` produces
 collisions. When a short id is already taken by a declaration in a **different
@@ -582,7 +699,7 @@ CREATE INDEX audit_snapshots_feature_idx ON audit_snapshots(feature_id, taken_at
 | `feature_id`             | TEXT      | FK → `features(id)`. Cascades.                                                                                 |
 | `score`                  | INTEGER   | `0`–`100`. Computed by `packages/audit/score.go` from the ported `audit_feature.go` algorithm.                 |
 | `layer_scores_json`      | TEXT      | JSON object, e.g. `{"handler": 80, "service": 70, "repo": 90}`. Matches `domain.LayerCoverage`.                |
-| `blocking_findings_json` | TEXT      | JSON array of `domain.AuditGap`-shaped objects. Drives the "must-fix before release" list in `atlas audit`.    |
+| `blocking_findings_json` | TEXT      | JSON array of `domain.AuditGap`-shaped objects. Drives the "must-fix before release" list in `atlas health`.    |
 
 Snapshots accumulate over time so `atlas diff` can compare commits.
 
@@ -730,7 +847,7 @@ yet — statement coverage over each feature's linked impl symbols, one point
 per run group, keyed by `run_group` (which CI is encouraged to set to the
 commit sha) or by `coverage-run:<id>` when there is none. Backfill never
 overwrites an existing point and is skipped under `--no-backfill`. Nothing
-else writes here: `atlas cov sync` and `atlas audit` do not.
+else writes here: `atlas cov sync` and `atlas health` do not.
 
 | Column        | Type      | Notes                                                                                                                                                       |
 | ------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1274,6 +1391,72 @@ source build older than the ordinal scan reached reports
 cache — but re-deriving it means re-ingesting the coverage reports, because
 nothing else records what a span used to be.
 
+### 5.19 `symbols.node_class` and `symbols.domain` — the taxonomy pass (migration 0019)
+
+Issue #112. Two renames, one of which is really a bug fix.
+
+**`bc_path` → `domain`.** "Bounded context" is one architecture's word for
+"which part of the product does this file belong to". A repository that has
+never heard of DDD still has an answer to that question, and it should not
+have to store it under a name from a book it did not read. The DERIVATION is
+unchanged — still the `src/contexts/<name>/` prefix, still
+`packages/store/paths.go` — because renaming a column is not a licence to
+invent a second way of computing it. "Bounded context" survives as the
+DDD-flavoured display name in `atlas onboard` and in the docs.
+
+**`node_class` — `declaration` vs `anchor`.** The `symbols` table has always
+held two different kinds of thing:
+
+| Class         | What it is                                                                 | Examples                                                              |
+| ------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `declaration` | Parsed out of a source file someone in this repository wrote.               | `auth.Login`, `AuthHandler.ServeHTTP`, `src/pages/Login.tsx::Login`    |
+| `anchor`      | A vertex Atlas minted so an edge would have somewhere to land.               | `route:/login`, `sql:GetUserByEmail`, `endpoint:POST /v1/login`, the `external:py` stubs pyscan emits for unresolvable imports |
+
+Nothing recorded which was which. Every query that meant "real code"
+re-derived the split by string-matching a reserved prefix on the id or the
+path — `file_path NOT LIKE 'external:py%'` in the dead-code query,
+`strings.HasPrefix(id, "route:")` in the graph's root picker,
+`strings.HasPrefix(qn, "sql:")` in `atlas flow`. One rule, four copies, two
+of them in SQL and two in Go, and nothing able to notice them drifting apart.
+The prefix convention was load-bearing and untyped, which is the actual
+defect behind the rename.
+
+Now:
+
+- `packages/shared/taxonomy.go` holds the ONE Go copy of the rule
+  (`ClassifyNode`, over the closed `AnchorPrefixes` set).
+- Migration 0019 applies that rule to existing rows exactly once, as a
+  backfill. Two tests assert the SQL and the Go set agree in both
+  directions.
+- `packages/store/symbols.go` classifies every new row on the way in, and
+  `TestNoQueryRederivesNodeClassFromAPrefix` fails if a reserved prefix
+  reappears anywhere in the query layer.
+
+**Why the column is nullable with no CHECK.** Migration 0018 got a NOT NULL,
+no-DEFAULT column on `edges` by rebuilding the table, and argued that a
+default is how a forgotten column becomes a claim nobody earned. `symbols`
+cannot be rebuilt that way: five tables hold `ON DELETE CASCADE` foreign keys
+into it and the connection runs with `foreign_keys=1`, so `DROP TABLE
+symbols` would take the entire index and every coverage result stored against
+it. SQLite cannot add a CHECK in place, and `ADD COLUMN … NOT NULL` requires
+a DEFAULT. So the constraint is carried by two `RAISE(ABORT)` triggers
+(`symbols_node_class_insert_guard`, `symbols_node_class_update_guard`) that
+enforce the same closed set at the same moment, and also catch the NULL a
+CHECK would not.
+
+**Why the Go layer derives rather than refuses.** This is the one place the
+column differs from `edges.resolution_tier`. A resolution tier is a fact
+about work the resolver did — unrecoverable once it has returned, so
+defaulting it invents a measurement. A node's class is a pure function of its
+id and its path, both of which the insert is already holding; deriving it
+gives the same answer from the same single copy of the rule. A scanner that
+knows better — one that minted a vertex and can simply say so — keeps its
+explicit answer.
+
+**Behaviour is unchanged.** On this repository the backfill classifies
+exactly the 79 rows the old `external:py` prefix check excluded, and the
+dead-code candidate set is identical before and after.
+
 ## 6. Partial Unique Indices and Invariants
 
 | Invariant                                                                | Where enforced                                                          |
@@ -1282,6 +1465,7 @@ nothing else records what a span used to be.
 | One feature_symbols row per (feature, symbol, role)                      | `feature_symbols` PRIMARY KEY                                           |
 | One edge per (from, to, kind, file, line)                                | `edges_dedupe_idx` (UNIQUE) — re-scans are idempotent                  |
 | Every edge names the mechanism that resolved it                          | `edges.resolution_tier NOT NULL` with no DEFAULT + `CHECK` on the vocabulary; `store.requireTier` refuses it earlier with the from/to pair named |
+| Every symbol says whether it is a declaration or an anchor               | `symbols_node_class_insert_guard` / `_update_guard` triggers (§5.19); `store.symbolsStore.Insert` derives it from `shared.ClassifyNode` first |
 | Symbol qualified names globally unique                                   | `symbols.qualified_name UNIQUE`                                         |
 | One file_hashes row per file path                                        | `file_hashes.file_path` is the PRIMARY KEY                              |
 | Schema versions never reapplied                                          | `schema_version.version` PRIMARY KEY + idempotent runner skip-logic     |
@@ -1311,7 +1495,7 @@ WHERE f.id = ?
 ORDER BY fs.role, s.file_path, s.line;
 ```
 
-Used by `atlas trace <feature-id>` to enumerate the implementation surface
+Used by `atlas chain <feature-id>` to enumerate the implementation surface
 before walking the edge graph.
 
 ### 7.2 Call chain from a graph entry point (recursive CTE)
@@ -1406,7 +1590,7 @@ API which is responsible for the SQL.
 | `codeindex/ts`   | `symbols`, `edges`, `file_hashes`                         | Same as Go scanner, on the `apps/**` + `packages/**` trees.                                   |
 | `codeindex/annotations` | `annotations`, `feature_symbols`                  | Runs after `codeindex/{go,ts}` so the symbols already exist for FK resolution.                |
 | `coverage`       | `coverage_runs`, `coverage_results`                       | `atlas cov sync` after a framework-specific ingest.                                           |
-| `audit`          | `audit_snapshot_runs`                                     | `atlas audit` — one whole-project JSON blob per run (§5.10 for why the per-feature table went). |
+| `audit`          | `audit_snapshot_runs`                                     | `atlas health` — one whole-project JSON blob per run (§5.10 for why the per-feature table went). |
 | `trend`          | `coverage_history`, `coverage_history_features`           | `atlas trend record` — one point per commit, upserted so a CI retry corrects rather than appends. |
 | `cfg`            | `cfg_blocks`, `cfg_edges`, `cfg_symbols`, `cfg_decision_coverage`, `cfg_findings` | `atlas flow build` -- one whole-symbol rewrite per function, so a rebuild that finds fewer blocks shrinks the stored graph rather than interleaving two generations. |
 | `cli/config`     | `config`                                                  | `atlas config set <key> <value>`. Read-only for everyone else.                                |
@@ -1517,7 +1701,7 @@ initial migration but each will need a one-line decision before merge.
 2. **Should `audit_snapshots.layer_scores_json` be a separate table?**
    Storing it as JSON is faster to write but resists SQL aggregation. v1
    keeps it as JSON; a v2 normalised version becomes worthwhile only when
-   someone runs `atlas audit trend --by-layer`.
+   someone runs `atlas health trend --by-layer`.
 3. **Cross-project DB sharing?** v0 says no — one DB per project root,
    gitignored. If a workspace ever needs a shared atlas DB across multiple
    project roots (e.g. a monorepo with multiple `.atlas.yaml` files), the

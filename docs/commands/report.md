@@ -307,7 +307,7 @@ features one side of the delta could not score — so that "no findings" and
 
 ## See also
 
-- [`atlas audit`](audit.md) — the scores `atlas/feature-uncovered` reports on.
+- [`atlas health`](health.md) — the scores `atlas/feature-uncovered` reports on.
 - [`atlas cov`](cov.md) — `cov status --gaps` is the interactive view of
   `atlas/coverage-unattributed`.
 - [`atlas codebase`](codebase.md) — `codebase dead` and its false-positive

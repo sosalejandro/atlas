@@ -171,14 +171,25 @@ var deadCodeCaveats = []string{
 // representation so downstream tools don't have to scrape the text
 // output for them.
 type codebaseDeadResult struct {
-	Kind             string                `json:"kind"`
-	Filter           string                `json:"filter,omitempty"`
-	IncludeTests     bool                  `json:"include_tests"`
-	IncludeScopes    []string              `json:"include_scopes,omitempty"`
-	DeadCandidates   []deadCandidateRecord `json:"dead_candidates"`
-	TotalCandidates  int                   `json:"total_candidates"`
-	Caveats          []string              `json:"caveats"`
-	ExternalExcluded bool                  `json:"external_excluded"`
+	Kind            string                `json:"kind"`
+	Filter          string                `json:"filter,omitempty"`
+	IncludeTests    bool                  `json:"include_tests"`
+	IncludeScopes   []string              `json:"include_scopes,omitempty"`
+	DeadCandidates  []deadCandidateRecord `json:"dead_candidates"`
+	TotalCandidates int                   `json:"total_candidates"`
+	Caveats         []string              `json:"caveats"`
+
+	// AnchorsExcluded says the candidate set holds declarations only.
+	// Anchors -- route, endpoint and named-query vertices, and the stubs
+	// pyscan emits for imports it cannot resolve -- are things nobody in
+	// this repository authored, so calling one dead would be nonsense.
+	//
+	// It was `external_excluded` until issue #112, which is what the field
+	// meant when the exclusion was a `file_path NOT LIKE 'external:py%'`
+	// check: one language's stub convention. The exclusion is now
+	// `node_class = 'declaration'`, which is the same set on this
+	// repository and the right set on the next one.
+	AnchorsExcluded bool `json:"anchors_excluded"`
 }
 
 // deadCandidateRecord is the per-row JSON shape. Mirrors the human
@@ -241,14 +252,14 @@ func runCodebaseDead(cmd *cobra.Command, args deadCmdArgs) error {
 	}
 
 	result := codebaseDeadResult{
-		Kind:             normalizeKindForOutput(edgeKind),
-		Filter:           args.filter,
-		IncludeTests:     args.includeTests,
-		IncludeScopes:    scopes,
-		DeadCandidates:   toDeadRecords(candidates),
-		TotalCandidates:  len(candidates),
-		Caveats:          deadCodeCaveats,
-		ExternalExcluded: true,
+		Kind:            normalizeKindForOutput(edgeKind),
+		Filter:          args.filter,
+		IncludeTests:    args.includeTests,
+		IncludeScopes:   scopes,
+		DeadCandidates:  toDeadRecords(candidates),
+		TotalCandidates: len(candidates),
+		Caveats:         deadCodeCaveats,
+		AnchorsExcluded: true,
 	}
 
 	if flags.JSON {

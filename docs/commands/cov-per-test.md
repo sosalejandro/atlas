@@ -28,7 +28,7 @@ atlas cov run -- go test ./...          # every time you want fresh evidence
 ```
 
 The second command leaves the store with one `test_coverage` row per
-(test, symbol executed) pair, which is exactly what `atlas audit` uses for
+(test, symbol executed) pair, which is exactly what `atlas health` uses for
 its dynamic feature-surface derivation.
 
 ---

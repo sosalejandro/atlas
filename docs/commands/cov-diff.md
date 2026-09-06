@@ -25,7 +25,7 @@ status, SonarQube's "Clean as You Code", diff-cover, Coveralls).
    `[line, end_line]` span contains them — but only for files the index still
    describes; see [The freshness guard](#the-freshness-guard).
 3. Each touched symbol is scored against the **current coverage frontier** —
-   the same runs [`atlas cov status`](./cov.md) and `atlas audit` read, so a
+   the same runs [`atlas cov status`](./cov.md) and `atlas health` read, so a
    polyglot build that tagged its syncs with `--run-group` is scored as one
    measurement rather than by whichever framework synced last.
 

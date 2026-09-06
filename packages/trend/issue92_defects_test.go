@@ -94,7 +94,7 @@ func TestCollect_RecordsTheCoverageComponentNotTheBlend(t *testing.T) {
 		// The blend is respectable because three other signals are strong.
 		Score: 90,
 		Components: map[string]float64{
-			audit.SignalCoverage:          40,
+			audit.SignalVerification:      40,
 			audit.SignalAnnotationFresh:   100,
 			audit.SignalPatternCompliance: 100,
 			audit.SignalContractDrift:     100,
@@ -149,7 +149,7 @@ func TestCollect_DenominatorIsStatementsWhenTheScoreIs(t *testing.T) {
 	health := audit.FeatureHealth{
 		FeatureID:  "f.stmts",
 		Score:      55,
-		Components: map[string]float64{audit.SignalCoverage: 55},
+		Components: map[string]float64{audit.SignalVerification: 55},
 	}
 	got, err := Collect(context.Background(), s,
 		stubScorer{healths: []audit.FeatureHealth{health}},
@@ -200,7 +200,7 @@ func measureOneFeature(t *testing.T, specs []stmtSpec) int64 {
 	got, err := Collect(context.Background(), s,
 		stubScorer{healths: []audit.FeatureHealth{{
 			FeatureID:  "f.one",
-			Components: map[string]float64{audit.SignalCoverage: 50},
+			Components: map[string]float64{audit.SignalVerification: 50},
 		}}},
 		CollectOptions{CommitSHA: "abc", MeasuredAt: day(0)})
 	if err != nil {
@@ -222,7 +222,7 @@ func TestCollect_DenominatorFallsBackToScoredSymbols(t *testing.T) {
 	got, err := Collect(context.Background(), s,
 		stubScorer{healths: []audit.FeatureHealth{{
 			FeatureID:  "f.passfail",
-			Components: map[string]float64{audit.SignalCoverage: 100},
+			Components: map[string]float64{audit.SignalVerification: 100},
 		}}},
 		CollectOptions{CommitSHA: "abc", MeasuredAt: day(0)})
 	if err != nil {

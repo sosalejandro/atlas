@@ -89,7 +89,10 @@ type featureLink struct {
 
 type symbolInfoResult struct {
 	symbolRef
-	BCPath   *string       `json:"bc_path,omitempty"`
+	// Domain is the product-area prefix of the file path (issue #112's
+	// rename of bc_path). Absent when the repo does not use the
+	// src/contexts/<name>/ layout, which is most of them.
+	Domain   *string       `json:"domain,omitempty"`
 	Features []featureLink `json:"features"`
 	// CallerCount / CalleeCount orient the agent before it pays for the list:
 	// "412 distinct callers" is itself the answer to "is this safe to change".

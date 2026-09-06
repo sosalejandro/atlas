@@ -101,6 +101,11 @@ type Querier interface {
 	// decision instead of letting the merge order rewrite it.
 	InsertSkippedFile(ctx context.Context, arg InsertSkippedFileParams) error
 	InsertSnapshot(ctx context.Context, arg InsertSnapshotParams) (sql.Result, error)
+	// node_class is bound by the caller, never defaulted. See migration 0019:
+	// an unset class is a writer that never asked whether the row is authored
+	// code or a synthetic anchor, and 'declaration' is the answer that quietly
+	// pollutes every count. The store layer refuses an empty value before the
+	// statement runs; the table's guard trigger refuses it after.
 	InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql.Result, error)
 	// One row per (run, test, executed symbol). REPLACE so a re-ingest of the
 	// same run is idempotent rather than a constraint violation.
@@ -200,8 +205,9 @@ type Querier interface {
 	// the narg lowering emits (see sqlc-dev/sqlc#1881, #3508).
 	//
 	// None of these columns store the empty value as a legitimate row: the
-	// parser layer always populates file_path + kind, and package / bc_path
-	// are either non-empty or NULL.
+	// parser layer always populates file_path + kind, and package / domain
+	// are either non-empty or NULL. node_class is NOT NULL from migration
+	// 0019 onward, so its sentinel means "either class" rather than "unset".
 	//
 	// Callers must normalize Kind to the closed schema-v1 set BEFORE binding
 	// (see normalizeKind) so the equality match never silently misses an

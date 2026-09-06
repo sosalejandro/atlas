@@ -196,7 +196,7 @@ force a full re-walk, either:
    altogether.
 
 Use sparingly. The intended escape hatch for "the cached graph looks wrong"
-is `atlas trace --fresh`, which re-walks live without touching the store.
+is `atlas chain --fresh`, which re-walks live without touching the store.
 
 ## How it works
 

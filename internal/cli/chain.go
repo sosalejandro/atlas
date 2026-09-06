@@ -22,27 +22,33 @@ import (
 	"github.com/sosalejandro/atlas/packages/store"
 )
 
-// defaultTraceDepth is the depth that --depth defaults to when the caller
+// defaultChainDepth is the depth that --depth defaults to when the caller
 // passes neither --depth nor --max-depth. Per issue #61 the default is 3 —
 // deep enough to be useful for code exploration, shallow enough that the
 // output stays scannable. -1 means "unlimited" (with cycle detection).
-const defaultTraceDepth = 3
+const defaultChainDepth = 3
 
-// newTraceCmd implements `atlas trace <id>` — walk the call graph from a
+// newChainCmd implements `atlas chain <id>` — walk the call graph from a
 // feature or symbol id. Supports `saga:<id>` for saga walks via the store's
 // EDA query, and `feature:` / `symbol:` prefixes for explicit disambiguation.
+//
+// The verb was `atlas trace` until issue #112. "Trace" is the industry's word
+// for a distributed trace, and #94 puts real OTel spans into atlas, so the
+// static call path and the runtime one would have shared a name inside one
+// tool. The old name remains a working alias for one minor version (see
+// renames.go); it is reserved for the runtime concept thereafter.
 //
 // As of atlas#29 the default path reads from the cached `.atlas/atlas.db`
 // (populated by `atlas init` / `atlas scan`) so repeated invocations land in
 // well under a second. The previous re-walk-from-disk behaviour now lives
 // behind the opt-in `--fresh` flag — escape hatch only.
 //
-// As of issue #61 the symbol-trace path renders a recursive indented tree
+// As of issue #61 the symbol-chain path renders a recursive indented tree
 // up to `--depth N` (default 3, -1 = unlimited with cycle detection)
 // instead of the legacy depth-1 chain. The chain flat-output stays in the
 // JSON envelope for backward-compatible consumers; the new tree is added
 // alongside.
-func newTraceCmd() *cobra.Command {
+func newChainCmd() *cobra.Command {
 	var (
 		root             string
 		maxDepth         int
@@ -51,10 +57,14 @@ func newTraceCmd() *cobra.Command {
 		fresh            bool
 	)
 	cmd := &cobra.Command{
-		Use:   "trace <id>",
-		Short: "Walk the call graph from a feature, symbol id, or saga",
-		Long: `trace walks Atlas's call graph starting from the supplied id and
-emits the chain as text (default) or JSON.
+		Use:     "chain <id>",
+		Aliases: aliasesFor("chain"),
+		Short:   "Walk the call graph from a feature, symbol id, or saga",
+		Long: `chain walks Atlas's call graph starting from the supplied id and
+emits the path as text (default) or JSON.
+
+Renamed from 'atlas trace' by issue #112 -- the old verb still works for one
+minor version, and is reserved for runtime traces (OTel) from then on.
 
 The id can be one of:
 
@@ -67,13 +77,13 @@ The id can be one of:
   - feature:<id>        ("feature:plans-patient.export") — explicit feature
   - symbol:<qn>         ("symbol:auth.Login")            — explicit symbol
 
-For an unprefixed input, trace first tries a feature lookup (the strict-regex
-shape that wins most real-world inputs); a hit dispatches to traceByFeature.
+For an unprefixed input, chain first tries a feature lookup (the strict-regex
+shape that wins most real-world inputs); a hit dispatches to chainByFeature.
 On no-feature, it falls back to symbol resolution. When the same id matches
-BOTH a feature and a symbol's qualified-name suffix, trace errors and asks
+BOTH a feature and a symbol's qualified-name suffix, chain errors and asks
 the caller to disambiguate with the explicit prefix.
 
-By default trace reads from the cached SQLite store at .atlas/atlas.db (run
+By default chain reads from the cached SQLite store at .atlas/atlas.db (run
 'atlas init' first to populate it). Pass --fresh to re-walk the codebase
 from disk — that's the pre-#29 behaviour and costs minutes on real
 codebases; only use it when you suspect the cached graph is wrong AND
@@ -88,15 +98,16 @@ pre-issue-#61 behaviour).`,
 			// --depth wins over --max-depth when both are passed; the
 			// older --max-depth flag is preserved for backward compat
 			// with scripts that already set it explicitly.
+			noteIfRenamed(cmd)
 			effective := pickEffectiveDepth(cmd, depth, maxDepth)
-			return runTrace(cmd, args[0], root, effective, nodeModulesPaths, fresh)
+			return runChain(cmd, args[0], root, effective, nodeModulesPaths, fresh)
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "",
 		"project root for the fresh scan (default: repo root or cwd)")
 	cmd.Flags().IntVar(&maxDepth, "max-depth", 10,
-		"maximum trace depth (legacy alias for --depth; kept for backward compat)")
-	cmd.Flags().IntVar(&depth, "depth", defaultTraceDepth,
+		"maximum chain depth (legacy alias for --depth; kept for backward compat)")
+	cmd.Flags().IntVar(&depth, "depth", defaultChainDepth,
 		"recursive call-tree depth; -1 = unlimited with cycle detection, 0 = direct callees only")
 	cmd.Flags().StringSliceVar(&nodeModulesPaths, "node-modules-path", nil,
 		"absolute path to a node_modules dir the TS scanner can borrow typescript from "+
@@ -121,17 +132,17 @@ func pickEffectiveDepth(cmd *cobra.Command, depth, maxDepth int) int {
 	if cmd.Flags().Changed("max-depth") {
 		return maxDepth
 	}
-	return defaultTraceDepth
+	return defaultChainDepth
 }
 
-// traceResult is the JSON payload for `atlas trace`.
+// chainWalkResult is the JSON payload for `atlas chain`.
 //
 // As of issue #61 it carries both the legacy flat `chain` (preserved so
 // downstream consumers keep working) AND a nested `tree` of TraceTreeNode
 // for the recursive call-tree shape. depth_reached reports the deepest
 // node actually emitted (may be less than requested max_depth if the
 // graph terminates earlier).
-type traceResult struct {
+type chainWalkResult struct {
 	Kind         string            `json:"kind"` // "call" | "saga" | "feature"
 	Root         shared.SymbolID   `json:"root,omitempty"`
 	FeatureID    shared.FeatureID  `json:"feature_id,omitempty"`
@@ -142,14 +153,14 @@ type traceResult struct {
 	TotalNodes   int               `json:"total_nodes,omitempty"`
 	Cycles       []graph.Edge      `json:"cycles,omitempty"`
 	CycleNodes   []shared.SymbolID `json:"cycle_nodes,omitempty"`
-	Chain        []traceChainEntry `json:"chain,omitempty"`
-	Tree         *traceTreeNode    `json:"tree,omitempty"`
-	SagaSteps    []traceSagaStep   `json:"saga_steps,omitempty"`
+	Chain        []chainEntry      `json:"chain,omitempty"`
+	Tree         *chainTreeNode    `json:"tree,omitempty"`
+	SagaSteps    []chainSagaStep   `json:"saga_steps,omitempty"`
 	IndexRoot    string            `json:"index_root,omitempty"`
 	Source       string            `json:"source,omitempty"` // "cache" | "fresh"
 }
 
-type traceChainEntry struct {
+type chainEntry struct {
 	ID    shared.SymbolID   `json:"id"`
 	Kind  shared.SymbolKind `json:"kind"`
 	Lang  string            `json:"lang,omitempty"`
@@ -158,22 +169,22 @@ type traceChainEntry struct {
 	Depth int               `json:"depth"`
 }
 
-// traceTreeNode is the nested-tree form of the call walk. Each node
+// chainTreeNode is the nested-tree form of the call walk. Each node
 // records the symbol's location data plus an ordered children slice
 // for the recursive shape. IsCycle marks a node that was seen earlier
 // in the current chain — recursion stops and downstream consumers
 // render it with a `[cycle]` tag.
-type traceTreeNode struct {
+type chainTreeNode struct {
 	Symbol   shared.SymbolID   `json:"symbol"`
 	Kind     shared.SymbolKind `json:"kind,omitempty"`
 	File     string            `json:"file,omitempty"`
 	Line     int               `json:"line,omitempty"`
 	Depth    int               `json:"depth"`
 	IsCycle  bool              `json:"is_cycle,omitempty"`
-	Children []*traceTreeNode  `json:"children,omitempty"`
+	Children []*chainTreeNode  `json:"children,omitempty"`
 }
 
-type traceSagaStep struct {
+type chainSagaStep struct {
 	Order int    `json:"order"`
 	File  string `json:"file"`
 	Line  int    `json:"line"`
@@ -185,7 +196,7 @@ type traceSagaStep struct {
 // as a const so tests can pin the exact wording.
 const staleStateWarning = "atlas state may be stale; run 'atlas scan' to refresh"
 
-func runTrace(cmd *cobra.Command, target, rootArg string, maxDepth int, nodeModulesPaths []string, fresh bool) error {
+func runChain(cmd *cobra.Command, target, rootArg string, maxDepth int, nodeModulesPaths []string, fresh bool) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -194,35 +205,35 @@ func runTrace(cmd *cobra.Command, target, rootArg string, maxDepth int, nodeModu
 	// Prefix dispatch — these are unambiguous regardless of cache presence.
 	switch {
 	case strings.HasPrefix(target, "saga:"):
-		return runTraceSaga(cmd, ctx, strings.TrimPrefix(target, "saga:"))
+		return runChainSaga(cmd, ctx, strings.TrimPrefix(target, "saga:"))
 	case strings.HasPrefix(target, "feature:"):
-		return runTraceCached(cmd, ctx, strings.TrimPrefix(target, "feature:"), maxDepth, traceModeFeature)
+		return runChainCached(cmd, ctx, strings.TrimPrefix(target, "feature:"), maxDepth, chainModeFeature)
 	case strings.HasPrefix(target, "symbol:"):
-		return runTraceCached(cmd, ctx, strings.TrimPrefix(target, "symbol:"), maxDepth, traceModeSymbol)
+		return runChainCached(cmd, ctx, strings.TrimPrefix(target, "symbol:"), maxDepth, chainModeSymbol)
 	}
 
 	// Default path: the cached store, unless --fresh is set.
 	if fresh {
-		return runTraceFresh(cmd, ctx, target, rootArg, maxDepth, nodeModulesPaths)
+		return runChainFresh(cmd, ctx, target, rootArg, maxDepth, nodeModulesPaths)
 	}
-	return runTraceCached(cmd, ctx, target, maxDepth, traceModeAuto)
+	return runChainCached(cmd, ctx, target, maxDepth, chainModeAuto)
 }
 
-// traceMode picks which lookup runTraceCached performs.
-type traceMode int
+// chainMode picks which lookup runChainCached performs.
+type chainMode int
 
 const (
-	traceModeAuto    traceMode = iota // try feature then symbol; error on collision
-	traceModeFeature                  // feature only (feature: prefix)
-	traceModeSymbol                   // symbol only (symbol: prefix)
+	chainModeAuto    chainMode = iota // try feature then symbol; error on collision
+	chainModeFeature                  // feature only (feature: prefix)
+	chainModeSymbol                   // symbol only (symbol: prefix)
 )
 
-// runTraceCached is the default trace path. It opens the persisted store and
-// dispatches to traceByFeature / traceBySymbol based on the requested mode.
-// When mode == traceModeAuto, it checks whether the input matches BOTH a
+// runChainCached is the default chain path. It opens the persisted store and
+// dispatches to chainByFeature / chainBySymbol based on the requested mode.
+// When mode == chainModeAuto, it checks whether the input matches BOTH a
 // feature and a symbol's qualified-name suffix and asks for disambiguation
 // if so.
-func runTraceCached(cmd *cobra.Command, ctx context.Context, input string, maxDepth int, mode traceMode) error {
+func runChainCached(cmd *cobra.Command, ctx context.Context, input string, maxDepth int, mode chainMode) error {
 	dbPath, err := resolveDBPath(loaded, flags.DBPath)
 	if err != nil {
 		return err
@@ -236,7 +247,7 @@ func runTraceCached(cmd *cobra.Command, ctx context.Context, input string, maxDe
 
 	s, err := store.Open(ctx, dbPath)
 	if err != nil {
-		return fmt.Errorf("trace: open store %s: %w", dbPath, err)
+		return fmt.Errorf("chain: open store %s: %w", dbPath, err)
 	}
 	defer func() { _ = s.Close() }()
 
@@ -247,13 +258,13 @@ func runTraceCached(cmd *cobra.Command, ctx context.Context, input string, maxDe
 	}
 
 	switch mode {
-	case traceModeFeature:
-		return traceByFeature(cmd, ctx, s, shared.FeatureID(input), maxDepth, warnings)
-	case traceModeSymbol:
-		return traceBySymbol(cmd, ctx, s, input, maxDepth, warnings)
+	case chainModeFeature:
+		return chainByFeature(cmd, ctx, s, shared.FeatureID(input), maxDepth, warnings)
+	case chainModeSymbol:
+		return chainBySymbol(cmd, ctx, s, input, maxDepth, warnings)
 	}
 
-	// traceModeAuto: try feature first, then symbol.
+	// chainModeAuto: try feature first, then symbol.
 	_, ferr := s.Features().Get(ctx, shared.FeatureID(input))
 	featureFound := ferr == nil
 
@@ -268,14 +279,14 @@ func runTraceCached(cmd *cobra.Command, ctx context.Context, input string, maxDe
 	switch {
 	case featureFound && symMatch:
 		return fmt.Errorf(
-			"input %q matches both feature %q and symbol %q. Disambiguate with 'atlas trace feature:%s' or 'atlas trace symbol:%s'",
+			"input %q matches both feature %q and symbol %q. Disambiguate with 'atlas chain feature:%s' or 'atlas chain symbol:%s'",
 			input, input, symRow.QualifiedName, input, input)
 	case featureFound:
-		return traceByFeature(cmd, ctx, s, shared.FeatureID(input), maxDepth, warnings)
+		return chainByFeature(cmd, ctx, s, shared.FeatureID(input), maxDepth, warnings)
 	case symMatch:
-		return traceBySymbol(cmd, ctx, s, input, maxDepth, warnings)
+		return chainBySymbol(cmd, ctx, s, input, maxDepth, warnings)
 	default:
-		return fmt.Errorf("trace: no feature or symbol matches %q", input)
+		return fmt.Errorf("chain: no feature or symbol matches %q", input)
 	}
 }
 
@@ -297,7 +308,7 @@ func lookupSymbolCached(ctx context.Context, s *store.Store, input string) (stor
 	// Suffix scan — accept "AuthHandler.Login" matching "auth.AuthHandler.Login".
 	all, err := s.Symbols().List(ctx, store.SymbolFilter{})
 	if err != nil {
-		return store.SymbolRow{}, false, fmt.Errorf("trace: list symbols: %w", err)
+		return store.SymbolRow{}, false, fmt.Errorf("chain: list symbols: %w", err)
 	}
 	for _, r := range all {
 		if hasDottedSuffix(string(r.QualifiedName), input) {
@@ -307,20 +318,20 @@ func lookupSymbolCached(ctx context.Context, s *store.Store, input string) (stor
 	return store.SymbolRow{}, false, nil
 }
 
-// traceBySymbol walks the call graph from the symbol identified by `input`
+// chainBySymbol walks the call graph from the symbol identified by `input`
 // in the cached store. `input` may be a qualified name or a dotted suffix.
 //
 // Since issue #61 this walks a tree (Edges.Out per node, recursive) up to
 // maxDepth with per-chain cycle detection rather than the legacy flat CTE
 // chain. The flat chain is retained as a derived view of the tree so the
 // JSON contract remains backward compatible.
-func traceBySymbol(cmd *cobra.Command, ctx context.Context, s *store.Store, input string, maxDepth int, warnings []string) error {
+func chainBySymbol(cmd *cobra.Command, ctx context.Context, s *store.Store, input string, maxDepth int, warnings []string) error {
 	row, found, err := lookupSymbolCached(ctx, s, input)
 	if err != nil {
 		return err
 	}
 	if !found {
-		return fmt.Errorf("trace: no symbol matches %q", input)
+		return fmt.Errorf("chain: no symbol matches %q", input)
 	}
 
 	tree, walked, cycleNodes, reached, err := walkSymbolTree(ctx, s, row, maxDepth)
@@ -328,7 +339,7 @@ func traceBySymbol(cmd *cobra.Command, ctx context.Context, s *store.Store, inpu
 		return err
 	}
 	chain := flattenTree(tree)
-	res := traceResult{
+	res := chainWalkResult{
 		Kind:         "call",
 		Root:         row.QualifiedName,
 		MaxDepth:     maxDepth,
@@ -340,37 +351,37 @@ func traceBySymbol(cmd *cobra.Command, ctx context.Context, s *store.Store, inpu
 		Source:       "cache",
 	}
 	if flags.JSON {
-		return emitJSON(stdoutOrJSON(cmd), "trace",
+		return emitJSON(stdoutOrJSON(cmd), "chain",
 			map[string]any{"target": string(row.QualifiedName), "max_depth": maxDepth, "source": "cache"},
 			res, warnings)
 	}
-	printTraceCallText(cmd, res, warnings)
+	printChainCallText(cmd, res, warnings)
 	return nil
 }
 
-// traceByFeature resolves a feature's linked symbols, walks each chain, and
+// chainByFeature resolves a feature's linked symbols, walks each chain, and
 // merges them deduped on (id, depth). A feature with 0 linked symbols emits
 // a clean warning and an empty chain — NOT an error (the feature might be
 // annotated in a comment-only file and still count as "known").
-func traceByFeature(cmd *cobra.Command, ctx context.Context, s *store.Store, fid shared.FeatureID, maxDepth int, warnings []string) error {
+func chainByFeature(cmd *cobra.Command, ctx context.Context, s *store.Store, fid shared.FeatureID, maxDepth int, warnings []string) error {
 	if _, err := s.Features().Get(ctx, fid); err != nil {
 		if errors.Is(err, shared.ErrFeatureNotFound) {
-			return fmt.Errorf("trace: feature %q not found", fid)
+			return fmt.Errorf("chain: feature %q not found", fid)
 		}
-		return fmt.Errorf("trace: feature %q: %w", fid, err)
+		return fmt.Errorf("chain: feature %q: %w", fid, err)
 	}
 	links, err := s.FeatureSymbols().ListByFeature(ctx, fid)
 	if err != nil {
-		return fmt.Errorf("trace: feature_symbols %q: %w", fid, err)
+		return fmt.Errorf("chain: feature_symbols %q: %w", fid, err)
 	}
 
 	if len(links) == 0 {
 		msg := fmt.Sprintf("feature %s exists but has no linked symbols (annotation may be in a comment-only file)", fid)
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", msg)
 		warnings = append(warnings, msg)
-		res := traceResult{Kind: "feature", FeatureID: fid, MaxDepth: maxDepth, Source: "cache"}
+		res := chainWalkResult{Kind: "feature", FeatureID: fid, MaxDepth: maxDepth, Source: "cache"}
 		if flags.JSON {
-			return emitJSON(stdoutOrJSON(cmd), "trace",
+			return emitJSON(stdoutOrJSON(cmd), "chain",
 				map[string]any{"feature": string(fid), "max_depth": maxDepth, "source": "cache"},
 				res, warnings)
 		}
@@ -388,11 +399,11 @@ func traceByFeature(cmd *cobra.Command, ctx context.Context, s *store.Store, fid
 	}
 
 	seen := map[string]bool{}
-	merged := make([]traceChainEntry, 0)
+	merged := make([]chainEntry, 0)
 	for _, link := range links {
 		row, ok := idIndex[link.SymbolID]
 		if !ok {
-			return fmt.Errorf("trace: feature %q references symbol_id %d not in store",
+			return fmt.Errorf("chain: feature %q references symbol_id %d not in store",
 				fid, link.SymbolID)
 		}
 		chain, err := walkSymbolChain(ctx, s, row, maxDepth)
@@ -419,7 +430,7 @@ func traceByFeature(cmd *cobra.Command, ctx context.Context, s *store.Store, fid
 		return merged[i].ID < merged[j].ID
 	})
 
-	res := traceResult{
+	res := chainWalkResult{
 		Kind:       "feature",
 		FeatureID:  fid,
 		MaxDepth:   maxDepth,
@@ -428,11 +439,11 @@ func traceByFeature(cmd *cobra.Command, ctx context.Context, s *store.Store, fid
 		Source:     "cache",
 	}
 	if flags.JSON {
-		return emitJSON(stdoutOrJSON(cmd), "trace",
+		return emitJSON(stdoutOrJSON(cmd), "chain",
 			map[string]any{"feature": string(fid), "max_depth": maxDepth, "source": "cache"},
 			res, warnings)
 	}
-	printTraceFeatureText(cmd, res, warnings)
+	printChainFeatureText(cmd, res, warnings)
 	return nil
 }
 
@@ -440,12 +451,12 @@ func traceByFeature(cmd *cobra.Command, ctx context.Context, s *store.Store, fid
 // returning the chain in the same shape the in-memory walk used to produce.
 // Depth 0 is the root symbol itself; the first edge target appears at depth 1.
 //
-// Retained for the feature-merge path in traceByFeature, which dedupes
-// across multiple root walks. The symbol-trace path uses walkSymbolTree
+// Retained for the feature-merge path in chainByFeature, which dedupes
+// across multiple root walks. The symbol-chain path uses walkSymbolTree
 // instead — it preserves the parent/child shape callers need for the
 // indented-tree output (per issue #61).
-func walkSymbolChain(ctx context.Context, s *store.Store, row store.SymbolRow, maxDepth int) ([]traceChainEntry, error) {
-	chain := []traceChainEntry{{
+func walkSymbolChain(ctx context.Context, s *store.Store, row store.SymbolRow, maxDepth int) ([]chainEntry, error) {
+	chain := []chainEntry{{
 		ID:    row.QualifiedName,
 		Kind:  row.Kind,
 		File:  row.FilePath,
@@ -454,7 +465,7 @@ func walkSymbolChain(ctx context.Context, s *store.Store, row store.SymbolRow, m
 	}}
 	walked, err := s.Edges().Walk(ctx, row.ID, maxDepth)
 	if err != nil {
-		return nil, fmt.Errorf("trace: walk edges from %q: %w", row.QualifiedName, err)
+		return nil, fmt.Errorf("chain: walk edges from %q: %w", row.QualifiedName, err)
 	}
 	// The CTE result carries qualified names but no kind/file/line — we
 	// resolve those by name. Cache the per-symbol metadata to avoid an N+1.
@@ -472,14 +483,14 @@ func walkSymbolChain(ctx context.Context, s *store.Store, row store.SymbolRow, m
 					cache[w.ToName] = store.SymbolRow{QualifiedName: w.ToName}
 					toRow = cache[w.ToName]
 				} else {
-					return nil, fmt.Errorf("trace: resolve %q: %w", w.ToName, err)
+					return nil, fmt.Errorf("chain: resolve %q: %w", w.ToName, err)
 				}
 			} else {
 				cache[w.ToName] = r
 				toRow = r
 			}
 		}
-		chain = append(chain, traceChainEntry{
+		chain = append(chain, chainEntry{
 			ID:    w.ToName,
 			Kind:  toRow.Kind,
 			File:  toRow.FilePath,
@@ -517,7 +528,7 @@ func walkSymbolTree(
 	s *store.Store,
 	row store.SymbolRow,
 	maxDepth int,
-) (*traceTreeNode, int, []shared.SymbolID, int, error) {
+) (*chainTreeNode, int, []shared.SymbolID, int, error) {
 	visited := make(map[shared.SymbolID]bool)
 	cycleSet := make(map[shared.SymbolID]bool)
 	rowCache := map[shared.SymbolID]store.SymbolRow{
@@ -525,13 +536,13 @@ func walkSymbolTree(
 	}
 	maxReached := 0
 
-	var walk func(node store.SymbolRow, depth int, ancestors map[shared.SymbolID]bool) (*traceTreeNode, error)
-	walk = func(node store.SymbolRow, depth int, ancestors map[shared.SymbolID]bool) (*traceTreeNode, error) {
+	var walk func(node store.SymbolRow, depth int, ancestors map[shared.SymbolID]bool) (*chainTreeNode, error)
+	walk = func(node store.SymbolRow, depth int, ancestors map[shared.SymbolID]bool) (*chainTreeNode, error) {
 		visited[node.QualifiedName] = true
 		if depth > maxReached {
 			maxReached = depth
 		}
-		tn := &traceTreeNode{
+		tn := &chainTreeNode{
 			Symbol: node.QualifiedName,
 			Kind:   node.Kind,
 			File:   node.FilePath,
@@ -541,7 +552,7 @@ func walkSymbolTree(
 		// Depth cap. maxDepth < 0 ⇒ unlimited; cycle detection is the
 		// only brake. Otherwise stop recursing once we'd be about to
 		// emit a child at depth > maxDepth — i.e. when our own depth is
-		// already at maxDepth, we are a leaf in this trace.
+		// already at maxDepth, we are a leaf in this chain.
 		if maxDepth >= 0 && depth >= maxDepth {
 			return tn, nil
 		}
@@ -553,7 +564,7 @@ func walkSymbolTree(
 		}
 		outEdges, err := s.Edges().Out(ctx, node.ID)
 		if err != nil {
-			return nil, fmt.Errorf("trace: out-edges from %q: %w", node.QualifiedName, err)
+			return nil, fmt.Errorf("chain: out-edges from %q: %w", node.QualifiedName, err)
 		}
 		// Filter to call edges only — the CTE-based Walk does the same
 		// filter inline; we mirror it here so the two paths produce the
@@ -584,7 +595,7 @@ func walkSymbolTree(
 				if cycleDepth > maxReached {
 					maxReached = cycleDepth
 				}
-				tn.Children = append(tn.Children, &traceTreeNode{
+				tn.Children = append(tn.Children, &chainTreeNode{
 					Symbol:  childRow.QualifiedName,
 					Kind:    childRow.Kind,
 					File:    childRow.FilePath,
@@ -636,7 +647,7 @@ func resolveByID(ctx context.Context, s *store.Store, id int64, cache map[shared
 	}
 	rows, err := s.Symbols().List(ctx, store.SymbolFilter{})
 	if err != nil {
-		return store.SymbolRow{}, fmt.Errorf("trace: list symbols for id resolution: %w", err)
+		return store.SymbolRow{}, fmt.Errorf("chain: list symbols for id resolution: %w", err)
 	}
 	for _, r := range rows {
 		if r.ID == id {
@@ -650,22 +661,22 @@ func resolveByID(ctx context.Context, s *store.Store, id int64, cache map[shared
 	return placeholder, nil
 }
 
-// flattenTree produces the legacy traceChainEntry slice from the tree.
+// flattenTree produces the legacy chainEntry slice from the tree.
 // Walks depth-first to preserve the pre-issue-#61 chain ordering that
-// downstream consumers (testreg migration scripts, atlas's own trace
+// downstream consumers (testreg migration scripts, atlas's own chain
 // validation) already depend on. Cycle markers are NOT re-emitted in
 // the chain — they're tree-only metadata.
-func flattenTree(root *traceTreeNode) []traceChainEntry {
+func flattenTree(root *chainTreeNode) []chainEntry {
 	if root == nil {
 		return nil
 	}
-	var out []traceChainEntry
-	var walk func(n *traceTreeNode)
-	walk = func(n *traceTreeNode) {
+	var out []chainEntry
+	var walk func(n *chainTreeNode)
+	walk = func(n *chainTreeNode) {
 		if n.IsCycle {
 			return
 		}
-		out = append(out, traceChainEntry{
+		out = append(out, chainEntry{
 			ID:    n.Symbol,
 			Kind:  n.Kind,
 			File:  n.File,
@@ -686,7 +697,7 @@ func flattenTree(root *traceTreeNode) []traceChainEntry {
 func buildSymbolByID(ctx context.Context, s *store.Store) (map[int64]store.SymbolRow, error) {
 	all, err := s.Symbols().List(ctx, store.SymbolFilter{})
 	if err != nil {
-		return nil, fmt.Errorf("trace: list symbols: %w", err)
+		return nil, fmt.Errorf("chain: list symbols: %w", err)
 	}
 	out := make(map[int64]store.SymbolRow, len(all))
 	for _, r := range all {
@@ -753,11 +764,11 @@ func sha256OfFile(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// runTraceFresh is the `--fresh` escape hatch: re-walk the codebase from
+// runChainFresh is the `--fresh` escape hatch: re-walk the codebase from
 // disk via codeindex.IndexProject. This is the pre-#29 default behaviour
 // and costs minutes on real codebases. Use only when the cached graph is
 // suspected wrong.
-func runTraceFresh(cmd *cobra.Command, ctx context.Context, target, rootArg string, maxDepth int, nodeModulesPaths []string) error {
+func runChainFresh(cmd *cobra.Command, ctx context.Context, target, rootArg string, maxDepth int, nodeModulesPaths []string) error {
 	rootDir := rootArg
 	if rootDir == "" {
 		rootDir = loaded.repoRoot
@@ -767,66 +778,66 @@ func runTraceFresh(cmd *cobra.Command, ctx context.Context, target, rootArg stri
 		TSOptions: tsscan.Options{NodeModulesPaths: nodeModulesPaths},
 	})
 	if err != nil {
-		return fmt.Errorf("trace --fresh: index %s: %w", rootDir, err)
+		return fmt.Errorf("chain --fresh: index %s: %w", rootDir, err)
 	}
 
 	rootID := pickEntryPoint(idx, target)
 	if rootID == "" {
-		return fmt.Errorf("trace: no symbol matches %q", target)
+		return fmt.Errorf("chain: no symbol matches %q", target)
 	}
-	trace := idx.Graph.TraceFrom(rootID, maxDepth)
+	walk := idx.Graph.ChainFrom(rootID, maxDepth)
 
-	res := traceResult{
+	res := chainWalkResult{
 		Kind:       "call",
 		Root:       rootID,
-		Confidence: trace.Confidence,
-		MaxDepth:   trace.MaxDepth,
-		TotalNodes: trace.TotalNodes,
-		Cycles:     trace.Cycles,
-		Chain:      flattenTraceChain(trace.Root, idx.SymbolLangs),
+		Confidence: walk.Confidence,
+		MaxDepth:   walk.MaxDepth,
+		TotalNodes: walk.TotalNodes,
+		Cycles:     walk.Cycles,
+		Chain:      flattenChainWalk(walk.Root, idx.SymbolLangs),
 		IndexRoot:  rootDir,
 		Source:     "fresh",
 	}
 
 	if flags.JSON {
-		return emitJSON(stdoutOrJSON(cmd), "trace",
+		return emitJSON(stdoutOrJSON(cmd), "chain",
 			map[string]any{"target": target, "root": rootDir, "max_depth": maxDepth, "source": "fresh"},
-			res, trace.Warnings)
+			res, walk.Warnings)
 	}
-	printTraceCallText(cmd, res, trace.Warnings)
+	printChainCallText(cmd, res, walk.Warnings)
 	return nil
 }
 
-func runTraceSaga(cmd *cobra.Command, ctx context.Context, sagaID string) error {
+func runChainSaga(cmd *cobra.Command, ctx context.Context, sagaID string) error {
 	dbPath, err := resolveDBPath(loaded, flags.DBPath)
 	if err != nil {
 		return err
 	}
 	s, err := store.Open(ctx, dbPath)
 	if err != nil {
-		return fmt.Errorf("trace saga: open store %s: %w", dbPath, err)
+		return fmt.Errorf("chain saga: open store %s: %w", dbPath, err)
 	}
 	defer func() { _ = s.Close() }()
 
 	steps, err := s.EDA().WalkSaga(ctx, sagaID)
 	if err != nil {
-		return fmt.Errorf("trace saga %q: %w", sagaID, err)
+		return fmt.Errorf("chain saga %q: %w", sagaID, err)
 	}
-	out := make([]traceSagaStep, 0, len(steps))
+	out := make([]chainSagaStep, 0, len(steps))
 	for _, st := range steps {
-		out = append(out, traceSagaStep{
+		out = append(out, chainSagaStep{
 			Order: st.Order,
 			File:  st.Annotation.FilePath,
 			Line:  int(st.Annotation.Line),
 			Value: st.Annotation.Value,
 		})
 	}
-	res := traceResult{Kind: "saga", SagaID: sagaID, SagaSteps: out}
+	res := chainWalkResult{Kind: "saga", SagaID: sagaID, SagaSteps: out}
 	if flags.JSON {
-		return emitJSON(stdoutOrJSON(cmd), "trace",
+		return emitJSON(stdoutOrJSON(cmd), "chain",
 			map[string]any{"saga_id": sagaID}, res, nil)
 	}
-	printTraceSagaText(cmd, res)
+	printChainSagaText(cmd, res)
 	return nil
 }
 
@@ -844,16 +855,16 @@ func pickEntryPoint(idx *codeindex.Index, feature string) shared.SymbolID {
 	return ""
 }
 
-func flattenTraceChain(n *graph.TraceNode, langs map[shared.SymbolID]string) []traceChainEntry {
+func flattenChainWalk(n *graph.ChainNode, langs map[shared.SymbolID]string) []chainEntry {
 	if n == nil {
 		return nil
 	}
-	var out []traceChainEntry
-	walkTraceChain(n, langs, &out)
+	var out []chainEntry
+	walkChainTree(n, langs, &out)
 	return out
 }
 
-func walkTraceChain(n *graph.TraceNode, langs map[shared.SymbolID]string, out *[]traceChainEntry) {
+func walkChainTree(n *graph.ChainNode, langs map[shared.SymbolID]string, out *[]chainEntry) {
 	if n == nil {
 		return
 	}
@@ -861,7 +872,7 @@ func walkTraceChain(n *graph.TraceNode, langs map[shared.SymbolID]string, out *[
 	if langs != nil {
 		lang = langs[n.Node.ID]
 	}
-	*out = append(*out, traceChainEntry{
+	*out = append(*out, chainEntry{
 		ID:    n.Node.ID,
 		Kind:  n.Node.Kind,
 		Lang:  lang,
@@ -870,20 +881,20 @@ func walkTraceChain(n *graph.TraceNode, langs map[shared.SymbolID]string, out *[
 		Depth: n.Depth,
 	})
 	for _, c := range n.Children {
-		walkTraceChain(c, langs, out)
+		walkChainTree(c, langs, out)
 	}
 }
 
-func printTraceCallText(cmd *cobra.Command, r traceResult, warnings []string) {
-	// Header — for symbol traces we prefer "depth reached" over the
+func printChainCallText(cmd *cobra.Command, r chainWalkResult, warnings []string) {
+	// Header — for symbol chains we prefer "depth reached" over the
 	// legacy "confidence" gauge; confidence is the --fresh path's
 	// concept (the in-memory graph TraceFrom emits it). The cached
 	// path leaves confidence at 0 so we don't render that line at all.
 	if r.Confidence > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "trace %s (confidence %.2f, %d nodes)\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "chain %s (confidence %.2f, %d nodes)\n",
 			r.Root, r.Confidence, r.TotalNodes)
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "trace %s (depth %d, %d nodes)\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "chain %s (depth %d, %d nodes)\n",
 			r.Root, r.DepthReached, r.TotalNodes)
 	}
 
@@ -915,7 +926,7 @@ func printTraceCallText(cmd *cobra.Command, r traceResult, warnings []string) {
 //
 // Cycle leaves render with a `[cycle]` tag instead of the file:line so
 // the reader can tell at a glance which subtree was clipped.
-func printTreeNode(w io.Writer, n *traceTreeNode, prefix string, isRoot, isLast bool) {
+func printTreeNode(w io.Writer, n *chainTreeNode, prefix string, isRoot, isLast bool) {
 	if n == nil {
 		return
 	}
@@ -952,8 +963,8 @@ func printTreeNode(w io.Writer, n *traceTreeNode, prefix string, isRoot, isLast 
 	}
 }
 
-func printTraceFeatureText(cmd *cobra.Command, r traceResult, warnings []string) {
-	fmt.Fprintf(cmd.OutOrStdout(), "trace feature %s (%d nodes)\n", r.FeatureID, r.TotalNodes)
+func printChainFeatureText(cmd *cobra.Command, r chainWalkResult, warnings []string) {
+	fmt.Fprintf(cmd.OutOrStdout(), "chain feature %s (%d nodes)\n", r.FeatureID, r.TotalNodes)
 	for _, e := range r.Chain {
 		indent := strings.Repeat("  ", e.Depth)
 		fmt.Fprintf(cmd.OutOrStdout(), "%s%s  [%s] %s:%d\n",
@@ -964,7 +975,7 @@ func printTraceFeatureText(cmd *cobra.Command, r traceResult, warnings []string)
 	}
 }
 
-func printTraceSagaText(cmd *cobra.Command, r traceResult) {
+func printChainSagaText(cmd *cobra.Command, r chainWalkResult) {
 	fmt.Fprintf(cmd.OutOrStdout(), "saga %s (%d steps)\n", r.SagaID, len(r.SagaSteps))
 	for _, st := range r.SagaSteps {
 		fmt.Fprintf(cmd.OutOrStdout(), "  step %d  %s:%d  %s\n",

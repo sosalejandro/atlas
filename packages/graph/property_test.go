@@ -123,7 +123,7 @@ func TestProperty_FindCycles_ReportsOnlyRealComponents(t *testing.T) {
 //
 // The failure this catches is silent by construction: a forgotten retarget
 // leaves an edge pointing at an id that was just deleted, the edge count does
-// not move, and the first symptom is `atlas trace` walking off the end of a
+// not move, and the first symptom is `atlas chain` walking off the end of a
 // call chain that used to work.
 func TestProperty_MergeNode_KeepsTheGraphReferentiallyClosed(t *testing.T) {
 	t.Parallel()

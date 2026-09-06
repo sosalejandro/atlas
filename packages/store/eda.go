@@ -67,7 +67,7 @@ type EventEmitView struct {
 }
 
 // EDAQueries is the narrow port for the Phase 6e EDA query methods. Phase 7
-// CLI verbs (`atlas codebase agg <id>`, `atlas trace saga:<id>`, etc.) drive
+// CLI verbs (`atlas codebase agg <id>`, `atlas chain saga:<id>`, etc.) drive
 // every call through this interface.
 type EDAQueries interface {
 	// ListByBC returns every annotation row inside files that declare

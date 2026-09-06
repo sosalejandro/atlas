@@ -16,7 +16,7 @@ import (
 //
 // It is intentionally NOT shared.Symbol — the SQLite row carries the
 // surrogate INTEGER PK plus a few persistence-only columns (end_line,
-// bc_path, created_at) that the in-memory shared.Symbol does not need.
+// domain, created_at) that the in-memory shared.Symbol does not need.
 // Callers convert between the two via FromSharedSymbol / ToSharedSymbol.
 type SymbolRow struct {
 	ID            int64             `json:"id"`
@@ -26,8 +26,20 @@ type SymbolRow struct {
 	Line          int               `json:"line"`
 	EndLine       *int              `json:"end_line,omitempty"`
 	Package       *string           `json:"package,omitempty"`
-	BCPath        *string           `json:"bc_path,omitempty"`
-	CreatedAt     time.Time         `json:"created_at"`
+
+	// Domain is the product-area path the symbol lives under — issue
+	// #112's rename of bc_path. Still derived from the src/contexts/<name>/
+	// convention (see domainFor); "bounded context" is now a DDD-flavoured
+	// display name for it rather than a claim baked into the column.
+	Domain    *string   `json:"domain,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// NodeClass says whether this row is authored code (declaration) or a
+	// vertex Atlas minted to hang an edge on (anchor). Before issue #112
+	// the distinction was re-derived at every call site by prefix-matching
+	// the id or the path; it is a column now, and every "real code only"
+	// query reads it. See shared.ClassifyNode and migration 0019.
+	NodeClass shared.NodeClass `json:"node_class"`
 
 	// PatternMatches is the JSON-encoded []patterns.Match record set
 	// produced by codeindex/patterns recognisers (Phase 6f). Nil if the
@@ -103,12 +115,20 @@ func normalizeKindForWrite(ctx context.Context, logger shared.Logger, where stri
 	return out
 }
 
-// SymbolFilter narrows List queries.
+// SymbolFilter narrows List queries. Every field is opt-in: the zero
+// value disables that predicate.
 type SymbolFilter struct {
 	FilePath string
 	Package  string
-	BCPath   string
+	Domain   string
 	Kind     shared.SymbolKind
+
+	// NodeClass restricts the result to declarations or to anchors.
+	// Empty means both — the honest default for a general-purpose List,
+	// since the store cannot know whether a caller counting symbols means
+	// "authored code" or "graph vertices". Callers that mean authored code
+	// say so: SymbolFilter{NodeClass: shared.NodeClassDeclaration}.
+	NodeClass shared.NodeClass
 }
 
 // DeadCodeFilter narrows FindDead queries. Every field is opt-in: leaving
@@ -265,7 +285,8 @@ func fromSQLCSymbol(r sqlc.Symbol) SymbolRow {
 		Line:           int(r.Line),
 		EndLine:        int64PtrToIntPtr(r.EndLine),
 		Package:        r.Package,
-		BCPath:         r.BcPath,
+		Domain:         r.Domain,
+		NodeClass:      nodeClassFromColumn(r.NodeClass),
 		CreatedAt:      r.CreatedAt,
 		PatternMatches: r.PatternMatches,
 	}
@@ -278,6 +299,33 @@ func (s *symbolsStore) Insert(ctx context.Context, sym SymbolRow) (int64, error)
 	if sym.FilePath == "" {
 		return 0, fmt.Errorf("symbols insert %q: file_path required", sym.QualifiedName)
 	}
+	// node_class is DERIVED when the caller left it unset, and refused only
+	// when the caller supplied something outside the closed set.
+	//
+	// That is deliberately weaker than the refusal edges.go makes for
+	// resolution_tier, and the asymmetry is the interesting part. A tier is
+	// a fact about work the resolver did: it lives in the resolver's control
+	// flow, nothing downstream can recompute it, and defaulting it invents a
+	// claim. A node's class is a fact about the node's own id and path,
+	// which are both right here in the argument -- shared.ClassifyNode IS
+	// the definition of the class, not a guess standing in for one. Deriving
+	// it is therefore the same answer the caller would have computed,
+	// obtained from the same single copy of the rule.
+	//
+	// What must never happen is an UNCLASSIFIED row, because the read side
+	// filters on the column and a NULL would be invisible to both classes.
+	// So the derivation is unconditional, and a scanner that knows better
+	// than the prefix rule -- one that minted a vertex and can simply say so
+	// -- keeps its explicit answer.
+	class := sym.NodeClass
+	if class == "" {
+		class = shared.ClassifyNode(sym.QualifiedName, sym.FilePath)
+	}
+	if !class.Valid() {
+		return 0, fmt.Errorf(
+			"symbols insert %q: node_class must be %q or %q, got %q",
+			sym.QualifiedName, shared.NodeClassDeclaration, shared.NodeClassAnchor, class)
+	}
 
 	kind := normalizeKindForWrite(ctx, s.db.Logger(), "symbols.Insert", sym.QualifiedName, sym.Kind)
 
@@ -288,7 +336,8 @@ func (s *symbolsStore) Insert(ctx context.Context, sym SymbolRow) (int64, error)
 		Line:          int64(sym.Line),
 		EndLine:       intPtrToInt64Ptr(sym.EndLine),
 		Package:       sym.Package,
-		BcPath:        sym.BCPath,
+		Domain:        sym.Domain,
+		NodeClass:     nodeClassToColumn(class),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("symbols insert %q: %w", sym.QualifiedName, err)
@@ -376,10 +425,11 @@ func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, e
 		kind = string(normalizeKind(f.Kind))
 	}
 	rows, err := s.q.ListSymbols(ctx, sqlc.ListSymbolsParams{
-		FilePath: f.FilePath,
-		Package:  f.Package,
-		BcPath:   f.BCPath,
-		Kind:     kind,
+		FilePath:  f.FilePath,
+		Package:   f.Package,
+		Domain:    f.Domain,
+		Kind:      kind,
+		NodeClass: string(f.NodeClass),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("symbols list: %w", err)
@@ -391,8 +441,28 @@ func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, e
 	return out, nil
 }
 
+// nodeClassFromColumn converts the nullable node_class column into the
+// typed value. NULL cannot occur after migration 0019 -- the backfill
+// filled every row and the guard triggers refuse to write another -- but
+// database/sql still hands us a *string, and mapping NULL to the empty
+// NodeClass keeps that impossible state visibly invalid rather than
+// silently reading as "declaration".
+func nodeClassFromColumn(v *string) shared.NodeClass {
+	if v == nil {
+		return ""
+	}
+	return shared.NodeClass(*v)
+}
+
+// nodeClassToColumn is the write-side inverse. Callers reach it only after
+// Insert has validated the class, so the value is always one of the two.
+func nodeClassToColumn(c shared.NodeClass) *string {
+	s := string(c)
+	return &s
+}
+
 // scanSymbolRow extracts a SymbolRow from a *sql.Rows positioned at a row
-// whose columns match the canonical 10-column SELECT used by List and
+// whose columns match the canonical 11-column SELECT used by List and
 // FindByPattern. Centralising it here keeps the two raw-SQL readers in sync.
 func scanSymbolRow(rows *sql.Rows) (SymbolRow, error) {
 	var (
@@ -403,11 +473,12 @@ func scanSymbolRow(rows *sql.Rows) (SymbolRow, error) {
 		line           int64
 		endLine        sql.NullInt64
 		pkg            sql.NullString
-		bc             sql.NullString
+		domain         sql.NullString
 		createdAt      time.Time
 		patternMatches sql.NullString
+		nodeClass      sql.NullString
 	)
-	if err := rows.Scan(&id, &qn, &kind, &filePath, &line, &endLine, &pkg, &bc, &createdAt, &patternMatches); err != nil {
+	if err := rows.Scan(&id, &qn, &kind, &filePath, &line, &endLine, &pkg, &domain, &createdAt, &patternMatches, &nodeClass); err != nil {
 		return SymbolRow{}, fmt.Errorf("symbols scan: %w", err)
 	}
 	return SymbolRow{
@@ -418,9 +489,10 @@ func scanSymbolRow(rows *sql.Rows) (SymbolRow, error) {
 		Line:           int(line),
 		EndLine:        nullInt64ToIntPtr(endLine),
 		Package:        nullStringToPtr(pkg),
-		BCPath:         nullStringToPtr(bc),
+		Domain:         nullStringToPtr(domain),
 		CreatedAt:      createdAt,
 		PatternMatches: nullStringToPtr(patternMatches),
+		NodeClass:      nodeClassFromColumn(nullStringToPtr(nodeClass)),
 	}, nil
 }
 
@@ -477,7 +549,7 @@ func (s *symbolsStore) FindByPattern(ctx context.Context, pattern string) ([]Sym
 	// pattern whose name is a substring of another (e.g. "outbox-append"
 	// would never match "outbox-append-extended" if such a name existed).
 	needle := `"pattern":"` + pattern + `"`
-	q := `SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
+	q := `SELECT id, qualified_name, kind, file_path, line, end_line, package, domain, created_at, pattern_matches, node_class
 FROM symbols
 WHERE pattern_matches IS NOT NULL AND pattern_matches LIKE ?
 ORDER BY file_path, line, qualified_name`
@@ -501,14 +573,6 @@ ORDER BY file_path, line, qualified_name`
 	}
 	return out, nil
 }
-
-// externalPyStubPath mirrors codeindex/py.externalPyStubPath — kept as
-// a local sentinel here so the store package doesn't take a reverse
-// import on codeindex/py. The two MUST stay in lockstep; the resolver
-// owns the contract, the store owns the read-side filter that hides
-// these stubs from "internal symbol" queries. A test in the dead-code
-// suite locks in the value.
-const externalPyStubPath = "external:py"
 
 // IsTestPath reports whether filePath matches the conventional test
 // patterns FindDead excludes by default. The same predicate is shared
@@ -555,7 +619,7 @@ func IsTestPath(filePath string) bool {
 // SymbolRow. Kept as a const so the column order stays in lockstep
 // with scanSymbolRow above — if you reorder one, you MUST reorder
 // the other.
-const deadCodeBaseSelect = `SELECT s.id, s.qualified_name, s.kind, s.file_path, s.line, s.end_line, s.package, s.bc_path, s.created_at, s.pattern_matches`
+const deadCodeBaseSelect = `SELECT s.id, s.qualified_name, s.kind, s.file_path, s.line, s.end_line, s.package, s.domain, s.created_at, s.pattern_matches, s.node_class`
 
 // excludeTestPredicates is the NOT-LIKE chain that mirrors IsTestPath
 // for the SQL builder. The fragment is appended to a query that has
@@ -619,10 +683,14 @@ func normalizeScopeFilter(raw []string) []string {
 //
 // Implementation notes:
 //
-//   - The candidate set is restricted to symbols whose file_path does
-//     NOT start with the externalPyStubPath sentinel — those stubs
-//     stand in for stdlib / third-party / dynamic imports and are not
-//     authored in the indexed codebase.
+//   - The candidate set is restricted to declarations. Anchors — the
+//     `external:py` stubs pyscan emits for imports it cannot resolve,
+//     route and endpoint vertices, named sqlc queries — stand in for
+//     things nobody authored in this repository, so reporting them as
+//     dead code would be nonsense. Until issue #112 this read
+//     `file_path NOT LIKE 'external:py%'`, which is the same predicate
+//     one language's stub convention at a time; node_class is the same
+//     question asked once.
 //   - The incoming-edge count uses a correlated NOT EXISTS subquery
 //     rather than a LEFT JOIN + COUNT(*), because correlated EXISTS
 //     short-circuits on the first match and is materially faster on
@@ -669,14 +737,14 @@ func (s *symbolsStore) FindDead(ctx context.Context, f DeadCodeFilter) ([]DeadCo
 		existsClause += excludeTestPredicates
 	}
 
-	// Outer candidate predicate: exclude external stubs + optional
+	// Outer candidate predicate: declarations only + optional
 	// path-prefix filter. Bound args are appended AFTER the inner
 	// EXISTS args because the EXISTS subquery is lexically inside the
 	// outer SELECT but its placeholders are visited first.
 	outerPredicates := []string{
-		"s.file_path NOT LIKE ?",
+		"s.node_class = ?",
 	}
-	outerArgs := []any{externalPyStubPath + "%"}
+	outerArgs := []any{string(shared.NodeClassDeclaration)}
 
 	if f.PathPrefix != "" {
 		outerPredicates = append(outerPredicates, "s.file_path LIKE ?")

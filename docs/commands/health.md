@@ -1,10 +1,24 @@
-# atlas audit
+# atlas health
 
-`atlas audit` computes the per-feature health score from the SQLite store and
+`atlas health` computes the per-feature health score from the SQLite store and
 prints the results ordered worst-first. Each feature's score is a weighted
 roll-up across the audit signals implemented in
 [`packages/audit/`](../../packages/audit/) — statement coverage, decision
 coverage, annotation freshness, pattern compliance, contract drift.
+
+> **Renamed from `atlas audit` (issue #112).** `atlas audit` still works and
+> prints a one-line deprecation note on stderr; it is supported for one minor
+> version. The command said audit, the type said `FeatureHealth`, and the docs
+> said score — three words for one number. `health` is the one that matched
+> the type.
+>
+> The `coverage` component key was renamed to `verification` in the same pass.
+> A capability's *verification* is whether it has passing tests over its
+> surface; *execution* is which statements a profile recorded as run; and
+> *attribution* is how much of that execution atlas could place against a
+> symbol. They were all called coverage, which is why a reader could not tell
+> `coverage: 40` — "60% of this never ran" — from `coverage: 40` — "atlas
+> could not work out where 60% of the runs belonged".
 
 Without `--feature`, every feature in the store is scored. With `--feature`,
 only that single feature is returned (or an error if it isn't in the store).
@@ -19,7 +33,7 @@ why a signal with no data must report *unavailable* rather than *0* — see
 ## Usage
 
 ```
-atlas audit [flags]
+atlas health [flags]
 ```
 
 ## Flags
@@ -39,7 +53,7 @@ atlas audit [flags]
 
 ```
 # Run from: /tmp/atlas-fixture
-$ atlas audit
+$ atlas health
 billing.subscribe                                   score=  0.00
     - no audit signals available (no coverage, no aggregate, no contract, no annotation source)
 auth.login                                          score=100.00
@@ -55,7 +69,7 @@ operator the feature exists but has nothing to score.
 
 ```
 # Run from: /tmp/atlas-fixture
-$ atlas audit --worst 2
+$ atlas health --worst 2
 billing.subscribe                                   score=  0.00
     - no audit signals available (no coverage, no aggregate, no contract, no annotation source)
 auth.login                                          score=100.00
@@ -63,13 +77,13 @@ auth.login                                          score=100.00
 ```
 
 Same shape, capped at 2 rows. On a real-world codebase with hundreds of
-features, `atlas audit --worst 10` is the daily-driver flag.
+features, `atlas health --worst 10` is the daily-driver flag.
 
 ### Single feature
 
 ```
 # Run from: /tmp/atlas-fixture
-$ atlas audit --feature auth.login
+$ atlas health --feature auth.login
 auth.login                                          score=100.00
     annotation_freshness   100.00
 ```
@@ -78,10 +92,10 @@ auth.login                                          score=100.00
 
 ```
 # Run from: /tmp/atlas-fixture
-$ atlas audit --feature auth.login --json
+$ atlas health --feature auth.login --json
 {
   "schema_version": "v1",
-  "command": "audit",
+  "command": "health",
   "args": {"feature": "auth.login", "worst": 0},
   "result": {
     "features": [
@@ -112,10 +126,11 @@ runs.
    (`direct-links`). Which one was used is reported as `surface_source`.
 3. Evaluate each signal over that surface. Every signal independently reports
    whether it is available:
-   - `coverage` — statement coverage from the current
-     [`atlas cov`](./cov.md) frontier. Line-weighted (executed statements over
-     total statements) when the run carries statement counts; otherwise the
-     fraction of surface symbols with a passing result.
+   - `verification` — does this capability have passing tests over its
+     surface? Read off the current [`atlas cov`](./cov.md) frontier.
+     Line-weighted (executed statements over total statements) when the run
+     carries statement counts; otherwise the fraction of surface symbols with
+     a passing result. Called `coverage` before issue #112.
    - `decision_coverage` — branch outcomes taken over branch outcomes a
      profile could judge, from [`atlas flow`](./flow.md). See below.
    - `annotation_freshness` — how many `@atlas:feature` / `@atlas:contract`
@@ -132,13 +147,13 @@ runs.
 
 | Signal                  | Weight | Notes                                                                                                                                             |
 | ----------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `coverage`              | 0.40   | Shared with `decision_coverage` when that signal is available — see below.                                                                        |
+| `verification`          | 0.40   | Shared with `decision_coverage` when that signal is available — see below.                                                                        |
 | `pattern_compliance`    | 0.25   |                                                                                                                                                   |
 | `contract_drift`        | 0.20   |                                                                                                                                                   |
 | `annotation_freshness`  | 0.15   | Unavailable when no git blame source is wired.                                                                                                    |
 | `annotation_presence`   | 0.10   | A *floor*, not a blended signal: it applies only when nothing else is available, so an annotated-but-unverified feature scores 10 rather than 0.   |
 
-When a feature has no signal at all — no coverage, no aggregate, no contract,
+When a feature has no signal at all — no verification, no aggregate, no contract,
 no annotation source — atlas emits the "no audit signals available" line
 instead of a numerical zero, so the operator can tell *unscoreable* apart from
 *poorly scored*.
@@ -239,7 +254,7 @@ ingested with `atlas cov sync --framework go-cover`.
 Statement coverage alone:
 
 ```
-$ atlas audit
+$ atlas health
 report.summary                                      score=  0.00
     coverage                 0.00
     - coverage: 0/1 symbols passing in latest run
@@ -264,7 +279,7 @@ flow build: 8 symbol(s) across 7 file(s)
   findings: flow.untested-branch x5
   [the MC/DC and "not statement coverage" notes flow always prints are elided here]
 
-$ atlas audit
+$ atlas health
 report.summary                                      score=  0.00
     coverage                 0.00
     - coverage: 0/1 symbols passing in latest run
@@ -307,10 +322,10 @@ Read the four rows:
 `billing.charge`, where the signal is available:
 
 ```
-$ atlas audit --feature billing.charge --json
+$ atlas health --feature billing.charge --json
 {
   "schema_version": "v1",
-  "command": "audit",
+  "command": "health",
   "args": {"feature": "billing.charge", "worst": 0},
   "result": {
     "features": [
@@ -318,12 +333,12 @@ $ atlas audit --feature billing.charge --json
         "feature_id": "billing.charge",
         "score": 56.66666666666668,
         "components": {
-          "coverage": 66.66666666666667,
+          "verification": 66.66666666666667,
           "decision_coverage": 50
         },
         "reasons": [
           "decision coverage: 1/2 decidable branch outcomes taken (50%); 2 undetermined (not counted either way)",
-          "coverage: 2/3 statements executed (67%)"
+          "execution: 2/3 statements executed (67%)"
         ],
         "sampled_at": "2026-09-06T19:17:48.718579783Z",
         "surface_source": "static",
@@ -348,17 +363,17 @@ $ atlas audit --feature billing.charge --json
 at all, while the object still reports what happened:
 
 ```
-$ atlas audit --feature gate.allow --json
+$ atlas health --feature gate.allow --json
 {
   "schema_version": "v1",
-  "command": "audit",
+  "command": "health",
   "args": {"feature": "gate.allow", "worst": 0},
   "result": {
     "features": [
       {
         "feature_id": "gate.allow",
         "score": 100,
-        "components": {"coverage": 100},
+        "components": {"verification": 100},
         "sampled_at": "2026-09-06T19:17:48.710254187Z",
         "surface_source": "static",
         "decision_coverage": {

@@ -49,8 +49,11 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	// carried result be invalidated when the symbol moves), and
 	// 18 by issue #146 (edges.resolution_tier + edges.ambiguous: which
 	// mechanism resolved each edge, without which a resolver migration
-	// changes every guess into a claim with no test able to see it).
-	const expected = 18
+	// changes every guess into a claim with no test able to see it), and
+	// 19 by issue #112 (symbols.bc_path -> symbols.domain, and
+	// symbols.node_class: declaration vs anchor as a column, so no query
+	// has to re-derive "is this real code" from a string prefix).
+	const expected = 19
 	if v != expected {
 		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}

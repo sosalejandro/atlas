@@ -371,7 +371,7 @@ AuthHandler.Login  auth/handler.go:14  [func]
 
 ```
 # Run from: project root
-$ atlas trace auth.login
+$ atlas chain auth.login
 trace feature auth.login (3 nodes)
 AuthHandler.Login  [func] auth/handler.go:14
   AuthService.Authenticate  [func] auth/service.go:26
@@ -417,7 +417,7 @@ cannot follow is dispatch that is not written in the types at all. If your
 service calls `container.Resolve("AuthService").(*AuthService).Login(...)`,
 the receiver is produced by a runtime string lookup, and atlas sees a type
 assertion on an `any`. The edge will be absent from
-`atlas trace auth.login`.
+`atlas chain auth.login`.
 
 The same holds for a call through a function VALUE (`f := s.Do; f()`, a
 `http.HandlerFunc` struct field): the type checker reports a variable, not
@@ -427,7 +427,7 @@ Workaround unchanged: annotate the explicit call site with
 `@atlas:contract auth.login` so the audit picks it up even if the trace
 chain doesn't reach it.
 
-The one thing that has changed is how you find out. `atlas trace` showing
+The one thing that has changed is how you find out. `atlas chain` showing
 fewer hops than you expected used to be indistinguishable from a resolver
 that guessed wrong; run `atlas resolve --root .` and, if the packages
 involved type-checked, a missing edge is a genuine gap in what the types
@@ -451,7 +451,7 @@ rather than inferring it from a symbol count.
 ### 3. Duplicated type names across packages get package-qualified ids
 
 Symbol ids are short by design (`Chat.MarkLoaded`, not the full import
-path) because that is what annotations and `atlas trace` arguments use. In a
+path) because that is what annotations and `atlas chain` arguments use. In a
 monorepo where several bounded contexts each declare a `Chat`, only one
 declaration can own the short id: the first in lexical walk order. The others
 are indexed under `<packageDir>.<Type>.<Method>`, e.g.
@@ -492,7 +492,7 @@ disambiguate with `symbol:<pkg>.<name>` when both exist.
 
 `init()` functions don't link cleanly into the call graph — they fire
 implicitly. They're stored as symbols so `atlas codebase find init`
-works, but `atlas trace` won't follow into them. Same for `main()`:
+works, but `atlas chain` won't follow into them. Same for `main()`:
 it's the entry point, but most call-graphs of interest start one level
 deeper (handler / service).
 

@@ -68,7 +68,7 @@ func seedFeature(t *testing.T, s *store.Store, id string, n int) {
 func covered(score float64) audit.FeatureHealth {
 	return audit.FeatureHealth{
 		Score:      score,
-		Components: map[string]float64{audit.SignalCoverage: score},
+		Components: map[string]float64{audit.SignalVerification: score},
 	}
 }
 

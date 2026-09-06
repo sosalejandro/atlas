@@ -258,9 +258,10 @@ type Symbol struct {
 	Line           int64     `db:"line" json:"line"`
 	EndLine        *int64    `db:"end_line" json:"end_line"`
 	Package        *string   `db:"package" json:"package"`
-	BcPath         *string   `db:"bc_path" json:"bc_path"`
+	Domain         *string   `db:"domain" json:"domain"`
 	CreatedAt      time.Time `db:"created_at" json:"created_at"`
 	PatternMatches *string   `db:"pattern_matches" json:"pattern_matches"`
+	NodeClass      *string   `db:"node_class" json:"node_class"`
 }
 
 type TestCoverage struct {

@@ -646,17 +646,12 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 // Non-existent entries are dropped silently; entries that don't end in
 // "node_modules" or aren't absolute paths are dropped with a warning.
 func buildScannerEnv(ctx context.Context, logger shared.Logger, projectRoot string, extra []string) []string {
-	env := os.Environ()
-	// Strip existing NODE_PATH so we can reconstruct it in the order above.
-	var preserved string
-	out := env[:0]
-	for _, kv := range env {
-		if strings.HasPrefix(kv, "NODE_PATH=") {
-			preserved = strings.TrimPrefix(kv, "NODE_PATH=")
-			continue
-		}
-		out = append(out, kv)
-	}
+	fold := hostFoldsPathCase()
+	// Strip existing NODE_PATH so we can reconstruct it in the order
+	// above. takeEnv matches the name by the host's rules -- see
+	// hostenv.go for why a plain HasPrefix dropped the parent's
+	// NODE_PATH on Windows instead of appending it.
+	out, preserved, _ := takeEnv(os.Environ(), "NODE_PATH", fold)
 	var parts []string
 	// 1. project-local node_modules
 	projectNM := filepath.Join(projectRoot, "node_modules")
@@ -665,7 +660,7 @@ func buildScannerEnv(ctx context.Context, logger shared.Logger, projectRoot stri
 	}
 	// 2. caller-supplied extras
 	for _, p := range extra {
-		if !filepath.IsAbs(p) || filepath.Base(p) != "node_modules" {
+		if !filepath.IsAbs(p) || !baseNameIs(p, "node_modules", fold) {
 			logger.Warn(ctx, "ignored NodeModulesPaths entry (must be absolute path ending in node_modules)",
 				"path", p)
 			continue

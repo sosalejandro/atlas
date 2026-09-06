@@ -13,9 +13,9 @@ import (
 
 func TestFromAudit_SeverityFollowsTheScoreBands(t *testing.T) {
 	healths := []audit.FeatureHealth{
-		{FeatureID: "billing.invoice", Score: 12, Components: map[string]float64{audit.SignalCoverage: 4}, SampledAt: time.Unix(0, 0)},
-		{FeatureID: "auth.login", Score: 55, Components: map[string]float64{audit.SignalCoverage: 60}},
-		{FeatureID: "search.index", Score: 92, Components: map[string]float64{audit.SignalCoverage: 95}},
+		{FeatureID: "billing.invoice", Score: 12, Components: map[string]float64{audit.SignalVerification: 4}, SampledAt: time.Unix(0, 0)},
+		{FeatureID: "auth.login", Score: 55, Components: map[string]float64{audit.SignalVerification: 60}},
+		{FeatureID: "search.index", Score: 92, Components: map[string]float64{audit.SignalVerification: 95}},
 	}
 	anchors := map[shared.FeatureID]report.Anchor{
 		"billing.invoice": {Path: "internal/billing/invoice.go", Line: 42, EndLine: 87},

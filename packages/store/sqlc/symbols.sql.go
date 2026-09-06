@@ -29,7 +29,7 @@ func (q *Queries) DeleteSymbolsByFile(ctx context.Context, filePath string) erro
 }
 
 const getSymbolByQualifiedName = `-- name: GetSymbolByQualifiedName :one
-SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
+SELECT id, qualified_name, kind, file_path, line, end_line, package, domain, created_at, pattern_matches, node_class
 FROM symbols
 WHERE qualified_name = ?
 `
@@ -45,9 +45,10 @@ func (q *Queries) GetSymbolByQualifiedName(ctx context.Context, qualifiedName st
 		&i.Line,
 		&i.EndLine,
 		&i.Package,
-		&i.BcPath,
+		&i.Domain,
 		&i.CreatedAt,
 		&i.PatternMatches,
+		&i.NodeClass,
 	)
 	return i, err
 }
@@ -65,8 +66,8 @@ func (q *Queries) GetSymbolIDByQualifiedName(ctx context.Context, qualifiedName 
 
 const insertSymbol = `-- name: InsertSymbol :execresult
 INSERT OR IGNORE INTO symbols
-  (qualified_name, kind, file_path, line, end_line, package, bc_path)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+  (qualified_name, kind, file_path, line, end_line, package, domain, node_class)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertSymbolParams struct {
@@ -76,9 +77,15 @@ type InsertSymbolParams struct {
 	Line          int64   `db:"line" json:"line"`
 	EndLine       *int64  `db:"end_line" json:"end_line"`
 	Package       *string `db:"package" json:"package"`
-	BcPath        *string `db:"bc_path" json:"bc_path"`
+	Domain        *string `db:"domain" json:"domain"`
+	NodeClass     *string `db:"node_class" json:"node_class"`
 }
 
+// node_class is bound by the caller, never defaulted. See migration 0019:
+// an unset class is a writer that never asked whether the row is authored
+// code or a synthetic anchor, and 'declaration' is the answer that quietly
+// pollutes every count. The store layer refuses an empty value before the
+// statement runs; the table's guard trigger refuses it after.
 func (q *Queries) InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql.Result, error) {
 	return q.db.ExecContext(ctx, insertSymbol,
 		arg.QualifiedName,
@@ -87,7 +94,8 @@ func (q *Queries) InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql
 		arg.Line,
 		arg.EndLine,
 		arg.Package,
-		arg.BcPath,
+		arg.Domain,
+		arg.NodeClass,
 	)
 }
 
@@ -132,20 +140,22 @@ func (q *Queries) ListSymbolNamesByFile(ctx context.Context, filePath string) ([
 }
 
 const listSymbols = `-- name: ListSymbols :many
-SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
+SELECT id, qualified_name, kind, file_path, line, end_line, package, domain, created_at, pattern_matches, node_class
 FROM symbols
-WHERE (?1 = '' OR file_path = ?1)
-  AND (?2   = '' OR package   = ?2)
-  AND (?3   = '' OR bc_path   = ?3)
-  AND (?4      = '' OR kind      = ?4)
+WHERE (?1  = '' OR file_path  = ?1)
+  AND (?2    = '' OR package    = ?2)
+  AND (?3     = '' OR domain     = ?3)
+  AND (?4       = '' OR kind       = ?4)
+  AND (?5 = '' OR node_class = ?5)
 ORDER BY file_path, line, qualified_name
 `
 
 type ListSymbolsParams struct {
-	FilePath interface{} `db:"file_path" json:"file_path"`
-	Package  interface{} `db:"package" json:"package"`
-	BcPath   interface{} `db:"bc_path" json:"bc_path"`
-	Kind     interface{} `db:"kind" json:"kind"`
+	FilePath  interface{} `db:"file_path" json:"file_path"`
+	Package   interface{} `db:"package" json:"package"`
+	Domain    interface{} `db:"domain" json:"domain"`
+	Kind      interface{} `db:"kind" json:"kind"`
+	NodeClass interface{} `db:"node_class" json:"node_class"`
 }
 
 // Returns rows that match every non-empty filter, ordered deterministically.
@@ -156,8 +166,9 @@ type ListSymbolsParams struct {
 // the narg lowering emits (see sqlc-dev/sqlc#1881, #3508).
 //
 // None of these columns store the empty value as a legitimate row: the
-// parser layer always populates file_path + kind, and package / bc_path
-// are either non-empty or NULL.
+// parser layer always populates file_path + kind, and package / domain
+// are either non-empty or NULL. node_class is NOT NULL from migration
+// 0019 onward, so its sentinel means "either class" rather than "unset".
 //
 // Callers must normalize Kind to the closed schema-v1 set BEFORE binding
 // (see normalizeKind) so the equality match never silently misses an
@@ -166,8 +177,9 @@ func (q *Queries) ListSymbols(ctx context.Context, arg ListSymbolsParams) ([]Sym
 	rows, err := q.db.QueryContext(ctx, listSymbols,
 		arg.FilePath,
 		arg.Package,
-		arg.BcPath,
+		arg.Domain,
 		arg.Kind,
+		arg.NodeClass,
 	)
 	if err != nil {
 		return nil, err
@@ -184,9 +196,10 @@ func (q *Queries) ListSymbols(ctx context.Context, arg ListSymbolsParams) ([]Sym
 			&i.Line,
 			&i.EndLine,
 			&i.Package,
-			&i.BcPath,
+			&i.Domain,
 			&i.CreatedAt,
 			&i.PatternMatches,
+			&i.NodeClass,
 		); err != nil {
 			return nil, err
 		}
@@ -202,7 +215,7 @@ func (q *Queries) ListSymbols(ctx context.Context, arg ListSymbolsParams) ([]Sym
 }
 
 const lookupSymbolAtOrAfterLine = `-- name: LookupSymbolAtOrAfterLine :one
-SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
+SELECT id, qualified_name, kind, file_path, line, end_line, package, domain, created_at, pattern_matches, node_class
 FROM symbols
 WHERE file_path = ?1
   AND line >= ?2
@@ -239,9 +252,10 @@ func (q *Queries) LookupSymbolAtOrAfterLine(ctx context.Context, arg LookupSymbo
 		&i.Line,
 		&i.EndLine,
 		&i.Package,
-		&i.BcPath,
+		&i.Domain,
 		&i.CreatedAt,
 		&i.PatternMatches,
+		&i.NodeClass,
 	)
 	return i, err
 }

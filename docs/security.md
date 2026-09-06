@@ -166,7 +166,7 @@ people are surprised by:
 | Column | What it holds |
 | --- | --- |
 | `symbols.qualified_name`, `symbols.package` | Symbol and package names. |
-| `symbols.file_path`, `symbols.bc_path` | Repo-relative path, and its bounded-context prefix. |
+| `symbols.file_path`, `symbols.domain` | Repo-relative path, and its product-area (bounded-context) prefix. |
 | `edges.file_path` | Where a relation was observed. |
 | `annotations.file_path`, `file_hashes.file_path`, `skipped_files.file_path` | Repo-relative paths. |
 | `sql_operations.file_path`, `sql_operations.symbol_name`, `sql_operations.name`, `sql_operations.ref` | Where a query lives, and what encloses it. |

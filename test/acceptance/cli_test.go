@@ -204,28 +204,30 @@ func TestAcceptance_CLI_TheFixtureEndToEnd(t *testing.T) {
 		t.Errorf("doctor worst = %q, want warn", doctorRes.Worst)
 	}
 
-	// --- audit -----------------------------------------------------------
-	audit := runAtlas(t, "audit", "--db-path", db)
-	var auditRes struct {
+	// --- health ----------------------------------------------------------
+	// Driven under the canonical verb; `atlas health` remains a working alias
+	// (issue #112) and has its own coverage in internal/cli/renames_test.go.
+	health := runAtlas(t, "health", "--db-path", db)
+	var healthRes struct {
 		Features []struct {
 			FeatureID string  `json:"feature_id"`
 			Score     float64 `json:"score"`
 		} `json:"features"`
 	}
-	decodeResult(t, audit, &auditRes)
+	decodeResult(t, health, &healthRes)
 	scores := map[string]float64{}
-	for _, f := range auditRes.Features {
+	for _, f := range healthRes.Features {
 		scores[f.FeatureID] = f.Score
 	}
 	for _, want := range []string{"checkout.total", "checkout.pay", "shipping.quote"} {
 		if _, ok := scores[want]; !ok {
-			t.Errorf("audit did not score feature %q; scored: %v", want, scores)
+			t.Errorf("health did not score feature %q; scored: %v", want, scores)
 		}
 	}
 	// checkout.total is fully covered and checkout.pay is not called at all,
 	// so the ordering is a fact about the fixture rather than a threshold
-	// anyone tuned. An audit that ranks them the other way round is scoring
-	// something other than coverage.
+	// anyone tuned. A health run that ranks them the other way round is
+	// scoring something other than verification.
 	if scores["checkout.total"] <= scores["checkout.pay"] {
 		t.Errorf("checkout.total scored %.1f and checkout.pay %.1f; the covered feature must outrank the uncovered one",
 			scores["checkout.total"], scores["checkout.pay"])

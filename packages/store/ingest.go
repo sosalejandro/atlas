@@ -566,8 +566,15 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index, opts ...Ingest
 // as raw SQL rather than a sqlc query because sqlc's sqlite grammar (v1.31.x)
 // garbles a multi-column UPDATE ... WHERE — the same class of bug already
 // documented for FindByPattern in symbols.go.
+//
+// node_class is refreshed alongside the position, not held fixed at whatever
+// the first scan decided. A node can legitimately change class: a Python
+// import that resolved to nothing lands as an `external:py` anchor, and the
+// day the module it names is added to the repo the same id becomes a real
+// declaration. Freezing the class here would leave that declaration
+// invisible to every "real code only" query until someone deleted the store.
 const updateSymbolPositionSQL = `UPDATE symbols
-SET kind = ?, file_path = ?, line = ?, end_line = ?, package = ?, bc_path = ?
+SET kind = ?, file_path = ?, line = ?, end_line = ?, package = ?, domain = ?, node_class = ?
 WHERE qualified_name = ?`
 
 // upsertSymbolTx inserts a shared.Symbol via the sqlc tx and returns the
@@ -584,17 +591,20 @@ func upsertSymbolTx(ctx context.Context, tx *sql.Tx, qtx *sqlc.Queries, logger s
 		v := sym.Package
 		pkg = &v
 	}
-	var bc *string
-	if bcPath := bcPathFor(sym.Position.Path); bcPath != "" {
-		v := bcPath
-		bc = &v
+	var domain *string
+	if d := domainFor(sym.Position.Path); d != "" {
+		v := d
+		domain = &v
 	}
 
 	path := sym.Position.Path
 	if path == "" {
-		// Skip synthetic / position-less symbols — the schema's file_path is
-		// NOT NULL. Their qualified names typically encode `route:` or
-		// `endpoint:` prefixes that are graph-walk-only.
+		// Skip position-less anchors — the schema's file_path is NOT NULL.
+		// These are the `route:` / `endpoint:` vertices the graph walk
+		// invents and never gives a source location; an anchor that DOES
+		// have one (a named sqlc query points at its .sql file, a pyscan
+		// stub at the reserved `external:py` path) falls through and is
+		// stored with node_class = 'anchor'.
 		return 0, false, nil
 	}
 	line := sym.Position.Line
@@ -620,7 +630,12 @@ func upsertSymbolTx(ctx context.Context, tx *sql.Tx, qtx *sqlc.Queries, logger s
 		Line:          int64(line),
 		EndLine:       endLine,
 		Package:       pkg,
-		BcPath:        bc,
+		Domain:        domain,
+		// Classified here rather than defaulted in the schema: the ingest
+		// is the last place that still knows both the id and the path the
+		// scanner produced, and shared.ClassifyNode is the single copy of
+		// the rule migration 0019 backfilled existing rows with.
+		NodeClass: nodeClassToColumn(shared.ClassifyNode(sym.ID, path)),
 	})
 	if err != nil {
 		return 0, false, fmt.Errorf("ingest symbol %q: %w", sym.ID, err)
@@ -654,7 +669,8 @@ func upsertSymbolTx(ctx context.Context, tx *sql.Tx, qtx *sqlc.Queries, logger s
 	// delete+insert — preserves the surrogate id, so coverage history and
 	// feature_symbols links survive the edit.
 	if _, err := tx.ExecContext(ctx, updateSymbolPositionSQL,
-		string(kind), path, int64(line), endLine, pkg, bc, string(sym.ID),
+		string(kind), path, int64(line), endLine, pkg, domain,
+		string(shared.ClassifyNode(sym.ID, path)), string(sym.ID),
 	); err != nil {
 		return 0, false, fmt.Errorf("ingest symbol %q: refresh position: %w", sym.ID, err)
 	}
@@ -804,5 +820,5 @@ func extractFeatureIDsFromAnnotation(ann shared.Annotation) []string {
 	return out
 }
 
-// bcPathFor lives in paths.go — kept as a pure string helper outside this
+// domainFor lives in paths.go — kept as a pure string helper outside this
 // transactional ingest file. See packages/store/paths.go.

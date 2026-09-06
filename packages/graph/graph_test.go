@@ -130,7 +130,7 @@ func TestOutIn_ReturnEdges(t *testing.T) {
 	}
 }
 
-func TestTraceFrom_DepthAndCycleHandling(t *testing.T) {
+func TestChainFrom_DepthAndCycleHandling(t *testing.T) {
 	t.Parallel()
 
 	g := New()
@@ -142,7 +142,7 @@ func TestTraceFrom_DepthAndCycleHandling(t *testing.T) {
 	g.AddEdge("C", "D")
 	g.AddEdge("D", "B") // cycle B→C→D→B
 
-	res := g.TraceFrom("A", 0)
+	res := g.ChainFrom("A", 0)
 	if res.Root == nil || res.Root.Node.ID != "A" {
 		t.Fatalf("expected root A; got %+v", res.Root)
 	}
@@ -154,11 +154,11 @@ func TestTraceFrom_DepthAndCycleHandling(t *testing.T) {
 	}
 }
 
-func TestTraceFrom_UnknownRoot(t *testing.T) {
+func TestChainFrom_UnknownRoot(t *testing.T) {
 	t.Parallel()
 
 	g := New()
-	res := g.TraceFrom("missing", 0)
+	res := g.ChainFrom("missing", 0)
 	if res.Root != nil {
 		t.Fatalf("expected nil root for missing node")
 	}
@@ -193,7 +193,7 @@ func TestFindPathTo_PrefersRouteHint(t *testing.T) {
 	}
 }
 
-func TestTraceCallersFrom(t *testing.T) {
+func TestChainCallersFrom(t *testing.T) {
 	t.Parallel()
 
 	g := New()
@@ -203,7 +203,7 @@ func TestTraceCallersFrom(t *testing.T) {
 	g.AddEdge("Root", "Mid")
 	g.AddEdge("Mid", "Leaf")
 
-	chains := g.TraceCallersFrom("Leaf", 10)
+	chains := g.ChainCallersFrom("Leaf", 10)
 	if len(chains) == 0 {
 		t.Fatalf("expected at least one chain")
 	}

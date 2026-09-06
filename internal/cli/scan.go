@@ -26,6 +26,7 @@ func newScanCmd() *cobra.Command {
 		includeGenerated bool
 		showSkipped      bool
 		skippedPath      string
+		jobs             int
 
 		skipTypedResolution bool
 	)
@@ -64,6 +65,15 @@ needs credentials to resolve modules, or a latency budget that cannot
 absorb it. Expect call edges to move from the typed tier down to
 name_resolved and syntactic -- 'atlas edges' will show it.
 
+--jobs bounds the worker count for the per-file passes the orchestrator
+runs itself (annotation parsing, file hashing, EDA pattern recognition).
+The default is GOMAXPROCS. --jobs=1 is strictly serial and is what the
+determinism suite runs; the parallel and serial scans are asserted to
+produce byte-identical output, so lowering it is a diagnostic, never a
+correctness fix. It does NOT parallelise the Go sub-scanner, which is
+still single-pass -- see docs/performance.md for what the flag is
+measured to be worth before assuming it fixes a slow scan.
+
 --skipped does not scan. It reads back the exclusion ledger the last scan
 wrote and answers "why is this file not indexed?" from the store, naming
 the rule that claimed each file -- and, for a glob, the pattern that
@@ -80,7 +90,7 @@ answer to one file.`,
 				return runScanSkipped(cmd, root, skippedPath)
 			}
 			return runScan(cmd, root, hashFiles, nodeModulesPaths, includeGenerated,
-				skipTypedResolution)
+				skipTypedResolution, jobs)
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "",
@@ -95,6 +105,9 @@ answer to one file.`,
 	cmd.Flags().BoolVar(&skipTypedResolution, "skip-typed-resolution", false,
 		"resolve Go calls by name only, without go/packages type checking "+
 			"(escape hatch: no toolchain, or a load that cannot run here)")
+	cmd.Flags().IntVar(&jobs, "jobs", 0,
+		"workers for the orchestrator's per-file passes (default: GOMAXPROCS; "+
+			"1 is strictly serial and is what the determinism suite runs)")
 	cmd.Flags().BoolVar(&showSkipped, "skipped", false,
 		"print the last scan's exclusion ledger instead of scanning")
 	cmd.Flags().StringVar(&skippedPath, "skipped-path", "",
@@ -141,6 +154,7 @@ func runScan(
 	nodeModulesPaths []string,
 	includeGenerated bool,
 	skipTypedResolution bool,
+	jobs int,
 ) error {
 	ctx := cmd.Context()
 	if ctx == nil {
@@ -157,7 +171,7 @@ func runScan(
 	}
 
 	idx, warnings, err := indexProjectFromConfig(ctx, rootDir, hashFiles, nodeModulesPaths,
-		includeGenerated, withSkipTypedResolution(skipTypedResolution))
+		includeGenerated, withSkipTypedResolution(skipTypedResolution), withJobs(jobs))
 	if err != nil {
 		return err
 	}

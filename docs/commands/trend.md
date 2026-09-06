@@ -128,7 +128,7 @@ a second one, so a CI retry leaves the series intact.
 | ------------------------------- | ------------------------------------------------------------------------------------ |
 | `atlas trend record`            | Only when you run it. This is the accurate point — it scores through the audit.      |
 | `atlas trend` (backfill)        | Every run, for coverage runs that have no point yet. Opt out with `--no-backfill`.   |
-| `atlas cov sync`, `atlas audit` | **Never.** They write `coverage_runs` / `audit_snapshot_runs`, not the series.       |
+| `atlas cov sync`, `atlas health` | **Never.** They write `coverage_runs` / `audit_snapshot_runs`, not the series.       |
 
 **Backfill.** Issue #92 asked for a series over tables that already exist, so
 `atlas trend` derives the points it can from `coverage_runs` before reading:
@@ -261,7 +261,7 @@ is lossy in a way they cannot.
 
 ## Why `--compare-to` lives on `trend` and not on `audit`
 
-Issue #92 sketched the gate as `atlas audit --compare-to`. It landed on
+Issue #92 sketched the gate as `atlas health --compare-to`. It landed on
 `atlas trend` instead, for one substantive reason and one practical one.
 
 The substantive one: `audit` scores whatever the store holds *right now*,
@@ -273,7 +273,7 @@ series deliberately records only the coverage-backed component (see *Where
 the numbers come from*), and the flag belongs on the command that owns that
 distinction.
 
-The practical one: `atlas audit`'s flag surface was owned by a concurrent
+The practical one: `atlas health`'s flag surface was owned by a concurrent
 change. If a future release wants `audit --compare-to` as an alias, it can
 delegate to `runTrend` — the comparison logic is entirely in
 `packages/trend`, which takes two `store.HistoryPoint`s and no CLI state.
@@ -287,7 +287,7 @@ commits. They answer different questions and share no tables.
 ## Where the numbers come from
 
 `atlas trend record` scores every feature via the same path as
-[`atlas audit`](./audit.md), then keeps only what rests on real coverage
+[`atlas health`](./health.md), then keeps only what rests on real coverage
 evidence:
 
 - A feature is **measured** only when the audit produced a `coverage`

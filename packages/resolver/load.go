@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -235,9 +236,20 @@ func workspaceModules(dir string) []string {
 	return mods
 }
 
+// normaliseUse turns one `use` directive into the middle of a `go list`
+// pattern.
+//
+// The backslash rewrite is unconditional, not filepath-dependent: a
+// go.work is a checked-in file that a Windows contributor writes as
+// `.\backend`, and the pattern it becomes is slash-separated on every
+// platform. filepath.ToSlash would be a no-op on the Linux machine
+// reading it, the pattern would resolve to no package, and that module
+// would be missing from the call graph with nothing reported (issue
+// #143).
 func normaliseUse(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.Trim(s, `"`)
+	s = strings.ReplaceAll(s, `\`, "/")
 	s = strings.TrimPrefix(s, "./")
 	return strings.TrimSuffix(s, "/")
 }
@@ -318,11 +330,14 @@ func relativise(msg, root string) string {
 	if root == "" {
 		return msg
 	}
-	msg = strings.ReplaceAll(msg, root+string(filepath.Separator), "")
+	// Both spellings, for the same reason rootAlias exists: the go tool
+	// reports positions under the root it resolved, which is not always
+	// the root it was handed.
+	roots := []string{root}
 	if resolved, err := filepath.EvalSymlinks(root); err == nil && resolved != root {
-		msg = strings.ReplaceAll(msg, resolved+string(filepath.Separator), "")
+		roots = append(roots, resolved)
 	}
-	return msg
+	return stripRoots(msg, roots, filepath.Separator, runtime.GOOS == "windows")
 }
 
 // isSyntheticTestMain drops the `pkg.test` main package the go tool
@@ -409,30 +424,40 @@ func (p *Program) indexFiles(pkgs []*packages.Package, root string) {
 	// scanner performs, but it would make Status.Files count the same
 	// source file twice, and a "files resolved with types" number that
 	// exceeds the files that exist is worse than no number.
+	//
+	// Every key goes through pathKey, and so does every lookup. What the
+	// go tool reports here and what the scanner's filepath.WalkDir hands
+	// to Syntax are two independently-spelled absolute paths, and on
+	// Windows two correct spellings of one file need not match byte for
+	// byte — see pathkey.go.
 	for _, pkg := range pkgs {
 		for _, syntax := range pkg.Syntax {
-			path := pkg.Fset.Position(syntax.Pos()).Filename
-			if path == "" {
+			key := pathKey(pkg.Fset.Position(syntax.Pos()).Filename)
+			if key == "" {
 				continue
 			}
-			if incumbent, ok := p.byPath[path]; ok && !prefer(pkg, incumbent.pkg) {
+			if incumbent, ok := p.byPath[key]; ok && !prefer(pkg, incumbent.pkg) {
 				continue
 			}
-			p.byPath[path] = &fileView{syntax: syntax, pkg: pkg}
+			p.byPath[key] = &fileView{syntax: syntax, pkg: pkg}
 		}
 	}
 	p.status.Files = len(p.byPath)
 
-	alias := symlinkAlias(root)
+	alias := rootAlias(root)
 	aliases := map[string]*fileView{}
-	for path, view := range p.byPath {
+	for key, view := range p.byPath {
 		p.bySyntax[view.syntax] = view
-		if a := alias(path); a != "" {
+		if a := alias(key); a != "" && a != key {
 			aliases[a] = view
 		}
 	}
+	// An alias never displaces a real entry: a file the go tool actually
+	// reported is the better answer for its own key.
 	for a, view := range aliases {
-		p.byPath[a] = view
+		if _, taken := p.byPath[a]; !taken {
+			p.byPath[a] = view
+		}
 	}
 }
 
@@ -445,28 +470,64 @@ func prefer(candidate, incumbent *packages.Package) bool {
 	return candidate.ID < incumbent.ID
 }
 
-// symlinkAlias returns a function that rewrites a file path reported by
-// the go tool into the equivalent path under the caller's spelling of the
-// root, or "" when the two spellings agree.
+// rootAlias returns a function that rewrites a KEY under the root's
+// filesystem-resolved spelling into the same file's key under the
+// caller's spelling of the root, or "" when the two spellings agree.
 //
 // The go tool resolves symlinks in the module root; filepath.WalkDir does
 // not. On a machine where the scan root reaches through a symlink — a
-// macOS temp directory, a /home that is really /export/home — every
-// lookup by absolute path would miss, the whole tree would silently
-// degrade to name matching, and the only symptom would be a tier
-// histogram nobody was watching.
-func symlinkAlias(root string) func(string) string {
+// macOS temp directory, a /home that is really /export/home, a Windows
+// %TEMP% the runner hands out under its 8.3 short name — every lookup by
+// absolute path would miss, the whole tree would silently degrade to name
+// matching, and the only symptom would be a tier histogram nobody was
+// watching.
+//
+// It works in key space rather than on raw paths because filepath.Rel
+// compares byte for byte: on Windows the resolved root and a reported
+// path routinely differ in the case of a component, and Rel would answer
+// that with a chain of "..", which is not a path to anything.
+func rootAlias(root string) func(string) string {
 	resolved, err := filepath.EvalSymlinks(root)
-	if err != nil || resolved == root {
+	rootKey, resolvedKey := pathKey(root), pathKey(resolved)
+	if err != nil || resolvedKey == "" || resolvedKey == rootKey {
 		return func(string) string { return "" }
 	}
-	return func(path string) string {
-		rel, err := filepath.Rel(resolved, path)
-		if err != nil || strings.HasPrefix(rel, "..") {
+	prefix := resolvedKey + string(filepath.Separator)
+	return func(key string) string {
+		if !strings.HasPrefix(key, prefix) {
 			return ""
 		}
-		return filepath.Join(root, rel)
+		return rootKey + string(filepath.Separator) + key[len(prefix):]
 	}
+}
+
+// lookup finds the view for a file, however the caller chose to spell it.
+//
+// The second chance is not defensive padding; it is the only thing that
+// can reconcile two spellings the textual rules in pathkey.go cannot.
+// `C:\Users\RUNNER~1\...` and `C:\Users\runneradmin\...` are one
+// directory and no string transformation says so — GitHub's Windows
+// runners hand out the first as %TEMP% while the go tool reports the
+// second. filepath.EvalSymlinks asks the filesystem, which knows. The
+// same call covers a POSIX symlink that rootAlias could not anticipate
+// because the link sits below the scan root rather than at it.
+//
+// It runs only on a miss, and only when there is an index to miss in, so
+// a tree that type-checked nothing does not pay a stat per file for an
+// answer that cannot exist.
+func (p *Program) lookup(absPath string) (*fileView, bool) {
+	if view, ok := p.byPath[pathKey(absPath)]; ok {
+		return view, true
+	}
+	if len(p.byPath) == 0 {
+		return nil, false
+	}
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return nil, false
+	}
+	view, ok := p.byPath[pathKey(resolved)]
+	return view, ok
 }
 
 // Status reports what the load achieved.

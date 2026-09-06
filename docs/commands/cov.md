@@ -183,7 +183,7 @@ test executes (the logger, the DI container, the middleware chain).
 
 That derivation is correct through interface dispatch, DI containers,
 reflection and string-routed handlers — none of which a static walk can follow.
-`atlas audit --json` reports which derivation produced each score:
+`atlas health --json` reports which derivation produced each score:
 
 ```json
 { "feature_id": "measurements.log-entry", "score": 78.4, "surface_source": "dynamic" }
@@ -282,7 +282,7 @@ only the run that finished last would understate the inherited denominator.
 all. It renders as `beyond the carry window`, and `builds_back` is `-1` in the
 JSON — not `0`, which would read as "the current build measured it".
 
-**The flags tune `cov status`, not `atlas audit`.** The audit carries on the
+**The flags tune `cov status`, not `atlas health`.** The audit carries on the
 package defaults (3 builds / 72h); `--carry-builds` and `--carry-max-age` exist
 so you can see what a different window WOULD do to the frontier before deciding
 the defaults are wrong for your pipeline.
@@ -371,7 +371,7 @@ carryforward: 1 result(s) carried (1 as evidence, 0 holding the denominator only
 }
 ```
 
-`atlas audit` scores the same pool, and says so in the feature's reasons:
+`atlas health` scores the same pool, and says so in the feature's reasons:
 
 ```
 coverage: 5/6 statements executed (83%); 3/6 statements carried from build "build-1" (1 build back), observed 3/6 (50%)

@@ -118,7 +118,7 @@ func Collect(ctx context.Context, s *store.Store, sc Scorer, opts CollectOptions
 // produced one, and nil otherwise. See Collect's "What is recorded" note: the
 // blended FeatureHealth.Score is deliberately not what lands in the series.
 func coverageScore(h audit.FeatureHealth) *float64 {
-	score, ok := h.Components[audit.SignalCoverage]
+	score, ok := h.Components[audit.SignalVerification]
 	if !ok {
 		return nil
 	}

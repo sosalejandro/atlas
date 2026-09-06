@@ -95,8 +95,11 @@ func TestEdges_Schema_RejectsUntieredRawInsert(t *testing.T) {
 // recoverable from a stored row, so the floor is the only honest answer.
 //
 // The test builds the pre-0018 table shape by hand and stamps
-// golang-migrate's bookkeeping at 17, so Open applies exactly one
-// migration -- the one under test.
+// golang-migrate's bookkeeping at 17, so Open applies 0018 first. Every
+// migration added after it runs too -- that is the point of stamping a
+// version rather than a file -- so the assertions below are about what
+// 0018 did to these rows, and the version check only confirms the runner
+// got at least that far.
 func TestMigration0018_BackfillsExistingRowsAtTheWeakestTier(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "pre-0018.db")
@@ -197,8 +200,9 @@ func TestMigration0018_BackfillsExistingRowsAtTheWeakestTier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 18 {
-		t.Errorf("schema version after migrating = %d, want 18", v)
+	if v < 18 {
+		t.Errorf("schema version after migrating = %d, want >= 18 "+
+			"(0018 is the migration under test; later ones run too)", v)
 	}
 }
 

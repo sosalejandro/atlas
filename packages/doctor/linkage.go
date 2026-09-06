@@ -19,7 +19,7 @@ import (
 //   - A feature outlives its symbols. feature_symbols cascades when a
 //     symbol is deleted, but the features row does not, so a renamed or
 //     removed function leaves an empty shell behind that still ranks in
-//     `atlas sprint` and still scores in `atlas audit` -- about nothing.
+//     `atlas sprint` and still scores in `atlas health` -- about nothing.
 //
 //   - An annotation that DOES resolve to an indexed symbol still names a
 //     feature the store has no row for. The ingest materializes a feature

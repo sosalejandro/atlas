@@ -136,7 +136,7 @@ carries:
   "returned": 100,
   "total": 1284,
   "limit": 100,
-  "note": "TRUNCATED: showing 100 of 1284 call edges. The remaining 1184 are NOT in this response — do not conclude they do not exist. There is NO cursor and no offset: calling this tool again cannot retrieve them, and `limit` may only narrow the server cap, never exceed it. Ask a narrower question, or read the complete set outside MCP with the atlas CLI (e.g. `atlas trace --json` for call edges). The server cap itself is set by the operator with `atlas mcp --max-features/--max-symbols/--max-edges/--max-tests`."
+  "note": "TRUNCATED: showing 100 of 1284 call edges. The remaining 1184 are NOT in this response — do not conclude they do not exist. There is NO cursor and no offset: calling this tool again cannot retrieve them, and `limit` may only narrow the server cap, never exceed it. Ask a narrower question, or read the complete set outside MCP with the atlas CLI (e.g. `atlas chain --json` for call edges). The server cap itself is set by the operator with `atlas mcp --max-features/--max-symbols/--max-edges/--max-tests`."
 }
 ```
 
@@ -275,7 +275,7 @@ server into a client config actually wants to see.
 - **`coverage_for` omits the `annotation_freshness` signal.** That signal shells
   out to `git blame` once per annotation site, which is too slow to run inside a
   request an agent is blocking on. The audit re-normalises over the remaining
-  signals; run `atlas audit --feature <id>` for a score that includes it. The
+  signals; run `atlas health --feature <id>` for a score that includes it. The
   result says so in its `notes`.
 - **One request at a time.** The store is a single SQLite connection and an
   agent's calls are serialised by its own turn structure, so concurrency would
@@ -290,5 +290,5 @@ server into a client config actually wants to see.
 - [scan.md](scan.md) — building the index the server reads
 - [cov-per-test.md](cov-per-test.md) — the ingest that unlocks the `dynamic`
   surface and `tests_covering`
-- [audit.md](audit.md) — the score `coverage_for` reports
-- [trace.md](trace.md) — the same call-graph walk, for humans
+- [audit.md](health.md) — the score `coverage_for` reports
+- [trace.md](chain.md) — the same call-graph walk, for humans

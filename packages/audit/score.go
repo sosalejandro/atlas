@@ -38,7 +38,7 @@ func (a *auditImpl) scoreFromFeature(
 
 	if !frontier.Empty() && len(links) > 0 {
 		cov, ok, err := a.coverageSignal(ctx, feat.ID, links, frontier)
-		if err := set.add(SignalCoverage, "coverage", cov, ok, err); err != nil {
+		if err := set.add(SignalVerification, "verification", cov, ok, err); err != nil {
 			return FeatureHealth{}, err
 		}
 	}
@@ -77,7 +77,7 @@ func (a *auditImpl) scoreFromFeature(
 	// we compute the real signals first, then — only when nothing else is
 	// available — apply a low "annotated but unverified" floor equal to the
 	// presence weight × 100 (10 by default). A feature whose annotation→
-	// symbol link exists (the same condition `atlas trace feature:<id>`
+	// symbol link exists (the same condition `atlas chain feature:<id>`
 	// uses) thus scores >0 but ranks at the bottom, where it belongs until a
 	// coverage run verifies it. See issues #78 / #77.
 	score := weightedAverage(components, available, a.blendWeights(available, decision))
@@ -287,7 +287,7 @@ func creditPassingTest(
 		return signalResult{}, false
 	}
 	if len(wanted) == 0 {
-		return signalResult{score: 100, note: coverageNote(1, 1, 100)}, true
+		return signalResult{score: 100, note: verificationNote(1, 1, 100)}, true
 	}
 	for sid := range wanted {
 		pass[sid] = true
@@ -312,7 +312,7 @@ func (a *auditImpl) shouldTryPackageAnchor(useSurface bool, numer int, wanted ma
 // average re-normalises over the other signals).
 func emptyDenominatorResult(testSeen, useSurface bool) (signalResult, bool, error) {
 	if testSeen && !useSurface {
-		return signalResult{score: 0, note: coverageNote(0, 1, 0)}, true, nil
+		return signalResult{score: 0, note: verificationNote(0, 1, 0)}, true, nil
 	}
 	return signalResult{}, false, nil
 }
@@ -518,10 +518,10 @@ func scoreCoverage(
 	suffix string,
 ) signalResult {
 	if lineScore, covered, total, ok := lineWeightedScore(wanted, skipOnly, pass, stmts); ok {
-		return signalResult{score: lineScore, note: lineCoverageNote(covered, total, lineScore, suffix)}
+		return signalResult{score: lineScore, note: executionNote(covered, total, lineScore, suffix)}
 	}
 	score := 100.0 * float64(numer) / float64(denom)
-	return signalResult{score: score, note: coverageNoteWithSuffix(numer, denom, score, suffix)}
+	return signalResult{score: score, note: verificationNoteWithSuffix(numer, denom, score, suffix)}
 }
 
 // packageAnchorSignal is the Tier 2 fallback (issue #84): when the call-edge
@@ -715,49 +715,60 @@ func coverageRatio(wanted, pass, skipOnly map[int64]bool) (denom, numer int) {
 	return denom, numer
 }
 
-// coverageNote formats the per-feature explanatory note for the coverage
+// verificationNote formats the per-feature explanatory note for the
+// verification
 // signal. Score == 100 → no note (empty signalNote with zero weight).
-func coverageNote(numer, denom int, score float64) signalNote {
-	return coverageNoteWithSuffix(numer, denom, score, "")
+func verificationNote(numer, denom int, score float64) signalNote {
+	return verificationNoteWithSuffix(numer, denom, score, "")
 }
 
-// coverageNoteWithSuffix is the implementation of coverageNote with an
-// optional suffix appended to the message (used by the package-anchor
+// verificationNoteWithSuffix is the implementation of verificationNote with
+// an optional suffix appended to the message (used by the package-anchor
 // fallback to tag its coarser signal so operators can identify it).
-func coverageNoteWithSuffix(numer, denom int, score float64, suffix string) signalNote {
+//
+// The message says "verification", not "coverage", and its sibling below
+// says "execution". Two notes that both began "coverage:" were the reason an
+// operator could read "coverage: 0/8 symbols passing" and "coverage: 0/240
+// statements executed" as the same finding twice, when they are a verdict
+// and a measurement respectively. Issue #112.
+func verificationNoteWithSuffix(numer, denom int, score float64, suffix string) signalNote {
 	switch {
 	case score >= 100:
 		return signalNote{}
 	case score == 0:
 		return signalNote{
 			weight:  100,
-			message: fmt.Sprintf("coverage: 0/%d symbols passing in latest run%s", denom, suffix),
+			message: fmt.Sprintf("verification: 0/%d symbols passing in latest run%s", denom, suffix),
 		}
 	default:
 		return signalNote{
 			weight:  100 - score,
-			message: fmt.Sprintf("coverage: %d/%d symbols passing (%.0f%%)%s", numer, denom, score, suffix),
+			message: fmt.Sprintf("verification: %d/%d symbols passing (%.0f%%)%s", numer, denom, score, suffix),
 		}
 	}
 }
 
-// lineCoverageNote formats the per-feature explanatory note for the Tier-B
-// line-weighted coverage signal: it reports executed/total STATEMENTS (not
-// symbols), matching how the score is actually computed. Score == 100 → no
-// note (empty signalNote with zero weight).
-func lineCoverageNote(covered, total int, score float64, suffix string) signalNote {
+// executionNote formats the per-feature explanatory note for the Tier-B
+// line-weighted signal: it reports executed/total STATEMENTS (not symbols),
+// matching how the score is actually computed. Score == 100 → no note (empty
+// signalNote with zero weight).
+//
+// "Execution" is the taxonomy's word for what a coverage profile literally
+// measures -- which statements ran. See SignalVerification for why the three
+// meanings of "coverage" were split.
+func executionNote(covered, total int, score float64, suffix string) signalNote {
 	switch {
 	case score >= 100:
 		return signalNote{}
 	case score == 0:
 		return signalNote{
 			weight:  100,
-			message: fmt.Sprintf("coverage: 0/%d statements executed in latest run%s", total, suffix),
+			message: fmt.Sprintf("execution: 0/%d statements executed in latest run%s", total, suffix),
 		}
 	default:
 		return signalNote{
 			weight:  100 - score,
-			message: fmt.Sprintf("coverage: %d/%d statements executed (%.0f%%)%s", covered, total, score, suffix),
+			message: fmt.Sprintf("execution: %d/%d statements executed (%.0f%%)%s", covered, total, score, suffix),
 		}
 	}
 }

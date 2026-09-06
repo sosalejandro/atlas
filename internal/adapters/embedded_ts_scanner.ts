@@ -172,8 +172,15 @@ function getLineNumber(sourceFile: ts.SourceFile, node: ts.Node): number {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
 
+// Every `file` field in this script's JSON output comes from here, and
+// every one of them is compared, stored and rendered downstream. Node
+// returns the HOST separator, so without the split/join a scan on Windows
+// emits `src\components\Login.tsx` where the same scan on Linux emits
+// `src/components/Login.tsx` -- the same tree, two different graphs
+// (issue #143; docs/testing/determinism.md). The sibling scanner in
+// packages/codeindex/ts has always done this; this one had not.
 function relativePath(projectRoot: string, absPath: string): string {
-  return path.relative(projectRoot, absPath);
+  return path.relative(projectRoot, absPath).split(path.sep).join('/');
 }
 
 function collectTsFiles(dir: string, extensions: string[]): string[] {

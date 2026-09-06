@@ -128,7 +128,7 @@ Special cases, both reported honestly rather than as `ok`:
 Every other check here asks whether atlas's picture is stale. This one
 asks whether it was ever solid.
 
-`atlas trace`, change-impact and the audit's impl surface are all walks
+`atlas chain`, change-impact and the audit's impl surface are all walks
 over the `edges` table, and an edge a type checker resolved and one
 guessed from a lowercased substring are the same row in every column
 except `resolution_tier` (schema §5.5.1, issue #146). This check reports
@@ -187,7 +187,7 @@ a reader needs to see "went to nothing".
 
 ### `coverage.freshness`
 
-Reads `store.Coverage().LatestFrontier()` — the same runs `atlas audit`
+Reads `store.Coverage().LatestFrontier()` — the same runs `atlas health`
 scores — and warns on either of two independent complaints, reporting
 both when both hold:
 
@@ -243,7 +243,7 @@ Two silent drifts between the annotation layer and the symbol layer:
 - **features with no linked symbols.** `feature_symbols` cascades when a
   symbol is deleted; the `features` row does not. A renamed function
   leaves an empty shell that still ranks in `atlas sprint` and still
-  scores in `atlas audit` — about nothing.
+  scores in `atlas health` — about nothing.
 - **anchored annotations naming a feature the store does not have.** An
   annotation that resolves to an indexed symbol is exactly the shape the
   ingest materializes a feature for, so a missing `features` row means

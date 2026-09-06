@@ -72,7 +72,7 @@ type Edge struct {
 	// The zero value (TierUnset) means "this producer did not say",
 	// and packages/store refuses to persist it. That is deliberate:
 	// the graph layer is also used for in-memory work that never
-	// reaches a database (packages/diff, `atlas trace` fixtures),
+	// reaches a database (packages/diff, `atlas chain` fixtures),
 	// so a constructor without a tier still has to exist — but an
 	// edge that came from one of those must never be filed away as
 	// though a scanner had vouched for it. Closes issue #146.
@@ -161,7 +161,7 @@ func (g *Graph) MergeNode(oldID shared.SymbolID, resolved *Node) {
 // packages/store refuses an edge whose producer never said which
 // mechanism resolved it). They remain because the graph layer is also
 // used for work that never reaches a database: packages/diff, the
-// `atlas trace` fixtures, and the cycle tests here. A scanner uses
+// `atlas chain` fixtures, and the cycle tests here. A scanner uses
 // AddEdgeTier / AddEdgeKindLineTier / AddEdgeKindLineMetaTier /
 // AddAmbiguousEdgeTier instead.
 func (g *Graph) AddEdge(from, to shared.SymbolID) {
@@ -347,14 +347,14 @@ func (g *Graph) Callers(nodeID shared.SymbolID) []*Node {
 	return result
 }
 
-// TraceFrom performs a depth-first traversal from rootID and returns an
+// ChainFrom performs a depth-first traversal from rootID and returns an
 // ordered tree of nodes with cycle detection.
 //
 // maxDepth of 0 means unlimited depth. Cycles short-circuit (the duplicate
-// visit becomes a TraceNode with IsCycle=true and no children).
-func (g *Graph) TraceFrom(rootID shared.SymbolID, maxDepth int) *TraceResult {
+// visit becomes a ChainNode with IsCycle=true and no children).
+func (g *Graph) ChainFrom(rootID shared.SymbolID, maxDepth int) *ChainResult {
 	g.buildAdjacency()
-	result := &TraceResult{Confidence: 1.0}
+	result := &ChainResult{Confidence: 1.0}
 
 	root, exists := g.Nodes[rootID]
 	if !exists {
@@ -364,7 +364,7 @@ func (g *Graph) TraceFrom(rootID shared.SymbolID, maxDepth int) *TraceResult {
 	}
 
 	visited := make(map[shared.SymbolID]bool)
-	result.Root = g.traceNode(root, 0, maxDepth, visited, result)
+	result.Root = g.chainNode(root, 0, maxDepth, visited, result)
 	result.TotalNodes = len(visited)
 	result.MaxDepth = computeMaxDepth(result.Root)
 	return result
@@ -446,19 +446,19 @@ func (g *Graph) FindPathTo(targetID shared.SymbolID, routeHint string, maxDepth 
 	return best
 }
 
-// TraceCallersFrom traces upward from nodeID, building a tree of callers.
-// Reverse of TraceFrom. Returns the slice of root caller chains; each
+// ChainCallersFrom walks upward from nodeID, building a tree of callers.
+// Reverse of ChainFrom. Returns the slice of root caller chains; each
 // element is the deepest caller chain ending at nodeID as a leaf.
-func (g *Graph) TraceCallersFrom(nodeID shared.SymbolID, maxDepth int) []*TraceNode {
+func (g *Graph) ChainCallersFrom(nodeID shared.SymbolID, maxDepth int) []*ChainNode {
 	g.buildAdjacency()
 	if _, exists := g.Nodes[nodeID]; !exists {
 		return nil
 	}
 	visited := map[shared.SymbolID]bool{nodeID: true}
-	return g.traceCallersRecursive(nodeID, 0, maxDepth, visited)
+	return g.chainCallersRecursive(nodeID, 0, maxDepth, visited)
 }
 
-func (g *Graph) traceCallersRecursive(nodeID shared.SymbolID, depth, maxDepth int, visited map[shared.SymbolID]bool) []*TraceNode {
+func (g *Graph) chainCallersRecursive(nodeID shared.SymbolID, depth, maxDepth int, visited map[shared.SymbolID]bool) []*ChainNode {
 	if maxDepth > 0 && depth >= maxDepth {
 		return nil
 	}
@@ -468,7 +468,7 @@ func (g *Graph) traceCallersRecursive(nodeID shared.SymbolID, depth, maxDepth in
 	copy(sorted, callerIDs)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
 
-	var results []*TraceNode
+	var results []*ChainNode
 	for _, callerID := range sorted {
 		if visited[callerID] {
 			continue
@@ -479,8 +479,8 @@ func (g *Graph) traceCallersRecursive(nodeID shared.SymbolID, depth, maxDepth in
 		}
 		visited[callerID] = true
 
-		tn := &TraceNode{Node: callerNode, Depth: depth}
-		parents := g.traceCallersRecursive(callerID, depth+1, maxDepth, visited)
+		tn := &ChainNode{Node: callerNode, Depth: depth}
+		parents := g.chainCallersRecursive(callerID, depth+1, maxDepth, visited)
 		if len(parents) > 0 {
 			for _, parent := range parents {
 				parentCopy := *parent
@@ -494,8 +494,8 @@ func (g *Graph) traceCallersRecursive(nodeID shared.SymbolID, depth, maxDepth in
 	return results
 }
 
-func (g *Graph) traceNode(node *Node, depth, maxDepth int, visited map[shared.SymbolID]bool, result *TraceResult) *TraceNode {
-	tn := &TraceNode{Node: node, Depth: depth}
+func (g *Graph) chainNode(node *Node, depth, maxDepth int, visited map[shared.SymbolID]bool, result *ChainResult) *ChainNode {
+	tn := &ChainNode{Node: node, Depth: depth}
 
 	if visited[node.ID] {
 		tn.IsCycle = true
@@ -520,13 +520,13 @@ func (g *Graph) traceNode(node *Node, depth, maxDepth int, visited map[shared.Sy
 			result.Confidence *= 0.9
 			continue
 		}
-		child := g.traceNode(callee, depth+1, maxDepth, visited, result)
+		child := g.chainNode(callee, depth+1, maxDepth, visited, result)
 		tn.Children = append(tn.Children, child)
 	}
 	return tn
 }
 
-func computeMaxDepth(tn *TraceNode) int {
+func computeMaxDepth(tn *ChainNode) int {
 	if tn == nil {
 		return 0
 	}
@@ -593,9 +593,9 @@ func (g *Graph) buildAdjacency() {
 	}
 }
 
-// TraceResult is the output of TraceFrom — a tree plus per-walk stats.
-type TraceResult struct {
-	Root       *TraceNode `json:"root,omitempty"`
+// ChainResult is the output of ChainFrom — a tree plus per-walk stats.
+type ChainResult struct {
+	Root       *ChainNode `json:"root,omitempty"`
 	TotalNodes int        `json:"total_nodes"`
 	MaxDepth   int        `json:"max_depth"`
 	Cycles     []Edge     `json:"cycles,omitempty"`
@@ -603,12 +603,12 @@ type TraceResult struct {
 	Warnings   []string   `json:"warnings,omitempty"`
 }
 
-// TraceNode is a single node in the trace tree. IsCycle indicates the walk
+// ChainNode is a single node in the chain tree. IsCycle indicates the walk
 // short-circuited because this node had been visited; in that case
 // Children will be empty.
-type TraceNode struct {
+type ChainNode struct {
 	Node     *Node        `json:"node"`
-	Children []*TraceNode `json:"children,omitempty"`
+	Children []*ChainNode `json:"children,omitempty"`
 	Depth    int          `json:"depth"`
 	IsCycle  bool         `json:"is_cycle,omitempty"`
 }

@@ -50,8 +50,8 @@ func newSecurityFixture(t *testing.T) string {
 	defer func() { _ = db.Close() }()
 
 	if _, err := db.Exec(
-		`INSERT INTO symbols (qualified_name, kind, file_path, line)
-		 VALUES ('orders.Repo.List', 'method', 'internal/orders/repo.go', 12)`); err != nil {
+		`INSERT INTO symbols (qualified_name, kind, file_path, line, node_class)
+		 VALUES ('orders.Repo.List', 'method', 'internal/orders/repo.go', 12, 'declaration')`); err != nil {
 		t.Fatalf("seed symbol: %v", err)
 	}
 	stmts := []struct{ ref, text string }{
@@ -340,7 +340,7 @@ func TestSecurityRedact_RewritesTheStoreAndKeepsTheQueryReadable(t *testing.T) {
 // redact.Exports() or here, and TestSecurity_EveryVerbIsAccountedFor fails
 // until it is in one of them.
 var verbsWithNoArtifact = map[string]bool{
-	"init": true, "scan": true, "trace": true, "audit": true, "sprint": true,
+	"init": true, "scan": true, "chain": true, "health": true, "sprint": true,
 	"diff": true, "contract": true, "diagnose": true, "codebase": true,
 	"doctor": true, "affected": true, "trend": true, "sql": true,
 	"flow": true, "hotspots": true, "security": true,

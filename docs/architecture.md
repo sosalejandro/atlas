@@ -50,7 +50,7 @@ on their own clock. See §6.
 
 **No mandatory persistence.**
 The SQLite store is an optimization (incremental re-scan, cross-command cache),
-not a requirement. `atlas trace foo` works in a fresh checkout with no `.atlas/`
+not a requirement. `atlas chain foo` works in a fresh checkout with no `.atlas/`
 directory. Persistence is opt-in via `atlas init`.
 
 **Each package is one SRP concern; no god-files.**
@@ -430,10 +430,10 @@ adapter: parse flags → call package API → format result.
 ```
 atlas init                    Scan project, create .atlas/state.db, persist baseline
 atlas scan                    Re-scan (incremental via file_hashes), update store
-atlas trace <feature>         Show call-chain for a feature
+atlas chain <feature>         Show call-chain for a feature
 atlas cov sync                Ingest test framework outputs into store
 atlas cov status [<feature>]  Per-feature coverage summary
-atlas audit [<feature>]       Health score + gap list
+atlas health [<feature>]       Health score + gap list
 atlas sprint [--top N]        Gap-weighted feature prioritization
 atlas diff <ref-a> <ref-b>    Snapshot diff between two refs
 atlas contract <feature>      Extract API contract (req/resp types)
@@ -447,7 +447,7 @@ Subcommand → packages composed:
 |---|---|
 | `init` | `codeindex`, `store` |
 | `scan` | `codeindex`, `store` |
-| `trace` | `codeindex` (or `store` rehydrate) → `graph` |
+| `chain` | `codeindex` (or `store` rehydrate) → `graph` |
 | `cov sync` | `coverage`, `codeindex/annotations`, `store` |
 | `cov status` | `store`, `coverage` |
 | `audit` | `audit` (composes `codeindex`, `graph`, `store`) |
@@ -470,7 +470,7 @@ Every subcommand emits JSON whose top-level object contains:
 ```json
 {
   "schema_version": "v1",
-  "command": "trace",
+  "command": "chain",
   "generated_at": "2026-05-17T12:34:56Z",
   "data": { ... }
 }
@@ -487,7 +487,7 @@ Every subcommand emits JSON whose top-level object contains:
    top-level key (`data_v2`) alongside the old (`data`) for one minor release,
    then the old key is dropped at the next major. Consumers can read either
    key and migrate on their own clock.
-4. **One schema per subcommand.** `atlas trace` and `atlas audit` version
+4. **One schema per subcommand.** `atlas chain` and `atlas health` version
    independently. There is no global "Atlas JSON schema v1" — the contract is
    per-verb.
 5. **Schema docs live in `docs/api/<verb>.md`.** Each one is a JSON sample
@@ -605,7 +605,7 @@ subprocess shape).
 CLI-only v0. The §6 stable JSON contract is the load-bearing piece — any
 future dashboard reads `atlas <verb> --json` outputs without coupling to
 internals. **Re-evaluate when:** at least one consumer is doing repeated
-`atlas audit` / `atlas trace` interactively for exploration AND CLI ergonomics
+`atlas health` / `atlas chain` interactively for exploration AND CLI ergonomics
 become the blocker. Until then, terminal output beats a half-built web app.
 
 **Server mode / daemon.**
