@@ -12,16 +12,28 @@ import (
 	"github.com/sosalejandro/atlas/packages/store"
 )
 
-// newAuditCmd implements `atlas audit [--feature <id>] [--worst N]`.
-func newAuditCmd() *cobra.Command {
+// newHealthCmd implements `atlas health [--feature <id>] [--worst N]`.
+//
+// The verb was `atlas audit` until issue #112. Three words named one number:
+// the command said audit, the type said FeatureHealth, and the docs said
+// score, which is how a reader concludes there are three numbers. `health` is
+// the one that already matched the type. The old verb stays as an alias --
+// and not only for the deprecation window's sake: the compliance reading of
+// that word is exactly what a regulated buyer searches for, so it is worth
+// keeping reachable.
+func newHealthCmd() *cobra.Command {
 	var (
 		feature string
 		worst   int
 	)
 	cmd := &cobra.Command{
-		Use:   "audit",
-		Short: "Health scores per feature (worst first by default)",
-		Long: `audit computes the per-feature health score from the SQLite store.
+		Use:     "health",
+		Aliases: aliasesFor("health"),
+		Short:   "Health scores per feature (worst first by default)",
+		Long: `health computes the per-feature health score from the SQLite store.
+
+Renamed from 'atlas audit' by issue #112 -- the old verb still works for one
+minor version.
 
 Without --feature, every feature is scored; results are ordered
 worst-first. With --feature, only that feature is returned (or an
@@ -30,7 +42,8 @@ error if it doesn't exist).
 --worst N caps the output to the worst-scoring N rows.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runAudit(cmd, feature, worst)
+			noteIfRenamed(cmd)
+			return runHealth(cmd, feature, worst)
 		},
 	}
 	cmd.Flags().StringVar(&feature, "feature", "",
@@ -40,12 +53,12 @@ error if it doesn't exist).
 	return cmd
 }
 
-// auditResult is the JSON payload for `atlas audit`.
-type auditResult struct {
+// healthResult is the JSON payload for `atlas health`.
+type healthResult struct {
 	Features []audit.FeatureHealth `json:"features"`
 }
 
-func runAudit(cmd *cobra.Command, feature string, worst int) error {
+func runHealth(cmd *cobra.Command, feature string, worst int) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -56,7 +69,7 @@ func runAudit(cmd *cobra.Command, feature string, worst int) error {
 	}
 	s, err := store.Open(ctx, dbPath)
 	if err != nil {
-		return fmt.Errorf("audit: open store %s: %w", dbPath, err)
+		return fmt.Errorf("health: open store %s: %w", dbPath, err)
 	}
 	defer func() { _ = s.Close() }()
 
@@ -70,33 +83,33 @@ func runAudit(cmd *cobra.Command, feature string, worst int) error {
 	if feature != "" {
 		h, err := a.ScoreFeature(ctx, shared.FeatureID(feature))
 		if err != nil {
-			return fmt.Errorf("audit: score %q: %w", feature, err)
+			return fmt.Errorf("health: score %q: %w", feature, err)
 		}
 		healths = []audit.FeatureHealth{h}
 	} else {
 		healths, err = a.ScoreAll(ctx)
 		if err != nil {
-			return fmt.Errorf("audit: score all: %w", err)
+			return fmt.Errorf("health: score all: %w", err)
 		}
 	}
 
-	// audit returns worst-first already; --worst caps after that.
+	// The audit package returns worst-first already; --worst caps after that.
 	if worst > 0 && worst < len(healths) {
 		healths = healths[:worst]
 	}
 
-	res := auditResult{Features: healths}
+	res := healthResult{Features: healths}
 	if flags.JSON {
-		return emitJSON(stdoutOrJSON(cmd), "audit",
+		return emitJSON(stdoutOrJSON(cmd), "health",
 			map[string]any{"feature": feature, "worst": worst}, res, nil)
 	}
-	printAuditText(cmd, healths)
+	printHealthText(cmd, healths)
 	return nil
 }
 
-func printAuditText(cmd *cobra.Command, hs []audit.FeatureHealth) {
+func printHealthText(cmd *cobra.Command, hs []audit.FeatureHealth) {
 	if len(hs) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "audit: no features in the store yet")
+		fmt.Fprintln(cmd.OutOrStdout(), "health: no features in the store yet")
 		return
 	}
 	// Components are emitted in stable component-name order so the

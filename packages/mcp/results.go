@@ -106,7 +106,7 @@ func truncationNote(limit, total int, what string) string {
 		"TRUNCATED: showing %d of %d %s. The remaining %d are NOT in this response — do not conclude they "+
 			"do not exist. There is NO cursor and no offset: calling this tool again cannot retrieve them, and "+
 			"`limit` may only narrow the server cap, never exceed it. Ask a narrower question, or read the "+
-			"complete set outside MCP with the atlas CLI (e.g. `atlas trace --json` for call edges). The server "+
+			"complete set outside MCP with the atlas CLI (e.g. `atlas chain --json` for call edges). The server "+
 			"cap itself is set by the operator with `atlas mcp --max-features/--max-symbols/--max-edges/--max-tests`.",
 		limit, total, what, total-limit)
 }

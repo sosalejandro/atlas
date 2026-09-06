@@ -163,7 +163,8 @@ func TestSweep_ReportsButNeverRewritesIdentityColumns(t *testing.T) {
 	db, _ := newTestDB(t)
 	const name = "keys.AKIAIOSFODNN7EXAMPLE"
 	if _, err := db.Exec(
-		`INSERT INTO symbols (qualified_name, kind, file_path, line) VALUES (?, 'const', 'keys/aws.go', 3)`,
+		`INSERT INTO symbols (qualified_name, kind, file_path, line, node_class)
+		 VALUES (?, 'const', 'keys/aws.go', 3, 'declaration')`,
 		name); err != nil {
 		t.Fatalf("seed symbol: %v", err)
 	}

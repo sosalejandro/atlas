@@ -136,7 +136,7 @@ func seedDeadFixture(t *testing.T, s *Store) map[string]shared.SymbolID {
 	testFileID := mk(sym{"tests.test_x", "tests/test_x.py", 1})
 
 	// External stub — never reported as dead.
-	mk(sym{"os.path.join", externalPyStubPath, 1})
+	mk(sym{"os.path.join", pyAnchorStubPath, 1})
 
 	// Deferred-only target: import lives inside a function body so the
 	// edge carries the function scope. Used to assert scope filtering.
@@ -387,7 +387,19 @@ func TestFindDead_KindAll(t *testing.T) {
 // TestFindDead_ExternalStubFilteredOnLikePattern locks in the external
 // stub filter — the value MUST match what codeindex/py.resolver.go
 // emits. If that constant is ever renamed, this test fires.
-func TestFindDead_ExternalStubFilteredOnLikePattern(t *testing.T) {
+// pyAnchorStubPath is the reserved path pyscan gives an import target it
+// could not resolve inside the repo. Since issue #112 the store no longer
+// pattern-matches it -- the row is classified as an anchor on the way in and
+// FindDead filters on node_class -- but the value still has to appear in a
+// fixture, because "an external:py row never shows up as dead code" is the
+// behaviour the rename had to preserve exactly.
+const pyAnchorStubPath = "external:py"
+
+// FindDead used to exclude external stubs with `file_path NOT LIKE
+// 'external:py%'`. It now excludes every anchor by class. The stub is the
+// only anchor kind this repository's scanners actually store, so it stays
+// the regression fixture for the swap.
+func TestFindDead_ExternalStubExcludedByNodeClass(t *testing.T) {
 	t.Parallel()
 	s := openTestStore(t)
 	ctx := t.Context()
@@ -398,7 +410,7 @@ func TestFindDead_ExternalStubFilteredOnLikePattern(t *testing.T) {
 	if _, err := s.Symbols().Insert(ctx, SymbolRow{
 		QualifiedName: "stdlib.something",
 		Kind:          shared.KindFunc,
-		FilePath:      externalPyStubPath,
+		FilePath:      pyAnchorStubPath,
 		Line:          1,
 	}); err != nil {
 		t.Fatalf("seed external: %v", err)

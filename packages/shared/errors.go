@@ -13,8 +13,8 @@ var (
 	ErrNotFound = errors.New("not found")
 
 	// ErrFeatureNotFound — a FeatureID was referenced but Atlas could not
-	// find any annotation declaring it. Surfaced by `atlas trace`,
-	// `atlas audit`.
+	// find any annotation declaring it. Surfaced by `atlas chain`,
+	// `atlas health`.
 	ErrFeatureNotFound = errors.New("feature not found")
 
 	// ErrSymbolNotFound — a SymbolID was referenced but no scanner has

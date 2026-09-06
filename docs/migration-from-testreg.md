@@ -18,10 +18,10 @@ If you just want the happy path, this is it. Five steps, in order:
 1. `go install github.com/sosalejandro/atlas/cmd/atlas@latest`
 2. `cd path/to/your/repo`
 3. `atlas init` — creates `.atlas/atlas.db` and a minimal `.atlas.yaml`.
-4. `atlas audit --worst 10` — health-scored top offenders for the codebase.
-5. `atlas trace <a-feature-id>` — walk the call graph for any feature you
+4. `atlas health --worst 10` — health-scored top offenders for the codebase.
+5. `atlas chain <a-feature-id>` — walk the call graph for any feature you
    already annotated. Saga walks use the `saga:<id>` prefix:
-   `atlas trace saga:meal-prep-flow`.
+   `atlas chain saga:meal-prep-flow`.
 
 The sections below explain the cutover in detail: annotation grammar, what
 happens to the YAML registry, the CLI rename map, the `.atlas.yaml` schema,
@@ -124,13 +124,13 @@ feature from the SQLite store at any time. The YAML format is now an
 | testreg command          | Atlas equivalent                | Notes                                                              |
 | ------------------------ | ------------------------------- | ------------------------------------------------------------------ |
 | `testreg scan`           | `atlas scan`                    | Same role: walk source, refresh symbol graph.                      |
-| `testreg trace <id>`     | `atlas trace <id>`              | Same chain output; default format `text`, `--format json` stable.  |
-| `testreg audit`          | `atlas audit`                   | Same health-scoring algo (regressed within ±5%).                   |
+| `testreg trace <id>`     | `atlas chain <id>`              | Same chain output; default format `text`, `--format json` stable.  |
+| `testreg audit`          | `atlas health`                   | Same health-scoring algo (regressed within ±5%).                   |
 | `testreg sprint`         | `atlas sprint`                  | Same gap-weighted prioritization.                                  |
 | `testreg init`           | `atlas init`                    | Creates `.atlas/atlas.db` + a minimal `.atlas.yaml`. No YAML import — annotations are the source of truth.  |
 | `testreg serve`          | **DROPPED**                     | No dashboard in v0. JSON outputs are stable; see §9.               |
 | `testreg gaps`           | `atlas cov status --uncovered`  | Subsumed under the `cov` verb namespace.                           |
-| `testreg report`         | `atlas audit --format markdown` | Or `--format json`. Same data, new flag plumbing.                  |
+| `testreg report`         | `atlas health --format markdown` | Or `--format json`. Same data, new flag plumbing.                  |
 | `testreg diff`           | `atlas diff`                    | Snapshot diff; same semantics.                                     |
 | `testreg contract`       | `atlas contract`                | Contract extraction; Huma router added in addition to Chi/Echo.    |
 | `testreg diagnose`       | `atlas diagnose`                | Error → code matching; unchanged.                                  |
@@ -143,17 +143,17 @@ feature from the SQLite store at any time. The YAML format is now an
 
 **Verb-namespaced subcommands** (matches bmad-cli ergonomics):
 
-- `atlas trace` / `atlas scan` / `atlas init` / `atlas diff` / `atlas audit` /
+- `atlas chain` / `atlas scan` / `atlas init` / `atlas diff` / `atlas health` /
   `atlas sprint` / `atlas contract` / `atlas diagnose` / `atlas migrate-annotations`
 - `atlas cov ingest` / `atlas cov status` / `atlas cov sync`
 - `atlas dump` (read-only views from SQLite store)
 
-Saga walks reuse the `trace` verb with a `saga:<id>` prefix on the argument
+Saga walks reuse the `chain` verb with a `saga:<id>` prefix on the argument
 (there is no separate `atlas codebase saga` verb):
 
 ```bash
 # Walk a named saga's step sequence
-atlas trace saga:meal-prep-flow
+atlas chain saga:meal-prep-flow
 ```
 
 Every subcommand has stable JSON output behind `--format json`. The schema
@@ -252,7 +252,7 @@ sync:
   cmds:
     - atlas scan
     - atlas cov sync               # discovers + ingests all framework outputs
-    - atlas audit
+    - atlas health
 ```
 
 `atlas cov sync` replaces the manual `import:go` / `import:playwright` /
@@ -277,8 +277,8 @@ audit:
 audit:
   desc: Print health audit + write markdown report
   cmds:
-    - atlas audit
-    - atlas audit --format markdown > audit-report.md
+    - atlas health
+    - atlas health --format markdown > audit-report.md
 ```
 
 ### Task `gaps`
@@ -320,10 +320,10 @@ vars:
 tasks:
   setup:    { cmds: [mkdir -p {{.ATLAS_RESULTS}}], status: [test -d {{.ATLAS_RESULTS}}] }
   scan:     { desc: Refresh code-graph,         cmds: [atlas scan] }
-  sync:     { desc: Scan + ingest + audit,      cmds: [atlas scan, atlas cov sync, atlas audit] }
-  audit:    { desc: Health audit,               cmds: [atlas audit, "atlas audit --format markdown > audit-report.md"] }
+  sync:     { desc: Scan + ingest + audit,      cmds: [atlas scan, atlas cov sync, atlas health] }
+  audit:    { desc: Health audit,               cmds: [atlas health, "atlas health --format markdown > audit-report.md"] }
   gaps:     { desc: List uncovered features,    cmds: ["atlas cov status --uncovered"] }
-  trace:    { desc: "Trace feature (FEATURE=)", cmds: ["atlas trace {{.FEATURE}}"] }
+  trace:    { desc: "Trace feature (FEATURE=)", cmds: ["atlas chain {{.FEATURE}}"] }
   sprint:   { desc: Gap-weighted sprint plan,   cmds: [atlas sprint] }
 
   test:go:
@@ -391,7 +391,7 @@ half-migrated state on `main`.
    task atlas:sync
    # diff against your last captured `task testreg:sync` output
    ```
-   Acceptance: `atlas audit` health scores should be within ±5% of the
+   Acceptance: `atlas health` health scores should be within ±5% of the
    last testreg audit. Feature counts should match exactly (annotations
    are the source of truth in both tools).
 
@@ -463,7 +463,7 @@ rather take the hit, fix forward, and stay on one tool.
 Every Atlas subcommand emits stable JSON behind `--format json`. The
 schema is versioned (`schema_version` field on every payload) and lives
 under `docs/api/`. **A future dashboard can be built by any team without
-touching Atlas core** — it can shell out to `atlas trace ... --format json`,
+touching Atlas core** — it can shell out to `atlas chain ... --format json`,
 or import the `packages/store` SQLite reader directly, and assemble its
 own UI.
 
@@ -510,7 +510,7 @@ bot, anything) layer on without touching Atlas core.
 Only if your CI directly invokes `testreg` — rewrite those invocations
 to `atlas` per §4's command map. The most common cases:
 
-- `testreg audit` in a PR check → `atlas audit`.
+- `testreg audit` in a PR check → `atlas health`.
 - `testreg scan` in a nightly job → `atlas scan`.
 - `testreg gaps` in a release gate → `atlas cov status --uncovered`.
 

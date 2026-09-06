@@ -64,7 +64,7 @@ func TestAddEdgeTier_RecordsTier(t *testing.T) {
 }
 
 // The provenance-free constructors still exist for in-memory consumers
-// (diff, trace, tests) that never persist. They must leave the tier
+// (diff, chain, tests) that never persist. They must leave the tier
 // UNSET rather than picking one, so the store can reject them by name.
 func TestAddEdge_LeavesTierUnset(t *testing.T) {
 	g := New()

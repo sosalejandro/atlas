@@ -82,7 +82,28 @@ type DecisionCoverageReport struct {
 //
 // Keys are stable identifiers; the human-readable Reasons explain the score.
 const (
-	SignalCoverage          = "coverage"
+	// SignalVerification answers "does this capability have passing tests
+	// over its surface?".
+	//
+	// It was called "coverage" until issue #112, which is the word that
+	// meant three different things in this codebase at once: the statements
+	// a test run EXECUTED, the fraction of that execution atlas could
+	// ATTRIBUTE to a symbol, and this -- the judgement that a feature is
+	// VERIFIED. Sharing one word made the three impossible to discuss and
+	// easy to confuse in a report; a reader who saw "coverage: 40" could not
+	// tell whether 60% of the code never ran or whether atlas simply could
+	// not tell which feature the runs belonged to. So: execution is what a
+	// profile measures, attribution is how much of it atlas can place, and
+	// verification is the verdict this signal carries.
+	SignalVerification = "verification"
+	// SignalCoverage is the pre-#112 spelling. Retained for one minor
+	// version so an out-of-tree consumer compiling against the constant
+	// keeps building -- note that its VALUE moved with the rename, so it
+	// names the new key, not the old one. Reading a stored envelope by
+	// literal string is the case this cannot save.
+	//
+	// Deprecated: use SignalVerification.
+	SignalCoverage          = SignalVerification
 	SignalAnnotationFresh   = "annotation_freshness"
 	SignalPatternCompliance = "pattern_compliance"
 	SignalContractDrift     = "contract_drift"
@@ -98,7 +119,7 @@ const (
 	SignalDecisionCoverage = "decision_coverage"
 	// SignalAnnotationPresence fires when the feature has at least one linked
 	// symbol in the feature_symbols table. This is the same signal that
-	// `atlas trace feature:<id>` consumes — when trace resolves a chain,
+	// `atlas chain feature:<id>` consumes — when trace resolves a chain,
 	// this signal is present and non-zero. It prevents a feature from scoring
 	// 0 with "no annotation source" solely because coverage/git/aggregate/
 	// contract data hasn't been ingested yet, even though the feature IS
@@ -116,7 +137,7 @@ type Options struct {
 	// Weights blend the component signals. Must sum to a positive value; the
 	// implementation re-normalises when a signal is unavailable. Statement and
 	// decision coverage are the exception to one-key-per-signal: they SPLIT
-	// the single SignalCoverage weight rather than each drawing their own —
+	// the single SignalVerification weight rather than each drawing their own —
 	// see blendWeights.
 	Weights map[string]float64
 
@@ -166,7 +187,7 @@ type Options struct {
 	UbiquityCutoff float64
 
 	// DecisionCoverageShare is decision coverage's share of the COVERAGE
-	// BUDGET — the weight named by Weights[SignalCoverage] — when both halves
+	// BUDGET — the weight named by Weights[SignalVerification] — when both halves
 	// of the coverage question are available. Statement coverage keeps the
 	// remainder. See blendWeights for why the two split one budget instead of
 	// each drawing their own, and why the split leans the way it does.
@@ -194,7 +215,7 @@ const defaultDecisionCoverageShare = 0.6
 // defaultWeights returns the spec-default signal weights.
 func defaultWeights() map[string]float64 {
 	return map[string]float64{
-		SignalCoverage:           0.40,
+		SignalVerification:       0.40,
 		SignalAnnotationFresh:    0.15,
 		SignalPatternCompliance:  0.25,
 		SignalContractDrift:      0.20,

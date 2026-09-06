@@ -36,7 +36,7 @@ func newHotspotsCmd() *cobra.Command {
 how unhealthy it is, rather than by the gap alone.
 
 A gap in code nobody has touched in two years and a gap in the file three
-people edited last week score the same under 'atlas audit'. Only the
+people edited last week score the same under 'atlas health'. Only the
 second is worth a sprint. Change frequency is what separates them, and it
 is already in git.
 

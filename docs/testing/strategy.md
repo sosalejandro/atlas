@@ -316,13 +316,13 @@ capabilities *are*, and inventing that taxonomy inside a testing change would
 produce a feature map nobody reviewed and a per-capability floor derived from
 whatever it happened to measure on the day. Once `.atlas/features/` exists,
 `dogfood_test.go` gains a per-capability assertion beside the repo-wide one;
-the harness for it (`runAtlas` + `atlas audit --json`) is already in that file.
+the harness for it (`runAtlas` + `atlas health --json`) is already in that file.
 
 ### 4. The README shows atlas's own feature matrix, regenerated on release — **not started**
 
 The dogfood run prints the raw material — attributed share, per-feature audit
 scores, SQL resolution — and nothing publishes it. Two things are missing: a
-renderer (`atlas audit --json` → a Markdown table) and a release-time step to
+renderer (`atlas health --json` → a Markdown table) and a release-time step to
 regenerate it. Neither is a test, which is why neither is here; the blocker for
 the *matrix* specifically is criterion 3, since a feature matrix with no
 declared features is a table of one row.

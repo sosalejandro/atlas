@@ -17,17 +17,17 @@ import (
 	"github.com/sosalejandro/atlas/packages/store"
 )
 
-// traceFixture is the per-test scaffolding for the cached-store trace tests.
+// chainFixture is the per-test scaffolding for the cached-store chain tests.
 // It owns a tempdir that simultaneously plays repo root + holds the SQLite
 // state file, plus a seeded *store.Store. The fixture resets the
 // package-level `loaded`/`flags` singletons so each test starts from a
 // known baseline.
-type traceFixture struct {
+type chainFixture struct {
 	root   string
 	dbPath string
 }
 
-func newTraceFixture(t *testing.T) *traceFixture {
+func newChainFixture(t *testing.T) *chainFixture {
 	t.Helper()
 	dir := t.TempDir()
 	atlasDir := filepath.Join(dir, ".atlas")
@@ -36,17 +36,17 @@ func newTraceFixture(t *testing.T) *traceFixture {
 	}
 	dbPath := filepath.Join(atlasDir, "atlas.db")
 
-	// Reset package-level globals so tests don't bleed state. trace.go reads
+	// Reset package-level globals so tests don't bleed state. chain.go reads
 	// `loaded` and `flags` directly; the rest of the cli package does the
 	// same in production via the cobra PersistentPreRunE.
 	loaded = Config{repoRoot: dir, DBPath: dbPath}
 	flags = globalFlags{DBPath: dbPath}
 
-	return &traceFixture{root: dir, dbPath: dbPath}
+	return &chainFixture{root: dir, dbPath: dbPath}
 }
 
 // openStore opens a Store rooted at the fixture's dbPath. Caller must Close.
-func (f *traceFixture) openStore(t *testing.T) *store.Store {
+func (f *chainFixture) openStore(t *testing.T) *store.Store {
 	t.Helper()
 	s, err := store.Open(context.Background(), f.dbPath)
 	if err != nil {
@@ -57,8 +57,8 @@ func (f *traceFixture) openStore(t *testing.T) *store.Store {
 
 // seedChain inserts a linear symbol chain A -> B -> C with the given root
 // qualified name and returns each symbol's surrogate id. Used by the
-// symbol-trace tests as the minimum viable index.
-func (f *traceFixture) seedChain(t *testing.T, rootQN, midQN, leafQN string) (int64, int64, int64) {
+// symbol-chain tests as the minimum viable index.
+func (f *chainFixture) seedChain(t *testing.T, rootQN, midQN, leafQN string) (int64, int64, int64) {
 	t.Helper()
 	ctx := context.Background()
 	s := f.openStore(t)
@@ -98,7 +98,7 @@ func (f *traceFixture) seedChain(t *testing.T, rootQN, midQN, leafQN string) (in
 
 // seedFeature creates a feature, links it to the supplied symbol surrogate
 // ids (role=impl, source=annotation), and returns the FeatureID.
-func (f *traceFixture) seedFeature(t *testing.T, fid string, symbolIDs ...int64) shared.FeatureID {
+func (f *chainFixture) seedFeature(t *testing.T, fid string, symbolIDs ...int64) shared.FeatureID {
 	t.Helper()
 	ctx := context.Background()
 	s := f.openStore(t)
@@ -123,9 +123,9 @@ func (f *traceFixture) seedFeature(t *testing.T, fid string, symbolIDs ...int64)
 	return feat.ID
 }
 
-// runTraceCmd drives the trace command end-to-end via the cobra tree the
+// runChainCmd drives the chain command end-to-end via the cobra tree the
 // production binary uses. Returns stdout + stderr + the cobra RunE error.
-func runTraceCmd(t *testing.T, fix *traceFixture, args ...string) (string, string, error) {
+func runChainCmd(t *testing.T, fix *chainFixture, args ...string) (string, string, error) {
 	t.Helper()
 	root := NewRootCmd()
 	// NewRootCmd resets the globals; re-pin them to the fixture so the
@@ -136,25 +136,25 @@ func runTraceCmd(t *testing.T, fix *traceFixture, args ...string) (string, strin
 	var stdout, stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	root.SetArgs(append([]string{"trace", "--db-path", fix.dbPath}, args...))
+	root.SetArgs(append([]string{"chain", "--db-path", fix.dbPath}, args...))
 	err := root.ExecuteContext(context.Background())
 	return stdout.String(), stderr.String(), err
 }
 
-// TestTrace_UsesCachedDBByDefault confirms the default path opens the
-// cached store and resolves a trace WITHOUT re-walking the codebase. The
+// TestChain_UsesCachedDBByDefault confirms the default path opens the
+// cached store and resolves a chain WITHOUT re-walking the codebase. The
 // proxy for "no walk happened" is wall-clock — a real walk costs seconds
 // even on a tiny corpus because codeindex.IndexProject spins up the TS
 // scanner subprocess. A cached read is <100ms.
-func TestTrace_UsesCachedDBByDefault(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_UsesCachedDBByDefault(t *testing.T) {
+	fix := newChainFixture(t)
 	_, _, _ = fix.seedChain(t, "pkg.Root", "pkg.Mid", "pkg.Leaf")
 
 	start := time.Now()
-	stdout, stderr, err := runTraceCmd(t, fix, "pkg.Root")
+	stdout, stderr, err := runChainCmd(t, fix, "pkg.Root")
 	elapsed := time.Since(start)
 	if err != nil {
-		t.Fatalf("trace returned error: %v\nstderr:\n%s", err, stderr)
+		t.Fatalf("chain returned error: %v\nstderr:\n%s", err, stderr)
 	}
 	if !strings.Contains(stdout, "pkg.Root") || !strings.Contains(stdout, "pkg.Leaf") {
 		t.Fatalf("expected chain output to include both endpoints; got:\n%s", stdout)
@@ -162,14 +162,14 @@ func TestTrace_UsesCachedDBByDefault(t *testing.T) {
 	// The cached path must NOT spawn the TS scanner subprocess; allow a
 	// generous ceiling so the test isn't flaky on shared CI runners.
 	if elapsed > 2*time.Second {
-		t.Fatalf("cached trace took %v — likely re-walked the codebase", elapsed)
+		t.Fatalf("cached chain took %v — likely re-walked the codebase", elapsed)
 	}
 }
 
-// TestTrace_ErrorsWhenNoDB confirms the explicit error message when the
+// TestChain_ErrorsWhenNoDB confirms the explicit error message when the
 // state DB doesn't exist. Silent re-walks here would mask the missing-init
 // case — exactly what atlas#29 set out to fix.
-func TestTrace_ErrorsWhenNoDB(t *testing.T) {
+func TestChain_ErrorsWhenNoDB(t *testing.T) {
 	dir := t.TempDir()
 	bogus := filepath.Join(dir, ".atlas", "missing.db")
 
@@ -182,7 +182,7 @@ func TestTrace_ErrorsWhenNoDB(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	root.SetArgs([]string{"trace", "--db-path", bogus, "SomeSymbol"})
+	root.SetArgs([]string{"chain", "--db-path", bogus, "SomeSymbol"})
 	err := root.ExecuteContext(context.Background())
 	if err == nil {
 		t.Fatalf("expected error when DB missing; stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
@@ -195,12 +195,12 @@ func TestTrace_ErrorsWhenNoDB(t *testing.T) {
 	}
 }
 
-// TestTrace_FreshFlagReWalks confirms --fresh re-walks the codebase from
+// TestChain_FreshFlagReWalks confirms --fresh re-walks the codebase from
 // disk and is allowed to take materially longer than the cached path. We
 // assert behavioural equivalence by feeding it a tiny fixture (one Go file)
 // and confirming the resulting chain still surfaces the seeded symbol.
-func TestTrace_FreshFlagReWalks(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_FreshFlagReWalks(t *testing.T) {
+	fix := newChainFixture(t)
 	// Seed a chain in the DB so --fresh ignoring the cache is observable.
 	_, _, _ = fix.seedChain(t, "pkg.OnlyInDB", "pkg.Mid", "pkg.Leaf")
 
@@ -220,20 +220,20 @@ func TestTrace_FreshFlagReWalks(t *testing.T) {
 		t.Fatalf("write go.mod: %v", err)
 	}
 
-	stdout, stderr, err := runTraceCmd(t, fix, "--fresh", "--root", fix.root, "FreshOnly")
+	stdout, stderr, err := runChainCmd(t, fix, "--fresh", "--root", fix.root, "FreshOnly")
 	if err != nil {
-		t.Fatalf("trace --fresh returned error: %v\nstderr:\n%s\nstdout:\n%s", err, stderr, stdout)
+		t.Fatalf("chain --fresh returned error: %v\nstderr:\n%s\nstdout:\n%s", err, stderr, stdout)
 	}
 	if !strings.Contains(stdout, "FreshOnly") {
 		t.Fatalf("expected --fresh to resolve symbol from disk; stdout:\n%s", stdout)
 	}
 }
 
-// TestTrace_AcceptsFeatureID covers atlas#28: an unprefixed feature id
+// TestChain_AcceptsFeatureID covers atlas#28: an unprefixed feature id
 // resolves via the feature_symbols link table to a merged chain over every
 // linked symbol.
-func TestTrace_AcceptsFeatureID(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_AcceptsFeatureID(t *testing.T) {
+	fix := newChainFixture(t)
 	rootA, _, _ := fix.seedChain(t, "pkg.RootA", "pkg.MidA", "pkg.LeafA")
 	// Seed a second chain so the feature has 2 linked symbols.
 	ctx := context.Background()
@@ -259,9 +259,9 @@ func TestTrace_AcceptsFeatureID(t *testing.T) {
 
 	fid := fix.seedFeature(t, "plans-patient.export-pdf", rootA, rootB)
 
-	stdout, stderr, err := runTraceCmd(t, fix, string(fid))
+	stdout, stderr, err := runChainCmd(t, fix, string(fid))
 	if err != nil {
-		t.Fatalf("trace feature-id returned error: %v\nstderr:\n%s", err, stderr)
+		t.Fatalf("chain feature-id returned error: %v\nstderr:\n%s", err, stderr)
 	}
 	// Both chains must show up in the merged output.
 	for _, want := range []string{"pkg.RootA", "pkg.LeafA", "pkg.RootB", "pkg.LeafB"} {
@@ -274,71 +274,71 @@ func TestTrace_AcceptsFeatureID(t *testing.T) {
 	}
 }
 
-// TestTrace_FeatureIDPrefix exercises the explicit `feature:` prefix. The
+// TestChain_FeatureIDPrefix exercises the explicit `feature:` prefix. The
 // prefix path MUST NOT consult symbol matches even when a same-named symbol
 // exists.
-func TestTrace_FeatureIDPrefix(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_FeatureIDPrefix(t *testing.T) {
+	fix := newChainFixture(t)
 	rootID, _, _ := fix.seedChain(t, "shared-name", "pkg.Mid", "pkg.Leaf")
 	fid := fix.seedFeature(t, "shared-name", rootID)
 
-	stdout, _, err := runTraceCmd(t, fix, "feature:"+string(fid))
+	stdout, _, err := runChainCmd(t, fix, "feature:"+string(fid))
 	if err != nil {
-		t.Fatalf("trace feature: returned error: %v", err)
+		t.Fatalf("chain feature: returned error: %v", err)
 	}
 	if !strings.Contains(stdout, "feature "+string(fid)) {
 		t.Fatalf("expected feature dispatch; stdout:\n%s", stdout)
 	}
 }
 
-// TestTrace_SymbolIDPrefix exercises the explicit `symbol:` prefix when the
+// TestChain_SymbolIDPrefix exercises the explicit `symbol:` prefix when the
 // same id also resolves to a feature. The symbol path takes precedence
 // under the prefix.
-func TestTrace_SymbolIDPrefix(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_SymbolIDPrefix(t *testing.T) {
+	fix := newChainFixture(t)
 	rootID, _, _ := fix.seedChain(t, "shared-name", "pkg.Mid", "pkg.Leaf")
 	_ = fix.seedFeature(t, "shared-name", rootID)
 
-	stdout, _, err := runTraceCmd(t, fix, "symbol:shared-name")
+	stdout, _, err := runChainCmd(t, fix, "symbol:shared-name")
 	if err != nil {
-		t.Fatalf("trace symbol: returned error: %v", err)
+		t.Fatalf("chain symbol: returned error: %v", err)
 	}
-	// The "call" header — symbol trace, not feature — is what we expect.
-	if !strings.Contains(stdout, "trace shared-name") {
+	// The "call" header — symbol chain, not feature — is what we expect.
+	if !strings.Contains(stdout, "chain shared-name") {
 		t.Fatalf("expected symbol-mode header; stdout:\n%s", stdout)
 	}
-	if strings.Contains(stdout, "trace feature shared-name") {
+	if strings.Contains(stdout, "chain feature shared-name") {
 		t.Fatalf("symbol: prefix must NOT dispatch to feature; stdout:\n%s", stdout)
 	}
 }
 
-// TestTrace_SagaPrefix is the regression guard: the saga: branch must
+// TestChain_SagaPrefix is the regression guard: the saga: branch must
 // continue to dispatch into store.EDA.WalkSaga. We assert the saga-shaped
 // human output ("saga <id> (...)") to prove the saga path fired and we did
 // NOT silently fall through to the symbol resolver (which would have
 // errored on the unknown id with a different message).
-func TestTrace_SagaPrefix(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_SagaPrefix(t *testing.T) {
+	fix := newChainFixture(t)
 	// Open + close so the DB file exists; WalkSaga over an empty
 	// annotations table returns 0 steps with no error.
 	s := fix.openStore(t)
 	s.Close()
 
-	stdout, _, err := runTraceCmd(t, fix, "saga:meal-prep-flow")
+	stdout, _, err := runChainCmd(t, fix, "saga:meal-prep-flow")
 	if err != nil {
-		t.Fatalf("trace saga returned error: %v", err)
+		t.Fatalf("chain saga returned error: %v", err)
 	}
 	if !strings.Contains(stdout, "saga meal-prep-flow") {
 		t.Fatalf("expected saga-shaped output; got:\n%s", stdout)
 	}
 }
 
-// TestTrace_AmbiguousErrors checks the dual-match disambiguation. We seed
+// TestChain_AmbiguousErrors checks the dual-match disambiguation. We seed
 // a feature whose ID is "foo.bar" AND a symbol whose qualified name ends
 // in "foo.bar" — the unprefixed input must error with a hint to use a
 // prefix.
-func TestTrace_AmbiguousErrors(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_AmbiguousErrors(t *testing.T) {
+	fix := newChainFixture(t)
 	ctx := context.Background()
 	s := fix.openStore(t)
 	sid, err := s.Symbols().Insert(ctx, store.SymbolRow{
@@ -351,7 +351,7 @@ func TestTrace_AmbiguousErrors(t *testing.T) {
 	s.Close()
 	fid := fix.seedFeature(t, "foo.bar", sid)
 
-	_, _, err = runTraceCmd(t, fix, string(fid))
+	_, _, err = runChainCmd(t, fix, string(fid))
 	if err == nil {
 		t.Fatal("expected disambiguation error")
 	}
@@ -365,14 +365,14 @@ func TestTrace_AmbiguousErrors(t *testing.T) {
 	}
 }
 
-// TestTrace_FeatureWithNoLinkedSymbols verifies the empty-chain branch:
+// TestChain_FeatureWithNoLinkedSymbols verifies the empty-chain branch:
 // a feature that exists with zero links emits a clean warning to stderr,
 // no error, and an empty chain.
-func TestTrace_FeatureWithNoLinkedSymbols(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_FeatureWithNoLinkedSymbols(t *testing.T) {
+	fix := newChainFixture(t)
 	fid := fix.seedFeature(t, "orphan-feature")
 
-	stdout, stderr, err := runTraceCmd(t, fix, "feature:"+string(fid))
+	stdout, stderr, err := runChainCmd(t, fix, "feature:"+string(fid))
 	if err != nil {
 		t.Fatalf("expected nil error; got: %v", err)
 	}
@@ -384,11 +384,11 @@ func TestTrace_FeatureWithNoLinkedSymbols(t *testing.T) {
 	}
 }
 
-// TestTrace_StaleStateWarning seeds a chain, mutates the on-disk content of
+// TestChain_StaleStateWarning seeds a chain, mutates the on-disk content of
 // the file referenced by file_hashes, and confirms the warning surfaces
-// (but the trace still succeeds — the cached data is still usable).
-func TestTrace_StaleStateWarning(t *testing.T) {
-	fix := newTraceFixture(t)
+// (but the chain still succeeds — the cached data is still usable).
+func TestChain_StaleStateWarning(t *testing.T) {
+	fix := newChainFixture(t)
 	_, _, _ = fix.seedChain(t, "pkg.Root", "pkg.Mid", "pkg.Leaf")
 
 	// Write a file at the path referenced by file_hashes with content that
@@ -420,24 +420,24 @@ func TestTrace_StaleStateWarning(t *testing.T) {
 		t.Fatalf("mutate a.go: %v", err)
 	}
 
-	_, stderr, err := runTraceCmd(t, fix, "pkg.Root")
+	_, stderr, err := runChainCmd(t, fix, "pkg.Root")
 	if err != nil {
-		t.Fatalf("trace returned error: %v\nstderr:\n%s", err, stderr)
+		t.Fatalf("chain returned error: %v\nstderr:\n%s", err, stderr)
 	}
 	if !strings.Contains(stderr, "stale") {
 		t.Errorf("expected stale warning on stderr; got:\n%s", stderr)
 	}
 }
 
-// TestTrace_JSONEnvelope_Cache exercises the --json output for the cached
+// TestChain_JSONEnvelope_Cache exercises the --json output for the cached
 // path so consumers can rely on the source=cache field.
-func TestTrace_JSONEnvelope_Cache(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_JSONEnvelope_Cache(t *testing.T) {
+	fix := newChainFixture(t)
 	_, _, _ = fix.seedChain(t, "pkg.Root", "pkg.Mid", "pkg.Leaf")
 
-	stdout, _, err := runTraceCmd(t, fix, "--json", "pkg.Root")
+	stdout, _, err := runChainCmd(t, fix, "--json", "pkg.Root")
 	if err != nil {
-		t.Fatalf("trace --json: %v", err)
+		t.Fatalf("chain --json: %v", err)
 	}
 	var env struct {
 		Result struct {
@@ -456,22 +456,22 @@ func TestTrace_JSONEnvelope_Cache(t *testing.T) {
 	}
 }
 
-// TestTrace_FreshFlagWired is the cheap flag-surface regression guard —
+// TestChain_FreshFlagWired is the cheap flag-surface regression guard —
 // future refactors that drop --fresh would silently re-introduce the
-// minutes-per-trace cost.
-func TestTrace_FreshFlagWired(t *testing.T) {
-	c := newTraceCmd()
+// minutes-per-chain cost.
+func TestChain_FreshFlagWired(t *testing.T) {
+	c := newChainCmd()
 	if c.Flags().Lookup("fresh") == nil {
-		t.Fatal("atlas trace is missing --fresh flag")
+		t.Fatal("atlas chain is missing --fresh flag")
 	}
 }
 
-// TestTrace_DepthFlagWired is the same surface guard for issue #61's
+// TestChain_DepthFlagWired is the same surface guard for issue #61's
 // --depth flag.
-func TestTrace_DepthFlagWired(t *testing.T) {
-	c := newTraceCmd()
+func TestChain_DepthFlagWired(t *testing.T) {
+	c := newChainCmd()
 	if c.Flags().Lookup("depth") == nil {
-		t.Fatal("atlas trace is missing --depth flag")
+		t.Fatal("atlas chain is missing --depth flag")
 	}
 }
 
@@ -482,7 +482,7 @@ func TestTrace_DepthFlagWired(t *testing.T) {
 //	     → mid2 → leaf2
 //
 // Returns the surrogate id of root.
-func (f *traceFixture) seedFanChain(t *testing.T, rootQN string) int64 {
+func (f *chainFixture) seedFanChain(t *testing.T, rootQN string) int64 {
 	t.Helper()
 	ctx := context.Background()
 	s := f.openStore(t)
@@ -519,7 +519,7 @@ func (f *traceFixture) seedFanChain(t *testing.T, rootQN string) int64 {
 
 // seedCycleChain seeds a 2-node cycle so the cycle-detection branch is
 // exercised: a → b → a. Returns the surrogate id of a.
-func (f *traceFixture) seedCycleChain(t *testing.T, aQN, bQN string) int64 {
+func (f *chainFixture) seedCycleChain(t *testing.T, aQN, bQN string) int64 {
 	t.Helper()
 	ctx := context.Background()
 	s := f.openStore(t)
@@ -550,11 +550,11 @@ func (f *traceFixture) seedCycleChain(t *testing.T, aQN, bQN string) int64 {
 	return a
 }
 
-// TestTrace_DepthDefault confirms the default --depth of 3 is what the
+// TestChain_DepthDefault confirms the default --depth of 3 is what the
 // command actually uses. We seed a linear chain longer than 3 hops and
 // expect the output to clip at 3.
-func TestTrace_DepthDefault(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_DepthDefault(t *testing.T) {
+	fix := newChainFixture(t)
 	// Build a 5-deep chain: pkg.L0 → pkg.L1 → pkg.L2 → pkg.L3 → pkg.L4
 	ctx := context.Background()
 	s := fix.openStore(t)
@@ -580,9 +580,9 @@ func TestTrace_DepthDefault(t *testing.T) {
 	}
 	s.Close()
 
-	stdout, _, err := runTraceCmd(t, fix, "pkg.L0")
+	stdout, _, err := runChainCmd(t, fix, "pkg.L0")
 	if err != nil {
-		t.Fatalf("trace: %v", err)
+		t.Fatalf("chain: %v", err)
 	}
 	// Default depth=3 means we see L0..L3, NOT L4.
 	for _, want := range []string{"pkg.L0", "pkg.L1", "pkg.L2", "pkg.L3"} {
@@ -595,17 +595,17 @@ func TestTrace_DepthDefault(t *testing.T) {
 	}
 }
 
-// TestTrace_DepthOneMatchesLegacy confirms --depth 1 reproduces the
+// TestChain_DepthOneMatchesLegacy confirms --depth 1 reproduces the
 // pre-issue-#61 depth-1 walk (root + direct callees only). The fan
 // fixture has 2 mids at depth 1 and 2 leaves at depth 2; --depth 1
 // must show mids, not leaves.
-func TestTrace_DepthOneMatchesLegacy(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_DepthOneMatchesLegacy(t *testing.T) {
+	fix := newChainFixture(t)
 	_ = fix.seedFanChain(t, "pkg.Root")
 
-	stdout, _, err := runTraceCmd(t, fix, "--depth", "1", "pkg.Root")
+	stdout, _, err := runChainCmd(t, fix, "--depth", "1", "pkg.Root")
 	if err != nil {
-		t.Fatalf("trace --depth 1: %v", err)
+		t.Fatalf("chain --depth 1: %v", err)
 	}
 	for _, want := range []string{"pkg.Root", "pkg.Mid1", "pkg.Mid2"} {
 		if !strings.Contains(stdout, want) {
@@ -619,12 +619,12 @@ func TestTrace_DepthOneMatchesLegacy(t *testing.T) {
 	}
 }
 
-// TestTrace_DepthUnlimitedCycle confirms --depth -1 walks unlimited
+// TestChain_DepthUnlimitedCycle confirms --depth -1 walks unlimited
 // and the cycle-detection guard prevents infinite recursion. The
-// fixture is a 2-node cycle; the trace must terminate, mark the back
+// fixture is a 2-node cycle; the chain must terminate, mark the back
 // edge as [cycle], and emit the cycle node in cycle_nodes.
-func TestTrace_DepthUnlimitedCycle(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_DepthUnlimitedCycle(t *testing.T) {
+	fix := newChainFixture(t)
 	_ = fix.seedCycleChain(t, "pkg.A", "pkg.B")
 
 	done := make(chan struct {
@@ -632,7 +632,7 @@ func TestTrace_DepthUnlimitedCycle(t *testing.T) {
 		err    error
 	}, 1)
 	go func() {
-		stdout, _, err := runTraceCmd(t, fix, "--depth", "-1", "pkg.A")
+		stdout, _, err := runChainCmd(t, fix, "--depth", "-1", "pkg.A")
 		done <- struct {
 			stdout string
 			err    error
@@ -641,7 +641,7 @@ func TestTrace_DepthUnlimitedCycle(t *testing.T) {
 	select {
 	case res := <-done:
 		if res.err != nil {
-			t.Fatalf("trace --depth -1: %v", res.err)
+			t.Fatalf("chain --depth -1: %v", res.err)
 		}
 		if !strings.Contains(res.stdout, "[cycle]") {
 			t.Errorf("expected [cycle] marker; stdout:\n%s", res.stdout)
@@ -652,20 +652,20 @@ func TestTrace_DepthUnlimitedCycle(t *testing.T) {
 			}
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("trace --depth -1 hung — cycle detection is broken")
+		t.Fatal("chain --depth -1 hung — cycle detection is broken")
 	}
 }
 
-// TestTrace_JSONTreeShape exercises the nested-tree JSON contract that
+// TestChain_JSONTreeShape exercises the nested-tree JSON contract that
 // issue #61 introduces. Downstream tooling (e.g. atlas's own
 // integration tests, future LSP plugins) will read this structure.
-func TestTrace_JSONTreeShape(t *testing.T) {
-	fix := newTraceFixture(t)
+func TestChain_JSONTreeShape(t *testing.T) {
+	fix := newChainFixture(t)
 	_ = fix.seedFanChain(t, "pkg.Root")
 
-	stdout, _, err := runTraceCmd(t, fix, "--json", "--depth", "2", "pkg.Root")
+	stdout, _, err := runChainCmd(t, fix, "--json", "--depth", "2", "pkg.Root")
 	if err != nil {
-		t.Fatalf("trace --json --depth 2: %v", err)
+		t.Fatalf("chain --json --depth 2: %v", err)
 	}
 	var env struct {
 		Result struct {

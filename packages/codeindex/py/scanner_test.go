@@ -568,29 +568,18 @@ func TestBuildScannerArgs_HappyPath(t *testing.T) {
 	}
 }
 
-// TestValidatePythonBin_AbsoluteRequired locks in the post-LookPath
-// invariant: any caller that reaches newPythonCommand with a relative
-// path is rejected, eliminating the "spawned via $PATH at the OS level"
-// vector.
-func TestValidatePythonBin_AbsoluteRequired(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		s       string
-		wantErr bool
-	}{
-		{"/usr/bin/python3", false},
-		{"python3", true},   // relative — must be rejected
-		{"", true},          // empty
-		{"py;ls", true},     // shell metachar
-		{"py\nthon3", true}, // newline
-	}
-	for _, tc := range cases {
-		err := validatePythonBin(tc.s)
-		if (err != nil) != tc.wantErr {
-			t.Errorf("validatePythonBin(%q) err=%v; wantErr=%v", tc.s, err, tc.wantErr)
-		}
-	}
-}
+// The post-LookPath invariant — any caller that reaches
+// newPythonCommand with a relative path is rejected, eliminating the
+// "spawned via $PATH at the OS level" vector — is asserted by
+// TestValidatePythonBin_PlatformAbsoluteForms in argpath_test.go.
+//
+// The table that used to live here was named by issue #143 as one of the
+// nine Windows failures in this package, and it was still failing: it
+// asserted that "/usr/bin/python3" is accepted, full stop, and on Windows
+// filepath.IsAbs rejects a rooted path with no volume. The replacement
+// covers every case this one did and states which platform makes each
+// form absolute, so it is a strict superset. Keeping both would have kept
+// the Windows leg red for a wrong expectation.
 
 // TestScannerSource_Embedded confirms //go:embed picked up scanner.py and
 // the contents look like valid Python (defense against an empty embed

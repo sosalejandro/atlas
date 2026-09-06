@@ -158,7 +158,7 @@ class BatchShipper:
         ...  # inherits ship-orders.batch
 ```
 
-`atlas trace ship-orders.batch` then returns the call chains of the
+`atlas chain ship-orders.batch` then returns the call chains of the
 methods, not just the class declaration line. This works with both
 the comment form (`# @atlas:feature ...` above the `class`) and the
 decorator form.
@@ -167,13 +167,13 @@ decorator form.
 
 ```
 # Run from the project root after `atlas init`:
-$ atlas trace ship-orders.batch
+$ atlas chain ship-orders.batch
 ship-orders.batch
 └─ annotated_decorator.BatchShipper.enqueue       annotated_decorator.py:40
 └─ annotated_decorator.BatchShipper.flush         annotated_decorator.py:44
 ```
 
-If `atlas trace` returns nothing, the most likely cause is that the
+If `atlas chain` returns nothing, the most likely cause is that the
 annotation's id failed the strict id-grammar (`^[a-z0-9_-]+(\.[a-z0-9_-]+)*$`)
 — see [`docs/annotations.md`](../annotations.md) §id grammar.
 
@@ -231,9 +231,9 @@ def process(handler):
 `scanner.py` records `process` and (via decorator edges) any decorators
 applied to it — but it cannot know which `handle` method `handler` refers
 to, because `handler` could be any object at runtime. The edge is
-silently absent from `atlas trace`.
+silently absent from `atlas chain`.
 
-**Practical impact**: Python `atlas trace` chains are shallow compared to
+**Practical impact**: Python `atlas chain` chains are shallow compared to
 Go traces. A Python function that dispatches through a `dict` of
 handlers, a class registry, or `getattr(obj, name)()` will look like a
 dead-end node in the trace.
@@ -295,7 +295,7 @@ NOT considered part of the class API surface and do not inherit.
 unqualified callee names (`echo`, `Base`, `style`) because Python's
 dynamic dispatch makes full name resolution at AST time infeasible.
 Prior to v0.5.0 those bare names became `external:py:1` stubs at
-ingest time, so `atlas trace` chains terminated at the first
+ingest time, so `atlas chain` chains terminated at the first
 cross-module hop.
 
 The Go-side resolver

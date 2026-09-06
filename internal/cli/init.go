@@ -199,13 +199,17 @@ func printInitText(cmd *cobra.Command, r initResult, warnings []string) {
 // sibling and use the first hit. Missing node_modules is not fatal — the
 // TS scanner degrades to a warning and the Go scan still completes.
 //
-// goScanOverride adjusts the Go scanner options after they have been
-// assembled from atlas.yaml.
+// goScanOverride adjusts the scan options after they have been assembled
+// from atlas.yaml.
 //
 // It is variadic rather than another positional bool because the toggles
 // are per command: `atlas onboard` offers neither, and every command
 // that calls this would otherwise have to name a flag it does not have.
-type goScanOverride func(*goscan.Options)
+//
+// It takes the whole codeindex.Options rather than just the Go sub-scanner's
+// because not every per-command toggle is about Go: --jobs sets the
+// orchestrator's worker count, which the Go scanner never sees.
+type goScanOverride func(*codeindex.Options)
 
 // withSkipTypedResolution wires `--skip-typed-resolution` through to the
 // Go scanner.
@@ -215,10 +219,22 @@ type goScanOverride func(*goscan.Options)
 // it exists for the one-off "go/packages will not run here" escape, not
 // as a second place to configure the default.
 func withSkipTypedResolution(skip bool) goScanOverride {
-	return func(o *goscan.Options) {
+	return func(o *codeindex.Options) {
 		if skip {
-			o.SkipTypedResolution = true
+			o.GoOptions.SkipTypedResolution = true
 		}
+	}
+}
+
+// withJobs wires `--jobs` through to the orchestrator's per-file passes.
+//
+// Zero is left alone rather than clamped: it is the "unset" value the
+// option layer already reads as GOMAXPROCS, and rewriting it here would
+// put the default in two places. See codeindex.Options.Jobs, and
+// docs/performance.md for what raising it is actually worth.
+func withJobs(jobs int) goScanOverride {
+	return func(o *codeindex.Options) {
+		o.Jobs = jobs
 	}
 }
 
@@ -252,7 +268,7 @@ func indexProjectFromConfig(
 		},
 	}
 	for _, override := range overrides {
-		override(&opts.GoOptions)
+		override(&opts)
 	}
 	idx, err := codeindex.IndexProject(ctx, rootDir, opts)
 	if err != nil {

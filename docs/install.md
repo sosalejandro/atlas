@@ -55,7 +55,7 @@ Install-only, for a workflow that runs several atlas commands:
 - uses: sosalejandro/atlas/.github/actions/atlas@v0.14.0
 - run: |
     atlas scan
-    atlas audit --json > audit.json
+    atlas health --json > audit.json
 ```
 
 ## Download a release

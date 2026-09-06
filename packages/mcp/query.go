@@ -236,7 +236,7 @@ func (ts *toolset) symbolInfo(ctx context.Context, a *toolArgs) (any, error) {
 	}
 	return symbolInfoResult{
 		symbolRef:      refOf(row),
-		BCPath:         row.BCPath,
+		Domain:         row.Domain,
 		Features:       owners,
 		CallerCount:    countDistinctNeighbours(in, inbound),
 		CalleeCount:    countDistinctNeighbours(out, outbound),
@@ -519,7 +519,7 @@ var coverageForNotes = []string{
 	"`score` is the audit's weighted blend of the signals that were available, re-normalised over them — " +
 		"not a line-coverage percentage. `components.coverage` is the coverage signal on its own.",
 	"The annotation_freshness signal is unavailable over MCP: it shells out to `git blame` per annotation site, " +
-		"which is too slow to run inside a request. Run `atlas audit --feature <id>` for a score that includes it.",
+		"which is too slow to run inside a request. Run `atlas health --feature <id>` for a score that includes it.",
 }
 
 func (ts *toolset) coverageFor(ctx context.Context, a *toolArgs) (any, error) {

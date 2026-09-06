@@ -165,6 +165,48 @@ Two things could break, and only one of them does:
 Neither of these was the whole reason the Windows CI leg is red; see
 `.github/workflows/ci.yml` for what is still outstanding.
 
+### The third thing that can move the snapshot: a path lookup that misses
+
+The snapshot records a `resolution_tier` on every edge, and `typed` is
+produced by `packages/resolver`. That package indexes type-checked files by
+absolute path, and the two sides of the index come from different places:
+the entries are the paths `go list` reported, the queries are the paths the
+scanner's `filepath.WalkDir` produced. On Linux those two strings are always
+identical and the question never comes up.
+
+On Windows one file has several equally correct spellings — `C:\` versus
+`c:/`, `Users\RUNNER~1` versus `Users\runneradmin` (GitHub's runners hand out
+the first as `%TEMP%`, the go tool reports the second) — and a mismatch
+**fails silently**. Nothing errors; the file is simply not type-checked,
+every call in it falls back to name matching, and the only visible effect is
+that its edges leave the `typed` tier. That is a snapshot diff on one
+platform, produced by a lookup, with no error message anywhere in between.
+
+Closed in three layers, all in `packages/resolver`:
+
+- *Textual*, `pathkey.go`. One `pathKey` function canonicalises separators,
+  cleans the path, and folds case where the filesystem does, and BOTH the
+  insert and the query go through it. The platform is a parameter
+  (`pathKeyOn(p, windows bool)`) so the Windows rules are asserted from a
+  Linux run; a table that read `runtime.GOOS` would exercise the Windows
+  branch only on the platform CI cannot gate on, which is how this survived
+  as long as it did.
+- *Filesystem*, `Program.lookup`. `RUNNER~1` and `runneradmin` are one
+  directory and no string rule says so, so on a miss the lookup asks
+  `filepath.EvalSymlinks`. `TestSyntax_ResolvesAThirdSpellingThroughTheFilesystem`
+  reproduces exactly that relationship on a host with no 8.3 names, using a
+  symlink — the POSIX instance of "two real paths, one file".
+- *End to end*, `TestTypeChecked_AgreesWithWhatTheScannerWalks`. Every
+  non-test `.go` file in the golden corpus, addressed the way a walk
+  addresses it, must be answerable. This is the assertion that fails on
+  Windows if the keying is ever unwired; on Linux it is true either way,
+  which is the point — it is there to gate the platform that cannot check
+  itself.
+
+What has *not* been done is observing any of it run on Windows. The layers
+above close the failure classes that are known and reproducible from here;
+they are not a substitute for a green run.
+
 ### Adding to the corpus
 
 Two footguns, both discovered while building it:
@@ -247,3 +289,12 @@ test bed.
   process or file boundary.
 - When you add a resolution heuristic, add the ambiguous case to the corpus
   in the same PR.
+- When a comparison's correct answer depends on the host — path separator,
+  filename case, environment-variable name case — take the platform as a
+  **parameter** and assert both answers in one table, then pin the
+  host-bound wrapper to it in a one-line test. Reading `runtime.GOOS` or
+  `filepath.Separator` inside the function under test means the branch that
+  matters runs only on the platform whose CI leg is advisory, which is the
+  same as not testing it. `packages/resolver/pathkey.go`,
+  `packages/codeindex/{py,ts}/scanner.go` (`buildScannerArgsSep`) and
+  `packages/codeindex/{py,ts}/hostenv.go` are the worked examples.

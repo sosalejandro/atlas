@@ -108,12 +108,12 @@ func TestSymbols_ListFilter_Permutations(t *testing.T) {
 
 	// Fixture: three packages × two BCs × mixed kinds across four files.
 	fixture := []SymbolRow{
-		{QualifiedName: "alpha.A1", Kind: shared.KindFunc, FilePath: "src/contexts/alpha/a.go", Line: 1, Package: mustPtr("alpha"), BCPath: mustPtr("src/contexts/alpha")},
-		{QualifiedName: "alpha.A2", Kind: shared.KindMethod, FilePath: "src/contexts/alpha/a.go", Line: 20, Package: mustPtr("alpha"), BCPath: mustPtr("src/contexts/alpha")},
-		{QualifiedName: "alpha.B1", Kind: shared.KindFunc, FilePath: "src/contexts/alpha/b.go", Line: 1, Package: mustPtr("alpha"), BCPath: mustPtr("src/contexts/alpha")},
-		{QualifiedName: "beta.C1", Kind: shared.KindFunc, FilePath: "src/contexts/beta/c.go", Line: 1, Package: mustPtr("beta"), BCPath: mustPtr("src/contexts/beta")},
-		{QualifiedName: "beta.C2", Kind: shared.KindType, FilePath: "src/contexts/beta/c.go", Line: 5, Package: mustPtr("beta"), BCPath: mustPtr("src/contexts/beta")},
-		// One row deliberately omits package + bc_path so we can verify
+		{QualifiedName: "alpha.A1", Kind: shared.KindFunc, FilePath: "src/contexts/alpha/a.go", Line: 1, Package: mustPtr("alpha"), Domain: mustPtr("src/contexts/alpha")},
+		{QualifiedName: "alpha.A2", Kind: shared.KindMethod, FilePath: "src/contexts/alpha/a.go", Line: 20, Package: mustPtr("alpha"), Domain: mustPtr("src/contexts/alpha")},
+		{QualifiedName: "alpha.B1", Kind: shared.KindFunc, FilePath: "src/contexts/alpha/b.go", Line: 1, Package: mustPtr("alpha"), Domain: mustPtr("src/contexts/alpha")},
+		{QualifiedName: "beta.C1", Kind: shared.KindFunc, FilePath: "src/contexts/beta/c.go", Line: 1, Package: mustPtr("beta"), Domain: mustPtr("src/contexts/beta")},
+		{QualifiedName: "beta.C2", Kind: shared.KindType, FilePath: "src/contexts/beta/c.go", Line: 5, Package: mustPtr("beta"), Domain: mustPtr("src/contexts/beta")},
+		// One row deliberately omits package + domain so we can verify
 		// nullable-column filters skip it when their predicate is opt-in.
 		{QualifiedName: "loose.L1", Kind: shared.KindFunc, FilePath: "src/loose.go", Line: 1},
 	}
@@ -144,8 +144,8 @@ func TestSymbols_ListFilter_Permutations(t *testing.T) {
 			wantQN: []string{"alpha.A1", "alpha.A2", "alpha.B1"},
 		},
 		{
-			name:   "bc_path only",
-			filter: SymbolFilter{BCPath: "src/contexts/beta"},
+			name:   "domain only",
+			filter: SymbolFilter{Domain: "src/contexts/beta"},
 			wantQN: []string{"beta.C1", "beta.C2"},
 		},
 		{
@@ -169,13 +169,13 @@ func TestSymbols_ListFilter_Permutations(t *testing.T) {
 			wantQN: []string{"alpha.A1"},
 		},
 		{
-			name:   "bc_path+package composed",
-			filter: SymbolFilter{BCPath: "src/contexts/alpha", Package: "alpha"},
+			name:   "domain+package composed",
+			filter: SymbolFilter{Domain: "src/contexts/alpha", Package: "alpha"},
 			wantQN: []string{"alpha.A1", "alpha.A2", "alpha.B1"},
 		},
 		{
 			name:   "all four filters composed (most-specific)",
-			filter: SymbolFilter{FilePath: "src/contexts/beta/c.go", Package: "beta", BCPath: "src/contexts/beta", Kind: shared.KindType},
+			filter: SymbolFilter{FilePath: "src/contexts/beta/c.go", Package: "beta", Domain: "src/contexts/beta", Kind: shared.KindType},
 			wantQN: []string{"beta.C2"},
 		},
 		{

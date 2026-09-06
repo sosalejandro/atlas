@@ -165,7 +165,7 @@ Notes:
   ordered per file, bottom-up, so an earlier insertion cannot shift the line
   a later one is aimed at.
 - Promotion seeds membership at **one** symbol per capability. Broaden a
-  feature by annotating more symbols yourself; `atlas trace <feature-id>`
+  feature by annotating more symbols yourself; `atlas chain <feature-id>`
   shows what the claim currently covers.
 - Re-run `atlas scan` afterwards to materialise the annotations.
 

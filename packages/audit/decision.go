@@ -228,9 +228,9 @@ func (a *auditImpl) blendWeights(available map[string]bool, rep *DecisionCoverag
 	if !available[SignalDecisionCoverage] {
 		return a.opts.Weights
 	}
-	budget := a.opts.Weights[SignalCoverage]
+	budget := a.opts.Weights[SignalVerification]
 	if budget <= 0 {
-		budget = defaultWeights()[SignalCoverage]
+		budget = defaultWeights()[SignalVerification]
 	}
 	share := a.opts.DecisionCoverageShare
 	if share <= 0 || share >= 1 {
@@ -242,7 +242,7 @@ func (a *auditImpl) blendWeights(available map[string]bool, rep *DecisionCoverag
 	for k, v := range a.opts.Weights {
 		out[k] = v
 	}
-	if !available[SignalCoverage] {
+	if !available[SignalVerification] {
 		// `atlas flow` ran against a profile `atlas cov` never ingested. The
 		// budget belongs to the question, not to either half of it, so the
 		// half that CAN answer holds it — but only in proportion to the
@@ -252,7 +252,7 @@ func (a *auditImpl) blendWeights(available map[string]bool, rep *DecisionCoverag
 		out[SignalDecisionCoverage] = budget * measuredSurfaceFraction(rep)
 		return out
 	}
-	out[SignalCoverage] = budget * (1 - share)
+	out[SignalVerification] = budget * (1 - share)
 	out[SignalDecisionCoverage] = budget * share
 	return out
 }

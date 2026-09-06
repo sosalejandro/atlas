@@ -5,7 +5,7 @@ project at `--root` (default: git toplevel, falling back to cwd), opens the
 SQLite state DB at `.atlas/atlas.db` — creating it if it doesn't exist —
 applies all pending migrations, and ingests the resulting `codeindex.Index`.
 
-After `init`, every other read-only verb (`audit`, `trace`, `codebase find`,
+After `init`, every other read-only verb (`audit`, `chain`, `codebase find`,
 `diagnose`, `sprint`) reads from the cached store. Re-scan with
 [`atlas scan`](./scan.md) when source files change; the cache is file-hash
 keyed and incremental.

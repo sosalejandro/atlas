@@ -35,7 +35,7 @@ The changed lines come from 'git diff --unified=0 <base>...HEAD' -- the
 merge-base form, so commits that landed on the base branch after you forked
 are not charged to you. Only COMMITTED work is visible. Those lines are then
 intersected with the indexed symbol spans and scored against the current
-coverage frontier (the same runs 'atlas cov status' and 'atlas audit' read).
+coverage frontier (the same runs 'atlas cov status' and 'atlas health' read).
 
 Every changed line lands in one of THREE buckets, and the third one is the
 point:

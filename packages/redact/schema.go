@@ -223,6 +223,7 @@ var columns = []Column{
 	{"symbols", "kind", ClassEnum, "type, func, method, interface, var or const", false},
 	{"symbols", "file_path", ClassPath, "repo-relative path the symbol is declared in", false},
 	{"symbols", "package", ClassIdentifier, "the declaring package", false},
-	{"symbols", "bc_path", ClassPath, "the bounded-context prefix of the file path", false},
+	{"symbols", "domain", ClassPath, "the product-area prefix of the file path, a.k.a. bounded context", false},
+	{"symbols", "node_class", ClassEnum, "declaration or anchor", false},
 	{"symbols", "pattern_matches", ClassSourceText, "serialised EDA recogniser hits, which quote source constructs", true},
 }

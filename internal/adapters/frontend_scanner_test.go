@@ -294,3 +294,50 @@ func TestMergeIntoGraph_EmptyResult(t *testing.T) {
 		t.Errorf("expected 0 edges after empty merge, got %d", got)
 	}
 }
+
+// TestMergeIntoGraph_FilePathsAreSeparatorIndependent closes the last
+// path-shaped hole issue #143 left in this package.
+//
+// embedded_ts_scanner.ts computed its `file` field with path.relative()
+// and nothing else, while its sibling in packages/codeindex/ts follows
+// the same call with .split(path.sep).join('/'). Node returns the host's
+// separator, so on Windows every node in the graph carried
+// `src\components\Login.tsx` and the same scan of the same tree produced
+// a different graph than it did on Linux — a determinism break
+// (docs/testing/determinism.md) that no Go test could see, because the
+// producer is a TypeScript file.
+//
+// The script is fixed, and this asserts the Go side normalises too: the
+// scanner can be overridden with TESTREG_TS_SCANNER, so an older or
+// hand-supplied script must not be able to put a backslash in the graph.
+func TestMergeIntoGraph_FilePathsAreSeparatorIndependent(t *testing.T) {
+	s := NewFrontendScanner()
+	graph := domain.NewGraph()
+
+	result := &FrontendScanResult{
+		Nodes: []FrontendNode{
+			{ID: "posix", Kind: "component", File: "src/components/Login.tsx", Line: 4},
+			{ID: "windows", Kind: "component", File: `src\components\Login.tsx`, Line: 4},
+			{ID: "mixed", Kind: "route", File: `src\routes/index.tsx`, Line: 1},
+			{ID: "bare", Kind: "hook", File: "useAuth.ts", Line: 1},
+		},
+	}
+
+	s.MergeIntoGraph(graph, result)
+
+	want := map[string]string{
+		"posix":   "src/components/Login.tsx",
+		"windows": "src/components/Login.tsx",
+		"mixed":   "src/routes/index.tsx",
+		"bare":    "useAuth.ts",
+	}
+	for id, wantFile := range want {
+		node, ok := graph.Nodes[id]
+		if !ok {
+			t.Fatalf("node %q not found in graph", id)
+		}
+		if node.File != wantFile {
+			t.Errorf("node %q File = %q, want %q", id, node.File, wantFile)
+		}
+	}
+}

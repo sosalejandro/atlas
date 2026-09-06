@@ -5,17 +5,22 @@ import (
 	"strings"
 )
 
-// bcPathFor returns the bounded-context path prefix for a repo-relative
-// file path, or "" if the file does not live under src/contexts/<bc>/.
+// domainFor returns the product-area path prefix for a repo-relative file
+// path, or "" if the file does not live under src/contexts/<name>/.
 //
 // The convention is fixed by docs/architecture.md §3.7 + schema-v1.md §5.4.
-// Atlas treats anything matching `src/contexts/<bc>/` as living in that BC.
+// Atlas treats anything matching `src/contexts/<name>/` as living in that
+// domain. Issue #112 renamed the column (and this helper) from bc_path:
+// "bounded context" is one architecture's word for the idea, and a repo
+// that has never heard of DDD still has product areas. The DERIVATION is
+// deliberately unchanged — renaming the column is not a licence to invent
+// a second way of computing it.
 //
 // This is a pure string-shape helper — no DB, no side effects. It lives in
 // its own file (separate from ingest.go) so the SRP boundary between
 // "transactional batch logic" and "path conventions" stays visible. If
-// more BC-path helpers accumulate, they belong here.
-func bcPathFor(relPath string) string {
+// more domain-path helpers accumulate, they belong here.
+func domainFor(relPath string) string {
 	const prefix = "src/contexts/"
 	if !strings.HasPrefix(relPath, prefix) {
 		return ""

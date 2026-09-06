@@ -87,9 +87,9 @@ func NewRootCmd() *cobra.Command {
 
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newScanCmd())
-	root.AddCommand(newTraceCmd())
+	root.AddCommand(newChainCmd())
 	root.AddCommand(newCovCmd())
-	root.AddCommand(newAuditCmd())
+	root.AddCommand(newHealthCmd())
 	root.AddCommand(newSprintCmd())
 	root.AddCommand(newDiffCmd())
 	root.AddCommand(newSnapshotCmd())
@@ -140,9 +140,9 @@ Common workflows:
 
   atlas init               # first scan + persist state at .atlas/atlas.db
   atlas scan               # incremental re-scan (file-hash based)
-  atlas trace <id>         # walk call chain for a feature or symbol
+  atlas chain <id>         # walk the call chain for a feature or symbol
   atlas cov sync           # ingest test framework output
-  atlas audit              # health scores per feature
+  atlas health             # health scores per feature
   atlas sprint             # ranked backlog (gap-weighted priority)
 
 Every subcommand accepts --json for a stable structured envelope. See

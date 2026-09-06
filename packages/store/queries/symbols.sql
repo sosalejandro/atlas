@@ -1,13 +1,18 @@
 -- name: InsertSymbol :execresult
+-- node_class is bound by the caller, never defaulted. See migration 0019:
+-- an unset class is a writer that never asked whether the row is authored
+-- code or a synthetic anchor, and 'declaration' is the answer that quietly
+-- pollutes every count. The store layer refuses an empty value before the
+-- statement runs; the table's guard trigger refuses it after.
 INSERT OR IGNORE INTO symbols
-  (qualified_name, kind, file_path, line, end_line, package, bc_path)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+  (qualified_name, kind, file_path, line, end_line, package, domain, node_class)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetSymbolIDByQualifiedName :one
 SELECT id FROM symbols WHERE qualified_name = ?;
 
 -- name: GetSymbolByQualifiedName :one
-SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
+SELECT id, qualified_name, kind, file_path, line, end_line, package, domain, created_at, pattern_matches, node_class
 FROM symbols
 WHERE qualified_name = ?;
 
@@ -32,7 +37,7 @@ UPDATE symbols SET pattern_matches = ? WHERE qualified_name = ?;
 -- Bounds are deliberate: drifting more than ~30 lines past the annotation
 -- almost always indicates the annotation is orphan (comment-only file or
 -- markdown), not a legitimate attach to a faraway function.
-SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
+SELECT id, qualified_name, kind, file_path, line, end_line, package, domain, created_at, pattern_matches, node_class
 FROM symbols
 WHERE file_path = sqlc.arg(file_path)
   AND line >= sqlc.arg(line)
@@ -49,18 +54,20 @@ LIMIT 1;
 -- the narg lowering emits (see sqlc-dev/sqlc#1881, #3508).
 --
 -- None of these columns store the empty value as a legitimate row: the
--- parser layer always populates file_path + kind, and package / bc_path
--- are either non-empty or NULL.
+-- parser layer always populates file_path + kind, and package / domain
+-- are either non-empty or NULL. node_class is NOT NULL from migration
+-- 0019 onward, so its sentinel means "either class" rather than "unset".
 --
 -- Callers must normalize Kind to the closed schema-v1 set BEFORE binding
 -- (see normalizeKind) so the equality match never silently misses an
 -- audit-layer value that would have collapsed at insert time.
-SELECT id, qualified_name, kind, file_path, line, end_line, package, bc_path, created_at, pattern_matches
+SELECT id, qualified_name, kind, file_path, line, end_line, package, domain, created_at, pattern_matches, node_class
 FROM symbols
-WHERE (sqlc.arg(file_path) = '' OR file_path = sqlc.arg(file_path))
-  AND (sqlc.arg(package)   = '' OR package   = sqlc.arg(package))
-  AND (sqlc.arg(bc_path)   = '' OR bc_path   = sqlc.arg(bc_path))
-  AND (sqlc.arg(kind)      = '' OR kind      = sqlc.arg(kind))
+WHERE (sqlc.arg(file_path)  = '' OR file_path  = sqlc.arg(file_path))
+  AND (sqlc.arg(package)    = '' OR package    = sqlc.arg(package))
+  AND (sqlc.arg(domain)     = '' OR domain     = sqlc.arg(domain))
+  AND (sqlc.arg(kind)       = '' OR kind       = sqlc.arg(kind))
+  AND (sqlc.arg(node_class) = '' OR node_class = sqlc.arg(node_class))
 ORDER BY file_path, line, qualified_name;
 
 -- Note: FindByPattern still uses raw SQL in symbols.go because sqlc's

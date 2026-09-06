@@ -527,7 +527,7 @@ func symbolIDsByName(t *testing.T, s *Store) map[string]int64 {
 }
 
 // diffSymbolRow reports the fields that did not survive the round trip.
-// CreatedAt and BCPath are excluded: the first is recorded wall-clock, the
+// CreatedAt and Domain are excluded: the first is recorded wall-clock, the
 // second is derived from the file path by the write path and is therefore an
 // output of the store rather than an input to it.
 func diffSymbolRow(want, got SymbolRow) string {

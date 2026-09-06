@@ -272,7 +272,7 @@ human's annotation.
 Promotion seeds membership at **one** symbol per capability. That is
 deliberate: an annotation is a claim a person is making, and a hundred of
 them written at once is not. Broaden a feature by annotating more symbols
-yourself — `atlas trace <feature-id>` shows what the claim currently covers.
+yourself — `atlas chain <feature-id>` shows what the claim currently covers.
 
 ---
 
@@ -285,7 +285,7 @@ yourself — `atlas trace <feature-id>` shows what the claim currently covers.
       - run: go test ./... -coverprofile=cover.out -covermode=atomic
       - run: atlas cov sync --framework go-cover --input cover.out
       - run: atlas cov diff --base origin/main --fail-under 70
-      - run: atlas audit --worst 10
+      - run: atlas health --worst 10
 ```
 
 `atlas cov diff` is the one that can actually fail a pull request: it scores
@@ -328,8 +328,8 @@ Once there is a registry — promoted, hand-written, or both:
 ```bash
 atlas scan                      # incremental re-scan; hash-driven, warm scans are milliseconds
 atlas codebase find Login       # where is this symbol?
-atlas trace auth.login          # what does this feature call?
-atlas audit --worst 10          # what needs attention?
+atlas chain auth.login          # what does this feature call?
+atlas health --worst 10          # what needs attention?
 atlas diagnose "Authenticate"   # where would this error have come from?
 atlas hotspots                  # what is changing fastest with the least coverage?
 atlas sql advise                # unbounded reads, unstable pagination, missing indexes

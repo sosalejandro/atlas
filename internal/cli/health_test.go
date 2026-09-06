@@ -14,32 +14,32 @@ import (
 	"github.com/sosalejandro/atlas/packages/store"
 )
 
-// auditFixture is a store seeded with one feature whose implementation surface
+// healthFixture is a store seeded with one feature whose implementation surface
 // has been measured both ways: `atlas cov` statement results and `atlas flow`
 // branch verdicts.
-type auditFixture struct {
+type healthFixture struct {
 	root   string
 	dbPath string
 }
 
-// newAuditFixture seeds two impl symbols. Statement coverage sees one of the
+// newHealthFixture seeds two impl symbols. Statement coverage sees one of the
 // two executed (50%); decision coverage sees 3 of 4 DECIDABLE outcomes taken
 // (75%) with 2 more outcomes nothing could judge.
 //
 // The two numbers are deliberately different, and neither is derivable from
 // the other, so a JSON reader that blended them would land on a value this
 // test can name.
-func newAuditFixture(t *testing.T) *auditFixture { return newAuditFixtureWithFlow(t, true) }
+func newHealthFixture(t *testing.T) *healthFixture { return newHealthFixtureWithFlow(t, true) }
 
-// newAuditFixtureWithFlow builds the same store with or without the `atlas
+// newHealthFixtureWithFlow builds the same store with or without the `atlas
 // flow` half, so a test can compare the two directly.
-func newAuditFixtureWithFlow(t *testing.T, withFlow bool) *auditFixture {
+func newHealthFixtureWithFlow(t *testing.T, withFlow bool) *healthFixture {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".atlas"), 0o755); err != nil {
 		t.Fatalf("mkdir .atlas: %v", err)
 	}
-	fix := &auditFixture{root: dir, dbPath: filepath.Join(dir, ".atlas", "atlas.db")}
+	fix := &healthFixture{root: dir, dbPath: filepath.Join(dir, ".atlas", "atlas.db")}
 
 	ctx := context.Background()
 	s, err := store.Open(ctx, fix.dbPath)
@@ -98,7 +98,7 @@ func newAuditFixtureWithFlow(t *testing.T, withFlow bool) *auditFixture {
 	return fix
 }
 
-func runAuditCmd(t *testing.T, fix *auditFixture, args ...string) (string, string, error) {
+func runAuditCmd(t *testing.T, fix *healthFixture, args ...string) (string, string, error) {
 	t.Helper()
 	root := NewRootCmd()
 	loaded = Config{repoRoot: fix.root, DBPath: fix.dbPath}
@@ -142,15 +142,15 @@ func decodeAuditJSON(t *testing.T, out string) []auditJSONFeature {
 	return env.Result.Features
 }
 
-// TestAuditJSON_StatementAndDecisionCoverageStaySeparate is issue #140's
+// TestHealthJSON_StatementAndDecisionCoverageStaySeparate is issue #140's
 // acceptance criterion at the surface an integrator actually reads.
 //
 // A single composite number would satisfy "the audit reports both" on paper
 // and destroy the reason for reporting both: statement coverage says a line
 // ran, decision coverage says a branch went both ways, and a caller deciding
 // where to send a test-writing effort needs to know WHICH one is low.
-func TestAuditJSON_StatementAndDecisionCoverageStaySeparate(t *testing.T) {
-	fix := newAuditFixture(t)
+func TestHealthJSON_StatementAndDecisionCoverageStaySeparate(t *testing.T) {
+	fix := newHealthFixture(t)
 	flags.JSON = true
 	t.Cleanup(func() { flags.JSON = false })
 
@@ -164,13 +164,13 @@ func TestAuditJSON_StatementAndDecisionCoverageStaySeparate(t *testing.T) {
 	}
 	f := feats[0]
 
-	stmt, hasStmt := f.Components["coverage"]
+	stmt, hasStmt := f.Components["verification"]
 	dec, hasDec := f.Components["decision_coverage"]
 	if !hasStmt || !hasDec {
-		t.Fatalf("components = %v; want both `coverage` and `decision_coverage`", f.Components)
+		t.Fatalf("components = %v; want both `verification` and `decision_coverage`", f.Components)
 	}
 	if stmt != 50 {
-		t.Errorf("components.coverage = %.2f, want 50 (1 of 2 impl symbols executed)", stmt)
+		t.Errorf("components.verification = %.2f, want 50 (1 of 2 impl symbols executed)", stmt)
 	}
 	if dec != 75 {
 		t.Errorf("components.decision_coverage = %.2f, want 75 (3 of 4 decidable outcomes taken)", dec)
@@ -199,13 +199,13 @@ func TestAuditJSON_StatementAndDecisionCoverageStaySeparate(t *testing.T) {
 	}
 }
 
-// TestAuditJSON_OmitsDecisionCoverageWhenNothingMeasured pins the other half:
+// TestHealthJSON_OmitsDecisionCoverageWhenNothingMeasured pins the other half:
 // a store that has never run `atlas flow` must emit the JSON it always did.
 // An integrator's schema does not gain a field because a feature they do not
 // use exists.
-func TestAuditJSON_OmitsDecisionCoverageWhenNothingMeasured(t *testing.T) {
+func TestHealthJSON_OmitsDecisionCoverageWhenNothingMeasured(t *testing.T) {
 	// The same store, minus the `atlas flow` half.
-	fix := newAuditFixtureWithFlow(t, false)
+	fix := newHealthFixtureWithFlow(t, false)
 
 	flags.JSON = true
 	t.Cleanup(func() { flags.JSON = false })
@@ -222,17 +222,17 @@ func TestAuditJSON_OmitsDecisionCoverageWhenNothingMeasured(t *testing.T) {
 	}
 }
 
-// TestAuditText_PrintsTheDecisionReading checks the human view names both
+// TestHealthText_PrintsTheDecisionReading checks the human view names both
 // numbers and the undetermined count. The text view is where the "90%
 // statement coverage, every error path unexercised" story gets told or missed.
-func TestAuditText_PrintsTheDecisionReading(t *testing.T) {
-	fix := newAuditFixture(t)
+func TestHealthText_PrintsTheDecisionReading(t *testing.T) {
+	fix := newHealthFixture(t)
 	stdout, stderr, err := runAuditCmd(t, fix, "--feature", "auth.login")
 	if err != nil {
 		t.Fatalf("audit: %v\nstderr:\n%s", err, stderr)
 	}
 	for _, want := range []string{
-		"coverage                50.00",
+		"verification            50.00",
 		"decision_coverage       75.00",
 		"3/4 decidable outcomes taken, 2 undetermined",
 	} {

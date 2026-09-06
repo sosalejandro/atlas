@@ -59,7 +59,7 @@ func TestFeatureLinkage_AllLinked_OK(t *testing.T) {
 
 // A feature whose only symbol was deleted survives the cascade as an
 // empty shell: it still ranks in `atlas sprint` and still scores in
-// `atlas audit`, about nothing.
+// `atlas health`, about nothing.
 func TestFeatureLinkage_FeatureWithoutSymbols_Warns(t *testing.T) {
 	f := newFixture(t)
 	f.upsertFeature(t, "auth.login")

@@ -1,16 +1,21 @@
-# atlas trace
+# atlas chain
 
-`atlas trace` walks atlas's call graph starting from the supplied id and
+`atlas chain` walks atlas's call graph starting from the supplied id and
 emits the chain as human-readable text (default) or JSON (`--json`). It
 reads from the cached SQLite store by default — orders of magnitude faster
 than the pre-#29 live walk, but stale if `atlas scan` hasn't picked up the
 last code change. Pass `--fresh` to re-walk the codebase on disk when the
 cached graph looks wrong.
 
+> **Renamed from `atlas trace` (issue #112).** `atlas trace` still works and
+> prints a one-line deprecation note on stderr; it is supported for one minor
+> version. "Trace" now means a *runtime* trace — the OTel spans issue #94
+> ingests — and `chain` is the static call path this command walks.
+
 ## Usage
 
 ```
-atlas trace <id> [flags]
+atlas chain <id> [flags]
 ```
 
 `<id>` can be:
@@ -24,11 +29,11 @@ atlas trace <id> [flags]
 | `feature:<id>`        | `feature:plans-patient.export`         | Explicit feature lookup — bypasses fuzzy resolution.                                  |
 | `symbol:<qn>`         | `symbol:auth.Login`                    | Explicit symbol lookup.                                                               |
 
-For an unprefixed input, `atlas trace` first tries a feature lookup (the
+For an unprefixed input, `atlas chain` first tries a feature lookup (the
 strict-regex shape that wins most real-world inputs); a hit dispatches
-through `traceByFeature`. On no-feature, it falls back to symbol resolution.
+through `chainByFeature`. On no-feature, it falls back to symbol resolution.
 When the same id matches BOTH a feature and a symbol's qualified-name
-suffix, `trace` errors and asks the caller to disambiguate with the
+suffix, `chain` errors and asks the caller to disambiguate with the
 explicit prefix.
 
 ## Flags
@@ -51,7 +56,7 @@ explicit prefix.
 
 ```
 # Run from: /tmp/atlas-fixture
-$ atlas trace auth.login
+$ atlas chain auth.login
 trace feature auth.login (3 nodes)
 AuthHandler.Login  [func] go/auth.go:14
   AuthService.Authenticate  [func] go/auth.go:26
@@ -67,7 +72,7 @@ ref.
 
 ```
 # Run from: /tmp/atlas-fixture
-$ atlas trace AuthHandler.Login
+$ atlas chain AuthHandler.Login
 trace AuthHandler.Login (confidence 0.00, 3 nodes)
 AuthHandler.Login  [func] go/auth.go:14
   AuthService.Authenticate  [func] go/auth.go:26
@@ -86,7 +91,7 @@ connectors so siblings, descendants, and clipped branches are visually
 distinct:
 
 ```
-$ atlas trace src.click.core.Command.invoke --depth 3
+$ atlas chain src.click.core.Command.invoke --depth 3
 src.click.core.Command.invoke  [method] src/click/core.py:1294
 ├─ src.click.utils.echo  [func] src/click/utils.py:234
 │   ├─ src.click._compat._find_binary_writer  [func] src/click/_compat.py:192
@@ -112,7 +117,7 @@ When the walk revisits a symbol that's already on the current chain it
 emits a leaf marked `[cycle]` and stops descending:
 
 ```
-$ atlas trace recur.alpha --depth -1
+$ atlas chain recur.alpha --depth -1
 recur.alpha  [func] recur.py:4
 └─ recur.beta  [func] recur.py:9
     └─ recur.alpha  [cycle]
@@ -129,12 +134,12 @@ should prefer `--depth`.
 
 ### Disambiguation error
 
-When an input could mean either a feature id OR a symbol suffix, `trace`
+When an input could mean either a feature id OR a symbol suffix, `chain`
 refuses to guess:
 
 ```
 # Hypothetical: codebase has both feature `auth.login` and symbol `pkg.auth.login`
-$ atlas trace auth.login
+$ atlas chain auth.login
 error: ambiguous id "auth.login" — matches feature "auth.login"
        AND symbol suffix "pkg.auth.login". Re-run with feature:<id> or symbol:<qn>.
 ```

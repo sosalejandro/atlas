@@ -103,21 +103,25 @@ func TestImplFileForTestFile(t *testing.T) {
 	}
 }
 
-// TestBCPathFor pins the conventions docs/architecture.md §3.7 and
-// schema-v1.md §5.4 rely on: anything matching src/contexts/<bc>/...
-// maps to "src/contexts/<bc>"; nothing else maps to anything.
-func TestBCPathFor(t *testing.T) {
+// TestDomainFor pins the conventions docs/architecture.md §3.7 and
+// schema-v1.md §5.4 rely on: anything matching src/contexts/<name>/...
+// maps to "src/contexts/<name>"; nothing else maps to anything.
+//
+// Issue #112 renamed bc_path to domain WITHOUT touching the derivation, so
+// this table is unchanged from the bcPathFor era on purpose: if a case in
+// it had to move, the rename would have been a redesign.
+func TestDomainFor(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
 		want string
 	}{
-		{"happy path single-segment bc", "src/contexts/alpha/foo.go", "src/contexts/alpha"},
-		{"happy path nested file under bc", "src/contexts/beta/sub/dir/x.go", "src/contexts/beta"},
-		{"another bc with deep nesting", "src/contexts/messaging/application/services/conversation.go", "src/contexts/messaging"},
+		{"happy path single-segment domain", "src/contexts/alpha/foo.go", "src/contexts/alpha"},
+		{"happy path nested file under domain", "src/contexts/beta/sub/dir/x.go", "src/contexts/beta"},
+		{"another domain with deep nesting", "src/contexts/messaging/application/services/conversation.go", "src/contexts/messaging"},
 		{"non-contexts path returns empty", "src/shared/logger.go", ""},
-		{"contexts but no bc segment yet returns empty", "src/contexts/", ""},
-		{"contexts with bc but no trailing file returns empty (no slash after bc)", "src/contexts/alpha", ""},
+		{"contexts but no domain segment yet returns empty", "src/contexts/", ""},
+		{"contexts with domain but no trailing file returns empty (no slash after it)", "src/contexts/alpha", ""},
 		{"non-src prefix returns empty", "internal/foo.go", ""},
 		{"empty input returns empty", "", ""},
 		{"close-but-not-quite prefix returns empty", "src/context/alpha/foo.go", ""},
@@ -125,9 +129,9 @@ func TestBCPathFor(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := bcPathFor(tc.in)
+			got := domainFor(tc.in)
 			if got != tc.want {
-				t.Errorf("bcPathFor(%q) = %q, want %q", tc.in, got, tc.want)
+				t.Errorf("domainFor(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}

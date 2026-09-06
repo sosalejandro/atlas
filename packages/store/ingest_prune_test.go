@@ -98,7 +98,7 @@ func TestIngest_KeepsSymbolsFromFilesNotInThisScan(t *testing.T) {
 // A symbol that MOVED inside its file must have its stored position
 // refreshed. INSERT OR IGNORE alone leaves the old line behind, so the
 // coverage ingest keeps charging statements to a span the function no longer
-// occupies — and `atlas trace` points at the wrong line.
+// occupies — and `atlas chain` points at the wrong line.
 func TestIngest_RefreshesMovedSymbolPosition(t *testing.T) {
 	t.Parallel()
 

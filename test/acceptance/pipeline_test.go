@@ -389,7 +389,7 @@ func goToolCoverFunc(t *testing.T) []coveredFunc {
 }
 
 // TestAcceptance_CallEdgesReachTheColliderOnBothSides checks that the call
-// graph a user walks with `atlas trace` reaches the RIGHT Total.
+// graph a user walks with `atlas chain` reaches the RIGHT Total.
 //
 // Both packages declare Order.Total and both call a package-private helper.
 // The scanner resolves a call by preferring the declaration in the CALLER's

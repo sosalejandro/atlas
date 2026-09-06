@@ -557,17 +557,14 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 //
 // PYTHONPATH is intentionally NOT augmented — scanner.py uses ONLY stdlib.
 func buildScannerEnv() []string {
-	env := os.Environ()
-	out := env[:0]
-	for _, kv := range env {
-		// Strip any pre-existing PYTHONIOENCODING / PYTHONDONTWRITEBYTECODE
-		// so our values win deterministically.
-		if strings.HasPrefix(kv, "PYTHONIOENCODING=") ||
-			strings.HasPrefix(kv, "PYTHONDONTWRITEBYTECODE=") {
-			continue
-		}
-		out = append(out, kv)
-	}
+	// Strip any pre-existing PYTHONIOENCODING / PYTHONDONTWRITEBYTECODE
+	// so our values win deterministically. takeEnv matches the name by
+	// the host's rules: Windows' environment block is case-insensitive,
+	// so a parent that exported `PythonIOEncoding` set the same variable
+	// (issue #143, see hostenv.go).
+	out := takeEnv(os.Environ(),
+		[]string{"PYTHONIOENCODING", "PYTHONDONTWRITEBYTECODE"},
+		hostFoldsEnvCase())
 	out = append(out, "PYTHONIOENCODING=utf-8")
 	out = append(out, "PYTHONDONTWRITEBYTECODE=1")
 	return out

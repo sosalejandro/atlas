@@ -24,7 +24,7 @@ type GraphIndex interface {
 	// ListSymbols returns the whole symbol table. The store exposes no
 	// per-surrogate-id lookup, and every tool here has to turn edge and
 	// coverage rows (which carry ids) into names and spans, so the table is
-	// read once per call and indexed in memory — the same trade `atlas trace`,
+	// read once per call and indexed in memory — the same trade `atlas chain`,
 	// `atlas report` and the audit already make.
 	ListSymbols(ctx context.Context) ([]store.SymbolRow, error)
 	EdgesOut(ctx context.Context, symbolID int64) ([]store.EdgeRow, error)
@@ -41,7 +41,7 @@ type CoverageIndex interface {
 }
 
 // Scorer is the audit's per-feature read. coverage_for delegates to it rather
-// than recomputing a score, so `atlas audit --feature X` and the MCP tool can
+// than recomputing a score, so `atlas health --feature X` and the MCP tool can
 // never disagree about the same feature on the same frontier.
 type Scorer interface {
 	ScoreFeature(ctx context.Context, id shared.FeatureID) (audit.FeatureHealth, error)

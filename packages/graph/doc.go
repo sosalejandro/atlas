@@ -7,7 +7,7 @@
 //
 // The shape ports legacy testreg `internal/domain/graph.go` 1:1 — same
 // semantics for cycle detection on AddEdge, same lazy adjacency caches,
-// same TraceFrom/FindPathTo/TraceCallersFrom contract — but with
+// same ChainFrom/FindPathTo/ChainCallersFrom contract — but with
 // shared.SymbolID typing the node keys instead of bare strings.
 //
 // # Choosing between graph.Graph and store.Edges for graph walks
@@ -15,7 +15,7 @@
 // Atlas exposes two call-graph walk surfaces. Pick the one that matches
 // your dependency-cone budget:
 //
-//   - graph.Graph.Callees / TraceFrom / FindPathTo
+//   - graph.Graph.Callees / ChainFrom / FindPathTo
 //     In-memory traversal over a populated graph.Graph. Use when:
 //
 //   - You already hold a codeindex.Index (e.g. external consumers like

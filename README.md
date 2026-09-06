@@ -90,7 +90,7 @@ Annotations you already have are adopted as-is and never re-proposed.
 ### Reference
 
 - [Commands](./docs/commands/) — per-subcommand reference
-  (`atlas onboard`, `init`, `scan`, `trace`, `audit`, `codebase`, `cov`,
+  (`atlas onboard`, `init`, `scan`, `chain`, `audit`, `codebase`, `cov`,
   `diff`, `snapshot`, `sprint`, `diagnose`, `contract`, `sql`, `hotspots`,
   `migrate-annotations`)
 - [Architecture](./docs/architecture.md) — package boundaries + dependency direction

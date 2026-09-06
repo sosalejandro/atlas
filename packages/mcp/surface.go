@@ -62,7 +62,7 @@ var surfaceNotes = map[string]string{
 
 // deriveSurface picks a feature's implementation set in descending order of
 // evidential strength, mirroring the audit's own tiering
-// (audit.resolveWantedSet) so `atlas audit` and this tool describe the same
+// (audit.resolveWantedSet) so `atlas health` and this tool describe the same
 // surface for the same feature. The tiering is duplicated rather than shared
 // because audit's is unexported; the shared vocabulary is the exported
 // audit.Surface* constants.

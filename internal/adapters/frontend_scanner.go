@@ -176,7 +176,13 @@ func (s *FrontendScanner) MergeIntoGraph(graph *domain.Graph, result *FrontendSc
 		graph.AddNode(&domain.Node{
 			ID:   n.ID,
 			Kind: kind,
-			File: n.File,
+			// slashPath, not filepath.ToSlash: the separator here is a
+			// property of the machine that ran the scanner script, and
+			// TESTREG_TS_SCANNER lets that be an older or hand-supplied
+			// script whose paths this process did not build. ToSlash
+			// would be a no-op on a Linux host reading a Windows-produced
+			// path and let the backslash into the graph (issue #143).
+			File: slashPath(n.File),
 			Line: n.Line,
 			Doc:  n.Doc,
 		})

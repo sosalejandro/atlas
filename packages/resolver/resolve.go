@@ -3,7 +3,6 @@ package resolver
 import (
 	"go/ast"
 	"go/types"
-	"path/filepath"
 	"time"
 )
 
@@ -41,7 +40,7 @@ type Resolution struct {
 // granularity at which a real tree fails: one package mid-edit does not
 // make the other two hundred unresolvable.
 func (p *Program) TypeChecked(absPath string) bool {
-	_, ok := p.byPath[filepath.Clean(absPath)]
+	_, ok := p.lookup(absPath)
 	return ok
 }
 
@@ -53,7 +52,7 @@ func (p *Program) TypeChecked(absPath string) bool {
 // nodes are absent from every types map, and every lookup against it
 // would silently miss.
 func (p *Program) Syntax(absPath string) (*ast.File, bool) {
-	view, ok := p.byPath[filepath.Clean(absPath)]
+	view, ok := p.lookup(absPath)
 	if !ok {
 		return nil, false
 	}

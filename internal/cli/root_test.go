@@ -12,7 +12,7 @@ import (
 func TestNewRootCmd_WiresEverySubcommand(t *testing.T) {
 	root := NewRootCmd()
 	want := []string{
-		"init", "scan", "trace", "cov", "audit",
+		"init", "scan", "chain", "cov", "health",
 		"sprint", "diff", "snapshot", "contract",
 		"diagnose", "codebase", "migrate-annotations",
 	}

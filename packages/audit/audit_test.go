@@ -564,7 +564,7 @@ func TestScoreFeature_NoSymbolsLinked(t *testing.T) {
 // chain for it".
 //
 // When a feature has linked symbols in feature_symbols (the same table that
-// atlas trace feature:<id> consults), audit must produce Score > 0 — even
+// atlas chain feature:<id> consults), audit must produce Score > 0 — even
 // without a coverage run, git blame, aggregate-service annotations, or
 // contracts. Before the fix, all four signals were unavailable for such
 // features and the score fell to 0 with "no annotation source".

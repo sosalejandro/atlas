@@ -170,13 +170,13 @@ func TestCodebaseDead_JSONEnvelopeShape(t *testing.T) {
 		SchemaVersion string `json:"schema_version"`
 		Command       string `json:"command"`
 		Result        struct {
-			Kind             string `json:"kind"`
-			IncludeTests     bool   `json:"include_tests"`
-			TotalCandidates  int    `json:"total_candidates"`
-			ExternalExcluded bool   `json:"external_excluded"`
-			Caveats          []string
-			IncludeScopes    []string `json:"include_scopes"`
-			DeadCandidates   []struct {
+			Kind            string `json:"kind"`
+			IncludeTests    bool   `json:"include_tests"`
+			TotalCandidates int    `json:"total_candidates"`
+			AnchorsExcluded bool   `json:"anchors_excluded"`
+			Caveats         []string
+			IncludeScopes   []string `json:"include_scopes"`
+			DeadCandidates  []struct {
 				Path          string `json:"path"`
 				QualifiedName string `json:"qualified_name"`
 				SymbolKind    string `json:"symbol_kind"`
@@ -196,8 +196,8 @@ func TestCodebaseDead_JSONEnvelopeShape(t *testing.T) {
 	if env.Result.Kind != "import" {
 		t.Errorf("result.kind = %q; want import", env.Result.Kind)
 	}
-	if !env.Result.ExternalExcluded {
-		t.Error("result.external_excluded must be true (external:py stubs are always filtered)")
+	if !env.Result.AnchorsExcluded {
+		t.Error("result.anchors_excluded must be true (synthetic vertices are never dead-code candidates)")
 	}
 	if len(env.Result.Caveats) < 3 {
 		t.Errorf("result.caveats must list at least 3 caveats; got %d", len(env.Result.Caveats))

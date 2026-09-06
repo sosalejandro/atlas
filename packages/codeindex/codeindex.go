@@ -6,15 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"go/parser"
-	"go/token"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
 	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
 	"github.com/sosalejandro/atlas/packages/codeindex/patterns"
 	pyscan "github.com/sosalejandro/atlas/packages/codeindex/py"
@@ -125,6 +122,22 @@ type Options struct {
 
 	// Logger receives orchestration-level warnings. Defaults to NopLogger.
 	Logger shared.Logger
+
+	// Jobs bounds the worker count for the orchestrator's per-file passes —
+	// the pattern recognisers and the annotation/hash walk. Zero or negative
+	// means GOMAXPROCS; 1 means strictly serial.
+	//
+	// GOMAXPROCS rather than a constant because the right number is a
+	// property of the machine and not of this code, and 1 is kept a
+	// first-class value rather than "a pool that happens to have one
+	// worker": the determinism suite runs at Jobs=1 and diffs the result
+	// against every other setting, so the serial path has to be a path
+	// somebody actually takes. See packages/codeindex/parallel.go.
+	//
+	// It does NOT reach the Go sub-scanner, which is still single-pass —
+	// docs/performance.md measures what these passes are worth before
+	// anyone assumes raising this fixes a slow scan.
+	Jobs int
 }
 
 // defaultAnnotationExts matches docs/annotations.md per-language support.
@@ -404,7 +417,7 @@ func mergeGoResult(idx *Index, goRes *goscan.Result) {
 // idx.Graph.Nodes and the denormalised idx.Symbols list.
 //
 // Edges are appended verbatim. This may create cross-language edges
-// (TS hook → endpoint → Go handler) which is exactly what `atlas trace`
+// (TS hook → endpoint → Go handler) which is exactly what `atlas chain`
 // needs to render a frontend-to-backend chain.
 func mergeTSResult(idx *Index, res *tsscan.Result) {
 	for _, sym := range res.Symbols {
@@ -455,7 +468,7 @@ func mergeTSResult(idx *Index, res *tsscan.Result) {
 // guarantees about source-of-truth for symbols in their own language.
 // New symbols are appended to both idx.Graph.Nodes and the denormalised
 // idx.Symbols list, tagged with SymbolLangs["py"] for cross-language
-// `atlas trace`.
+// `atlas chain`.
 //
 // Edges are appended verbatim, which may create cross-language edges
 // (a Python integration calling out to a Go binary via subprocess, for
@@ -502,57 +515,6 @@ func mergePYResult(idx *Index, res *pyscan.Result) {
 	idx.Warnings = append(idx.Warnings, res.Warnings...)
 }
 
-func walkAnnotations(ctx context.Context, rootAbs string, opts Options, skipDirs map[string]bool) ([]shared.Annotation, map[string]FileHash, error) {
-	extSet := make(map[string]bool, len(opts.AnnotationExts))
-	for _, e := range opts.AnnotationExts {
-		extSet[strings.ToLower(e)] = true
-	}
-
-	var out []shared.Annotation
-	hashes := make(map[string]FileHash)
-
-	err := filepath.WalkDir(rootAbs, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if d.IsDir() {
-			name := d.Name()
-			if skipDirs[name] || strings.HasPrefix(name, ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		ext := strings.ToLower(filepath.Ext(path))
-		if !extSet[ext] {
-			return nil
-		}
-		relPath, _ := filepath.Rel(rootAbs, path)
-		relPath = filepath.ToSlash(relPath)
-
-		anns, err := annotations.ParseRelative(ctx, path, relPath)
-		if err != nil {
-			opts.Logger.Warn(ctx, "annotation parse failed", "path", relPath, "err", err)
-			return nil
-		}
-		if len(anns) > 0 {
-			out = append(out, anns...)
-		}
-		if opts.HashFiles && (len(anns) > 0 || ext == ".go") {
-			if fh, hashErr := hashFile(path, relPath); hashErr == nil {
-				hashes[relPath] = fh
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("walk %s: %w", rootAbs, err)
-	}
-	return out, hashes, nil
-}
-
 func hashFile(absPath, relPath string) (FileHash, error) {
 	f, err := os.Open(absPath)
 	if err != nil {
@@ -573,90 +535,6 @@ func hashFile(absPath, relPath string) (FileHash, error) {
 		ModTime:     info.ModTime().UTC(),
 		LastScanned: time.Now().UTC(),
 	}, nil
-}
-
-// runPatternRecognizers re-parses every non-test .go file under rootAbs
-// and runs codeindex/patterns over them. Returns a per-symbol grouping of
-// recogniser hits plus any non-fatal warnings (parse errors).
-//
-// The same skipDirs the annotation walker uses are honoured so vendor/,
-// node_modules/, hidden dirs, and generated/ trees don't pollute the
-// findings.
-//
-// This is an EXTRA pass — goscan also parses these files, but its funcInfo
-// cache is unexported and the recognisers walk different AST shapes
-// (struct embeds, closures) than the call-graph builder. The double parse
-// is the price of keeping the two concerns separate; benchmarks on the
-// 1500-file nutrition tree clock the recogniser pass at < 200ms total.
-func runPatternRecognizers(
-	ctx context.Context,
-	rootAbs string,
-	opts Options,
-	excluded map[string]bool,
-) (map[shared.SymbolID][]patterns.Match, []string) {
-	matchesBySym := make(map[shared.SymbolID][]patterns.Match)
-	var warnings []string
-
-	skip := map[string]bool{
-		"vendor": true, "node_modules": true,
-	}
-	for _, d := range opts.SkipDirs {
-		skip[d] = true
-	}
-
-	var inputs []patterns.FileInput
-	walkErr := filepath.WalkDir(rootAbs, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if d.IsDir() {
-			name := d.Name()
-			if skip[name] || strings.HasPrefix(name, ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go") {
-			return nil
-		}
-		relPath, _ := filepath.Rel(rootAbs, path)
-		relPath = filepath.ToSlash(relPath)
-		// Exclusion is the Go scanner's decision, not a second opinion. It
-		// already classified every file by header, glob and directory and
-		// recorded why; re-deriving the rule here is how the two passes end
-		// up disagreeing about what the codebase contains.
-		if excluded[relPath] {
-			return nil
-		}
-		fset := token.NewFileSet()
-		file, perr := parser.ParseFile(fset, path, nil, parser.ParseComments)
-		if perr != nil {
-			warnings = append(warnings, fmt.Sprintf("pattern parse %s: %v", relPath, perr))
-			return nil
-		}
-		inputs = append(inputs, patterns.FileInput{
-			File:    file,
-			FSet:    fset,
-			RelPath: relPath,
-		})
-		return nil
-	})
-	if walkErr != nil {
-		warnings = append(warnings, fmt.Sprintf("pattern walk: %v", walkErr))
-	}
-
-	matches, err := patterns.MatchAllFiles(ctx, opts.PatternConfig, inputs)
-	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("pattern matchall: %v", err))
-		return matchesBySym, warnings
-	}
-	for _, m := range matches {
-		matchesBySym[m.Symbol] = append(matchesBySym[m.Symbol], m)
-	}
-	return matchesBySym, warnings
 }
 
 // EncodePatternMatches serialises a per-symbol slice of Match records to

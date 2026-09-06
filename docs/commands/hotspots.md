@@ -3,7 +3,7 @@
 `atlas hotspots` ranks the backlog by **change frequency x health gap**
 instead of by the gap alone.
 
-`atlas audit` and `atlas sprint` both score a feature on how bad its
+`atlas health` and `atlas sprint` both score a feature on how bad its
 numbers are. That puts a gap in code nobody has touched in two years next
 to a gap in the file three people edited last week, at the same rank. Only
 the second is worth a sprint. The multiplier that separates them is how
@@ -334,5 +334,5 @@ you want to argue about where the risk is rather than what to schedule.
 ## See also
 
 - [`atlas sprint`](./sprint.md) — the gap-weighted backlog this reranks.
-- [`atlas audit`](./audit.md) — where the health score, and so the gap,
+- [`atlas health`](./health.md) — where the health score, and so the gap,
   comes from.

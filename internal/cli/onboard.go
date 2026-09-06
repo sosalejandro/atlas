@@ -397,7 +397,7 @@ const ciSnippet = `      - run: atlas init
       - run: go test ./... -coverprofile=cover.out -covermode=atomic
       - run: atlas cov sync --framework go-cover --input cover.out
       - run: atlas cov diff --base origin/main --fail-under 70
-      - run: atlas audit --worst 10`
+      - run: atlas health --worst 10`
 
 // coverageNextCommand is the shortest command sequence that actually gives
 // atlas execution evidence. It is one string because it is printed as one

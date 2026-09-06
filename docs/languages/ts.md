@@ -93,7 +93,7 @@ LoginPage  apps/web/src/pages/LoginPage.tsx:13  [component]
 
 ```
 # Run from: my-web-app/
-$ atlas trace web.auth.login
+$ atlas chain web.auth.login
 trace feature web.auth.login (5 nodes)
 route:/login                                              [route]      apps/web/src/router.tsx:142
 LoginPage                                                 [component]  apps/web/src/pages/LoginPage.tsx:13

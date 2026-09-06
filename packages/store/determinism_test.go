@@ -47,7 +47,7 @@ var storeDumps = []struct {
 		name: "symbols",
 		query: `SELECT qualified_name, kind, file_path, line,
 		               COALESCE(end_line, -1), COALESCE(package, ''),
-		               COALESCE(bc_path, ''), COALESCE(pattern_matches, '')
+		               COALESCE(domain, ''), COALESCE(pattern_matches, '')
 		          FROM symbols
 		         ORDER BY qualified_name`,
 	},
