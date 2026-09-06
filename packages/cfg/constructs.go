@@ -100,18 +100,23 @@ func (b *builder) buildIf(x *ast.IfStmt, succLine int) {
 	condBlock := b.cur
 
 	thenStart, thenEnd := b.line(x.Body.Lbrace), b.line(x.Body.Rbrace)
-	b.cur = b.join(tp, BlockBody, thenStart, thenEnd)
+	thenBlock := b.join(tp, BlockBody, thenStart, thenEnd)
+	b.cur = thenBlock
 	b.stmts(x.Body.List)
 	var outs []pend
 	if b.cur >= 0 {
 		outs = append(outs, pend{from: b.cur, kind: EdgeSeq})
 	}
-	thenArm := Arm{Label: "true", Start: thenStart, End: thenEnd, Terminates: b.cur < 0}
+	thenArm := Arm{
+		Label: "true", Start: thenStart, End: thenEnd,
+		Terminates: b.cur < 0, Block: blockOrNone(thenBlock),
+	}
 
 	elseArm := Arm{Label: "false"}
 	if x.Else != nil {
 		elseStart, elseEnd := b.line(x.Else.Pos()), b.line(x.Else.End())
-		b.cur = b.join(fp, BlockBody, elseStart, elseEnd)
+		elseBlock := b.join(fp, BlockBody, elseStart, elseEnd)
+		b.cur = elseBlock
 		b.stmt(x.Else, succLine)
 		if b.cur >= 0 {
 			outs = append(outs, pend{from: b.cur, kind: EdgeSeq})
@@ -119,13 +124,14 @@ func (b *builder) buildIf(x *ast.IfStmt, succLine int) {
 		_, chained := x.Else.(*ast.IfStmt)
 		elseArm = Arm{
 			Label: "false", Start: elseStart, End: elseEnd,
-			Chained: chained, Terminates: b.cur < 0,
+			Chained: chained, Terminates: b.cur < 0, Block: blockOrNone(elseBlock),
 		}
 	} else {
 		outs = append(outs, fp...)
 	}
 
-	b.cur = b.join(outs, BlockBody, succLine, succLine)
+	joinBlock := b.join(outs, BlockBody, succLine, succLine)
+	b.cur = joinBlock
 	b.addDecision(Decision{
 		Kind:          DecisionIf,
 		Line:          b.line(x.Pos()),
@@ -135,7 +141,18 @@ func (b *builder) buildIf(x *ast.IfStmt, succLine int) {
 		Arms:          []Arm{thenArm, elseArm},
 		InLoop:        b.loopDepth > 0,
 		SuccessorLine: succLine,
+		JoinBlock:     blockOrNone(joinBlock),
 	})
+}
+
+// blockOrNone normalises the builder's -1 ("control cannot reach here") to the
+// 0 that Arm.Block and Decision.JoinBlock document as "no such block". Block 0
+// is always the synthetic entry, so it can never be a real arm body or join.
+func blockOrNone(idx int) int {
+	if idx < 0 {
+		return 0
+	}
+	return idx
 }
 
 // pushLoop opens the break/continue context for a loop and returns the slice
@@ -181,7 +198,8 @@ func (b *builder) buildFor(x *ast.ForStmt, succLine int) {
 	conds := b.atomicConditions(x.Cond)
 
 	breaks := b.pushLoop(header)
-	b.cur = b.join(tp, BlockBody, arms[0].Start, arms[0].End)
+	bodyBlock := b.join(tp, BlockBody, arms[0].Start, arms[0].End)
+	b.cur = bodyBlock
 	b.stmts(x.Body.List)
 	bodyLeaves := b.cur < 0
 	if b.cur >= 0 {
@@ -190,8 +208,10 @@ func (b *builder) buildFor(x *ast.ForStmt, succLine int) {
 	b.popLoop()
 
 	arms[0].Terminates = bodyLeaves
+	arms[0].Block = blockOrNone(bodyBlock)
 	outs := append(fp, *breaks...) //nolint:gocritic // fp is not reused after this.
-	b.cur = b.join(outs, BlockBody, succLine, succLine)
+	joinBlock := b.join(outs, BlockBody, succLine, succLine)
+	b.cur = joinBlock
 	b.addDecision(Decision{
 		Kind:          DecisionFor,
 		Line:          b.line(x.Pos()),
@@ -201,6 +221,7 @@ func (b *builder) buildFor(x *ast.ForStmt, succLine int) {
 		Arms:          arms,
 		InLoop:        b.loopDepth > 0,
 		SuccessorLine: succLine,
+		JoinBlock:     blockOrNone(joinBlock),
 		// BreaksOut is what makes the "loop exited" outcome undecidable: a
 		// break reaches the successor without the condition ever going
 		// false, so a positive count there proves nothing about the arm.
@@ -222,16 +243,19 @@ func (b *builder) buildRange(x *ast.RangeStmt, succLine int) {
 		{Label: "range exhausted"},
 	}
 	breaks := b.pushLoop(header)
-	b.cur = b.join(tp, BlockBody, arms[0].Start, arms[0].End)
+	bodyBlock := b.join(tp, BlockBody, arms[0].Start, arms[0].End)
+	b.cur = bodyBlock
 	b.stmts(x.Body.List)
 	arms[0].Terminates = b.cur < 0
+	arms[0].Block = blockOrNone(bodyBlock)
 	if b.cur >= 0 {
 		b.addEdge(b.cur, header, EdgeLoopBack, "")
 	}
 	b.popLoop()
 
 	outs := append(fp, *breaks...) //nolint:gocritic // fp is not reused after this.
-	b.cur = b.join(outs, BlockBody, succLine, succLine)
+	joinBlock := b.join(outs, BlockBody, succLine, succLine)
+	b.cur = joinBlock
 	b.addDecision(Decision{
 		Kind:          DecisionRange,
 		Line:          b.line(x.Pos()),
@@ -240,6 +264,7 @@ func (b *builder) buildRange(x *ast.RangeStmt, succLine int) {
 		Arms:          arms,
 		InLoop:        b.loopDepth > 0,
 		SuccessorLine: succLine,
+		JoinBlock:     blockOrNone(joinBlock),
 		BreaksOut:     len(*breaks) > 0,
 		// Collection is what separates an N+1 from a retry loop: `range xs`
 		// iterates a collection, `for i := range 10` does not.
@@ -299,7 +324,7 @@ func (b *builder) buildMultiway(kind DecisionKind, pos token.Pos, text string,
 		start, end := b.clauseSpan(c.colon, c.body)
 		blocks[i] = b.newBlock(BlockBody, start, end)
 		b.addEdge(deciding, blocks[i], EdgeTrue, c.label)
-		arms = append(arms, Arm{Label: c.label, Start: start, End: end})
+		arms = append(arms, Arm{Label: c.label, Start: start, End: end, Block: blocks[i]})
 	}
 
 	breaks := &[]pend{}
@@ -329,7 +354,8 @@ func (b *builder) buildMultiway(kind DecisionKind, pos token.Pos, text string,
 		arms = append(arms, Arm{Label: "no case matched"})
 	}
 	outs = append(outs, *breaks...)
-	b.cur = b.join(outs, BlockBody, succLine, succLine)
+	joinBlock := b.join(outs, BlockBody, succLine, succLine)
+	b.cur = joinBlock
 	b.addDecision(Decision{
 		Kind:          kind,
 		Line:          b.line(pos),
@@ -338,6 +364,7 @@ func (b *builder) buildMultiway(kind DecisionKind, pos token.Pos, text string,
 		Arms:          arms,
 		InLoop:        b.loopDepth > 0,
 		SuccessorLine: succLine,
+		JoinBlock:     blockOrNone(joinBlock),
 	})
 }
 

@@ -815,11 +815,12 @@ that count is the number every report leads with.
 
 | Column | Notes |
 | --- | --- |
-| `ref` | Fingerprint: source, file, line and name. Re-scanning an unchanged repository rewrites the same rows rather than accumulating duplicates. UNIQUE. |
+| `ref` | Fingerprint: source, file, line, name, and — where one line holds more than one operation — a `#n` ordinal. Re-scanning an unchanged repository rewrites the same rows rather than accumulating duplicates. UNIQUE, which is why the ordinal is not optional: two `database/sql` calls written on one line fingerprint identically without it, and the second write silently replaces the first, shrinking both the inventory and the denominator of the resolved fraction. |
 | `symbol_id` | **Nullable, `ON DELETE SET NULL`.** An operation outlives the symbol it was linked to (a rename, a scan that skipped a generated file); CASCADE would silently shrink the inventory. Resolved from `symbol_name` at write time. |
 | `symbol_name` | Kept alongside the link so a row stays readable with no `symbol_id`. sqlc queries use the `sql:<QueryName>` id the Go scanner already anchors them under. |
 | `kind` | `unknown` for an unresolved operation — the CHECK constraint would otherwise take an empty string. |
-| `keyset` | Cursor pagination: a bound range predicate on a column the statement also orders by. Distinguished from `has_offset` because conflating the two gives opposite advice on identical-looking SQL. |
+| `has_limit` / `has_offset` | Bounds on **this** statement. A `LIMIT` inside a subquery, a CTE body or an `IN (...)` list bounds that inner result set and is not written here: crediting it to the outer statement suppresses the unbounded-read advisory on the query that needs it most. |
+| `keyset` | Cursor pagination: `has_limit`, plus a caller-bound range predicate on the column the statement orders by FIRST. Distinguished from `has_offset` because conflating the two gives opposite advice on identical-looking SQL. All three parts are required — a bound range predicate with an ORDER BY and no page size is a time window or a depth guard, not a cursor walk, and it returns every row past the cursor. |
 | `offset_bound` | Where the OFFSET's value comes from. `parameter` is the one that degrades with depth. |
 | `row_scan` | What the call site does with the rows. `slice` vs `single` is the difference between a LIMIT-less read that loads a table into memory and one that reads a row by primary key. |
 | `interpolation` / `caller_data` | How the query text was built, and whether the spliced value traces to a parameter of the enclosing function. The injection advisory grades its confidence on the second. |
@@ -832,6 +833,20 @@ an index, not a `LIKE`. `sql_operation_tables_table_idx` serves the reverse
 lookup that is the data footprint of a feature, which is what a privacy or
 migration review actually needs.
 
+**The capability rollup** is that reverse lookup spelled out:
+`feature_symbols → sql_operations → sql_operation_tables`, grouped by
+`feature_id`, exposed as `SQLOps.CapabilityTables` and printed by
+`atlas sql capabilities`. Two facts travel with every row and neither is
+optional. Operations are counted `DISTINCT` on `sql_operations.id`, because a
+symbol linked to a feature under two roles reaches it through two
+`feature_symbols` rows and one query must not count as two. And the unresolved
+count rides along, because a capability with unresolved queries has a table
+set that is a **lower bound** — a table only those queries touch is missing
+from it, and a review that reads the set as complete is being misled
+confidently. A capability whose queries all failed to resolve keeps its row
+with an empty set: "nothing readable" and "touches no data" are different
+answers.
+
 **Why `columns` and `suppressions` *are* comma-packed.** Both hold short
 identifier lists that cannot contain a comma, and neither is ever queried by
 element. Anything richer would want a child table.
@@ -843,6 +858,17 @@ lookup by primary key would report as unindexed. An index check consults
 `sql_tables` first and reports "did not run" for a table that is absent:
 claiming an index is missing from a schema Atlas never read is the one wrong
 answer that looks authoritative.
+
+They hold the schema **as of the last migration**, not the union of every
+declaration ever made. `*.down.sql` files are skipped — a rollback undoes its
+`up` sibling, and reading both leaves a table that was created once and
+dropped once in the inventory. Within the files that are read, `DROP TABLE`,
+`DROP INDEX` and `ALTER TABLE … RENAME TO` are applied in order: a dropped
+table leaves and takes its indexes with it, a renamed one carries them across.
+Column-level `ALTER`s are not applied, so the *columns* of an index row remain
+additive; rewriting an index definition from a rename Atlas never re-read
+would be a guess dressed as a fact.
+
 ### 5.16 control flow inside a symbol -- `cfg_*` (migration 0015)
 
 Added by issue #127. Until this migration a symbol was an opaque box with a
@@ -933,8 +959,28 @@ judge *at all*; `outcomes_taken` is how many of the decidable ones were taken.
 Decision coverage is `taken / decidable` -- **never** `taken / total`, which
 would charge a symbol for outcomes no instrumentation could have observed. A
 row with `outcomes_decidable = 0` means "no judgement was possible", which is
-a different fact from 0% and must not be rendered as one. An absent row means
-"never measured", which is different again.
+a different fact from 0% and must not be rendered as one.
+
+**UNDETERMINED is the third verdict, and it is stored, not implied.** Every
+outcome is `taken`, `not-taken`, or `undetermined`; the undetermined ones are
+exactly `outcomes_total - outcomes_decidable`, which the store exposes as
+`DecisionCoverage.Undetermined()`. There is no fourth column because the
+subtraction is exact, but there is also no reading of this table in which an
+undetermined outcome may be counted as untaken: it never enters the
+denominator and it never becomes a `flow.untested-branch` finding. The
+outcomes that land there are the ones no arithmetic over statement counts can
+recover -- a `&&` operand, a branch inside a loop, an `if` whose then-arm
+reaches the successor on some paths and leaves the function on others, and
+anything at all in a function containing a `goto` (see below).
+
+**An absent row means "never measured", which is different again -- and it is
+per FILE, not per run.** Supplying `--profile` is not the same as that profile
+covering a given file: profiling one package, an integration-test profile, or
+a package with no tests all produce a profile that names other files. The
+symbols in those files get **no row**. Writing a zero-valued row for them
+would record "measured, no branch taken" -- a claim about the tests that the
+run cannot support, and one indistinguishable from a genuinely untested
+function.
 
 **There is deliberately no MC/DC column.** MC/DC is not derivable from Go's
 statement coverage: the operands of `a && b` share one counter, so no profile
@@ -947,6 +993,16 @@ exactly the regulated-industry reader who can least afford to.
 **Confidence is mandatory on every finding.** A query inside a loop is a smell
 and not a proof -- one behind a cache is fine -- and a finding that does not
 say how sure it is gets muted wholesale the first time it is wrong.
+
+**`cfg_symbols.unreachable_blocks` is 0 for any function containing a `goto`,
+and that 0 means "nothing claimed".** The builder does not draw goto edges, so
+in such a function a label reached only by that goto has no predecessor in the
+graph and a reachability walk would report live code as dead -- at confidence
+`high`, which is the worst possible way to be wrong. `flow build` therefore
+computes nothing for those functions: no `flow.unreachable` rows, a zero
+count, and a note on the run saying how many functions were skipped and naming
+some of them. The same omission makes every successor-difference inference in
+that function `undetermined`.
 
 **Cascade.** All five follow `symbols`: a re-scan that drops a symbol drops its
 flow with it, so the store cannot accumulate orphan graphs no query can reach.
@@ -1005,6 +1061,40 @@ skipped therefore leaves the ledger — otherwise it accumulates into a record
 of every rule ever tried, and answers "why is this file not indexed?" with
 files that are. Sharing the transaction is what keeps the ledger and the index
 it explains describing the same scan.
+
+**Every ingest owns it, so every ingest must walk the same way.** Because the
+write is a replace and it rides `Store.Ingest`, ANY command that ingests
+rewrites the ledger — `atlas init`, `atlas scan` and `atlas snapshot` all do.
+That is only safe while they build their index with the same scan options: an
+ingest from a differently-configured walk would leave `--skipped` answering
+about a configuration the operator never ran. `atlas snapshot` therefore goes
+through the same option-derivation path as `atlas scan` rather than assembling
+its own `codeindex.Options`, and both pass `IngestOptions.GeneratedGlobs` so
+`detail` names a real config line. An ingest given no globs still records the
+rule; it just has no pattern to name.
+
+**The `scan.skipped_ledger_written_at` marker.** Zero rows in this table has
+two causes that mean opposite things: the last scan excluded nothing, or no
+scan has ever written a ledger here (a fresh database, or one built before
+migration 0016). The table cannot tell them apart — both are empty — so each
+ledger write also stamps a `config` row:
+
+| Key                              | Value                                                          |
+| -------------------------------- | -------------------------------------------------------------- |
+| `scan.skipped_ledger_written_at` | RFC 3339 (nanosecond) UTC instant of the most recent ledger write |
+
+It is written through the ingest's transaction handle like the rows, so a
+rolled-back ingest leaves neither behind, and it is the one `config` key not
+written by `atlas config set`. `atlas scan --skipped` reads it before the
+rows and reports "no exclusion ledger has been recorded" instead of "the last
+scan excluded no files" when it is absent — an absence is not a measurement.
+`--json` exposes the distinction as `ledger_present`.
+
+**Key spelling.** `file_path` is project-relative and slash-separated, so a
+lookup has to normalise an operator's input into that key space before
+matching (`./api/x.pb.go` and an absolute path are neither). A key the ledger
+does not contain means the last scan did not exclude it — NOT that the file
+was indexed, which this table has no way to know.
 
 **Not durable state.** Like the rest of this database it is a re-derivable
 cache: the next scan rebuilds it.

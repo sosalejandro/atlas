@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -166,29 +168,111 @@ func TestMCP_ServesAHandshakeAndAToolCallOverStdio(t *testing.T) {
 	}
 }
 
-// The working tree is what the agent will actually open. A file that never
-// existed cannot be trusted for line numbers, and the answer has to say so
-// rather than let the agent cite a span into nothing.
-func TestMCP_ReportsIndexFreshnessAgainstTheWorkingTree(t *testing.T) {
-	fix := newMCPFixture(t)
-	fix.seed(t)
+// indexFile writes a file into the fixture's working tree and records the
+// content hash a scan of it would have stored, so the file classifies as
+// `current` until the test edits it.
+//
+// Seeding a symbol in a file that does not exist (which is what this fixture
+// does by default) makes freshness report `absent` — non-current under ANY
+// mapping, so an assertion against it holds even if the mapping is inverted.
+// A real file with a real hash row is what gives the freshness assertions
+// teeth in both directions.
+func (f *mcpFixture) indexFile(t *testing.T, rel, content string) {
+	t.Helper()
+	f.writeWorkingTreeFile(t, rel, content)
 
+	sum := sha256.Sum256([]byte(content))
+	ctx := context.Background()
+	s, err := store.Open(ctx, f.dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.FileHashes().Upsert(ctx, store.FileHashRow{
+		FilePath: rel, ContentHash: hex.EncodeToString(sum[:]), ModTime: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("upsert file hash for %s: %v", rel, err)
+	}
+}
+
+func (f *mcpFixture) writeWorkingTreeFile(t *testing.T, rel, content string) {
+	t.Helper()
+	abs := filepath.Join(f.root, rel)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(abs), err)
+	}
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", abs, err)
+	}
+}
+
+// symbolInfoFreshness asks the running server for one symbol and returns the
+// index_freshness block of its answer.
+func symbolInfoFreshness(t *testing.T, fix *mcpFixture, qualifiedName string) map[string]any {
+	t.Helper()
 	responses := runMCPSession(t, fix,
 		map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize"},
 		map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"},
 		map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 			"params": map[string]any{"name": "symbol_info",
-				"arguments": map[string]any{"qualified_name": "internal/billing.Invoice"}}},
+				"arguments": map[string]any{"qualified_name": qualifiedName}}},
 	)
+	if len(responses) != 2 {
+		t.Fatalf("got %d response frames, want 2: %v", len(responses), responses)
+	}
 	res, _ := responses[1]["result"].(map[string]any)
 	sc, _ := res["structuredContent"].(map[string]any)
 	fresh, ok := sc["index_freshness"].(map[string]any)
 	if !ok {
 		t.Fatalf("symbol_info over the CLI carries no index_freshness: %v", sc)
 	}
-	bad, _ := fresh["untrustworthy_files"].([]any)
+	return fresh
+}
+
+// The working tree is what the agent will actually open. Both directions have
+// to be asserted: a file that still hashes to what the scanner recorded must
+// be reported as safe to cite, and the SAME file must flip to untrustworthy
+// the moment it changes. Asserting only the second direction passes under any
+// mapping that never says "current".
+func TestMCP_ReportsIndexFreshnessAgainstTheWorkingTree(t *testing.T) {
+	const path = "internal/billing/invoice.go"
+	const original = "package billing\n\nfunc Invoice() {}\n"
+
+	fix := newMCPFixture(t)
+	// PersistentPreRunE re-loads the config on every Execute, and its repoRoot
+	// comes from findRepoRoot() — the process's working directory. Without this
+	// the freshness hook would resolve the fixture's paths against the atlas
+	// checkout, where they do not exist, and every file would classify the same
+	// way whatever the fixture holds.
+	t.Chdir(fix.root)
+	fix.seed(t)
+	fix.indexFile(t, path, original)
+
+	fresh := symbolInfoFreshness(t, fix, "internal/billing.Invoice")
+	if got, _ := fresh["files_checked"].(float64); got != 1 {
+		t.Errorf("files_checked = %v, want the one file the answer cites", fresh["files_checked"])
+	}
+	if bad, _ := fresh["untrustworthy_files"].([]any); len(bad) != 0 {
+		t.Fatalf("untrustworthy_files = %v for a file that matches its recorded hash, want none", bad)
+	}
+	if note, _ := fresh["note"].(string); !strings.Contains(note, "safe to cite") {
+		t.Errorf("note = %q, want it to say the spans are safe to cite", note)
+	}
+
+	// The same file with one line inserted at the top: every span below it has
+	// moved, and the answer must stop vouching for them.
+	fix.writeWorkingTreeFile(t, path, "// edited after the scan\n"+original)
+
+	stale := symbolInfoFreshness(t, fix, "internal/billing.Invoice")
+	bad, _ := stale["untrustworthy_files"].([]any)
 	if len(bad) != 1 {
-		t.Fatalf("untrustworthy_files = %v, want the one file that is not in the working tree", fresh)
+		t.Fatalf("untrustworthy_files = %v after editing the file, want the one file that moved", stale)
+	}
+	if entry, _ := bad[0].(string); !strings.Contains(entry, path) || !strings.Contains(entry, "stale") {
+		t.Errorf("untrustworthy_files[0] = %q, want %s reported as stale", entry, path)
+	}
+	if note, _ := stale["note"].(string); !strings.Contains(note, "atlas scan") {
+		t.Errorf("note = %q, want it to name the command that repairs the index", note)
 	}
 }
 

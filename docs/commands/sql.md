@@ -33,6 +33,27 @@ exists to avoid, so:
 - every check that could not run reports itself under **Checks that did not
   run**, rather than passing by default.
 
+### One query, counted once
+
+A sqlc query exists twice in the sources: as the `-- name: X :many` block in
+the `.sql` file, and as the generated Go call that hands that same text —
+header comment and all — to `database/sql`. Counting both would count the
+whole data layer twice, which is not cosmetic: it doubles the operation count
+and it moves the resolved fraction, the number a CI gate reads.
+
+So `scan` reconciles them. The **`.sql` definition is the row that survives**:
+it is where the query is written, its `:one`/`:many` annotation is better
+evidence of the row shape than anything inferable from generated code, and its
+`file:line` is where a developer goes to change it. Suppression directives
+written at the generated call site are merged onto it, so a directive in
+either place still silences the advisory. The count is reported —
+"merged 12 generated call site(s) onto the .sql queries that define them" —
+because a gap between call sites read and operations reported would otherwise
+be unexplained.
+
+Only cross-source pairs merge. Two Go call sites issuing identical SQL are two
+places that can be slow, and collapsing them would hide one.
+
 The index checks obey the same rule. Where the target schema is unknown —
 no DDL was read, or the query names a table with no `CREATE TABLE` in the
 files that were read — the check says it did not run. It never assumes an
@@ -44,6 +65,7 @@ index is absent.
 atlas sql scan [path] [flags]     # extract into the Atlas store
 atlas sql list [flags]            # what was recorded
 atlas sql advise [flags]          # what is wrong with it
+atlas sql capabilities [flags]    # which tables each capability touches
 ```
 
 `scan` reads the working tree and writes the inventory. `list` and `advise`
@@ -61,16 +83,35 @@ than quietly recomputed against a tree that has moved on.
 | `param_count` | distinct bind parameters (`$1` repeated twice is one parameter; two bare `?` are two) |
 | `interpolation` | `concat` or `sprintf` when the query text was built rather than written |
 | `caller_data` | the interpolated value traces to a parameter of the enclosing function |
-| `has_limit` / `has_offset` / `has_order_by` | the bounding trio |
-| `keyset` | cursor pagination: a bound range predicate on a column the statement also orders by |
+| `has_limit` / `has_offset` / `has_order_by` | the bounding trio, and only for **this** statement — a `LIMIT` inside a subquery, a CTE body or an `IN (...)` list bounds that inner result set and is not credited to the outer one |
+| `keyset` | cursor pagination: a `LIMIT`, plus a caller-bound range predicate on the column the statement orders by **first** |
 | `offset_bound` | `none` / `parameter` / `literal` / `expression` — where the OFFSET's value comes from |
 | `row_scan` | `slice` / `single` / `exec` / `unknown` — what the call site does with the rows |
 | `symbol_name` | the enclosing symbol, so the operation joins the rest of the graph |
 
 `keyset` and `offset_bound` exist because conflating pagination styles gives
-bad advice. `WHERE (created_at, id) < ($1, $2) ORDER BY created_at DESC` is
-pagination even with no `OFFSET` and, in the LIMIT-less case, is bounded by
-its cursor rather than unbounded.
+bad advice. `WHERE (created_at, id) < ($1, $2) ORDER BY created_at DESC
+LIMIT 50` is pagination even though it has no `OFFSET`, and advising it to
+"add a LIMIT" would be nonsense.
+
+All three parts of `keyset` are required, because all three are what make a
+cursor walk bounded:
+
+- **a `LIMIT`.** The cursor says where the page *starts*, not how big it is:
+  `WHERE created_at < $1 ORDER BY created_at DESC` returns every row before
+  the cursor, which on the first page is the whole table.
+- **a caller-bound range predicate.** The cursor value comes from the previous
+  page, so it is a parameter. `WHERE created_at < '2024-01-01'` is a constant
+  filter.
+- **on the leading `ORDER BY` column.** An index walk advances along the
+  leading sort column; a range predicate on any other ordered column does not
+  move the cursor.
+
+A time window (`WHERE created_at > $1 ORDER BY id LIMIT 100`) and a recursion
+depth guard (`WHERE depth < $1`) meet the first two conditions and are not
+pagination. Anything short of the bar falls through to `sql.unbounded-list`,
+which is suppressible per site for the case where the caller really does apply
+the page size itself.
 
 ## Advisories
 
@@ -103,6 +144,15 @@ Deliberately **not** reported:
   carry a quote or a semicolon.
 - a table name formatted in from a package constant.
 
+Which argument a verb reads is worked out the way `fmt` does it, not by
+position: `%*s` takes its width from an argument of its own and shifts every
+later verb along, and `%[1]s` names its argument outright and moves the cursor
+for what follows. Zipping them positionally checks the wrong expression, which
+on this check means both missed findings and false ones. Where a format string
+contains a directive Atlas cannot account for at all, it stops claiming to
+know which argument lands in the text and weighs **every** argument — on a
+security check a silent miss is the expensive failure.
+
 Those queries are still recorded, as unresolved with their reason, where a
 reader can weigh them. The cost of this choice is real: a caller value that
 passes through a helper before reaching the query is missed. That is the
@@ -116,6 +166,28 @@ single most common real-world index mistake, so a table is considered served
 only when some index's **first** column is among the filtered ones. `LIKE`
 and `IS NULL` predicates are excluded — neither is evidence that an index is
 missing.
+
+### What "the schema" means here
+
+`sql_tables` and `sql_indexes` hold what Atlas **read**, not a mirror of a
+live database, and they are the schema as of the last migration rather than
+the union of everything ever declared:
+
+- **`*.down.sql` files are not read.** A rollback undoes its `up` sibling;
+  reading both leaves a table that was created once and dropped once sitting
+  in the inventory, and the "26 tables, 65 indexes" line overstates the schema
+  by exactly the migrations that have a rollback.
+- **`DROP TABLE`, `DROP INDEX` and `ALTER TABLE … RENAME TO` are applied**, in
+  file order then statement order. A dropped table leaves the inventory and
+  takes its indexes with it; a renamed one carries its indexes across.
+- **Columns are still additive.** `ALTER TABLE … DROP COLUMN` and
+  `RENAME COLUMN` are not applied: the inventory records *index* columns, and
+  rewriting an index definition Atlas never re-read would be a guess dressed
+  as a fact.
+- **`CREATE INDEX CONCURRENTLY`** and `IF NOT EXISTS` are understood. The
+  table is anchored on the `ON` keyword rather than on position, so an index
+  spelling Atlas has not met records nothing rather than recording an index
+  against a table that does not exist.
 
 ### Why the schema-wide checks abstain so readily
 
@@ -184,6 +256,45 @@ not a production data path.
 An unknown `--min-confidence` is an error rather than a silent default: a CI
 job filtering on a typo'd level would report a clean run forever.
 
+## Flags — `atlas sql capabilities`
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--feature` | — | show only this capability |
+
+`capabilities` rolls the recorded operations up to the capability that owns
+them: for each feature, the tables its queries read and the tables they write.
+It is the data behind "what does this capability touch" — the answer a privacy
+review, a migration blast radius, or a per-capability ERD is drawn from.
+
+The join is `feature_symbols → sql_operations → sql_operation_tables`, so a
+query reaches a capability only where the symbol it lives in is linked to one
+(`atlas scan` indexes those annotations). The output leads with how many of
+the recorded operations belong to any capability at all, because a rollup over
+a fifth of the inventory should not read like a rollup over all of it.
+
+**The footprint is a lower bound wherever a capability has unresolved
+queries.** Those queries touch tables Atlas could not see, so the row keeps its
+count and the line reads `PARTIAL`. A capability whose queries *all* failed to
+resolve still gets a row with an empty table set rather than being dropped:
+"nothing recorded" and "touches no data" are different answers, and only one
+of them is true.
+
+```
+$ atlas sql capabilities
+
+  42 operations: 38 resolved, 4 unresolved (90% of the data layer analysed)
+  17 of 42 operations belong to a capability
+
+  billing.invoice
+    reads:  customers, invoices, line_items
+    writes: invoices, outbox
+  search.query
+    reads:  documents
+    writes: (none)
+    PARTIAL: 2 of 5 queries could not be resolved; tables only they touch are missing
+```
+
 ## Example
 
 ```
@@ -219,9 +330,12 @@ $ atlas sql advise --min-confidence high
 
 ## `--json`
 
-All three verbs emit the standard v1 envelope. `sql.list` carries
-`operations`, `resolved`, `unresolved`, `resolved_fraction`; `sql.advise`
-carries `advisories`, `skipped_checks` and the same resolution counters.
+All four verbs emit the standard v1 envelope. `sql.scan` carries the counters
+plus `merged`; `sql.list` carries `operations`, `resolved`, `unresolved`,
+`resolved_fraction`; `sql.advise` carries `advisories`, `skipped_checks` and
+the same resolution counters; `sql.capabilities` carries `capabilities` (each
+with `reads`, `writes`, `operations` and `unresolved`) plus
+`linked_operations`.
 
 `resolved_fraction` and `skipped_checks` are part of the contract, not
 decoration: a consumer that gates a build on this output needs to know how
@@ -240,3 +354,7 @@ much of the data layer produced it and which checks abstained.
 - Atlas is not a query planner and not an APM. It says what a query *is* and
   whether an index *could* serve it; it does not estimate cost or read
   `EXPLAIN` output.
+- `capabilities` gives the table set behind a feature, not a drawing of it.
+  Rendering tables, the queries that touch them and their coverage as an ERD
+  is a UI surface this repository does not have; the rollup is the data it
+  would be drawn from.

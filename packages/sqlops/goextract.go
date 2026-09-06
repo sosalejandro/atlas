@@ -78,6 +78,7 @@ func ExtractGo(root string, opts ExtractOptions) ([]Operation, []string, error) 
 		warnings = append(warnings, dirWarn...)
 	}
 	sortOperations(ops)
+	assignOrdinals(ops)
 	return ops, warnings, nil
 }
 

@@ -3,13 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/audit"
 	"github.com/sosalejandro/atlas/packages/churn"
 	"github.com/sosalejandro/atlas/packages/sprintplan"
-	"github.com/sosalejandro/atlas/packages/store"
 )
 
 // Accepted values for `atlas sprint --rank`.
@@ -27,6 +26,7 @@ const (
 func newSprintCmd() *cobra.Command {
 	var top int
 	var rank string
+	hf := &hotspotsFlags{}
 	cmd := &cobra.Command{
 		Use:   "sprint",
 		Short: "Ranked backlog (gap-weighted feature priority)",
@@ -38,18 +38,23 @@ are applied when --top is unset.
 
 --rank churn multiplies each item's priority by how often its files
 actually change, so code that is broken AND moving sorts above code that
-is merely broken. It is the same model 'atlas hotspots' shows, and the
-churn factor is emitted alongside the priority so the ordering can be
-decomposed. The default ranking is unchanged.`,
+is merely broken. It is the same model 'atlas hotspots' shows, mined with
+the same flags (--window-days, --half-life-days, --max-files-per-commit,
+--exclude-message, --no-default-exclusions, --no-author-diversity), and
+the churn factor is emitted alongside the priority so the ordering can be
+decomposed. Those flags only mean anything under --rank churn, so setting
+one without it is an error rather than a silent no-op. The default
+ranking is unchanged.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSprint(cmd, top, rank)
+			return runSprint(cmd, top, rank, hf)
 		},
 	}
 	cmd.Flags().IntVar(&top, "top", 0,
 		"cap output to the top-N items (0 = full backlog or config default)")
 	cmd.Flags().StringVar(&rank, "rank", rankGap,
 		"ranking model: gap (health deficit only) or churn (deficit x change frequency)")
+	registerChurnFlags(cmd, hf)
 	return cmd
 }
 
@@ -58,35 +63,29 @@ type sprintResult struct {
 	Items []sprintplan.SprintItem `json:"items"`
 }
 
-func runSprint(cmd *cobra.Command, top int, rank string) error {
+func runSprint(cmd *cobra.Command, top int, rank string, hf *hotspotsFlags) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	rep, warnings, err := sprintChurn(ctx, rank)
+	rep, err := sprintChurn(ctx, cmd, rank, hf)
 	if err != nil {
 		return err
 	}
 
-	dbPath, err := resolveDBPath(loaded, flags.DBPath)
+	// openPlanner is shared with `atlas hotspots` so the two commands
+	// cannot drift: it is the same store, the same audit wiring, and the
+	// same reconciliation of the churn paths against the indexed ones.
+	s, p, rep, err := openPlanner(ctx, rep)
 	if err != nil {
-		return err
-	}
-	s, err := store.Open(ctx, dbPath)
-	if err != nil {
-		return fmt.Errorf("sprint: open store %s: %w", dbPath, err)
+		return fmt.Errorf("sprint: %w", err)
 	}
 	defer func() { _ = s.Close() }()
 
-	a := audit.New(s, audit.Options{
-		FreshnessWindow:     loaded.freshnessWindow(),
-		ContractDriftWindow: loaded.contractDriftWindow(),
-		GitBlame:            audit.NewGitBlame(loaded.repoRoot),
-	})
-	p := sprintplan.New(s, a, sprintplan.Options{
-		GitBlame: audit.NewGitBlame(loaded.repoRoot),
-		Churn:    rep,
-	})
+	var warnings []string
+	if rep != nil {
+		warnings = rep.Warnings
+	}
 
 	cap := top
 	if cap == 0 {
@@ -113,21 +112,36 @@ func runSprint(cmd *cobra.Command, top int, rank string) error {
 }
 
 // sprintChurn mines churn when --rank churn asked for it, and validates the
-// flag. A nil report is what switches sprintplan back to the gap ordering,
+// flags. A nil report is what switches sprintplan back to the gap ordering,
 // so "no churn" and "churn we failed to mine" must not look alike: a
 // mining failure is an error, not a silent fall-back to the old ranking.
-func sprintChurn(ctx context.Context, rank string) (*churn.Report, []string, error) {
+//
+// The mining flags are the ones `atlas hotspots` registers, so the promise
+// that this is the identical weighting holds all the way down to the
+// tuning. Setting one under --rank gap is rejected: a flag that changes
+// nothing is worse than a missing flag, because the user believes it did.
+func sprintChurn(
+	ctx context.Context, cmd *cobra.Command, rank string, hf *hotspotsFlags,
+) (*churn.Report, error) {
 	switch rank {
 	case rankGap:
-		return nil, nil, nil
-	case rankChurn:
-		rep, err := churn.Mine(ctx, churn.Options{Repo: loaded.repoRoot})
-		if err != nil {
-			return nil, nil, fmt.Errorf("sprint: mine churn: %w", err)
+		if set := changedChurnFlags(cmd); len(set) > 0 {
+			return nil, fmt.Errorf(
+				"sprint: %s only affect the churn ranking; pass --rank churn to use them",
+				strings.Join(set, ", "))
 		}
-		return rep, rep.Warnings, nil
+		return nil, nil
+	case rankChurn:
+		if err := hf.validate(); err != nil {
+			return nil, fmt.Errorf("sprint: %w", err)
+		}
+		rep, err := churn.Mine(ctx, hf.churnOptions(loaded.repoRoot))
+		if err != nil {
+			return nil, fmt.Errorf("sprint: mine churn: %w", err)
+		}
+		return rep, nil
 	default:
-		return nil, nil, fmt.Errorf("sprint: unknown --rank %q (want %q or %q)",
+		return nil, fmt.Errorf("sprint: unknown --rank %q (want %q or %q)",
 			rank, rankGap, rankChurn)
 	}
 }

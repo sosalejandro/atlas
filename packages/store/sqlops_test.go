@@ -131,6 +131,91 @@ func TestSQLOps_LinksToSymbolsByQualifiedName(t *testing.T) {
 	}
 }
 
+// The capability rollup is the data side of "which tables does this feature
+// touch": feature_symbols -> sql_operations -> sql_operation_tables, in one
+// pass. It is what a privacy review, a migration blast-radius check and an ERD
+// of a capability all read from.
+func TestSQLOps_CapabilityTables(t *testing.T) {
+	s, ctx := openSQLOpsStore(t)
+
+	listID, err := s.Symbols().Insert(ctx, SymbolRow{
+		QualifiedName: "UserRepo.List", Kind: shared.KindMethod,
+		FilePath: "repo.go", Line: 10,
+	})
+	if err != nil {
+		t.Fatalf("insert symbol: %v", err)
+	}
+	dynID, err := s.Symbols().Insert(ctx, SymbolRow{
+		QualifiedName: "UserRepo.Dynamic", Kind: shared.KindMethod,
+		FilePath: "repo.go", Line: 38,
+	})
+	if err != nil {
+		t.Fatalf("insert symbol: %v", err)
+	}
+	for _, f := range []shared.FeatureID{"users.list", "users.admin"} {
+		if err := s.Features().Upsert(ctx, Feature{ID: f, Title: string(f), Kind: FeatureKindFeature}); err != nil {
+			t.Fatalf("upsert feature %s: %v", f, err)
+		}
+	}
+	links := []FeatureSymbolLink{
+		{FeatureID: "users.list", SymbolID: listID, Role: RoleImpl, Source: SourceAnnotation},
+		// The same symbol under a second role must not count its query twice.
+		{FeatureID: "users.list", SymbolID: listID, Role: RoleContract, Source: SourceAnnotation},
+		{FeatureID: "users.admin", SymbolID: dynID, Role: RoleImpl, Source: SourceAnnotation},
+	}
+	for _, l := range links {
+		if err := s.FeatureSymbols().Link(ctx, l); err != nil {
+			t.Fatalf("link %+v: %v", l, err)
+		}
+	}
+
+	ops := sampleOps()
+	ops[0].Tables = append(ops[0].Tables, SQLTableAccess{Table: "audit_log", Access: "write"})
+	if err := s.SQLOps().Replace(ctx, ops); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+
+	got, err := s.SQLOps().CapabilityTables(ctx)
+	if err != nil {
+		t.Fatalf("CapabilityTables: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("rollup = %+v, want one row per capability that issues a query", got)
+	}
+
+	byID := map[string]SQLCapabilityTables{}
+	for _, c := range got {
+		byID[c.FeatureID] = c
+	}
+
+	list := byID["users.list"]
+	if strings.Join(list.Reads, ",") != "users" || strings.Join(list.Writes, ",") != "audit_log" {
+		t.Errorf("users.list footprint = reads %v / writes %v, want users / audit_log", list.Reads, list.Writes)
+	}
+	if list.Operations != 1 || list.Unresolved != 0 {
+		t.Errorf("users.list counts = %d ops / %d unresolved, want 1/0 -- a symbol linked under two roles is still one query",
+			list.Operations, list.Unresolved)
+	}
+	if !list.Complete() {
+		t.Error("users.list resolved fully; its footprint is not a lower bound")
+	}
+
+	// The capability whose only query atlas could not read keeps its row, with
+	// an empty table set and the unresolved count that explains it. Dropping
+	// the row would read as "this capability touches no data", which is the
+	// confident wrong answer.
+	admin := byID["users.admin"]
+	if len(admin.Reads) != 0 || len(admin.Writes) != 0 {
+		t.Errorf("users.admin footprint = %+v, want empty", admin)
+	}
+	if admin.Operations != 1 || admin.Unresolved != 1 {
+		t.Errorf("users.admin counts = %d/%d, want 1/1", admin.Operations, admin.Unresolved)
+	}
+	if admin.Complete() {
+		t.Error("a capability with an unresolved query must not report a complete footprint")
+	}
+}
+
 func TestSQLOps_Resolution(t *testing.T) {
 	s, ctx := openSQLOpsStore(t)
 	if err := s.SQLOps().Replace(ctx, sampleOps()); err != nil {

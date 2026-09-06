@@ -175,12 +175,56 @@ func TestBuild_DeferIsNotABranch(t *testing.T) {
 func TestBuild_EarlyReturnReachesExit(t *testing.T) {
 	graphs := fixture(t)
 	g := graphs["Unreachable"]
-	if got := g.Unreachable(); len(got) != 1 {
+	got, sound := g.Unreachable()
+	if !sound {
+		t.Fatal("Unreachable: the fixture has no goto, so the answer must be sound")
+	}
+	if len(got) != 1 {
 		t.Fatalf("Unreachable() = %v, want exactly one block", got)
 	}
 	sum := graphs["Sum"]
-	if got := sum.Unreachable(); len(got) != 0 {
-		t.Errorf("Sum: Unreachable() = %v, want none", got)
+	if got, sound := sum.Unreachable(); !sound || len(got) != 0 {
+		t.Errorf("Sum: Unreachable() = %v (sound=%v), want none and sound", got, sound)
+	}
+}
+
+// TestBuild_UnreachableDeclinesOverAGotoGraph is the refusal that keeps
+// `flow.unreachable` honest. The builder does not draw goto edges, so a label
+// reached only by a goto has no incoming edge in the graph — and reporting it
+// as dead code would be a confident wrong answer over a graph known to be
+// incomplete. "Cannot determine" is the correct answer and is always
+// available.
+func TestBuild_UnreachableDeclinesOverAGotoGraph(t *testing.T) {
+	g := fixture(t)["Jumping"]
+	if !g.HasGoto {
+		t.Fatal("Jumping contains a goto; the graph must record that it is not modelled")
+	}
+	blocks, sound := g.Unreachable()
+	if sound {
+		t.Error("the unreachable analysis must decline over a graph missing goto edges")
+	}
+	if len(blocks) != 0 {
+		t.Errorf("a declined analysis must claim nothing, got blocks %v", blocks)
+	}
+}
+
+// TestBuild_PanicLeavesTheFunction: `panic` ends a path exactly as `return`
+// does. Without the exit edge, an arm ending in a panic looks like it falls
+// through to the statement after the branch, and the coverage analysis would
+// difference two counts that never both happened.
+func TestBuild_PanicLeavesTheFunction(t *testing.T) {
+	g := parseFuncSource(t, `package p
+func f(bad bool) int {
+	if bad {
+		panic("no")
+	}
+	return 1
+}`)
+	if len(g.Decisions) != 1 {
+		t.Fatalf("decisions = %d, want 1", len(g.Decisions))
+	}
+	if !g.Decisions[0].Arms[0].Terminates {
+		t.Error("an arm whose only statement is a panic does not fall through to the successor")
 	}
 }
 

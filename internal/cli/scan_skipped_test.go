@@ -179,6 +179,231 @@ func TestScanSkipped_PathFilter(t *testing.T) {
 	}
 }
 
+// `atlas snapshot` ingests into the SAME database as `atlas scan`, so its
+// ingest touches the shared exclusion ledger. It must not answer the
+// operator's "why is this file not indexed?" with a walk they never ran:
+// api/schema.pb.go is excluded by a configured glob, and a snapshot built
+// from a different set of generated-code rules would quietly drop that row
+// and leave --skipped reporting the file as never excluded.
+func TestScanSkipped_SnapshotDoesNotRewriteTheLedger(t *testing.T) {
+	fix := newSkippedFixture(t)
+	if _, stderr, err := runScanCmd(t, fix, "--root", generatedFixtureRoot); err != nil {
+		t.Fatalf("scan: %v\nstderr: %s", err, stderr)
+	}
+	before := skippedByPath(t, fix)
+	if _, ok := before["api/schema.pb.go"]; !ok {
+		t.Fatalf("precondition: the scan did not record the glob exclusion: %v", before)
+	}
+
+	if _, stderr, err := runSnapshotCmd(t, fix, "--root", generatedFixtureRoot); err != nil {
+		t.Fatalf("snapshot: %v\nstderr: %s", err, stderr)
+	}
+
+	after := skippedByPath(t, fix)
+	pb, ok := after["api/schema.pb.go"]
+	if !ok {
+		t.Fatalf("the snapshot dropped api/schema.pb.go from the ledger; "+
+			"--skipped now answers about the snapshot's configuration, not the "+
+			"scan's: %v", after)
+	}
+	if got := jsonStr(pb["detail"]); got != "**/*.pb.go" {
+		t.Errorf("api/schema.pb.go detail after snapshot = %q, want **/*.pb.go", got)
+	}
+	if len(after) != len(before) {
+		t.Errorf("ledger changed size across a snapshot: %d → %d\nbefore %v\nafter %v",
+			len(before), len(after), before, after)
+	}
+}
+
+// Zero rows has two causes that mean opposite things. A database no scan has
+// touched knows nothing about exclusions; reporting that as "the last scan
+// excluded no files" turns an absence into a measurement.
+func TestScanSkipped_NoLedgerIsNotAnEmptyLedger(t *testing.T) {
+	fix := newSkippedFixture(t)
+
+	stdout, _, err := runScanCmd(t, fix, "--skipped")
+	if err != nil {
+		t.Fatalf("scan --skipped on a fresh db: %v", err)
+	}
+	if strings.Contains(stdout, "excluded no files") {
+		t.Errorf("a never-scanned database reports the last scan excluded "+
+			"nothing:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "No exclusion ledger") {
+		t.Errorf("output does not say the ledger is missing:\n%s", stdout)
+	}
+	if present := skippedEnvelope(t, fix, "--skipped").LedgerPresent; present {
+		t.Error("ledger_present is true on a database that has never been scanned")
+	}
+
+	// Same query with --skipped-path must not claim the file is fine either.
+	stdout, _, err = runScanCmd(t, fix, "--skipped-path", "generated/legacy.go")
+	if err != nil {
+		t.Fatalf("scan --skipped-path on a fresh db: %v", err)
+	}
+	if !strings.Contains(stdout, "Cannot determine") {
+		t.Errorf("a fresh database answers a per-file query without saying it "+
+			"cannot determine anything:\n%s", stdout)
+	}
+
+	// A scan that genuinely excludes nothing is the other cause, and it must
+	// read differently.
+	if _, stderr, err := runScanCmd(t, fix,
+		"--root", generatedFixtureRoot, "--include-generated"); err != nil {
+		t.Fatalf("scan --include-generated: %v\nstderr: %s", err, stderr)
+	}
+	stdout, _, err = runScanCmd(t, fix, "--skipped")
+	if err != nil {
+		t.Fatalf("scan --skipped after an empty scan: %v", err)
+	}
+	if !strings.Contains(stdout, "excluded no files") {
+		t.Errorf("a scan that excluded nothing is not reported as such:\n%s", stdout)
+	}
+	if env := skippedEnvelope(t, fix, "--skipped"); !env.LedgerPresent {
+		t.Error("ledger_present is false after a scan that recorded an empty ledger")
+	}
+}
+
+// The ledger key is a project-relative slash path. The two spellings an
+// operator actually types are neither: a shell tab-completed `./generated/…`
+// and the absolute path an editor handed them. Both used to miss, and a miss
+// used to read as "this file IS indexed".
+func TestScanSkipped_PathSpellingsResolveToTheLedgerKey(t *testing.T) {
+	fix := newSkippedFixture(t)
+	if _, stderr, err := runScanCmd(t, fix, "--root", generatedFixtureRoot); err != nil {
+		t.Fatalf("scan: %v\nstderr: %s", err, stderr)
+	}
+	absRoot, err := filepath.Abs(generatedFixtureRoot)
+	if err != nil {
+		t.Fatalf("abs fixture root: %v", err)
+	}
+
+	for _, spelling := range []string{
+		"./generated/legacy.go",
+		"generated/./legacy.go",
+		filepath.Join(absRoot, "generated", "legacy.go"),
+	} {
+		entries := skippedJSON(t, fix,
+			"--root", generatedFixtureRoot, "--skipped-path", spelling)
+		if len(entries) != 1 {
+			t.Errorf("--skipped-path %q returned %d entries, want 1: the "+
+				"lookup did not normalise the path to the ledger key",
+				spelling, len(entries))
+			continue
+		}
+		if got := jsonStr(entries[0]["rule"]); got != "generated-dir" {
+			t.Errorf("--skipped-path %q rule = %q, want generated-dir", spelling, got)
+		}
+	}
+}
+
+// A path the ledger does not mention is not thereby indexed: it may have
+// been outside the scan root, or deleted, or spelled for another tree. The
+// ledger records exclusions and nothing else, and the output has to say so.
+func TestScanSkipped_MissReportsAbsenceNotIndexing(t *testing.T) {
+	fix := newSkippedFixture(t)
+	if _, stderr, err := runScanCmd(t, fix, "--root", generatedFixtureRoot); err != nil {
+		t.Fatalf("scan: %v\nstderr: %s", err, stderr)
+	}
+
+	stdout, _, err := runScanCmd(t, fix,
+		"--root", generatedFixtureRoot, "--skipped-path", "./handwritten.go")
+	if err != nil {
+		t.Fatalf("--skipped-path handwritten.go: %v", err)
+	}
+	if !strings.Contains(stdout, "not in the exclusion ledger") {
+		t.Errorf("a miss is not reported as an absence from the ledger:\n%s", stdout)
+	}
+	// The normalised key, not the raw spelling, is what was looked up.
+	if !strings.Contains(stdout, "handwritten.go") {
+		t.Errorf("output does not name the path that was queried:\n%s", stdout)
+	}
+}
+
+// `atlas init` writes the first ledger a database ever has, and the docs
+// promise the detail column names the matching glob. Without the configured
+// globs on the ingest, every glob-claimed file gets an empty detail —
+// "generated-glob" with no pattern, which names no line of atlas.yaml and so
+// tells the operator nothing they can act on.
+func TestScanSkipped_InitRecordsTheMatchingGlob(t *testing.T) {
+	fix := newSkippedFixture(t)
+	if _, stderr, err := runInitCmd(t, fix, "--root", generatedFixtureRoot); err != nil {
+		t.Fatalf("init: %v\nstderr: %s", err, stderr)
+	}
+
+	byPath := skippedByPath(t, fix)
+	pb, ok := byPath["api/schema.pb.go"]
+	if !ok {
+		t.Fatalf("init recorded no ledger entry for api/schema.pb.go: %v", byPath)
+	}
+	if got := jsonStr(pb["detail"]); got != "**/*.pb.go" {
+		t.Errorf("api/schema.pb.go detail after init = %q, want **/*.pb.go: the "+
+			"ledger names the rule but not the config line behind it", got)
+	}
+}
+
+// runInitCmd drives `atlas init` against the fixture DB.
+func runInitCmd(t *testing.T, fix *skippedFixture, args ...string) (string, string, error) {
+	t.Helper()
+	root := NewRootCmd()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs(append([]string{
+		"init",
+		"--db-path", fix.dbPath,
+		"--config", fix.configPath,
+	}, args...))
+	err := root.ExecuteContext(context.Background())
+	return stdout.String(), stderr.String(), err
+}
+
+// runSnapshotCmd drives `atlas snapshot` against the same fixture DB.
+func runSnapshotCmd(t *testing.T, fix *skippedFixture, args ...string) (string, string, error) {
+	t.Helper()
+	root := NewRootCmd()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs(append([]string{
+		"snapshot",
+		"--db-path", fix.dbPath,
+		"--config", fix.configPath,
+	}, args...))
+	err := root.ExecuteContext(context.Background())
+	return stdout.String(), stderr.String(), err
+}
+
+// skippedByPath reads the whole ledger back keyed by file_path.
+func skippedByPath(t *testing.T, fix *skippedFixture) map[string]map[string]any {
+	t.Helper()
+	byPath := map[string]map[string]any{}
+	for _, e := range skippedJSON(t, fix, "--skipped") {
+		byPath[jsonStr(e["file_path"])] = e
+	}
+	return byPath
+}
+
+// skippedEnvelope exposes the fields of the result that are not rows.
+type skippedResultJSON struct {
+	LedgerPresent bool `json:"ledger_present"`
+}
+
+func skippedEnvelope(t *testing.T, fix *skippedFixture, args ...string) skippedResultJSON {
+	t.Helper()
+	stdout, stderr, err := runScanCmd(t, fix, append([]string{"--json"}, args...)...)
+	if err != nil {
+		t.Fatalf("scan --json %v: %v\nstderr: %s", args, err, stderr)
+	}
+	var env struct {
+		Result skippedResultJSON `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v\n%s", err, stdout)
+	}
+	return env.Result
+}
+
 // skippedJSON runs the read path under --json and returns the entries.
 func skippedJSON(t *testing.T, fix *skippedFixture, args ...string) []map[string]any {
 	t.Helper()

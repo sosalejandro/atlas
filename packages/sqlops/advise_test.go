@@ -83,10 +83,28 @@ func TestAdvise_PaginationAndBoundedness(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "keyset walk is bounded by its cursor, not by LIMIT",
-			sql:  "SELECT id FROM events WHERE created_at < $1 ORDER BY created_at DESC",
+			name: "keyset walk with a page size is bounded",
+			sql:  "SELECT id FROM events WHERE created_at < $1 ORDER BY created_at DESC LIMIT $2",
 			scan: ScanSlice,
 			want: "",
+		},
+		{
+			// The cursor says where the page STARTS, not how big it is: this
+			// returns every row before the cursor, which on the first page is
+			// the whole table. It used to be classified as keyset pagination
+			// and skipped entirely.
+			name: "cursor predicate with no page size is still an unbounded read",
+			sql:  "SELECT id FROM events WHERE created_at < $1 ORDER BY created_at DESC",
+			scan: ScanSlice,
+			want: "sql.unbounded-list",
+		},
+		{
+			// A LIMIT inside a subquery bounds the subquery. The outer read
+			// still returns a row per matching event.
+			name: "limit inside a subquery does not bound the outer read",
+			sql:  "SELECT id FROM events WHERE id IN (SELECT id FROM users LIMIT 10)",
+			scan: ScanSlice,
+			want: "sql.unbounded-list",
 		},
 		{
 			name: "limit and offset with no order by",

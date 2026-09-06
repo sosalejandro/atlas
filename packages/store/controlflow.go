@@ -73,11 +73,16 @@ type FlowMetrics struct {
 	// atomic conditions exist, and how many could in principle be varied on
 	// their own. They are NOT an MC/DC result — no statement-coverage profile
 	// can produce one — and any surface printing them must say so.
-	Conditions            int       `json:"conditions"`
-	ConditionsIndependent int       `json:"conditions_independent"`
-	Defers                int       `json:"defers"`
-	UnreachableBlocks     int       `json:"unreachable_blocks"`
-	BuiltAt               time.Time `json:"built_at"`
+	Conditions            int `json:"conditions"`
+	ConditionsIndependent int `json:"conditions_independent"`
+	Defers                int `json:"defers"`
+	// UnreachableBlocks is 0 for any function containing a `goto`, and that 0
+	// means "nothing claimed", not "none found". The builder does not draw
+	// goto edges, so a label reached only by one has no predecessor in the
+	// graph and a reachability walk there would report live code as dead. The
+	// writer declines instead, and says so on the run.
+	UnreachableBlocks int       `json:"unreachable_blocks"`
+	BuiltAt           time.Time `json:"built_at"`
 }
 
 // SymbolFlow is a symbol's whole control-flow record.
@@ -94,6 +99,15 @@ type SymbolFlow struct {
 // outcome the source has; OutcomesDecidable is how many of those a statement-
 // coverage profile can judge at all (a `&&` operand's outcome never is);
 // OutcomesTaken is how many of the decidable ones were taken.
+//
+// Every outcome therefore carries one of three verdicts, and the third is a
+// verdict and not a gap: taken, not taken, or UNDETERMINED. The undetermined
+// ones are OutcomesTotal - OutcomesDecidable, exposed as Undetermined().
+//
+// The absence of a row is a fourth state again — "never measured" — and it is
+// what a symbol whose file no profile covered must be left in. A zero-valued
+// row would read as "no branch was taken", which is a claim about the tests
+// that nothing in that run supports.
 type DecisionCoverage struct {
 	SymbolID          int64     `json:"symbol_id"`
 	OutcomesTotal     int       `json:"outcomes_total"`
@@ -116,9 +130,11 @@ func (d DecisionCoverage) Percent() (float64, bool) {
 	return 100 * float64(d.OutcomesTaken) / float64(d.OutcomesDecidable), true
 }
 
-// Undecidable is the size of the blind spot: outcomes that exist in the source
-// and that no statement-coverage profile can judge.
-func (d DecisionCoverage) Undecidable() int {
+// Undetermined is the size of the blind spot: outcomes that exist in the
+// source and that no statement-coverage profile can judge. They are neither
+// taken nor untaken, and a surface that renders them as either is reporting a
+// verdict the data does not contain.
+func (d DecisionCoverage) Undetermined() int {
 	n := d.OutcomesTotal - d.OutcomesDecidable
 	if n < 0 {
 		return 0

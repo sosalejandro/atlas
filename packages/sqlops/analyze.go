@@ -22,6 +22,7 @@ package sqlops
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 )
 
 // Options configures a full analysis pass.
@@ -55,6 +56,13 @@ type Report struct {
 	// fraction of the data layer it was computed over.
 	Resolved   int `json:"resolved"`
 	Unresolved int `json:"unresolved"`
+
+	// Merged is how many generated call sites were reconciled onto the .sql
+	// query that defines them. It is reported rather than quietly applied
+	// because it changes the denominator of the resolved fraction, and a
+	// number that moves for reasons the report does not explain is a number
+	// nobody trusts.
+	Merged int `json:"merged"`
 
 	// SchemaDirs and QueryDirs record what was actually read, so a reader can
 	// see why a check reports "not run".
@@ -108,8 +116,9 @@ func Analyze(opts Options) (Report, error) {
 		return Report{}, err
 	}
 
-	rep.Operations = append(goOps, sqlOps...)
+	rep.Operations, rep.Merged = reconcile(goOps, sqlOps)
 	sortOperations(rep.Operations)
+	assignOrdinals(rep.Operations)
 	for _, op := range rep.Operations {
 		if op.Resolved {
 			rep.Resolved++
@@ -122,6 +131,65 @@ func Analyze(opts Options) (Report, error) {
 		rep.Advisories, rep.Skipped = res.Advisories, res.Skipped
 	}
 	return rep, nil
+}
+
+// reconcile folds the two views of a sqlc project into one.
+//
+// A sqlc query exists twice in the sources: as the `-- name: X :many` block in
+// the .sql file, and as the generated Go call that passes that same text --
+// header comment and all -- to database/sql. Counting both counts every query
+// in the data layer twice. That is not a cosmetic inflation: it doubles the
+// operation count, and it moves the resolved fraction, which is the number the
+// honesty contract rests on and the one a CI gate reads.
+//
+// The .sql operation is the one kept. It is the definition rather than a
+// generated echo of it, its `:one`/`:many` annotation is better evidence of
+// the row shape than any inference from the generated body, and its file:line
+// is where a developer would go to change the query. The generated call's
+// suppression directives are merged onto it so a directive written in either
+// place still silences the advisory.
+//
+// Only cross-source pairs merge. Two Go call sites issuing identical SQL are
+// two places that can be slow, and collapsing them would hide one.
+func reconcile(goOps, sqlOps []Operation) ([]Operation, int) {
+	byName := make(map[string]int, len(sqlOps))
+	for i, op := range sqlOps {
+		if op.Name != "" {
+			byName[op.Name] = i
+		}
+	}
+	out := make([]Operation, 0, len(goOps)+len(sqlOps))
+	merged := 0
+	for _, op := range goOps {
+		name := sqlcQueryName(op.SQL)
+		i, ok := byName[name]
+		if name == "" || !ok {
+			out = append(out, op)
+			continue
+		}
+		sqlOps[i].Suppressions = mergeSuppressions(sqlOps[i].Suppressions, op.Suppressions)
+		merged++
+	}
+	return append(out, sqlOps...), merged
+}
+
+// sqlcQueryName reads the `-- name: X :many` header sqlc copies verbatim into
+// the query text it generates. The header must be the first thing in the text:
+// a `-- name:` line further down belongs to some other query that happens to
+// have been pasted along, and matching on it would merge two queries that are
+// not the same one.
+func sqlcQueryName(sqlText string) string {
+	for _, line := range strings.Split(sqlText, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if m := nameAnnotationRe.FindStringSubmatch(line); m != nil {
+			return m[1]
+		}
+		return ""
+	}
+	return ""
 }
 
 // resolveInputDirs turns the caller's (possibly empty) directory lists into

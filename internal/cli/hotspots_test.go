@@ -21,9 +21,28 @@ import (
 type hotspotsFixture struct {
 	root   string
 	dbPath string
+	// prefix is the sub-directory the source files live in, relative to
+	// the git top level. Empty for the common case; set by
+	// newHotspotsSubdirFixture to reproduce `atlas scan --root <subdir>`,
+	// where the churn namespace and the index namespace differ.
+	prefix string
 }
 
 func newHotspotsFixture(t *testing.T) *hotspotsFixture {
+	t.Helper()
+	return newHotspotsFixtureUnder(t, "")
+}
+
+// newHotspotsSubdirFixture puts the source under a sub-directory while the
+// git history stays at the repository root — the layout `atlas scan --root
+// svc` produces, where indexed file paths are relative to `svc` and mined
+// churn paths are relative to the top level.
+func newHotspotsSubdirFixture(t *testing.T) *hotspotsFixture {
+	t.Helper()
+	return newHotspotsFixtureUnder(t, "svc")
+}
+
+func newHotspotsFixtureUnder(t *testing.T, prefix string) *hotspotsFixture {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
@@ -37,7 +56,11 @@ func newHotspotsFixture(t *testing.T) *hotspotsFixture {
 	if err := os.MkdirAll(filepath.Join(dir, ".atlas"), 0o755); err != nil {
 		t.Fatalf("mkdir .atlas: %v", err)
 	}
-	f := &hotspotsFixture{root: dir, dbPath: filepath.Join(dir, ".atlas", "atlas.db")}
+	f := &hotspotsFixture{
+		root:   dir,
+		dbPath: filepath.Join(dir, ".atlas", "atlas.db"),
+		prefix: prefix,
+	}
 	f.initRepo(t)
 	t.Chdir(dir) // so findRepoRoot() resolves to the fixture, not the atlas checkout
 	return f
@@ -56,9 +79,16 @@ func (f *hotspotsFixture) git(t *testing.T, args ...string) {
 	}
 }
 
+// write writes one source file. name is the path the INDEX would carry —
+// relative to the scan root — so the fixture prepends the sub-directory
+// prefix, exactly as the two namespaces differ in the real command.
 func (f *hotspotsFixture) write(t *testing.T, name, body string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(f.root, name), []byte(body), 0o600); err != nil {
+	full := filepath.Join(f.root, f.prefix, name)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatalf("mkdir for %s: %v", name, err)
+	}
+	if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
 }
@@ -269,7 +299,45 @@ func TestHotspots_TopCapsOutput(t *testing.T) {
 func TestHotspots_ShallowCloneWarns(t *testing.T) {
 	f := newHotspotsFixture(t)
 	f.seed(t)
-	// A shallow clone of the fixture, cloned into place as its own repo.
+	sf := shallowCloneOf(t, f)
+
+	out, _, err := runHotspotsCmd(t, sf, "--json")
+	if err != nil {
+		t.Fatalf("hotspots: %v", err)
+	}
+	if !strings.Contains(out, "shallow") {
+		t.Errorf("a shallow clone must be reported; every ranking taken in CI depends on it:\n%s", out)
+	}
+	if !strings.Contains(out, `"status": "unknown"`) {
+		t.Errorf("shallow churn must be unknown, not zero:\n%s", out)
+	}
+}
+
+// The shallow-clone warning is documented as going to stdout, alongside
+// the ranking, like every other warning internal/cli emits. Docs and
+// behaviour have to agree: a user grepping the wrong stream sees a clean
+// run over a truncated history.
+func TestHotspots_ShallowWarningGoesToStdout(t *testing.T) {
+	f := newHotspotsFixture(t)
+	f.seed(t)
+	sf := shallowCloneOf(t, f)
+
+	stdout, stderr, err := runHotspotsCmd(t, sf)
+	if err != nil {
+		t.Fatalf("hotspots: %v", err)
+	}
+	if !strings.Contains(stdout, "WARN: shallow clone") {
+		t.Errorf("the shallow-clone warning must be on stdout:\nstdout=%q\nstderr=%q", stdout, stderr)
+	}
+	if strings.Contains(stderr, "shallow") {
+		t.Errorf("nothing about the warning belongs on stderr; the docs say stdout:\n%q", stderr)
+	}
+}
+
+// shallowCloneOf re-clones the fixture at depth 1 and moves its state file
+// across, so the command runs against a truncated history.
+func shallowCloneOf(t *testing.T, f *hotspotsFixture) *hotspotsFixture {
+	t.Helper()
 	shallow := t.TempDir()
 	if resolved, err := filepath.EvalSymlinks(shallow); err == nil {
 		shallow = resolved
@@ -284,18 +352,102 @@ func TestHotspots_ShallowCloneWarns(t *testing.T) {
 	if err := os.Rename(f.dbPath, filepath.Join(shallow, ".atlas", "atlas.db")); err != nil {
 		t.Fatalf("move db: %v", err)
 	}
-	sf := &hotspotsFixture{root: shallow, dbPath: filepath.Join(shallow, ".atlas", "atlas.db")}
 	t.Chdir(shallow)
+	return &hotspotsFixture{
+		root:   shallow,
+		dbPath: filepath.Join(shallow, ".atlas", "atlas.db"),
+		prefix: f.prefix,
+	}
+}
 
-	out, _, err := runHotspotsCmd(t, sf, "--json")
+// Churn is mined at the git top level; symbol file_path is relative to the
+// scan root. `atlas scan --root svc` makes those different namespaces, and
+// joining them by string equality misses every file — which does not look
+// like a failure, it looks like a repository where nothing ever changes.
+func TestHotspots_SubdirectoryScanRootStillRanks(t *testing.T) {
+	f := newHotspotsSubdirFixture(t)
+	f.seed(t)
+
+	out, _, err := runHotspotsCmd(t, f)
+	if err != nil {
+		t.Fatalf("hotspots: %v\n%s", err, out)
+	}
+	hot := strings.Index(out, "hot.feature")
+	dead := strings.Index(out, "dead.feature")
+	if hot < 0 || dead < 0 {
+		t.Fatalf("both features should be listed:\n%s", out)
+	}
+	if hot > dead {
+		t.Errorf("churn did not join the index across the scan-root offset, "+
+			"so the ranking fell back to a tie:\n%s", out)
+	}
+	if !strings.Contains(out, "hot.go") {
+		t.Errorf("the hot file must still be named in the report:\n%s", out)
+	}
+	if !strings.Contains(out, "rebased") {
+		t.Errorf("a rebased join changes what the numbers cover and must be reported:\n%s", out)
+	}
+}
+
+// The other half of the same finding: when the two namespaces cannot be
+// reconciled, say so. A neutral 50 for every feature with no explanation is
+// a ranking-shaped answer to a question git was never asked.
+func TestHotspots_UnjoinableIndexIsReportedNotGuessed(t *testing.T) {
+	f := newHotspotsFixture(t)
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, f.dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	// One feature whose only file git has never heard of, under a name
+	// that matches nothing in the tree: no sub-directory can map it.
+	fid := shared.FeatureID("ghost.feature")
+	if err := s.Features().Upsert(ctx, store.Feature{ID: fid, Title: "ghost"}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	sid, err := s.Symbols().Insert(ctx, store.SymbolRow{
+		QualifiedName: shared.SymbolID("ghost.Run"),
+		Kind:          shared.KindFunc, FilePath: "nowhere/ghost.go", Line: 1,
+	})
+	if err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+	if err := s.FeatureSymbols().Link(ctx, store.FeatureSymbolLink{
+		FeatureID: fid, SymbolID: sid,
+		Role: store.RoleImpl, Source: store.SourceAnnotation,
+	}); err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	_ = s.Close()
+
+	out, _, err := runHotspotsCmd(t, f)
 	if err != nil {
 		t.Fatalf("hotspots: %v", err)
 	}
-	if !strings.Contains(out, "shallow") {
-		t.Errorf("a shallow clone must be reported; every ranking taken in CI depends on it:\n%s", out)
+	if !strings.Contains(out, "cannot be joined") {
+		t.Errorf("an index churn cannot speak for must be reported as such:\n%s", out)
 	}
-	if !strings.Contains(out, `"status": "unknown"`) {
-		t.Errorf("shallow churn must be unknown, not zero:\n%s", out)
+}
+
+// churn.Options spells "use the default" as the zero value, so an explicit
+// zero would be silently replaced by 365 while the args block echoed the 0
+// the user typed. The churn-meta block exists to make the score
+// interpretable; it cannot be allowed to report a window nobody asked for.
+func TestHotspots_ZeroValuedTuningFlagsAreRejected(t *testing.T) {
+	f := newHotspotsFixture(t)
+	f.seed(t)
+	for _, args := range [][]string{
+		{"--window-days", "0"},
+		{"--half-life-days", "0"},
+		{"--max-files-per-commit", "0"},
+		{"--window-days", "-1"},
+	} {
+		out, _, err := runHotspotsCmd(t, f, args...)
+		if err == nil {
+			t.Errorf("hotspots %v was accepted; a zero-valued tuning flag is "+
+				"silently replaced by the default:\n%s", args, out)
+		}
 	}
 }
 
@@ -374,6 +526,82 @@ func TestSprint_RankChurnIsOptIn(t *testing.T) {
 	}
 	if len(env.Result.Items) == 0 || env.Result.Items[0].FeatureID != "hot.feature" {
 		t.Errorf("churn-weighted sprint did not put hot.feature first: %+v", env.Result.Items)
+	}
+}
+
+// `sprint --rank churn` documents itself as the identical weighting, so it
+// has to accept the identical tuning. Hardcoding the package defaults made
+// the claim false: every hotspots flag was silently unavailable.
+func TestSprint_ChurnTuningFlagsAreWiredAndApply(t *testing.T) {
+	f := newHotspotsFixture(t)
+	f.seed(t)
+
+	for _, name := range churnFlagNames {
+		if newSprintCmd().Flags().Lookup(name) == nil {
+			t.Errorf("atlas sprint is missing --%s, so --rank churn cannot be tuned", name)
+		}
+	}
+
+	churnOf := func(t *testing.T, args ...string) map[string]float64 {
+		t.Helper()
+		out, err := runSprintCmd(t, f, append([]string{"--json", "--rank", "churn"}, args...)...)
+		if err != nil {
+			t.Fatalf("sprint --rank churn %v: %v", args, err)
+		}
+		var env struct {
+			Result struct {
+				Items []struct {
+					FeatureID string `json:"feature_id"`
+					Churn     struct {
+						Score float64 `json:"score"`
+					} `json:"churn"`
+				} `json:"items"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(out), &env); err != nil {
+			t.Fatalf("unmarshal: %v\n%s", err, out)
+		}
+		got := map[string]float64{}
+		for _, it := range env.Result.Items {
+			got[it.FeatureID] = it.Churn.Score
+		}
+		return got
+	}
+
+	base := churnOf(t)
+	if base["hot.feature"] <= 0 {
+		t.Fatalf("fixture precondition: hot.feature must have churn, got %v", base)
+	}
+	// Every commit in the fixture is a "feat:". Excluding the six edits
+	// must drop hot.feature's churn; excluding all seven must zero it. If
+	// the flag never reaches the mining pass both scores are unchanged.
+	partial := churnOf(t, "--exclude-message", "^feat: keep working")
+	if partial["hot.feature"] >= base["hot.feature"] {
+		t.Errorf("--exclude-message did not reach the churn mining: hot.feature churn %v -> %v",
+			base["hot.feature"], partial["hot.feature"])
+	}
+	none := churnOf(t, "--exclude-message", "^feat: keep working", "--exclude-message", "^feat: seed")
+	if none["hot.feature"] != 0 {
+		t.Errorf("with every commit excluded hot.feature churn = %v, want 0 "+
+			"(the flag is repeatable and all of it must reach the mining)", none["hot.feature"])
+	}
+}
+
+// A tuning flag that changes nothing is worse than a missing one, because
+// the user believes it did something.
+func TestSprint_ChurnFlagsRequireRankChurn(t *testing.T) {
+	f := newHotspotsFixture(t)
+	f.seed(t)
+	if out, err := runSprintCmd(t, f, "--window-days", "30"); err == nil {
+		t.Errorf("--window-days under the default --rank gap must be rejected:\n%s", out)
+	}
+}
+
+func TestSprint_ZeroValuedChurnFlagsAreRejected(t *testing.T) {
+	f := newHotspotsFixture(t)
+	f.seed(t)
+	if out, err := runSprintCmd(t, f, "--rank", "churn", "--half-life-days", "0"); err == nil {
+		t.Errorf("--half-life-days 0 must be rejected, not replaced by the default:\n%s", out)
 	}
 }
 

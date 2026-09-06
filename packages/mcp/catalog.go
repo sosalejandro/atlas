@@ -67,8 +67,9 @@ func (ts *toolset) graphTools() []tool {
 			Name:  "symbol_info",
 			Title: "Symbol declaration and ownership",
 			Description: "Look up one symbol by fully qualified name: kind, file, line span, package, the features " +
-				"it is annotated for, and how many callers and callees it has. Use it to locate a symbol before " +
-				"reading or editing it, and to see at a glance how connected it is.",
+				"it is annotated for, and how many DISTINCT symbols call it and it calls. Use it to locate a symbol " +
+				"before reading or editing it, and to see at a glance how connected it is. The counts are of " +
+				"symbols, not of call sites, so they are usually smaller than the row count of callers/callees.",
 			InputSchema: objectSchema(map[string]any{
 				"qualified_name": stringProp(
 					"Fully qualified symbol name exactly as atlas indexed it, usually <import path or module>.<Name>.",

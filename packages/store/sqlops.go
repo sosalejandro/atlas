@@ -64,6 +64,32 @@ type SQLOperationRecord struct {
 	Predicates   []SQLPredicate   `json:"predicates,omitempty"`
 }
 
+// SQLCapabilityTables is one capability's data footprint: the tables the
+// queries inside it read, the tables they write, and how much of it Atlas
+// could actually read.
+//
+// Unresolved is not decoration. A capability with unresolved operations has a
+// table set that is a LOWER BOUND -- some of its queries were assembled where
+// Atlas could not see them, and any table only those queries touch is missing
+// from Reads and Writes. A privacy or migration review that reads this list as
+// complete when it is not is exactly the wrong answer to give confidently, so
+// the count travels with the rollup and every renderer prints it.
+type SQLCapabilityTables struct {
+	FeatureID string `json:"feature_id"`
+	// Reads and Writes are sorted table names. A table both read and written
+	// appears in both.
+	Reads  []string `json:"reads,omitempty"`
+	Writes []string `json:"writes,omitempty"`
+	// Operations is how many of the capability's queries produced this
+	// footprint; Unresolved is how many more could not be read at all.
+	Operations int `json:"operations"`
+	Unresolved int `json:"unresolved"`
+}
+
+// Complete reports that every query behind the capability resolved, i.e. that
+// the table set is the whole footprint rather than a lower bound on it.
+func (c SQLCapabilityTables) Complete() bool { return c.Unresolved == 0 }
+
 // SQLTableRow is one table Atlas read a CREATE TABLE for.
 type SQLTableRow struct {
 	Name     string `json:"name"`
@@ -117,6 +143,11 @@ type SQLOps interface {
 	// TableAccessBySymbol returns the tables one symbol's queries read and
 	// write: the data footprint of a capability.
 	TableAccessBySymbol(ctx context.Context, symbolID int64) ([]SQLTableAccess, error)
+
+	// CapabilityTables rolls the operation inventory up to the capability:
+	// per feature, the tables its symbols read and write, and how many of its
+	// queries atlas could not resolve.
+	CapabilityTables(ctx context.Context) ([]SQLCapabilityTables, error)
 }
 
 var _ SQLOps = (*sqlOpsStore)(nil)
@@ -370,6 +401,117 @@ func (o *sqlOpsStore) TableAccessBySymbol(ctx context.Context, symbolID int64) (
 		out = append(out, SQLTableAccess{Table: r.TableName, Access: r.Access})
 	}
 	return out, nil
+}
+
+// capabilityFootprintSQL joins the three tables that turn "which symbols
+// belong to this capability" into "which tables does this capability touch":
+// feature_symbols -> sql_operations -> sql_operation_tables.
+//
+// It is one statement rather than a walk over features because the walk is the
+// N+1 this whole feature exists to make visible, and because the answer must
+// be a snapshot: a capability whose table set is assembled from a hundred
+// round trips can shift underneath the reader halfway through.
+//
+// It is hand-written for the same reason features.List's IN(...) branch is:
+// adding it to the sqlc query set would mean regenerating packages/store/sqlc,
+// which is shared ground. The columns are all NOT NULL in schema 0014, so the
+// scan targets are plain values.
+const capabilityFootprintSQL = `
+SELECT fs.feature_id, t.table_name, t.access
+FROM feature_symbols fs
+JOIN sql_operations o       ON o.symbol_id = fs.symbol_id
+JOIN sql_operation_tables t ON t.operation_id = o.id
+WHERE o.resolved = 1
+GROUP BY fs.feature_id, t.table_name, t.access
+ORDER BY fs.feature_id, t.table_name, t.access`
+
+// capabilityResolutionSQL counts the operations behind each capability,
+// resolved and not. DISTINCT because one operation reaches a feature through
+// as many rows as the symbol has roles, and counting a query once per role
+// would report a footprint drawn from more evidence than exists.
+const capabilityResolutionSQL = `
+SELECT fs.feature_id,
+       COUNT(DISTINCT CASE WHEN o.resolved = 1 THEN o.id END) AS resolved,
+       COUNT(DISTINCT CASE WHEN o.resolved = 0 THEN o.id END) AS unresolved
+FROM feature_symbols fs
+JOIN sql_operations o ON o.symbol_id = fs.symbol_id
+GROUP BY fs.feature_id
+ORDER BY fs.feature_id`
+
+func (o *sqlOpsStore) CapabilityTables(ctx context.Context) ([]SQLCapabilityTables, error) {
+	byFeature := map[string]*SQLCapabilityTables{}
+	order, err := o.scanCapabilityCounts(ctx, byFeature)
+	if err != nil {
+		return nil, err
+	}
+	if err := o.scanCapabilityTables(ctx, byFeature); err != nil {
+		return nil, err
+	}
+	out := make([]SQLCapabilityTables, 0, len(order))
+	for _, id := range order {
+		out = append(out, *byFeature[id])
+	}
+	return out, nil
+}
+
+// scanCapabilityCounts seeds one row per capability that issues any query at
+// all, and returns the feature ids in order. A capability whose queries all
+// failed to resolve still gets a row: an empty table set with an unresolved
+// count is the honest answer, and dropping the row would read as "this
+// capability touches no data".
+func (o *sqlOpsStore) scanCapabilityCounts(ctx context.Context, into map[string]*SQLCapabilityTables) ([]string, error) {
+	rows, err := o.db.sqlDB().QueryContext(ctx, capabilityResolutionSQL)
+	if err != nil {
+		return nil, fmt.Errorf("capability sql resolution: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var order []string
+	for rows.Next() {
+		var (
+			id                   string
+			resolved, unresolved int
+		)
+		if err := rows.Scan(&id, &resolved, &unresolved); err != nil {
+			return nil, fmt.Errorf("capability sql resolution scan: %w", err)
+		}
+		into[id] = &SQLCapabilityTables{
+			FeatureID: id, Operations: resolved + unresolved, Unresolved: unresolved,
+		}
+		order = append(order, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("capability sql resolution rows: %w", err)
+	}
+	return order, nil
+}
+
+func (o *sqlOpsStore) scanCapabilityTables(ctx context.Context, into map[string]*SQLCapabilityTables) error {
+	rows, err := o.db.sqlDB().QueryContext(ctx, capabilityFootprintSQL)
+	if err != nil {
+		return fmt.Errorf("capability table footprint: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var id, table, access string
+		if err := rows.Scan(&id, &table, &access); err != nil {
+			return fmt.Errorf("capability table footprint scan: %w", err)
+		}
+		rollup, ok := into[id]
+		if !ok {
+			continue
+		}
+		if access == "write" {
+			rollup.Writes = append(rollup.Writes, table)
+			continue
+		}
+		rollup.Reads = append(rollup.Reads, table)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("capability table footprint rows: %w", err)
+	}
+	return nil
 }
 
 // --- small helpers -------------------------------------------------------

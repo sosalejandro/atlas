@@ -215,40 +215,161 @@ func (s *funcScope) resolveCall(c *ast.CallExpr, consts map[string]string, depth
 // injection risk is exactly the kind of noisy finding that makes a team stop
 // reading the whole report.
 func (s *funcScope) formattedCallerArg(format string, args []ast.Expr) (string, bool) {
-	for i, verb := range stringVerbs(format) {
-		if !verb || i >= len(args) {
+	ops, ok := formatOperands(format)
+	if !ok {
+		// A directive Atlas could not account for means it cannot say which
+		// argument reaches the query text. What it must not do is conclude
+		// that none of them does: on an injection check a silent miss is the
+		// expensive failure, so every argument is weighed instead.
+		return s.firstCallerArg(args)
+	}
+	for _, op := range ops {
+		if !op.str || op.arg < 0 || op.arg >= len(args) {
 			continue
 		}
-		if s.isCallerData(args[i]) {
-			return renderExpr(args[i]), true
+		if s.isCallerData(args[op.arg]) {
+			return renderExpr(args[op.arg]), true
 		}
 	}
 	return "", false
 }
 
-// stringVerbs returns one entry per verb in the format, true when that verb
-// interpolates a string.
-func stringVerbs(format string) []bool {
-	var out []bool
-	for i := 0; i < len(format); i++ {
-		if format[i] != '%' || i+1 >= len(format) {
-			continue
+func (s *funcScope) firstCallerArg(args []ast.Expr) (string, bool) {
+	for _, a := range args {
+		if s.isCallerData(a) {
+			return renderExpr(a), true
 		}
-		j := i + 1
-		for j < len(format) && strings.ContainsRune("+-# 0123456789.*", rune(format[j])) {
-			j++
-		}
-		if j >= len(format) {
-			break
-		}
-		if format[j] == '%' {
-			i = j
-			continue
-		}
-		out = append(out, format[j] == 's' || format[j] == 'v' || format[j] == 'q')
-		i = j
 	}
-	return out
+	return "", false
+}
+
+// formatOperand is one verb of a format string together with the argument it
+// consumes.
+type formatOperand struct {
+	arg int
+	str bool
+}
+
+// formatOperands pairs each verb in a format string with the argument index it
+// actually reads, reporting false when it meets a directive it cannot account
+// for.
+//
+// Zipping verbs against arguments by position -- one verb, one argument, in
+// order -- is wrong in both directions. `%*d` takes its width from an argument
+// too, so everything after it shifts by one; `%[1]s` names its argument
+// outright and resets where the next one comes from. Both are how a table
+// name ends up checked against the width operand of some earlier verb, and the
+// injection check then reports on the wrong expression or on none at all.
+func formatOperands(format string) ([]formatOperand, bool) {
+	f := &formatScanner{src: format}
+	if !f.run() {
+		return nil, false
+	}
+	return f.ops, true
+}
+
+type formatScanner struct {
+	src string
+	i   int
+	// next is the argument the next verb reads, in Go's own terms: implicit
+	// unless a `[n]` index moved it.
+	next int
+	ops  []formatOperand
+}
+
+func (f *formatScanner) run() bool {
+	for f.i = 0; f.i < len(f.src); f.i++ {
+		if f.src[f.i] != '%' {
+			continue
+		}
+		f.i++
+		if f.i >= len(f.src) {
+			return false // a trailing '%' is not a directive atlas can read.
+		}
+		if f.src[f.i] == '%' {
+			continue // an escaped percent consumes nothing.
+		}
+		if !f.directive() {
+			return false
+		}
+	}
+	return true
+}
+
+// directive consumes one `%[flags][index][width][.precision]verb`, leaving i
+// on the verb.
+func (f *formatScanner) directive() bool {
+	f.skipWhile("+-# 0")
+	if !f.argIndex() {
+		return false
+	}
+	if !f.starOrDigits() {
+		return false
+	}
+	if f.at('.') {
+		f.i++
+		if !f.starOrDigits() {
+			return false
+		}
+	}
+	if f.i >= len(f.src) || !isVerbLetter(f.src[f.i]) {
+		return false
+	}
+	verb := f.src[f.i]
+	f.take(verb == 's' || verb == 'v' || verb == 'q')
+	return true
+}
+
+// argIndex reads an explicit `[n]` argument index, which repoints the cursor
+// the way Go's fmt does: `%[2]s` reads the second argument, and the verb after
+// it reads the third.
+func (f *formatScanner) argIndex() bool {
+	if !f.at('[') {
+		return true
+	}
+	j := f.i + 1
+	n := 0
+	for j < len(f.src) && f.src[j] >= '0' && f.src[j] <= '9' {
+		n = n*10 + int(f.src[j]-'0')
+		j++
+	}
+	if j >= len(f.src) || f.src[j] != ']' || j == f.i+1 || n < 1 {
+		return false
+	}
+	f.next = n - 1
+	f.i = j + 1
+	return true
+}
+
+// starOrDigits consumes a width or precision: `*` reads it from an argument
+// (which is what shifts every later verb along), digits do not.
+func (f *formatScanner) starOrDigits() bool {
+	if f.at('*') {
+		f.take(false)
+		f.i++
+		return true
+	}
+	f.skipWhile("0123456789")
+	// A second `[n]` here is Go's `%[2]*[1]d`. Atlas does not read it rather
+	// than reading it wrong.
+	return !f.at('[')
+}
+
+func (f *formatScanner) take(str bool) {
+	f.ops = append(f.ops, formatOperand{arg: f.next, str: str})
+	f.next++
+}
+
+func (f *formatScanner) at(c byte) bool { return f.i < len(f.src) && f.src[f.i] == c }
+
+func (f *formatScanner) skipWhile(set string) {
+	for f.i < len(f.src) && strings.IndexByte(set, f.src[f.i]) >= 0 {
+		f.i++
+	}
+}
+
+func isVerbLetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // isCallerData reports that an expression is a *reference* rooted at a

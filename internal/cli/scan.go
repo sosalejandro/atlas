@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -62,7 +65,7 @@ answer to one file.`,
 			// answers from the store and must not walk the tree, or the
 			// answer would come from a scan the operator did not ask for.
 			if showSkipped || skippedPath != "" {
-				return runScanSkipped(cmd, skippedPath)
+				return runScanSkipped(cmd, root, skippedPath)
 			}
 			return runScan(cmd, root, hashFiles, nodeModulesPaths, includeGenerated)
 		},
@@ -98,10 +101,21 @@ type scanResult struct {
 
 // scanSkippedResult is the payload of the `--skipped` read path: the
 // exclusion ledger as the last scan left it.
+//
+// LedgerPresent is separate from Count because zero rows has two causes that
+// mean opposite things — the last scan excluded nothing, or nothing ever
+// wrote a ledger into this database — and a consumer that cannot tell them
+// apart will read the second as the first.
 type scanSkippedResult struct {
-	DBPath  string                 `json:"db_path"`
-	Count   int                    `json:"count"`
-	Skipped []store.SkippedFileRow `json:"skipped"`
+	DBPath          string `json:"db_path"`
+	LedgerPresent   bool   `json:"ledger_present"`
+	LedgerWrittenAt string `json:"ledger_written_at,omitempty"`
+	// QueriedPath is the ledger key --skipped-path was normalised to, so a
+	// miss can be read as "this key is absent" rather than "your spelling
+	// was wrong".
+	QueriedPath string                 `json:"queried_path,omitempty"`
+	Count       int                    `json:"count"`
+	Skipped     []store.SkippedFileRow `json:"skipped"`
 }
 
 func runScan(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPaths []string, includeGenerated bool) error {
@@ -191,10 +205,14 @@ func printScanText(cmd *cobra.Command, r scanResult, warnings []string) {
 // outlives the scan that wrote it: re-walking the tree here would answer
 // with today's rules instead of the ones that produced the index the
 // operator is looking at, and would make the answer cost a full scan.
-func runScanSkipped(cmd *cobra.Command, filterPath string) error {
+func runScanSkipped(cmd *cobra.Command, rootArg, filterPath string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	rootDir := rootArg
+	if rootDir == "" {
+		rootDir = loaded.repoRoot
 	}
 	dbPath, err := resolveDBPath(loaded, flags.DBPath)
 	if err != nil {
@@ -206,51 +224,94 @@ func runScanSkipped(cmd *cobra.Command, filterPath string) error {
 	}
 	defer func() { _ = s.Close() }()
 
-	rows, err := readSkippedLedger(ctx, s, filterPath)
+	// Asked BEFORE the rows, because it decides what zero rows means.
+	writtenAt, present, err := s.SkippedFiles().WrittenAt(ctx)
+	if err != nil {
+		return fmt.Errorf("read skipped ledger marker: %w", err)
+	}
+
+	key := normalizeLedgerPath(filterPath, rootDir)
+	rows, err := readSkippedLedger(ctx, s, key)
 	if err != nil {
 		return err
 	}
 
-	res := scanSkippedResult{DBPath: dbPath, Count: len(rows), Skipped: rows}
+	res := scanSkippedResult{
+		DBPath:        dbPath,
+		LedgerPresent: present,
+		QueriedPath:   key,
+		Count:         len(rows),
+		Skipped:       rows,
+	}
+	if present && !writtenAt.IsZero() {
+		res.LedgerWrittenAt = writtenAt.Format(time.RFC3339)
+	}
 	if flags.JSON {
 		return emitJSON(stdoutOrJSON(cmd), "scan",
 			map[string]any{"skipped": true, "path": filterPath}, res, nil)
 	}
-	printSkippedText(cmd, res, filterPath)
+	printSkippedText(cmd, res)
 	return nil
 }
 
+// normalizeLedgerPath rewrites an operator-supplied path into the key space
+// the ledger is written in: project-relative, slash-separated, cleaned.
+//
+// Matching the raw string is what makes the lookup useless in practice. The
+// two spellings an operator actually produces are a shell-completed
+// `./pkg/x.go` and the absolute path a jump-to-file gave them, and neither
+// is ever a ledger key — so both miss, and a miss used to read as "this file
+// is indexed".
+func normalizeLedgerPath(input, rootDir string) string {
+	if input == "" {
+		return ""
+	}
+	p := input
+	if filepath.IsAbs(p) {
+		// Anchored on the scan root, which is what the ledger keys are
+		// relative to. A path outside it stays absolute and misses — which
+		// is the honest answer, since it was never walked.
+		if absRoot, err := filepath.Abs(rootDir); err == nil {
+			if rel, relErr := filepath.Rel(absRoot, p); relErr == nil &&
+				!strings.HasPrefix(rel, "..") {
+				p = rel
+			}
+		}
+	}
+	p = filepath.ToSlash(p)
+	if cleaned := path.Clean(p); cleaned != "." {
+		p = cleaned
+	}
+	return p
+}
+
 // readSkippedLedger returns the whole ledger, or the single entry for
-// filterPath. A path with no entry is not an error: "this file is indexed"
-// is a perfectly good answer to "why is it not indexed?", and an exit code
-// would tell a script the query failed rather than that the file is fine.
-func readSkippedLedger(ctx context.Context, s *store.Store, filterPath string) ([]store.SkippedFileRow, error) {
-	if filterPath == "" {
+// ledgerKey (already normalised by normalizeLedgerPath). A key with no entry
+// is not an error: "the last scan did not exclude this" is a perfectly good
+// answer to "why is it not indexed?", and an exit code would tell a script
+// the query failed rather than that it got an answer.
+func readSkippedLedger(ctx context.Context, s *store.Store, ledgerKey string) ([]store.SkippedFileRow, error) {
+	if ledgerKey == "" {
 		rows, err := s.SkippedFiles().List(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("read skipped ledger: %w", err)
 		}
 		return rows, nil
 	}
-	row, err := s.SkippedFiles().Get(ctx, filepath.ToSlash(filterPath))
+	row, err := s.SkippedFiles().Get(ctx, ledgerKey)
 	if errors.Is(err, shared.ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read skipped ledger for %s: %w", filterPath, err)
+		return nil, fmt.Errorf("read skipped ledger for %s: %w", ledgerKey, err)
 	}
 	return []store.SkippedFileRow{row}, nil
 }
 
-func printSkippedText(cmd *cobra.Command, r scanSkippedResult, filterPath string) {
+func printSkippedText(cmd *cobra.Command, r scanSkippedResult) {
 	out := cmd.OutOrStdout()
 	if r.Count == 0 {
-		if filterPath != "" {
-			fmt.Fprintf(out, "%s is not on the exclusion ledger: the last scan "+
-				"either indexed it or never walked it (db: %s)\n", filterPath, r.DBPath)
-			return
-		}
-		fmt.Fprintf(out, "The last scan excluded no files (db: %s)\n", r.DBPath)
+		printSkippedNothing(out, r)
 		return
 	}
 	fmt.Fprintf(out, "Excluded from the index by the last scan (db: %s): %d file(s)\n",
@@ -273,4 +334,43 @@ func printSkippedText(cmd *cobra.Command, r scanSkippedResult, filterPath string
 		}
 		fmt.Fprintln(out, strings.TrimRight(line, " "))
 	}
+}
+
+// printSkippedNothing renders the empty case, whose whole difficulty is that
+// zero rows has two causes that mean opposite things.
+//
+// A store with no ledger marker has NOT told us the last scan excluded
+// nothing; it has told us nothing at all — the database predates the ledger,
+// or no scan has ever run against it. Printing "excluded no files" there
+// hands the operator a measurement where there is only an absence, which is
+// the one thing this command exists not to do.
+func printSkippedNothing(out io.Writer, r scanSkippedResult) {
+	if !r.LedgerPresent {
+		fmt.Fprintf(out,
+			"No exclusion ledger has been recorded in this database (db: %s)\n", r.DBPath)
+		if r.QueriedPath != "" {
+			fmt.Fprintf(out, "  Cannot determine whether %s was excluded. "+
+				"Run 'atlas scan' to record a ledger.\n", r.QueriedPath)
+			return
+		}
+		fmt.Fprintln(out, "  This is not the same as a scan that excluded nothing. "+
+			"Run 'atlas scan' to record a ledger.")
+		return
+	}
+	when := ""
+	if r.LedgerWrittenAt != "" {
+		when = " (recorded " + r.LedgerWrittenAt + ")"
+	}
+	if r.QueriedPath != "" {
+		// Deliberately not "it is indexed": the ledger records only what the
+		// walk excluded, so a path it does not mention may equally have been
+		// outside the scan root, deleted, or spelled for another tree.
+		fmt.Fprintf(out,
+			"%s is not in the exclusion ledger written by the last scan%s (db: %s)\n",
+			r.QueriedPath, when, r.DBPath)
+		fmt.Fprintln(out, "  The last scan did not exclude it. Whether it was indexed "+
+			"is a separate question this ledger does not answer.")
+		return
+	}
+	fmt.Fprintf(out, "The last scan excluded no files%s (db: %s)\n", when, r.DBPath)
 }

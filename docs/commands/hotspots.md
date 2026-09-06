@@ -28,9 +28,9 @@ atlas hotspots [flags]
 | Flag                            | Default            | Description                                                                                 |
 | ------------------------------- | ------------------ | ------------------------------------------------------------------------------------------- |
 | `--top`                         | `0` (all)          | Cap output to the top-N hotspots.                                                            |
-| `--window-days`                 | `365`              | How far back to mine commit history.                                                         |
-| `--half-life-days`              | `90`               | Age at which a commit counts half as much (recency decay).                                   |
-| `--max-files-per-commit`        | `50`               | Drop commits touching more files than this. Negative disables the rule.                      |
+| `--window-days`                 | `365`              | How far back to mine commit history. Must be >= 1; `0` is rejected, not defaulted.            |
+| `--half-life-days`              | `90`               | Age at which a commit counts half as much (recency decay). Must be >= 1.                      |
+| `--max-files-per-commit`        | `50`               | Drop commits touching more files than this. Negative disables the rule; `0` is rejected.      |
 | `--exclude-message`             | *(see below)*      | Extra regexp matched against commit subjects; matching commits are not churn. Repeatable.    |
 | `--no-default-exclusions`       | off                | Do not apply the built-in chore/style/formatter subject exclusions.                          |
 | `--no-author-diversity`         | off                | Score on commit frequency alone, ignoring how many people touch the file.                    |
@@ -39,6 +39,14 @@ atlas hotspots [flags]
 | `--json` *(global)*             | off                | Emit the stable JSON envelope instead of human-friendly text.                                |
 
 ## Example
+
+> **Illustrative, not recorded.** The transcript below is *constructed* to
+> show the shape of the output and the argument the ranking makes.
+> `billing.refunds`, `auth.session` and `legacy.importer` are invented
+> feature ids and the file paths under them do not exist in this
+> repository — do not read the numbers as a measurement of anything. The
+> same applies to the JSON and `atlas sprint` samples further down. Run
+> the command against your own repository for real numbers.
 
 ```
 $ atlas hotspots --top 3
@@ -54,10 +62,11 @@ hotspots: churn x gap over 365d of history, half-life 90d (141 commits counted, 
     gap:   no audit signals available
 ```
 
-`legacy.importer` is the point of the whole command. Under `atlas sprint`
-it is near the top: a 94-point gap on a large surface. Under `hotspots` it
-falls to the bottom, because nothing about it has changed in a year. That
-is the correct answer — it is not where this quarter's risk lives.
+The invented `legacy.importer` row is there because it is the case the
+whole command exists for. A feature like it sits near the top of `atlas
+sprint`: a 94-point gap on a large surface. Under `hotspots` it falls to
+the bottom, because nothing about it has changed in a year. That is the
+correct answer — it is not where this quarter's risk lives.
 
 Every row prints all three numbers. `hotspot` is the product; `gap` and
 `churn` are the factors, and the line beneath each names the file the
@@ -156,8 +165,10 @@ common cases and both matter:
 
 Both are reported as `status: "unknown"` and scored a neutral **50** —
 the midpoint, because zero would drop them and 100 would put them all at
-the top. Shallow clones additionally emit a warning on stderr and in the
-JSON envelope's `warnings` array:
+the top. Shallow clones additionally emit a warning on **stdout**,
+alongside the ranking — every warning `atlas` prints goes to stdout, so
+one command's warnings are not on a different stream from the next's —
+and in the JSON envelope's `warnings` array:
 
 ```
 WARN: shallow clone: git history is truncated, so every churn score is a
@@ -168,6 +179,53 @@ clone (actions/checkout fetch-depth: 0) for a usable hotspot ranking.
 A file that git *does* track but that has no qualifying commit in the
 window scores a real **0**. That is the "bad and dead" case, and pushing it
 down is the point.
+
+## Two path namespaces, reconciled rather than assumed
+
+The roll-up joins two lists of file paths that are not relative to the
+same directory by construction:
+
+- **Churn paths** come from `git`, so they are relative to the repository
+  top level.
+- **Index paths** come from the symbol table, so they are relative to the
+  root `atlas scan` was pointed at — which `atlas scan --root <subdir>`
+  makes a different directory.
+
+Joining those by string equality when they differ misses *every* file, and
+the failure does not look like a failure: it looks like a repository where
+nothing has ever changed. So the two are reconciled explicitly.
+
+- If any indexed path is tracked at the top level, the namespaces already
+  agree and nothing is done.
+- Otherwise, if exactly one sub-directory maps the indexed paths onto
+  tracked files, the churn report is **rebased** onto it and a warning
+  says so. Files outside that sub-directory are then not part of the
+  ranking.
+- If two sub-directories fit equally well, or none does, the roll-up is
+  reported as **not computable** — a warning naming how many indexed paths
+  git could not place, and every churn factor left UNKNOWN. Reporting
+  "cannot determine" is always available and is always better than a
+  confident wrong ranking.
+
+Non-ASCII paths join too: `git log` renders them C-quoted
+(`"caf\303\251.go"`) while `git ls-files -z` renders them raw, so mining
+turns quoting off and decodes whatever git quotes anyway.
+
+## Zero is not "unset"
+
+The mining flags reject `0`. `--window-days 0` cannot mean "mine no
+history" *and* be distinguished from "the flag was not passed", and the
+header line above exists precisely so the score can be interpreted against
+the window it was taken under. Rather than silently substitute the default
+and then report it, the command fails:
+
+```
+$ atlas hotspots --window-days 0
+Error: hotspots: --window-days must be at least 1 (got 0): a zero-length history window has no churn to mine
+```
+
+`--max-files-per-commit` is the same: pass a positive limit, or a
+*negative* value to disable the bulk-commit rule entirely.
 
 ## JSON
 
@@ -222,7 +280,15 @@ meant it to.
 ## The same ranking inside `atlas sprint`
 
 `atlas sprint --rank churn` applies the identical weighting to the sprint
-backlog:
+backlog, mined with the identical flags: `--window-days`,
+`--half-life-days`, `--max-files-per-commit`, `--exclude-message`,
+`--no-default-exclusions` and `--no-author-diversity` all mean the same
+thing under `sprint` as they do here, because both verbs share one
+mining path. Passing one without `--rank churn` is an error rather than a
+silent no-op — a flag that changes nothing is worse than a missing flag,
+because you believe it did something.
+
+The same illustrative caveat as above applies to this transcript:
 
 ```
 $ atlas sprint --rank churn --top 2
@@ -255,11 +321,14 @@ you want to argue about where the risk is rather than what to schedule.
 3. Score each file: decayed commit volume through a saturating curve
    (`w / (w + 5)`, so the interesting part of the range is 2–8 recent
    commits rather than 80 vs 200), times the author-diversity factor.
-4. Roll up per feature by taking the **hottest** file. Averaging would let
+4. Reconcile the churn paths with the indexed ones — rebase onto the scan
+   root when one unambiguously maps them, or report the roll-up as not
+   computable when none does.
+5. Roll up per feature by taking the **hottest** file. Averaging would let
    frozen helpers dilute the one module being rewritten weekly; summing
    would make a feature hot merely for being large. The max also keeps the
    result explainable — `hot_file` names where the number came from.
-5. Multiply by the audit gap (`100 - health`) and sort, breaking ties by
+6. Multiply by the audit gap (`100 - health`) and sort, breaking ties by
    feature id so repeated runs over unchanged data are byte-identical.
 
 ## See also

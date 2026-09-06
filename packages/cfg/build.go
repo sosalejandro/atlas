@@ -218,11 +218,37 @@ func (b *builder) stmt(s ast.Stmt, succLine int) {
 		b.g.Defers++
 		b.noteFuncLits(x.Call)
 		b.span(b.line(x.Pos()), b.line(x.End()))
+	case *ast.ExprStmt:
+		b.shortCircuits(s)
+		b.noteFuncLits(s)
+		b.span(b.line(x.Pos()), b.line(x.End()))
+		if isPanicCall(x.X) {
+			// A panic leaves the function exactly as a return does. Modelling
+			// it matters for more than tidiness: without this edge a guard
+			// arm ending in `panic` looks like it falls through to the
+			// statement after the branch, and the coverage analysis would
+			// difference two counts that never both happened.
+			b.addEdge(b.cur, exitBlock, EdgeSeq, "")
+			b.cur = -1
+		}
 	default:
 		b.shortCircuits(s)
 		b.noteFuncLits(s)
 		b.span(b.line(s.Pos()), b.line(s.End()))
 	}
+}
+
+// isPanicCall reports a call to the builtin `panic`. Only the builtin: a
+// helper that always panics (`mustNot()`, `log.Fatal`) is indistinguishable
+// from an ordinary call without whole-program analysis, and guessing at one
+// would put an exit edge on a path that has none.
+func isPanicCall(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	id, ok := call.Fun.(*ast.Ident)
+	return ok && id.Name == "panic"
 }
 
 // buildBranch handles break / continue / goto / fallthrough.
@@ -252,6 +278,10 @@ func (b *builder) buildBranch(x *ast.BranchStmt) {
 		// A goto's target is a label that may not have been visited yet.
 		// Modelling it would need a second pass; recording the imprecision
 		// is better than silently drawing a graph that has no such edge.
+		// HasGoto is what makes the imprecision actionable: two analyses
+		// downstream must decline to answer over this graph rather than
+		// answer confidently from edges it does not contain.
+		b.g.HasGoto = true
 		b.warn("goto at line %d is not modelled; the graph omits its edge", line)
 		b.cur = -1
 	case token.FALLTHROUGH:

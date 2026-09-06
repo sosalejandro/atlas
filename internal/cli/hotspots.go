@@ -60,6 +60,25 @@ newest code in the repository out of the backlog.`,
 	}
 	cmd.Flags().IntVar(&hf.Top, "top", 0,
 		"cap output to the top-N hotspots (0 = all)")
+	registerChurnFlags(cmd, hf)
+	return cmd
+}
+
+// churnFlagNames are the mining flags `atlas hotspots` and `atlas sprint
+// --rank churn` share. Named once so the "you set a mining flag but did
+// not ask for the churn ranking" check cannot drift from the registration.
+var churnFlagNames = []string{
+	"window-days", "half-life-days", "max-files-per-commit",
+	"exclude-message", "no-default-exclusions", "no-author-diversity",
+}
+
+// registerChurnFlags binds the mining flags onto cmd.
+//
+// Shared with `atlas sprint` because the two commands document themselves
+// as running the IDENTICAL weighting: a tuning flag that changes the
+// ranking under one verb and is silently unavailable under the other makes
+// that claim false.
+func registerChurnFlags(cmd *cobra.Command, hf *hotspotsFlags) {
 	cmd.Flags().IntVar(&hf.WindowDays, "window-days", int(churn.DefaultWindow/(24*time.Hour)),
 		"how far back to mine commit history")
 	cmd.Flags().IntVar(&hf.HalfLifeDays, "half-life-days", int(churn.DefaultHalfLife/(24*time.Hour)),
@@ -72,7 +91,39 @@ newest code in the repository out of the backlog.`,
 		"do not apply the built-in chore/style/formatter subject exclusions")
 	cmd.Flags().BoolVar(&hf.NoAuthorDiversity, "no-author-diversity", false,
 		"score on commit frequency alone, ignoring how many people touch the file")
-	return cmd
+}
+
+// changedChurnFlags names the mining flags the user actually set.
+func changedChurnFlags(cmd *cobra.Command) []string {
+	var out []string
+	for _, n := range churnFlagNames {
+		if f := cmd.Flags().Lookup(n); f != nil && f.Changed {
+			out = append(out, "--"+n)
+		}
+	}
+	return out
+}
+
+// validate rejects flag values churn.Options cannot represent.
+//
+// churn.Options spells "use the default" as the zero value, so
+// `--window-days 0` would be silently replaced by 365 while the args block
+// echoed the 0 the user typed. The churn-meta block exists precisely to
+// make the score interpretable, so a flag it cannot report faithfully is
+// an error rather than a quiet substitution.
+func (hf *hotspotsFlags) validate() error {
+	switch {
+	case hf.WindowDays <= 0:
+		return fmt.Errorf("--window-days must be at least 1 (got %d): "+
+			"a zero-length history window has no churn to mine", hf.WindowDays)
+	case hf.HalfLifeDays <= 0:
+		return fmt.Errorf("--half-life-days must be at least 1 (got %d): "+
+			"a zero half-life would weight every past commit at zero", hf.HalfLifeDays)
+	case hf.MaxFilesPerCommit == 0:
+		return fmt.Errorf("--max-files-per-commit 0 would drop every commit; " +
+			"pass a positive limit, or a negative value to disable the rule")
+	}
+	return nil
 }
 
 // churnOptions turns the flags into a churn.Options.
@@ -143,12 +194,15 @@ func runHotspots(cmd *cobra.Command, hf *hotspotsFlags) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := hf.validate(); err != nil {
+		return fmt.Errorf("hotspots: %w", err)
+	}
 	rep, err := churn.Mine(ctx, hf.churnOptions(loaded.repoRoot))
 	if err != nil {
 		return fmt.Errorf("hotspots: mine churn: %w", err)
 	}
 
-	s, p, err := openPlanner(ctx, rep)
+	s, p, rep, err := openPlanner(ctx, rep)
 	if err != nil {
 		return fmt.Errorf("hotspots: %w", err)
 	}
@@ -178,14 +232,25 @@ func runHotspots(cmd *cobra.Command, hf *hotspotsFlags) error {
 // openPlanner opens the store and wires an audit + churn-aware planner.
 // Shared with `atlas sprint --rank churn`, which needs the identical
 // wiring — the point of the flag is that it is the SAME ranking.
-func openPlanner(ctx context.Context, rep *churn.Report) (*store.Store, sprintplan.Planner, error) {
+//
+// The returned report is the one the planner was given: alignChurn may
+// have rebased it, or appended a warning to it, and the caller has to
+// print the report the numbers actually came from.
+func openPlanner(
+	ctx context.Context, rep *churn.Report,
+) (*store.Store, sprintplan.Planner, *churn.Report, error) {
 	dbPath, err := resolveDBPath(loaded, flags.DBPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	s, err := store.Open(ctx, dbPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open store %s: %w", dbPath, err)
+		return nil, nil, nil, fmt.Errorf("open store %s: %w", dbPath, err)
+	}
+	rep, err = alignChurn(ctx, s, rep)
+	if err != nil {
+		_ = s.Close()
+		return nil, nil, nil, err
 	}
 	a := audit.New(s, audit.Options{
 		FreshnessWindow:     loaded.freshnessWindow(),
@@ -195,7 +260,66 @@ func openPlanner(ctx context.Context, rep *churn.Report) (*store.Store, sprintpl
 	return s, sprintplan.New(s, a, sprintplan.Options{
 		GitBlame: audit.NewGitBlame(loaded.repoRoot),
 		Churn:    rep,
-	}), nil
+	}), rep, nil
+}
+
+// alignChurn reconciles the two path namespaces the roll-up joins.
+//
+// Churn is mined at the git top level, so its paths are relative to that.
+// Symbol file_path is relative to the SCAN root, and `atlas scan --root
+// <subdir>` makes those two different directories. Joining them by string
+// equality then misses every file and the ranking degrades to "every
+// feature's churn is unknown" without ever saying why.
+//
+// So the mismatch is detected: when one unambiguous sub-directory maps the
+// indexed paths onto tracked files, the report is rebased onto them; when
+// no such mapping exists, the roll-up is reported as un-computable. Both
+// beat a confident ranking built on an empty join.
+func alignChurn(ctx context.Context, s *store.Store, rep *churn.Report) (*churn.Report, error) {
+	if rep == nil {
+		return nil, nil
+	}
+	rows, err := s.Symbols().List(ctx, store.SymbolFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("list indexed files: %w", err)
+	}
+	paths := distinctFilePaths(rows)
+	if len(paths) == 0 {
+		return rep, nil
+	}
+	prefix, ok := rep.AlignTo(paths)
+	switch {
+	case ok && prefix == "":
+		return rep, nil
+	case ok:
+		out := rep.Rebase(prefix)
+		out.Warnings = append(out.Warnings, fmt.Sprintf(
+			"churn was mined at the repository root but the index was scanned from %q; "+
+				"the churn paths were rebased onto %q so the two join. Files outside it "+
+				"are not part of this ranking.", prefix, prefix))
+		return out, nil
+	default:
+		rep.Warnings = append(rep.Warnings, fmt.Sprintf(
+			"churn cannot be joined to the index: none of the %d indexed file paths are "+
+				"tracked by git under %s, and no single sub-directory maps them there. "+
+				"Every churn factor below is UNKNOWN, not measured — re-run 'atlas scan' "+
+				"from the repository root for a real ranking.", len(paths), loaded.repoRoot))
+		return rep, nil
+	}
+}
+
+// distinctFilePaths reduces the symbol table to the file paths behind it.
+func distinctFilePaths(rows []store.SymbolRow) []string {
+	seen := make(map[string]bool, len(rows))
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if r.FilePath == "" || seen[r.FilePath] {
+			continue
+		}
+		seen[r.FilePath] = true
+		out = append(out, r.FilePath)
+	}
+	return out
 }
 
 func printHotspotsText(cmd *cobra.Command, res hotspotsResult, warnings []string) {

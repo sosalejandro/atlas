@@ -79,7 +79,7 @@ requires. Diagnostics go to `stderr`.
 | --- | --- |
 | `find_feature(query, limit?)` | Which features match a name or title |
 | `feature_surface(feature_id, limit?)` | Which symbols implement it — **with the derivation's provenance** |
-| `symbol_info(qualified_name)` | Kind, file, line span, package, owning features, caller/callee counts |
+| `symbol_info(qualified_name)` | Kind, file, line span, package, owning features, **distinct** caller/callee counts |
 | `callers(qualified_name, limit?)` | Who calls it, and from which file:line |
 | `callees(qualified_name, limit?)` | What it calls, and from which file:line |
 | `tests_covering(qualified_name, limit?)` | Which tests actually executed it, and how many statements |
@@ -91,6 +91,18 @@ with schemas:
 ```
 $ atlas mcp --json | jq '.result.tools[] | {name, input_schema}'
 ```
+
+### `caller_count` / `callee_count` count symbols, not call sites
+
+The `edges` table is keyed on `(from, to, kind, file, line)`, so it holds one
+row per **call site**. `symbol_info` counts the **distinct symbols** at the far
+end of those edges instead: a function that calls `Pay` five times is one
+caller, not five.
+
+That is the number the question "is this safe to change" is actually about.
+`callers` / `callees` still return one row per site, because an agent citing a
+call needs its `file:line` — so their row counts are usually larger than the
+counts on `symbol_info`, and `symbol_info`'s `notes` say so.
 
 ## `surface_source`: how a feature's implementation was derived
 
@@ -124,11 +136,19 @@ carries:
   "returned": 100,
   "total": 1284,
   "limit": 100,
-  "note": "TRUNCATED: showing 100 of 1284 call edges. The remaining 1184 are NOT in this response — do not conclude they do not exist. Narrow the question or raise `limit` (server cap applies)."
+  "note": "TRUNCATED: showing 100 of 1284 call edges. The remaining 1184 are NOT in this response — do not conclude they do not exist. There is NO cursor and no offset: calling this tool again cannot retrieve them, and `limit` may only narrow the server cap, never exceed it. Ask a narrower question, or read the complete set outside MCP with the atlas CLI (e.g. `atlas trace --json` for call edges). The server cap itself is set by the operator with `atlas mcp --max-features/--max-symbols/--max-edges/--max-tests`."
 }
 ```
 
 The absence of the block is a positive statement that the list is complete.
+
+**Truncation is not pagination, and the note says so.** These results are capped
+but *not* paginated: every `inputSchema` is `additionalProperties: false` with
+no `cursor`, `offset` or page token, so there is no call an agent can make to
+fetch the withheld rows. A note telling a model to "raise `limit`" when it has
+already hit the cap would be an instruction the protocol cannot satisfy, and the
+model would burn a turn discovering that. The rows past the cap are reachable
+only by narrowing the question, or from the CLI, which is not capped.
 
 The per-call `limit` argument may only *narrow* the server's cap — a client
 asking for 100000 rows gets the cap, plus the `truncated` block telling it so.
@@ -175,7 +195,11 @@ changed since the scan, that line is now something else — not approximately
 wrong, arbitrarily wrong, because one inserted line at the top shifts every
 span below it.
 
-Results that cite spans therefore carry:
+Results that cite spans therefore carry the block below. That is
+`feature_surface`, `symbol_info`, `callers`, `callees` and `tests_covering` —
+every tool whose rows carry a `file` and a `line`. (`coverage_for` returns
+scores rather than spans, and `find_feature` returns feature ids, so neither
+carries one.)
 
 ```json
 "index_freshness": {
@@ -257,6 +281,9 @@ server into a client config actually wants to see.
   agent's calls are serialised by its own turn structure, so concurrency would
   buy nothing while costing a write lock on the output stream.
 - **No pagination cursor on `tools/list`.** Seven tools fit in one page.
+- **No pagination on tool results either.** Results are capped, and a cut one
+  says so, but the withheld rows cannot be fetched through this server: no tool
+  takes a `cursor`, `offset` or page token. Narrow the question, or use the CLI.
 
 ## Related
 

@@ -119,6 +119,155 @@ func TestAnalyze_ReportsResolvedFraction(t *testing.T) {
 	}
 }
 
+// buildSQLCProject lays out what sqlc actually produces: a .sql file holding
+// the query definitions, and generated Go that passes the very same text --
+// `-- name:` header and all -- to database/sql.
+func buildSQLCProject(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	write := func(rel, body string) {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("sqlc.yaml", `version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "db/migrations"
+    queries: "db/queries"
+`)
+	write("db/migrations/0001_init.sql", `
+CREATE TABLE users (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL);
+CREATE INDEX users_tenant_idx ON users(tenant_id);
+`)
+	write("db/queries/users.sql", `-- name: ListUsers :many
+SELECT id FROM users WHERE tenant_id = $1;
+
+-- name: GetUser :one
+SELECT id FROM users WHERE id = $1;
+`)
+	write("db/gen/users.sql.go", "package gen\n\n"+`
+import (
+	"context"
+	"database/sql"
+)
+
+type Queries struct{ db *sql.DB }
+
+const listUsers = ` + "`" + `-- name: ListUsers :many
+SELECT id FROM users WHERE tenant_id = $1
+` + "`" + `
+
+func (q *Queries) ListUsers(ctx context.Context, tenantID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listUsers, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	var out []int64
+	for rows.Next() {
+		var n int64
+		_ = rows.Scan(&n)
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+const getUser = ` + "`" + `-- name: GetUser :one
+SELECT id FROM users WHERE id = $1
+` + "`" + `
+
+func (q *Queries) GetUser(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getUser, id)
+	err := row.Scan(&id)
+	return id, err
+}
+`)
+	return root
+}
+
+// A sqlc query lives in the sources twice, and counting both counts the whole
+// data layer twice: the operation count doubles and the resolved fraction --
+// the number the honesty contract rests on and a CI gate reads -- moves with
+// it.
+func TestAnalyze_SQLCQueriesAreCountedOnce(t *testing.T) {
+	rep, err := Analyze(Options{Root: buildSQLCProject(t)})
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if len(rep.Operations) != 2 {
+		var got []string
+		for _, op := range rep.Operations {
+			got = append(got, string(op.Source)+":"+op.Position.Path+":"+op.SymbolName)
+		}
+		t.Fatalf("operations = %d, want 2 (one per sqlc query): %v", len(rep.Operations), got)
+	}
+	if rep.Merged != 2 {
+		t.Errorf("merged = %d, want 2 -- the count has to be reported, not applied silently", rep.Merged)
+	}
+	if rep.Resolved != 2 || rep.Unresolved != 0 {
+		t.Errorf("resolution = %d/%d, want 2/0", rep.Resolved, rep.Unresolved)
+	}
+
+	// The surviving row is the .sql definition: it is where the query is
+	// written, and its :one/:many annotation is better evidence of the row
+	// shape than anything inferred from generated code.
+	for _, op := range rep.Operations {
+		if op.Source != SourceSQLFile {
+			t.Errorf("%s survived from %s; the .sql definition is the one to keep", op.SymbolName, op.Source)
+		}
+		if op.Position.Path != "db/queries/users.sql" {
+			t.Errorf("operation anchored at %s, want the .sql file", op.Position.Path)
+		}
+	}
+	if rep.Advisories == nil {
+		t.Log("no advisories, which is fine; the point of this case is the count")
+	}
+}
+
+// A Go call site that is not a sqlc echo must never be merged away, however
+// familiar its SQL looks.
+func TestAnalyze_HandWrittenGoQueriesAreNotMerged(t *testing.T) {
+	root := buildSQLCProject(t)
+	body := "package repo\n\n" + `
+import (
+	"context"
+	"database/sql"
+)
+
+type R struct{ db *sql.DB }
+
+func (r *R) A(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, "SELECT id FROM users WHERE tenant_id = $1")
+	return err
+}
+
+func (r *R) B(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, "SELECT id FROM users WHERE tenant_id = $1")
+	return err
+}
+`
+	if err := os.MkdirAll(filepath.Join(root, "internal", "repo"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "repo", "repo.go"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Analyze(Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Operations) != 4 {
+		t.Fatalf("operations = %d, want 4 (2 sqlc queries + 2 hand-written call sites)", len(rep.Operations))
+	}
+	if rep.Merged != 2 {
+		t.Errorf("merged = %d, want 2 -- only the generated echoes reconcile", rep.Merged)
+	}
+}
+
 func TestAnalyze_EndToEndAdvisories(t *testing.T) {
 	root := buildProject(t)
 	rep, err := Analyze(Options{Root: root})

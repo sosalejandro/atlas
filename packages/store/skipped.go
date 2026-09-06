@@ -15,7 +15,7 @@ import (
 )
 
 // SkippedFileRow is one entry of the `skipped_files` exclusion ledger
-// (docs/schema-v1.md §5.15) — a file the last scan walked past instead of
+// (docs/schema-v1.md §5.17) — a file the last scan walked past instead of
 // indexing, with the rule that made that call.
 //
 // Rule is the scanner's own goscan.SkipReason verbatim ("generated-header",
@@ -36,6 +36,20 @@ type SkippedFileRow struct {
 	ScannedAt time.Time `json:"scanned_at"`
 }
 
+// SkippedLedgerWrittenAtKey is the `config` key holding the instant at which
+// a scan last recorded an exclusion ledger.
+//
+// It exists because an empty `skipped_files` table has two causes that mean
+// opposite things: the last scan excluded nothing, or no scan has ever
+// written a ledger into this store (a fresh database, or an index built
+// before the ledger existed). Without a marker the read path cannot tell
+// them apart, and reports the unknown as the measurement.
+//
+// The marker rides the config table rather than a column of its own because
+// there is no row to hang it on in precisely the case that needs it — the
+// empty one.
+const SkippedLedgerWrittenAtKey = "scan.skipped_ledger_written_at"
+
 // SkippedFiles is the narrow port for the `skipped_files` table.
 type SkippedFiles interface {
 	// Get answers "why is this file not indexed?" for one path, and returns
@@ -45,6 +59,12 @@ type SkippedFiles interface {
 
 	// List returns the whole ledger, ordered by file_path.
 	List(ctx context.Context) ([]SkippedFileRow, error)
+
+	// WrittenAt reports when a scan last recorded a ledger, and whether one
+	// was ever recorded at all. The bool is the whole point: false means
+	// "this store has no ledger", which is a different answer from "the
+	// ledger is empty" and must not be rendered as one.
+	WrittenAt(ctx context.Context) (time.Time, bool, error)
 
 	// Replace swaps the ledger for the given set and returns the number of
 	// rows written. It is a replace and not an append because a file that
@@ -105,11 +125,33 @@ func (k *skippedFilesStore) Replace(ctx context.Context, rows []SkippedFileRow) 
 	return replaceSkippedLedgerTx(ctx, k.q, rows)
 }
 
+func (k *skippedFilesStore) WrittenAt(ctx context.Context) (time.Time, bool, error) {
+	v, err := k.q.GetConfig(ctx, SkippedLedgerWrittenAtKey)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("skipped_files written-at: %w", err)
+	}
+	t, err := time.Parse(time.RFC3339Nano, v)
+	if err != nil {
+		// A marker we cannot parse still proves a ledger was written; only
+		// its date is lost. Answering "no ledger" here would turn a garbled
+		// timestamp into a false statement about the scan.
+		return time.Time{}, true, nil
+	}
+	return t, true, nil
+}
+
 // replaceSkippedLedgerTx writes the ledger through the caller's *sqlc.Queries
 // — which is the whole point of taking one: passed the ingest's WithTx
 // handle, the DELETE and the INSERTs land in the same transaction as the
 // symbols, so a crash mid-scan cannot leave a ledger describing a scan that
 // never finished.
+// It also stamps the SkippedLedgerWrittenAtKey marker, in the same
+// transaction, because an empty ledger has no row to date and "the last scan
+// excluded nothing" would otherwise be indistinguishable from "no scan ever
+// wrote a ledger here".
 func replaceSkippedLedgerTx(ctx context.Context, q *sqlc.Queries, rows []SkippedFileRow) (int, error) {
 	for _, r := range rows {
 		if r.FilePath == "" {
@@ -124,11 +166,20 @@ func replaceSkippedLedgerTx(ctx context.Context, q *sqlc.Queries, rows []Skipped
 	if err := q.DeleteAllSkippedFiles(ctx); err != nil {
 		return 0, fmt.Errorf("skipped_files clear: %w", err)
 	}
+	writtenAt := time.Now().UTC()
+	// The marker goes through the caller's handle like everything else, so a
+	// rolled-back ingest leaves neither it nor the rows behind.
+	if err := q.SetConfig(ctx, sqlc.SetConfigParams{
+		Key:   SkippedLedgerWrittenAtKey,
+		Value: writtenAt.Format(time.RFC3339Nano),
+	}); err != nil {
+		return 0, fmt.Errorf("skipped_files mark written: %w", err)
+	}
 	written := 0
 	for _, r := range rows {
-		scannedAt := r.ScannedAt
-		if scannedAt.IsZero() {
-			scannedAt = time.Now().UTC()
+		rowScannedAt := r.ScannedAt
+		if rowScannedAt.IsZero() {
+			rowScannedAt = writtenAt
 		}
 		var detail *string
 		if r.Detail != "" {
@@ -139,7 +190,7 @@ func replaceSkippedLedgerTx(ctx context.Context, q *sqlc.Queries, rows []Skipped
 			FilePath:  r.FilePath,
 			Rule:      r.Rule,
 			Detail:    detail,
-			ScannedAt: scannedAt,
+			ScannedAt: rowScannedAt,
 		}); err != nil {
 			return written, fmt.Errorf("skipped_files insert %q: %w", r.FilePath, err)
 		}

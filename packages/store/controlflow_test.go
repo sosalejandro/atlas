@@ -153,8 +153,8 @@ func TestControlFlow_DecisionCoverage(t *testing.T) {
 	if pct != 25 {
 		t.Errorf("percent = %.1f, want 25 (1 of 4 decidable, NOT 1 of 6)", pct)
 	}
-	if got.Undecidable() != 2 {
-		t.Errorf("undecidable = %d, want 2", got.Undecidable())
+	if got.Undetermined() != 2 {
+		t.Errorf("undetermined = %d, want 2", got.Undetermined())
 	}
 
 	blind := DecisionCoverage{SymbolID: id, OutcomesTotal: 2, Source: "cover.out"}
@@ -272,5 +272,44 @@ func TestControlFlow_CascadesWithSymbol(t *testing.T) {
 	}
 	if blocks != 0 {
 		t.Errorf("cfg_blocks rows after symbol delete = %d, want 0", blocks)
+	}
+}
+
+// TestControlFlow_AbsentRowIsNotAZeroRow pins the distinction the whole
+// per-file measurement guard exists to preserve.
+//
+// A symbol with no `cfg_decision_coverage` row was NEVER MEASURED. A symbol
+// with a zero-valued row was measured and nothing was taken. They are
+// different facts, they lead to different actions, and the port must not let
+// a caller confuse them: the read returns shared.ErrNotFound for the first and
+// a row whose Percent() reports "unavailable" for the second.
+func TestControlFlow_AbsentRowIsNotAZeroRow(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	never := cfgTestSymbol(t, s, "pkg.NeverMeasured")
+
+	if _, err := s.ControlFlow().GetDecisionCoverage(ctx, never); !errors.Is(err, shared.ErrNotFound) {
+		t.Fatalf("an unmeasured symbol must read as ErrNotFound, got %v", err)
+	}
+
+	// The same symbol, measured, with nothing taken. That IS a row, and its
+	// numbers are a real (bad) result rather than an absence.
+	measured := DecisionCoverage{
+		SymbolID: never, OutcomesTotal: 4, OutcomesDecidable: 3, OutcomesTaken: 0,
+		Source: "cover.out",
+	}
+	if err := s.ControlFlow().SetDecisionCoverage(ctx, measured); err != nil {
+		t.Fatalf("SetDecisionCoverage: %v", err)
+	}
+	got, err := s.ControlFlow().GetDecisionCoverage(ctx, never)
+	if err != nil {
+		t.Fatalf("GetDecisionCoverage: %v", err)
+	}
+	pct, ok := got.Percent()
+	if !ok || pct != 0 {
+		t.Errorf("a measured zero is 0%%, available: got %.1f (available=%v)", pct, ok)
+	}
+	if got.Undetermined() != 1 {
+		t.Errorf("undetermined = %d, want 1", got.Undetermined())
 	}
 }

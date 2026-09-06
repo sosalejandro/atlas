@@ -17,7 +17,7 @@ unexercised — and the error paths are what production hits.
 | Control-flow graph per Go function (blocks, edges, branch conditions) | the AST | no |
 | Cyclomatic complexity per symbol | the CFG | no |
 | Condition enumeration (what MC/DC would need) | the AST | no |
-| `flow.unreachable` — code no path can reach | the CFG | no |
+| `flow.unreachable` — code no path can reach (not computed for functions containing a `goto`) | the CFG | no |
 | `flow.query-in-loop` — the N+1 candidate | the CFG | no |
 | **Decision coverage** — which branch outcomes were taken | CFG + profile | yes |
 | `flow.untested-branch` | CFG + profile | yes |
@@ -41,6 +41,7 @@ outcomes and not others, so `flow` counts three separate numbers:
 - **outcomes decidable** — how many of those a statement-coverage profile can
   judge *at all*.
 - **outcomes taken** — how many of the decidable ones were taken.
+- **outcomes undetermined** — total minus decidable, carried as its own number.
 
 Decision coverage is `taken / decidable`. Dividing by the total instead would
 charge a symbol for outcomes no instrumentation could have observed, which
@@ -49,20 +50,69 @@ output says `UNAVAILABLE` — never `0%`, because "no branch was covered" and
 "no branch could be judged" are different facts and you would act differently
 on them.
 
+Every outcome therefore carries one of **three** verdicts, and the third is a
+verdict and not a gap:
+
+| Verdict | Meaning |
+| --- | --- |
+| `taken` | the profile shows this outcome was exercised |
+| `not-taken` | the profile shows it was not — a real untested branch |
+| `undetermined` | nothing in a statement-coverage profile can say either way |
+
+`undetermined` is never counted as `not-taken`, never becomes a
+`flow.untested-branch` finding, and never enters the denominator. "Cannot
+determine" is always available and is always better than a confident wrong
+answer.
+
 What is and is not decidable:
 
 | Shape | Decidable? | Why |
 | --- | --- | --- |
 | `if … { } else { }` | both arms | each arm has its own counter |
-| `if … { }`, then-arm returns | both arms | the statement after the `if` is reached only on the false path, so any count there proves it |
-| `if … { }`, then-arm falls through | both arms | the successor's count is both paths summed, so the false path was taken exactly when it *exceeds* the then-arm's count |
+| `if … { }`, no path out of the then-arm reaches the successor (it returns or panics on every path) | both arms | the statement after the `if` is reached only on the false path, so any count there proves it |
+| `if … { }`, **every** path out of the then-arm reaches the successor | both arms | the successor's count is both paths summed, so the false path was taken exactly when it *exceeds* the then-arm's count |
+| `if … { }`, **some but not all** paths out of the then-arm reach the successor (a nested guard `return`, a `panic`, a nested `if` that returns) | true arm only; the false arm is **undetermined** | the successor's count is neither quantity, and the difference is off by however many times the nested path fired — see below |
 | the same, **inside a loop** | true arm only | counts accumulate across iterations; differencing them conflates "the false path ran once" with "the loop ran twice", so `flow` **refuses to answer** rather than guess |
 | `if … { }` as the last statement | true arm only | the false path increments no counter anywhere |
 | `switch`/`select` clause bodies | yes | each clause body has its own counter |
-| a `switch` with no `default` | the implicit "nothing matched" arm is decidable only when every clause returns/breaks | otherwise a matched clause reaches the same successor and the two are indistinguishable |
+| a `switch` with no `default` | the implicit "nothing matched" arm is decidable only when **no clause can reach the statement after the switch** — that is, when every clause leaves the function | a clause that falls out *or* `break`s out lands on that same statement, so it cannot witness the no-match outcome |
 | loop "body entered" | yes | the body has a counter |
 | loop "exited by the condition" | only when the body has no `break` | a `break` reaches the statement after the loop without the condition ever going false |
+| any of the above in a function containing a `goto` | **no** — undetermined | the graph does not model goto edges, so the successor may be reached by a path the analysis cannot see |
 | **`&&` / `\|\|` operand outcomes** | **never** | both operands are instrumented as one block |
+
+**Why the "some but not all paths" row is its own case.** `Terminates` — can
+the *end* of the arm fall through — is not the question. A then-arm that falls
+through at its end can still leave the function on a nested path:
+
+```go
+if n > 0 {
+    if bail {
+        return -1     // leaves without reaching `return n`
+    }
+    n++
+}
+return n              // reached on the false path AND on some then-arm runs
+```
+
+Here the successor's count is `false-path runs + non-bailing then runs`.
+Differencing it against the then-arm's entry count reports the false arm as
+*untaken* when it was taken, or as *taken* when it was not, purely according to
+how often the nested path fired. So `flow` computes the question from the CFG —
+does every path out of the arm reach the join — and answers `undetermined`
+where it cannot establish it. `break` inside a `switch` is the mirror image:
+it makes a clause look like it leaves while landing on exactly the successor
+that was supposed to witness the no-match outcome.
+
+### 2a. A profile is not the same as *this file* being measured
+
+`--profile` supplying a file does not mean that file covers the code being
+analysed. Profiling one package, an integration-test profile, or a package
+with no tests all yield a profile that names other files. For those symbols
+nothing was measured, and **no decision-coverage row is written**: an absent
+row means "not measured", which is a fourth state distinct from `0%`,
+`UNAVAILABLE`, and `undetermined`. `flow show` prints `not measured -- no
+profile has covered this file` rather than a zero.
 
 ### 3. MC/DC is not derivable, at all
 
@@ -148,7 +198,7 @@ atlas flow build --profile cover.out
 flow build: 412 symbol(s) across 87 file(s)
   most complex: store.(*Store).Ingest (cyclomatic 24)
   conditions: 908 (871 independently exercisable in principle)
-  decision coverage: 61.4% (498 of 811 decidable outcomes taken; 197 outcome(s) not decidable)
+  decision coverage: 61.4% (498 of 811 decidable outcomes taken; 197 outcome(s) UNDETERMINED)
   findings: flow.query-in-loop x3
   findings: flow.untested-branch x313
   MC/DC: MC/DC is NOT derivable from Go's statement coverage: …
@@ -173,7 +223,7 @@ atlas flow show svc.Handle
 svc.Handle  svc/handler.go:3
   complexity 3   decisions 2   branch arms 4   defers 0
   conditions 2 (2 independently exercisable in principle)
-  decision coverage: 50.0% (1 of 2 decidable outcomes taken; 2 not decidable)
+  decision coverage: 50.0% (1 of 2 decidable outcomes taken; 2 UNDETERMINED)
   (statement coverage is a different question and is reported by `atlas cov`; the two are never blended)
   MC/DC: …
   blocks:
@@ -201,11 +251,16 @@ Lists what `build` recorded, highest confidence first.
 The three kinds are deliberately distinct and must not be merged:
 
 - **`flow.unreachable`** is a *structural* fact — no path from the entry
-  reaches this block. It is true with no tests at all.
+  reaches this block. It is true with no tests at all. It is **not computed at
+  all** for a function containing a `goto`: the graph does not model goto
+  edges, so a label reached only by one has no predecessor in it and would be
+  reported as dead code that in fact runs on most calls. `build` prints how
+  many functions were skipped and names some of them; `unreachable_blocks` is
+  0 for those, meaning "nothing claimed", not "none found".
 - **`flow.untested-branch`** is a fact about the *test run* — a decidable
-  outcome that was never taken. Outcomes nothing could observe never become
-  findings, because burying the real ones under unobservable ones is how a
-  diagnostic gets muted.
+  outcome that was never taken. `undetermined` outcomes never become findings,
+  because burying the real ones under unobservable ones is how a diagnostic
+  gets muted.
 - **`flow.query-in-loop`** is a *suspicion*, with a confidence and a caveat.
 
 ## How complexity is counted
@@ -233,14 +288,28 @@ Not modelled, deliberately:
   attribute them to a symbol that does not contain them — and a closure with
   control flow of its own is reported as a warning rather than silently
   dropped.
-- **`goto`** edges are not drawn; the graph carries a warning saying so.
+- **`goto`** edges are not drawn; the graph carries a warning saying so, and
+  the two analyses that would read a wrong answer off the incomplete graph
+  decline instead. `flow.unreachable` is not computed for the function at all,
+  and every successor-difference coverage inference in it returns
+  `undetermined`.
+
+Modelled, and worth naming because a hand-rolled builder usually misses it:
+
+- **`panic`** ends a path exactly as `return` does, and gets an edge to the
+  exit node. Without it, an arm whose guard panics looks like it falls through
+  to the statement after the branch, and the coverage analysis would difference
+  two counts that never both happened. Only the builtin is recognised — a
+  helper that always panics is indistinguishable from an ordinary call without
+  whole-program analysis, and guessing would put an exit edge on a path that
+  has none.
 
 ## Schema
 
 `flow build` writes `cfg_blocks`, `cfg_edges`, `cfg_symbols`,
 `cfg_decision_coverage` and `cfg_findings` (migration 0015). Every row is
 keyed by `symbol_id`, so every result joins the graph. See
-[docs/schema-v1.md](../schema-v1.md) §5.15.
+[docs/schema-v1.md](../schema-v1.md) §5.16.
 
 ## Language support
 

@@ -323,3 +323,91 @@ func TestIngest_NilIndexLeavesLedgerAlone(t *testing.T) {
 		t.Fatalf("ledger = %+v, want the seeded row untouched", rows)
 	}
 }
+
+// An empty ledger and no ledger are different answers, and the table alone
+// cannot tell them apart: both are zero rows. The marker is what separates
+// "the last scan excluded nothing" from "nothing here has ever written a
+// ledger" — a fresh database, or one built before the ledger existed.
+func TestSkippedFiles_NoLedgerIsNotAnEmptyLedger(t *testing.T) {
+	s := openTestStore(t)
+	sk := s.SkippedFiles()
+	ctx := context.Background()
+
+	if _, present, err := sk.WrittenAt(ctx); err != nil {
+		t.Fatalf("WrittenAt on a fresh store: %v", err)
+	} else if present {
+		t.Fatal("a store that has never been scanned reports a ledger; " +
+			"zero rows would then be read as 'the scan excluded nothing'")
+	}
+
+	// A scan that excluded nothing still writes a ledger — an empty one.
+	before := time.Now().UTC().Add(-time.Second)
+	if n, err := sk.Replace(ctx, nil); err != nil || n != 0 {
+		t.Fatalf("Replace(nil) = %d, %v; want 0, nil", n, err)
+	}
+	at, present, err := sk.WrittenAt(ctx)
+	if err != nil {
+		t.Fatalf("WrittenAt after an empty scan: %v", err)
+	}
+	if !present {
+		t.Fatal("an empty ledger must still be recorded as a ledger, or " +
+			"'excluded nothing' is indistinguishable from 'never scanned'")
+	}
+	if at.Before(before) {
+		t.Errorf("ledger marker dated %v, want at or after %v", at, before)
+	}
+	rows, err := sk.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("List = %+v, want empty", rows)
+	}
+}
+
+// The marker is only worth reading if it describes a scan that committed.
+// An ingest that dies half-way must leave neither the rows nor the claim
+// that a ledger was written.
+func TestSkippedLedgerMarker_RollsBackWithItsTransaction(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	tx, err := s.conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	if _, err := replaceSkippedLedgerTx(ctx, s.q.WithTx(tx), []SkippedFileRow{
+		{FilePath: "generated/legacy.go", Rule: "generated-dir"},
+	}); err != nil {
+		t.Fatalf("replaceSkippedLedgerTx: %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+
+	if _, present, err := s.SkippedFiles().WrittenAt(ctx); err != nil {
+		t.Fatalf("WrittenAt: %v", err)
+	} else if present {
+		t.Fatal("the marker survived a rolled-back ingest; it now claims a " +
+			"ledger for a scan that never completed")
+	}
+}
+
+// Ingest stamps the marker too, so a real scan that excluded nothing stays
+// distinguishable from a database no scan has ever touched.
+func TestIngest_EmptyLedgerIsStillRecorded(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	idx := buildTestIndex(t)
+	idx.SkippedFiles = nil
+	if _, err := s.Ingest(ctx, idx); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if _, present, err := s.SkippedFiles().WrittenAt(ctx); err != nil {
+		t.Fatalf("WrittenAt: %v", err)
+	} else if !present {
+		t.Fatal("an ingest that skipped nothing recorded no ledger marker; " +
+			"'excluded no files' would be unprovable")
+	}
+}

@@ -81,11 +81,10 @@ type Statement struct {
 	HasOffset  bool          `json:"has_offset"`
 	HasOrderBy bool          `json:"has_order_by"`
 	SelectStar bool          `json:"select_star"`
-	// Keyset reports cursor pagination: a bound range predicate on a column
-	// the statement also orders by. It exists so the unbounded-read check can
-	// tell a genuinely unbounded SELECT from a page of a cursor walk, which
-	// have opposite verdicts and identical LIMIT-less shapes when the page
-	// size is applied in the caller.
+	// Keyset reports cursor pagination: a LIMIT, plus a caller-bound range
+	// predicate on the column the statement orders by FIRST. All three parts
+	// are required -- see detectKeyset for why anything weaker is a filter
+	// wearing a cursor's clothes.
 	Keyset      bool        `json:"keyset"`
 	OffsetBound OffsetBound `json:"offset_bound"`
 }
@@ -250,7 +249,7 @@ func (a *analyzer) handlePunct(i int) {
 // onComma has two jobs: re-arm table collection for `FROM a, b`, and turn
 // MySQL's `LIMIT 100, 20` into the offset it actually is.
 func (a *analyzer) onComma() {
-	if a.depth != 0 {
+	if !a.atStatementLevel() {
 		return
 	}
 	if a.cl == clLimit && a.limitSaw != "" && !a.st.HasOffset {
@@ -277,10 +276,19 @@ func (a *analyzer) handleKeyword(i int) int {
 	case "ORDER":
 		a.st.HasOrderBy = true
 	case "LIMIT", "FETCH":
-		a.st.HasLimit = true
+		// Only a LIMIT on THIS statement bounds it. One inside a subquery, a
+		// CTE body or an `IN (...)` list bounds that inner result set and
+		// says nothing about how many rows the outer statement returns --
+		// crediting it to the outer statement silently suppressed the
+		// unbounded-read advisory on the query that most needed it.
+		if a.atStatementLevel() {
+			a.st.HasLimit = true
+		}
 	case "OFFSET":
-		a.st.HasOffset = true
-		a.st.OffsetBound = a.operandBound(i + 1)
+		if a.atStatementLevel() {
+			a.st.HasOffset = true
+			a.st.OffsetBound = a.operandBound(i + 1)
+		}
 	case "UNION", "EXCEPT", "INTERSECT":
 		// A compound query restarts the clause machine; without this a
 		// `LIMIT` before the UNION would leave the second arm looking bounded.
@@ -301,7 +309,7 @@ func (a *analyzer) handleIdent(i int) int {
 	if _, ok := tableClauses[a.cl]; ok && a.expectTable {
 		return a.readTableRef(i)
 	}
-	if a.cl == clOrder && a.depth == 0 && !followedByDot(a.toks, i) {
+	if a.cl == clOrder && a.atStatementLevel() && !followedByDot(a.toks, i) {
 		a.st.OrderBy = append(a.st.OrderBy, a.toks[i].val)
 	}
 	return i + 1
@@ -319,7 +327,7 @@ func followedByDot(toks []sqlToken, i int) bool {
 // guard keeps `SELECT price * qty` and `count(*)` from being reported as
 // `SELECT *`, which would be a false advisory on a very common shape.
 func (a *analyzer) noteStar(i int) {
-	if a.cl != clSelect || a.depth != 0 || i == 0 {
+	if a.cl != clSelect || !a.atStatementLevel() || i == 0 {
 		return
 	}
 	switch prev := a.toks[i-1]; {
@@ -346,6 +354,15 @@ func (a *analyzer) noteLimitOperand(b OffsetBound) {
 		a.limitSaw = b
 	}
 }
+
+// atStatementLevel reports that the walker is in the statement itself rather
+// than inside one of its subqueries. It is what keeps a bound belonging to an
+// inner result set from being read as a bound on the outer one.
+//
+// Depth zero IS the statement's own level: AnalyzeStatement refuses text whose
+// first token is not a keyword, so a wholly parenthesised statement never
+// reaches the walker at all.
+func (a *analyzer) atStatementLevel() bool { return a.depth == 0 }
 
 func (a *analyzer) inPredicateClause() bool {
 	return a.cl == clWhere || a.cl == clOn || a.cl == clHaving
@@ -454,21 +471,34 @@ func (a *analyzer) resolvePredicateTables() {
 	}
 }
 
-// detectKeyset reports cursor pagination: a caller-bound range predicate on a
-// column the statement also orders by. Both halves are required. A bound range
-// filter with no ORDER BY is a filter, not a cursor, and calling it pagination
-// would suppress the unbounded-read advisory on exactly the queries that need
-// it.
+// detectKeyset reports cursor pagination, and requires everything that
+// actually makes a cursor walk bounded:
+//
+//   - a LIMIT on this statement. The cursor bounds where the page STARTS, not
+//     how big it is: `WHERE created_at < $1 ORDER BY created_at DESC` returns
+//     every row before the cursor, which is the whole table on the first page.
+//   - a caller-bound range predicate (the cursor value comes from the previous
+//     page, so it is a parameter, not a constant),
+//   - on the column the statement orders by FIRST. An index walk advances
+//     along the leading sort column; a range predicate on any other ordered
+//     column does not move the cursor.
+//
+// Requiring all three is the difference between recognising pagination and
+// silencing the unbounded-read check. `WHERE created_at < $1 ORDER BY
+// created_at DESC` is a LIMIT-less read of everything before the cursor;
+// `WHERE created_at > $1 ORDER BY id LIMIT 100` is a time window sorted by
+// something else; `WHERE depth < $1 ORDER BY tenant_id, depth LIMIT 100` is a
+// recursion guard. All three used to read as keyset pagination and take their
+// query out of the advisory entirely. Anything that does not meet the bar
+// falls through to the advisory, which is suppressible per site when the
+// caller really does apply the page size itself.
 func (a *analyzer) detectKeyset() bool {
-	if !a.st.HasOrderBy {
+	if !a.st.HasLimit || !a.st.HasOrderBy || len(a.st.OrderBy) == 0 {
 		return false
 	}
-	ordered := make(map[string]bool, len(a.st.OrderBy))
-	for _, c := range a.st.OrderBy {
-		ordered[c] = true
-	}
+	lead := a.st.OrderBy[0]
 	for _, p := range a.st.Predicates {
-		if p.Clause == ClauseWhere && p.Bound && rangeOps[p.Operator] && ordered[p.Column] {
+		if p.Clause == ClauseWhere && p.Bound && rangeOps[p.Operator] && p.Column == lead {
 			return true
 		}
 	}

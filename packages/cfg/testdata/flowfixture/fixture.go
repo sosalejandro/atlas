@@ -124,3 +124,75 @@ func Either(a, b bool) int {
 func Both(a, b func() bool) bool {
 	return a() && b()
 }
+
+// AlwaysThen is the fixture that discriminates the differencing rule. Its
+// then-arm runs on EVERY call and falls through, so the statement after the
+// if has exactly the then-arm's count and the false outcome was never taken.
+//
+// It exists because `succ.Count > thenCount` and `succ.Count > 0` agree on
+// every other shape in this file: here the first says "not taken" (correct)
+// and the second says "taken" (wrong). Delete this function and the rule is
+// unpinned again.
+func AlwaysThen(n int) int {
+	if n >= 0 {
+		n *= 2
+	}
+	return n
+}
+
+// Escapes is the unsound shape. Its then-arm falls through at the END --
+// `Terminates` is false -- but a nested guard leaves the function first, so
+// the statement after the if is reached on only SOME of the then-arm's runs.
+// The successor's count is then neither "both arms summed" nor "the false arm
+// alone", and the false outcome must be reported UNDETERMINED.
+func Escapes(n int, bail bool) int {
+	if n > 0 {
+		if bail {
+			return -1
+		}
+		n++
+	}
+	return n
+}
+
+// Panics is the same unsoundness reached by the other language construct that
+// leaves a function: the nested path panics rather than returning. The CFG
+// models it as an exit edge for exactly this reason.
+func Panics(n int, bad bool) int {
+	if n > 0 {
+		if bad {
+			panic("bad")
+		}
+		n++
+	}
+	return n
+}
+
+// Breaking is a switch with no default whose clause ends in an explicit
+// `break`. The break makes the clause unable to fall out of its own body --
+// which reads as "this clause leaves" -- while reaching the statement after
+// the switch exactly as a non-matching value would. So the implicit
+// "no case matched" outcome is NOT decidable, and the shape is here because
+// the condition that decides it was once written the other way round.
+func Breaking(kind string) string {
+	out := "none"
+	switch kind {
+	case "a":
+		out = "alpha"
+		break
+	}
+	return out
+}
+
+// Jumping contains a `goto`, whose edge the builder does not draw. The label
+// it targets has no other predecessor, so over the graph as built it looks
+// like dead code -- which is why the unreachable analysis must decline for
+// this function rather than report a block that runs on most calls.
+func Jumping(n int) string {
+	if n < 0 {
+		goto bad
+	}
+	return "ok"
+bad:
+	return "bad"
+}

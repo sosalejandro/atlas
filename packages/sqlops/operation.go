@@ -68,6 +68,10 @@ type Operation struct {
 	Name       string              `json:"name,omitempty"`
 	Position   shared.FilePosition `json:"position"`
 	SymbolName string              `json:"symbol,omitempty"`
+	// Ordinal separates operations that share a source, a file, a line and a
+	// name -- two database/sql calls written on one line. It is 0 for the
+	// first and counts up from there; see Ref.
+	Ordinal int `json:"ordinal,omitempty"`
 
 	Resolved         bool   `json:"resolved"`
 	UnresolvedReason string `json:"unresolved_reason,omitempty"`
@@ -105,15 +109,41 @@ func (o Operation) Suppressed(code string) bool {
 	return false
 }
 
-// Ref is the stable identity of an operation: source, position and name. It is
-// the fingerprint the store keys on, so re-scanning an unchanged repository
+// Ref is the stable identity of an operation: source, position, name and,
+// where a line holds more than one, an ordinal. It is the fingerprint the
+// store keys on -- UNIQUE there -- so re-scanning an unchanged repository
 // rewrites the same rows instead of accumulating duplicates.
+//
+// The ordinal is what makes that true of `tx.Exec(a); tx.Exec(b)` written on
+// one line. Without it both calls fingerprint identically and the second
+// insert replaces the first, so the inventory silently loses a query and the
+// resolved fraction is computed over a denominator that is one too small. It
+// is suffixed with `#` and omitted for the first operation on a line, so the
+// refs of the overwhelming majority of call sites keep their readable shape.
 func (o Operation) Ref() string {
 	name := o.Name
 	if name == "" {
 		name = o.SymbolName
 	}
-	return string(o.Source) + ":" + o.Position.Path + ":" + itoa(o.Position.Line) + ":" + name
+	ref := string(o.Source) + ":" + o.Position.Path + ":" + itoa(o.Position.Line) + ":" + name
+	if o.Ordinal > 0 {
+		ref += "#" + itoa(o.Ordinal)
+	}
+	return ref
+}
+
+// assignOrdinals numbers operations that would otherwise share a fingerprint,
+// in the order they appear. The caller must have sorted first: the ordinal is
+// part of a stored key, so the numbering has to be a function of the sources
+// alone and not of the order the walk happened to visit directories in.
+func assignOrdinals(ops []Operation) {
+	seen := make(map[string]int, len(ops))
+	for i := range ops {
+		ops[i].Ordinal = 0
+		key := ops[i].Ref()
+		ops[i].Ordinal = seen[key]
+		seen[key]++
+	}
 }
 
 func itoa(n int) string {

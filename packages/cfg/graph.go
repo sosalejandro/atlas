@@ -137,11 +137,28 @@ type Arm struct {
 	// body (where a nested false condition can leave every inner counter at
 	// zero).
 	Chained bool `json:"chained,omitempty"`
-	// Terminates reports that the arm cannot fall through to the statement
-	// after the decision (it returns, breaks, continues, gotos or panics).
-	// Analyze needs it: with a falling-through arm the successor's count is
-	// "both arms", with a terminating one it is "the other arm only".
+	// Terminates reports that the END of the arm cannot fall through to the
+	// statement after the decision (it returns, breaks, continues, gotos or
+	// panics).
+	//
+	// It is deliberately NOT what Analyze reasons about. It describes only
+	// the last statement of the arm: an arm that falls through at its end can
+	// still leave the function on a nested path (a guard `return`, a
+	// `panic`), and an arm that "terminates" by `break`ing out of a switch
+	// reaches the successor exactly as a non-matching case would. Both make
+	// the successor-difference inference wrong in opposite directions, so
+	// Analyze walks the CFG from Block instead. Terminates is kept because it
+	// is a true and useful fact about the arm's shape, not because the
+	// analysis can lean on it.
 	Terminates bool `json:"terminates,omitempty"`
+	// Block is the CFG node control enters when the arm is taken, or 0 when
+	// the arm has no body of its own. Zero is unambiguous: block 0 is always
+	// the synthetic entry and can never be an arm body.
+	//
+	// It exists so the coverage analysis can ask what a single flag cannot
+	// answer -- does EVERY path out of this arm reach the statement after the
+	// construct, or does some path leave the function first.
+	Block int `json:"block,omitempty"`
 }
 
 // Decision is one branching construct in the source, with everything the
@@ -170,6 +187,15 @@ type Decision struct {
 	// construct is last. Analyze uses it to find the block execution
 	// resumes in.
 	SuccessorLine int `json:"successor_line,omitempty"`
+	// JoinBlock is the CFG node the construct's arms rejoin at -- the node
+	// that spans SuccessorLine -- or 0 when nothing reaches it. Zero is
+	// unambiguous for the same reason Arm.Block's is.
+	//
+	// Analyze needs the node and not just the line: "did this arm reach the
+	// successor" is a reachability question over the graph, and answering it
+	// from line numbers would re-import the very guesswork the graph exists
+	// to replace.
+	JoinBlock int `json:"join_block,omitempty"`
 	// BreaksOut marks a loop whose body can `break`. It kills the one
 	// inference available for a loop's exit outcome: a break reaches the
 	// statement after the loop without the loop condition ever going false,
@@ -202,6 +228,15 @@ type Graph struct {
 	// than being logged and lost, because they bound how much the coverage
 	// numbers below can be trusted.
 	Warnings []string `json:"warnings,omitempty"`
+	// HasGoto reports that the function contains a `goto`, whose edge the
+	// builder does not draw. It is a separate flag rather than a string
+	// match on Warnings because two analyses have to REFUSE TO ANSWER over a
+	// graph missing edges -- reachability (a label reached only by a goto is
+	// not unreachable code) and the successor-difference coverage inference
+	// (a goto into the successor is an unaccounted-for way to reach it) --
+	// and a refusal that depends on parsing a human-readable warning is a
+	// refusal that will stop happening.
+	HasGoto bool `json:"has_goto,omitempty"`
 }
 
 // Complexity is the cyclomatic complexity of the function: one, plus one for
@@ -243,19 +278,41 @@ func (g *Graph) BranchArms() int {
 	return n
 }
 
-// Unreachable returns the indices of blocks no path from the entry can
-// reach — the `flow.unreachable` diagnostic. This is a structural fact
-// ("no execution can get here"), categorically different from "no test got
-// here", and the two must never be reported as the same finding.
-func (g *Graph) Unreachable() []int {
-	if len(g.Blocks) == 0 {
-		return nil
-	}
-	seen := make([]bool, len(g.Blocks))
+// Successors is the graph's adjacency list, indexed by block. It is built on
+// demand rather than stored because the graph is rewritten as it is built and
+// a cached adjacency list would go stale mid-construction.
+func (g *Graph) Successors() [][]int {
 	succ := make([][]int, len(g.Blocks))
 	for _, e := range g.Edges {
+		if e.From < 0 || e.From >= len(g.Blocks) || e.To < 0 || e.To >= len(g.Blocks) {
+			continue
+		}
 		succ[e.From] = append(succ[e.From], e.To)
 	}
+	return succ
+}
+
+// Unreachable returns the indices of blocks no path from the entry can
+// reach — the `flow.unreachable` diagnostic — and whether that answer can be
+// trusted. This is a structural fact ("no execution can get here"),
+// categorically different from "no test got here", and the two must never be
+// reported as the same finding.
+//
+// The second return is the honest half. The builder does not draw `goto`
+// edges, so in a function containing one a label reached ONLY by that goto
+// has no incoming edge in the graph and would be reported as dead code that
+// runs on every call. Rather than emit a confident wrong answer over a graph
+// known to be missing edges, Unreachable declines: it returns no blocks and
+// sound=false, and every caller must say "not determined" rather than "none".
+func (g *Graph) Unreachable() (blocks []int, sound bool) {
+	if len(g.Blocks) == 0 {
+		return nil, true
+	}
+	if g.HasGoto {
+		return nil, false
+	}
+	seen := make([]bool, len(g.Blocks))
+	succ := g.Successors()
 	queue := []int{entryBlock}
 	seen[entryBlock] = true
 	for len(queue) > 0 {
@@ -277,7 +334,7 @@ func (g *Graph) Unreachable() []int {
 			out = append(out, i)
 		}
 	}
-	return out
+	return out, true
 }
 
 // String renders a compact one-line summary, used in CLI text output.

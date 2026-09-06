@@ -104,11 +104,45 @@ Excluded from the index by the last scan (db: /repo/.atlas/atlas.db): 1 file(s)
   api/schema.pb.go  generated-glob  **/*.pb.go
 
 $ atlas scan --skipped-path internal/auth/login.go
-internal/auth/login.go is not on the exclusion ledger: the last scan either
-indexed it or never walked it (db: /repo/.atlas/atlas.db)
+internal/auth/login.go is not in the exclusion ledger written by the last scan
+(recorded 2026-05-01T12:00:00Z) (db: /repo/.atlas/atlas.db)
+  The last scan did not exclude it. Whether it was indexed is a separate
+  question this ledger does not answer.
 ```
 
-Not being on the ledger is an answer, not an error -- the exit code stays 0.
+Not being in the ledger is an answer, not an error -- the exit code stays 0.
+It is also a NARROWER answer than "the file is indexed": the ledger records
+exclusions and nothing else, so a path it does not mention may equally have
+been outside the scan root, deleted since, or spelled for another tree. Use
+`atlas symbols` to ask whether a file made it into the index.
+
+`--skipped-path` accepts the path in any of the spellings a shell or an
+editor produces -- `./api/schema.pb.go`, `api/schema.pb.go`, or the absolute
+path -- and normalises it to the project-relative, slash-separated key the
+ledger is written with. The output names that key, so a miss reads as "this
+key is absent" rather than "your spelling was wrong". An absolute path
+outside `--root` stays as-is and misses, which is the honest answer: it was
+never walked.
+
+### An empty ledger is not a missing one
+
+Zero rows has two causes that mean opposite things, and the command
+distinguishes them:
+
+```
+$ atlas scan --skipped        # after a scan that excluded nothing
+The last scan excluded no files (recorded 2026-05-01T12:00:00Z) (db: /repo/.atlas/atlas.db)
+
+$ atlas scan --skipped        # against a database no scan has written a ledger into
+No exclusion ledger has been recorded in this database (db: /repo/.atlas/atlas.db)
+  This is not the same as a scan that excluded nothing. Run 'atlas scan' to
+  record a ledger.
+```
+
+The second is a fresh database, or one built before the ledger existed. It
+is an absence, not a measurement, and reporting it as "excluded no files"
+would be a confident wrong answer. Under `--json` the two are separated by
+`ledger_present`.
 
 The ledger is REPLACED by every scan, never appended to: a file that stops
 matching a rule leaves it. It therefore describes the current index and not
@@ -176,7 +210,16 @@ is `atlas trace --fresh`, which re-walks live without touching the store.
      against the cached set, and write the delta.
 3. Re-materialise the `features` and `feature_symbols` join tables.
 4. Replace `skipped_files` with the files this walk declined to index and
-   the rule that claimed each one (docs/schema-v1.md §5.15).
+   the rule that claimed each one, and stamp the
+   `scan.skipped_ledger_written_at` marker that proves a ledger was written
+   at all (docs/schema-v1.md §5.17).
+
+`atlas init` writes the same ledger, with the same glob detail. `atlas
+snapshot` also ingests, and it walks with the SAME scan options as `scan` so
+its ingest rewrites the ledger with an identical answer rather than one from
+a differently-configured walk. If you ever run `snapshot --root` against a
+different tree than the one you scanned, expect the ledger to describe that
+tree instead -- the ledger always belongs to the most recent ingest.
 
 This means `scan` is safe to run from a git pre-commit hook on monorepos:
 warm scans finish in single-digit milliseconds because the AST walker only

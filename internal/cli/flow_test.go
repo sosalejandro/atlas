@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -78,6 +79,64 @@ func newFlowFixture(t *testing.T) *flowFixture {
 	}
 	return fix
 }
+
+// addFile writes another source file into the fixture and seeds the symbols
+// the scanner would have produced for it, keyed by declaration line.
+//
+// It is opt-in rather than part of newFlowFixture because most tests here
+// assert over the shared two-symbol fixture, and a file that silently joined
+// every run would change counts those tests read.
+func (f *flowFixture) addFile(t *testing.T, rel, src string, symLines map[string]int) {
+	t.Helper()
+	abs := filepath.Join(f.root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatalf("mkdir for %s: %v", rel, err)
+	}
+	if err := os.WriteFile(abs, []byte(src), 0o644); err != nil {
+		t.Fatalf("write %s: %v", rel, err)
+	}
+	ctx := context.Background()
+	s, err := store.Open(ctx, f.dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer s.Close()
+	for name, line := range symLines {
+		if _, err := s.Symbols().Insert(ctx, store.SymbolRow{
+			QualifiedName: shared.SymbolID(name), Kind: shared.KindFunc,
+			FilePath: rel, Line: line,
+		}); err != nil {
+			t.Fatalf("insert symbol %s: %v", name, err)
+		}
+	}
+}
+
+// flowGotoSource is a function whose only path to `bad:` is a goto. The
+// builder does not draw that edge, so over the graph as built the label looks
+// like dead code — which is exactly the finding that must NOT be emitted.
+const flowGotoSource = `package svc
+
+func Jumpy(n int) string {
+	if n < 0 {
+		goto bad
+	}
+	return "ok"
+bad:
+	return "bad"
+}
+`
+
+// flowOtherSource is a second measured-nothing file: a package the profile
+// below never looked at.
+const flowOtherSource = `package svc
+
+func Other(n int) int {
+	if n > 0 {
+		return n
+	}
+	return 0
+}
+`
 
 // writeProfile drops a coverprofile next to the fixture. Handle's then arm
 // never ran; the statement after it did, which is the only witness the false
@@ -365,5 +424,146 @@ func TestFlowShow_StaleMeasurementIsFlagged(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "different version of this function") {
 		t.Errorf("a stale measurement must be flagged:\n%s", stdout)
+	}
+}
+
+// TestFlowBuild_UnmeasuredFileIsNotRecordedAsZero is the per-file guard.
+//
+// Supplying a profile is not the same as that profile covering a given file:
+// profiling one package, running an integration-test profile, or analysing a
+// package with no tests all produce a profile that names other files. The
+// symbols in those files were NOT measured, and an absent row is the only
+// honest record of that — a zero-valued row reads as "no branch was taken",
+// which is a claim about the tests that this run cannot support.
+func TestFlowBuild_UnmeasuredFileIsNotRecordedAsZero(t *testing.T) {
+	fix := newFlowFixture(t)
+	fix.addFile(t, "svc/other.go", flowOtherSource, map[string]int{"svc.Other": 3})
+	// The profile covers svc/handler.go and nothing else.
+	profile := fix.writeProfile(t)
+
+	if _, stderr, err := runFlowCmd(t, fix, "build", "--profile", profile); err != nil {
+		t.Fatalf("flow build: %v\n%s", err, stderr)
+	}
+	ctx := context.Background()
+	s, err := store.Open(ctx, fix.dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer s.Close()
+
+	measured, err := s.Symbols().FindByQualifiedName(ctx, "svc.Handle")
+	if err != nil {
+		t.Fatalf("find svc.Handle: %v", err)
+	}
+	if _, err := s.ControlFlow().GetDecisionCoverage(ctx, measured.ID); err != nil {
+		t.Fatalf("svc.Handle's file IS in the profile, so it must have a measurement: %v", err)
+	}
+
+	unmeasured, err := s.Symbols().FindByQualifiedName(ctx, "svc.Other")
+	if err != nil {
+		t.Fatalf("find svc.Other: %v", err)
+	}
+	dc, err := s.ControlFlow().GetDecisionCoverage(ctx, unmeasured.ID)
+	if !errors.Is(err, shared.ErrNotFound) {
+		t.Fatalf("svc.Other's file is not in the profile, so it must have NO row; got %+v (err %v)", dc, err)
+	}
+}
+
+// TestFlowBuild_ProfileCoveringNothingSaysSo: when the profile names no file
+// the run analysed, the payload carries no decision coverage at all and the
+// output explains why, rather than reporting a 0% that would be read as a
+// verdict on the tests.
+func TestFlowBuild_ProfileCoveringNothingSaysSo(t *testing.T) {
+	fix := newFlowFixture(t)
+	path := filepath.Join(fix.root, "elsewhere.out")
+	body := "mode: count\n" +
+		"example.com/repo/other/pkg/thing.go:3.20,5.10 1 7\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write profile: %v", err)
+	}
+
+	stdout, stderr, err := runFlowCmd(t, fix, "build", "--profile", path, "--json")
+	if err != nil {
+		t.Fatalf("flow build: %v\n%s", err, stderr)
+	}
+	var env struct {
+		Result struct {
+			DecisionCoverage any `json:"decision_coverage"`
+		} `json:"result"`
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("decode: %v\n%s", err, stdout)
+	}
+	if env.Result.DecisionCoverage != nil {
+		t.Errorf("a profile that covers none of these files measured nothing; got %v",
+			env.Result.DecisionCoverage)
+	}
+	if !strings.Contains(strings.Join(env.Warnings, " "), "covers none of the files") {
+		t.Errorf("the run must say the profile covered nothing; warnings: %v", env.Warnings)
+	}
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, fix.dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer s.Close()
+	sym, err := s.Symbols().FindByQualifiedName(ctx, "svc.Handle")
+	if err != nil {
+		t.Fatalf("find symbol: %v", err)
+	}
+	if _, err := s.ControlFlow().GetDecisionCoverage(ctx, sym.ID); !errors.Is(err, shared.ErrNotFound) {
+		t.Errorf("no row may be written for a file the profile never covered; err = %v", err)
+	}
+}
+
+// TestFlowBuild_UnreachableSuppressedForGoto: the builder does not model goto
+// edges, so `bad:` in flowGotoSource has no predecessor in the graph even
+// though every negative input reaches it. Reporting it as unreachable at
+// confidence "high" would be a confident wrong answer over a graph known to be
+// incomplete, so the finding is suppressed and the run says why.
+func TestFlowBuild_UnreachableSuppressedForGoto(t *testing.T) {
+	fix := newFlowFixture(t)
+	fix.addFile(t, "svc/jump.go", flowGotoSource, map[string]int{"svc.Jumpy": 3})
+
+	stdout, stderr, err := runFlowCmd(t, fix, "build")
+	if err != nil {
+		t.Fatalf("flow build: %v\n%s", err, stderr)
+	}
+	ctx := context.Background()
+	s, err := store.Open(ctx, fix.dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer s.Close()
+	sym, err := s.Symbols().FindByQualifiedName(ctx, "svc.Jumpy")
+	if err != nil {
+		t.Fatalf("find svc.Jumpy: %v", err)
+	}
+	found, err := s.ControlFlow().Findings(ctx, store.FindingUnreachable)
+	if err != nil {
+		t.Fatalf("Findings: %v", err)
+	}
+	for _, f := range found {
+		if f.SymbolID == sym.ID {
+			t.Errorf("a label reached only by a goto is not unreachable code: %+v", f)
+		}
+	}
+	flow, err := s.ControlFlow().Get(ctx, sym.ID)
+	if err != nil {
+		t.Fatalf("ControlFlow().Get: %v", err)
+	}
+	if flow.Metrics.UnreachableBlocks != 0 {
+		t.Errorf("nothing may be claimed about reachability here; unreachable_blocks = %d",
+			flow.Metrics.UnreachableBlocks)
+	}
+	// Suppressed is not the same as silent: a diagnostic that quietly stops
+	// running for part of the code is worse than one that never ran.
+	if !strings.Contains(stdout, "flow.unreachable was NOT computed") {
+		t.Errorf("the run must report that reachability was not computed, and why:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "svc.Jumpy") {
+		t.Errorf("the note must name at least one affected symbol:\n%s", stdout)
 	}
 }

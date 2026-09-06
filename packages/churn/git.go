@@ -28,15 +28,27 @@ func NewGitRunner(repo string) GitRunner { return &execRunner{repo: repo} }
 
 type execRunner struct{ repo string }
 
+// quotePathOff disables git's path quoting for every invocation.
+//
+// This is not a nicety: `git log --name-status` renders a path with any
+// non-ASCII byte as `"caf\303\251.go"` — literal quotes, octal escapes —
+// while `git ls-files -z` renders it raw. Mine joins those two outputs by
+// string equality, so with quoting left on (the DEFAULT, core.quotePath is
+// true) every non-ASCII path in the repository silently fails to join and
+// scores no churn at all. Setting it here rather than at each call site
+// means no future invocation can forget it.
+var quotePathOff = []string{"-c", "core.quotePath=false"}
+
 func (e *execRunner) Run(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // args are built here, never from user input.
+	full := append(append([]string{}, quotePathOff...), args...)
+	cmd := exec.CommandContext(ctx, "git", full...) //nolint:gosec // args are built here, never from user input.
 	cmd.Dir = e.repo
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("git %s: %w (stderr: %s)",
-			strings.Join(args, " "), err, strings.TrimSpace(errBuf.String()))
+			strings.Join(full, " "), err, strings.TrimSpace(errBuf.String()))
 	}
 	return out.String(), nil
 }
@@ -185,14 +197,36 @@ func parseStatus(line string) (statusEntry, bool) {
 	}
 	e := statusEntry{Status: fields[0]}
 	if len(fields) >= 3 && (fields[0][0] == 'R' || fields[0][0] == 'C') {
-		e.Old, e.Path = fields[1], fields[2]
+		e.Old, e.Path = unquotePath(fields[1]), unquotePath(fields[2])
 	} else {
-		e.Path = fields[1]
+		e.Path = unquotePath(fields[1])
 	}
 	if e.Path == "" {
 		return statusEntry{}, false
 	}
 	return e, true
+}
+
+// unquotePath undoes git's C-style path quoting.
+//
+// quotePathOff above turns the common case (any non-ASCII byte) off, but
+// git still quotes a path containing a double quote, a backslash or a
+// control character whatever that setting says. Those paths must come out
+// in the same namespace as `git ls-files -z`, which never quotes, or they
+// silently fail to join and score no churn. Git's quoting is C string
+// syntax, which is also Go's, so strconv does the decoding; a value we
+// cannot decode is returned untouched rather than dropped, because a path
+// that joins nothing is a better outcome than a path that joins the wrong
+// file.
+func unquotePath(s string) string {
+	if len(s) < 2 || s[0] != '"' {
+		return s
+	}
+	out, err := strconv.Unquote(s)
+	if err != nil {
+		return s
+	}
+	return out
 }
 
 // isPureMove reports whether an entry is a rename or copy that changed

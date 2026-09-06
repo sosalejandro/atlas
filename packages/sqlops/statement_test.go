@@ -251,6 +251,126 @@ func TestAnalyzeStatement_RejectsNonStatements(t *testing.T) {
 	}
 }
 
+// Keyset is the flag that takes a query OUT of the unbounded-read check, so
+// everything it claims has to be true. It used to fire on any bound range
+// predicate whose column appeared anywhere in the ORDER BY, with no page size
+// required at all -- which silently exempted time-window filters and recursion
+// guards from the one check they most needed.
+func TestAnalyzeStatement_KeysetNeedsAPageSizeAndTheLeadingSortColumn(t *testing.T) {
+	cases := []struct {
+		name string
+		sql  string
+		want bool
+	}{
+		{
+			name: "cursor on the leading sort column with a page size",
+			sql:  `SELECT id FROM events WHERE created_at < $1 ORDER BY created_at DESC LIMIT $2`,
+			want: true,
+		},
+		{
+			name: "row-value cursor with a literal page size",
+			sql:  `SELECT id FROM events WHERE (created_at, id) < ($1, $2) ORDER BY created_at DESC, id DESC LIMIT 50`,
+			want: true,
+		},
+		{
+			name: "a cursor with no page size does not bound anything",
+			sql:  `SELECT id FROM events WHERE created_at < $1 ORDER BY created_at DESC`,
+			want: false,
+		},
+		{
+			name: "a time window is a filter, not a cursor",
+			sql:  `SELECT id FROM events WHERE created_at > $1 ORDER BY id LIMIT 100`,
+			want: false,
+		},
+		{
+			name: "a recursion depth guard is not a cursor",
+			sql:  `SELECT id FROM edges WHERE depth < $1 ORDER BY tenant_id, depth LIMIT 100`,
+			want: false,
+		},
+		{
+			name: "a constant range bound is not a cursor value",
+			sql:  `SELECT id FROM events WHERE created_at < 100 ORDER BY created_at LIMIT 20`,
+			want: false,
+		},
+		{
+			name: "an equality on the sort column does not walk it",
+			sql:  `SELECT id FROM events WHERE created_at = $1 ORDER BY created_at LIMIT 20`,
+			want: false,
+		},
+		{
+			name: "the page size must bound this statement, not a subquery",
+			sql:  `SELECT id FROM events WHERE created_at < $1 AND id IN (SELECT id FROM users LIMIT 10) ORDER BY created_at`,
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st, ok := AnalyzeStatement(tc.sql)
+			if !ok {
+				t.Fatalf("AnalyzeStatement(%q) reported not-a-statement", tc.sql)
+			}
+			if st.Keyset != tc.want {
+				t.Errorf("keyset = %v, want %v", st.Keyset, tc.want)
+			}
+		})
+	}
+}
+
+// A LIMIT anywhere in the token stream used to mark the statement bounded --
+// including one inside a CTE body, a subquery or an IN(...) list, none of which
+// says anything about how many rows the outer statement returns.
+func TestAnalyzeStatement_LimitMustBindTheOuterStatement(t *testing.T) {
+	cases := []struct {
+		name              string
+		sql               string
+		limit, offsetFlag bool
+		offBound          OffsetBound
+	}{
+		{
+			name:  "limit in an IN(...) subquery",
+			sql:   `SELECT id FROM events WHERE id IN (SELECT id FROM users ORDER BY id LIMIT 10)`,
+			limit: false, offBound: OffsetNone,
+		},
+		{
+			name:  "limit in a CTE body",
+			sql:   `WITH recent AS (SELECT id FROM events ORDER BY id LIMIT 10) SELECT id FROM recent`,
+			limit: false, offBound: OffsetNone,
+		},
+		{
+			name:  "offset in a subquery is not the outer statement's offset",
+			sql:   `SELECT id FROM events WHERE id IN (SELECT id FROM users LIMIT 10 OFFSET $1)`,
+			limit: false, offsetFlag: false, offBound: OffsetNone,
+		},
+		{
+			name:  "mysql two-arg limit inside a subquery stays inside it",
+			sql:   `SELECT id FROM events WHERE id IN (SELECT id FROM users ORDER BY id LIMIT 100, 20)`,
+			limit: false, offsetFlag: false, offBound: OffsetNone,
+		},
+		{
+			name:  "the outer limit still counts with a subquery present",
+			sql:   `SELECT id FROM events WHERE id IN (SELECT id FROM users) LIMIT 25`,
+			limit: true, offBound: OffsetNone,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st, ok := AnalyzeStatement(tc.sql)
+			if !ok {
+				t.Fatalf("AnalyzeStatement(%q) reported not-a-statement", tc.sql)
+			}
+			if st.HasLimit != tc.limit {
+				t.Errorf("has limit = %v, want %v", st.HasLimit, tc.limit)
+			}
+			if st.HasOffset != tc.offsetFlag {
+				t.Errorf("has offset = %v, want %v", st.HasOffset, tc.offsetFlag)
+			}
+			if st.OffsetBound != tc.offBound {
+				t.Errorf("offset bound = %q, want %q", st.OffsetBound, tc.offBound)
+			}
+		})
+	}
+}
+
 func TestAnalyzeStatement_OrderByColumns(t *testing.T) {
 	st, ok := AnalyzeStatement(`SELECT id FROM t ORDER BY t.created_at DESC, id ASC LIMIT 10`)
 	if !ok {

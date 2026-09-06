@@ -66,8 +66,27 @@ const (
 	ReasonNoSuccessor  = "the branch has no else and no following statement, so its false outcome increments no counter"
 	ReasonNoCounter    = "no coverage block covers this arm"
 	ReasonLoopBreaks   = "the loop body can break, so the statement after the loop does not witness the exit condition"
-	ReasonNotAllExit   = "a clause falls through to the statement after the switch, so that statement does not witness the no-match outcome"
-	ReasonNoProfile    = "no coverage profile was supplied"
+	// ReasonClauseReachesSuccessor is the switch analogue of ReasonArmEscapes,
+	// and the wording matters: a clause reaches the statement after the switch
+	// whether it falls out of the clause OR breaks out of it. `break` is the
+	// case that looks like an exit and is not.
+	ReasonClauseReachesSuccessor = "a clause reaches the statement after the switch (by falling out of it or by breaking out of it), " +
+		"so that statement does not witness the no-match outcome"
+	// ReasonArmEscapes is the narrowed claim for an `if` with no `else`.
+	// Differencing the successor's count against the then arm's is valid only
+	// when the then arm reaches the successor on EVERY path or on NONE. When
+	// some paths reach it and others leave the function first (a guard
+	// `return`, a `panic`, a nested `if` that returns), the successor's count
+	// is neither "both arms" nor "the false arm only" and no arithmetic over
+	// it recovers the false outcome.
+	ReasonArmEscapes = "some but not all paths through the other arm reach the statement after the branch, " +
+		"so its execution count is neither the sum of both arms nor the false arm alone"
+	// ReasonUnmodelledGoto: the successor-difference inferences all assume the
+	// graph names every way to reach the successor. A `goto` the builder did
+	// not draw is a way it does not name.
+	ReasonUnmodelledGoto = "the function contains a `goto` whose edge the graph does not model, " +
+		"so the statement after the branch may be reached by a path the analysis cannot see"
+	ReasonNoProfile = "no coverage profile was supplied"
 )
 
 // MCDCNotDerivable is the sentence every surface reporting condition counts
@@ -80,28 +99,46 @@ const MCDCNotDerivable = "MC/DC is NOT derivable from Go's statement coverage: t
 	"they are not an MC/DC result. A DO-178C DAL A verdict needs condition-level " +
 	"instrumentation that atlas does not have."
 
+// Verdict is one outcome's answer. It is three-valued and the third value is
+// not a formality: "the tests never took this branch" and "no profile could
+// tell you whether they did" lead to opposite actions, and collapsing the
+// second into a `taken=false` boolean is how a tool ends up reporting an
+// untested branch that was in fact exercised on every call.
+type Verdict string
+
+const (
+	VerdictTaken    Verdict = "taken"
+	VerdictNotTaken Verdict = "not-taken"
+	// VerdictUndetermined is the answer whenever the evidence does not reach.
+	// It is always available, and it is always better than a confident wrong
+	// answer: this analysis would rather answer less and be right.
+	VerdictUndetermined Verdict = "undetermined"
+)
+
 // ArmResult is one decision outcome's verdict.
+//
+// Verdict is the single source of truth; Decidable and Taken are derived from
+// it rather than stored beside it, so the pair cannot drift into the
+// impossible "not decidable but taken" state.
 type ArmResult struct {
 	Decision int          `json:"decision"`
 	Kind     DecisionKind `json:"kind"`
 	Line     int          `json:"line"`
 	Label    string       `json:"label"`
-	// Decidable reports whether the profile can answer at all. When false,
-	// Taken is meaningless and must not be rendered as "not taken".
-	Decidable bool   `json:"decidable"`
-	Taken     bool   `json:"taken"`
-	Reason    string `json:"reason"`
+	Verdict  Verdict      `json:"verdict"`
+	Reason   string       `json:"reason"`
 }
 
+// Decidable reports whether the profile could answer at all.
+func (r ArmResult) Decidable() bool { return r.Verdict != VerdictUndetermined }
+
+// Taken reports an outcome the profile shows was exercised. It is false for an
+// undetermined outcome too, so never read it without Decidable.
+func (r ArmResult) Taken() bool { return r.Verdict == VerdictTaken }
+
 func (r ArmResult) String() string {
-	verdict := "UNDECIDABLE"
-	if r.Decidable {
-		verdict = "not taken"
-		if r.Taken {
-			verdict = "taken"
-		}
-	}
-	return fmt.Sprintf("line %d %s[%s]: %s (%s)", r.Line, r.Kind, r.Label, verdict, r.Reason)
+	return fmt.Sprintf("line %d %s[%s]: %s (%s)",
+		r.Line, r.Kind, r.Label, strings.ToUpper(string(r.Verdict)), r.Reason)
 }
 
 // Analysis is the per-symbol decision-coverage result.
@@ -116,6 +153,10 @@ type Analysis struct {
 	// and it is reported rather than divided away.
 	OutcomesDecidable int `json:"outcomes_decidable"`
 	OutcomesTaken     int `json:"outcomes_taken"`
+	// OutcomesUndetermined is that gap, counted rather than left to be
+	// subtracted. It is carried explicitly because a reader who has to
+	// compute it is a reader who will forget it exists.
+	OutcomesUndetermined int `json:"outcomes_undetermined"`
 
 	Complexity int `json:"complexity"`
 
@@ -151,54 +192,81 @@ func Analyze(g *Graph, blocks []ExecBlock) Analysis {
 		Conditions:            g.ConditionCount(),
 		ConditionsIndependent: independentConditions(g),
 	}
+	jc := &judgeCtx{g: g, blocks: blocks, succ: g.Successors()}
 	for i := range g.Decisions {
 		d := &g.Decisions[i]
 		for j, arm := range d.Arms {
-			r := judge(d, j, arm, blocks)
+			r := jc.judge(d, j, arm)
 			a.Arms = append(a.Arms, r)
 			a.OutcomesTotal++
-			if r.Decidable {
+			switch r.Verdict {
+			case VerdictTaken:
 				a.OutcomesDecidable++
-				if r.Taken {
-					a.OutcomesTaken++
-				}
+				a.OutcomesTaken++
+			case VerdictNotTaken:
+				a.OutcomesDecidable++
+			case VerdictUndetermined:
+				a.OutcomesUndetermined++
 			}
 		}
 	}
 	return a
 }
 
+// judgeCtx carries what judging one arm needs: the graph (because "did this
+// arm reach the statement after the construct" is a reachability question, not
+// a property of a single flag), its adjacency list built once, and the file's
+// execution blocks.
+type judgeCtx struct {
+	g      *Graph
+	blocks []ExecBlock
+	succ   [][]int
+}
+
 // judge decides one arm. The split by kind is the honest part of this
 // package: each construct leaves a different amount of evidence behind.
-func judge(d *Decision, armIdx int, arm Arm, blocks []ExecBlock) ArmResult {
-	r := ArmResult{Decision: d.Index, Kind: d.Kind, Line: d.Line, Label: arm.Label}
+func (jc *judgeCtx) judge(d *Decision, armIdx int, arm Arm) ArmResult {
+	r := ArmResult{
+		Decision: d.Index, Kind: d.Kind, Line: d.Line,
+		Label: arm.Label, Verdict: VerdictUndetermined,
+	}
 	switch {
 	case d.Kind == DecisionAnd || d.Kind == DecisionOr:
 		r.Reason = ReasonShortCircuit
 		return r
-	case len(blocks) == 0:
+	case len(jc.blocks) == 0:
 		r.Reason = ReasonNoProfile
 		return r
 	case arm.Start > 0:
 		// The arm has a body, so it has a counter of its own: the strongest
 		// evidence available, and it holds inside loops too.
-		count, ok := entryCount(blocks, arm)
+		count, ok := entryCount(jc.blocks, arm)
 		if !ok {
 			r.Reason = ReasonNoCounter
 			return r
 		}
-		r.Decidable, r.Taken, r.Reason = true, count > 0, ReasonOwnCounter
-		return r
+		return decide(r, count > 0, ReasonOwnCounter)
 	}
-	return judgeBodilessArm(d, armIdx, r, blocks)
+	return jc.judgeBodilessArm(d, armIdx, r)
+}
+
+// decide stamps a determined verdict. Going through one function keeps the
+// three-valued type from being set field-by-field at eleven call sites.
+func decide(r ArmResult, taken bool, reason string) ArmResult {
+	r.Verdict, r.Reason = VerdictNotTaken, reason
+	if taken {
+		r.Verdict = VerdictTaken
+	}
+	return r
 }
 
 // judgeBodilessArm handles the outcomes that execute no statement of their
 // own: the false arm of an `if` with no `else`, a loop's exit, and the
 // "nothing matched" arm of a switch with no default. All three are witnessed
 // only by the statement that follows the whole construct — when one exists,
-// and when the construct is not inside a loop that scrambles the counts.
-func judgeBodilessArm(d *Decision, armIdx int, r ArmResult, blocks []ExecBlock) ArmResult {
+// when the construct is not inside a loop that scrambles the counts, and when
+// the graph names every way that statement can be reached.
+func (jc *judgeCtx) judgeBodilessArm(d *Decision, armIdx int, r ArmResult) ArmResult {
 	if d.SuccessorLine == 0 {
 		r.Reason = ReasonNoSuccessor
 		return r
@@ -211,7 +279,13 @@ func judgeBodilessArm(d *Decision, armIdx int, r ArmResult, blocks []ExecBlock) 
 		r.Reason = ReasonInLoop
 		return r
 	}
-	succ, ok := blockAt(blocks, d.SuccessorLine)
+	if jc.g.HasGoto {
+		// Every inference below reads the successor's counter as the sum of a
+		// known set of paths. An unmodelled `goto` is a path outside that set.
+		r.Reason = ReasonUnmodelledGoto
+		return r
+	}
+	succ, ok := blockAt(jc.blocks, d.SuccessorLine)
 	if !ok {
 		r.Reason = ReasonNoCounter
 		return r
@@ -225,60 +299,140 @@ func judgeBodilessArm(d *Decision, armIdx int, r ArmResult, blocks []ExecBlock) 
 		// With no break, the only way past the loop is the condition going
 		// false. (A `return` inside the body leaves the function without
 		// reaching the successor, so it does not confound this.)
-		r.Decidable, r.Taken, r.Reason = true, succ.Count > 0, ReasonSuccessor
-		return r
+		return decide(r, succ.Count > 0, ReasonSuccessor)
 	case DecisionSwitch, DecisionTypeSwitch:
-		return judgeImplicitDefault(d, r, succ)
+		return jc.judgeImplicitDefault(d, r, succ)
 	}
-	return judgeIfFalseArm(d, armIdx, r, succ, blocks)
+	return jc.judgeIfFalseArm(d, armIdx, r, succ)
 }
 
 // judgeImplicitDefault handles the "no case matched" arm of a switch with no
-// default. It is knowable only when every clause leaves the function (or
-// breaks out): otherwise a matched clause also reaches the successor and the
-// two are indistinguishable.
-func judgeImplicitDefault(d *Decision, r ArmResult, succ ExecBlock) ArmResult {
+// default. It is witnessed only by the statement after the switch, so it is
+// knowable only when NO clause can reach that statement — that is, when every
+// clause leaves the function.
+//
+// The tempting condition, "every clause terminates", is exactly backwards for
+// the case that matters. A clause ending in `break` cannot fall out of its own
+// body, so it looks like a terminating clause, and breaking out is precisely
+// how a matched clause arrives at the successor. So the question is asked of
+// the graph — can this clause reach the join — and not of a per-clause flag.
+func (jc *judgeCtx) judgeImplicitDefault(d *Decision, r ArmResult, succ ExecBlock) ArmResult {
+	if d.JoinBlock == 0 {
+		r.Reason = ReasonNoCounter
+		return r
+	}
 	for _, arm := range d.Arms {
-		if arm.Start > 0 && !arm.Terminates {
-			r.Reason = ReasonNotAllExit
+		if arm.Block == 0 {
+			continue // the implicit-default arm itself; it has no clause body
+		}
+		if jc.reaches(arm.Block, d.JoinBlock) {
+			r.Reason = ReasonClauseReachesSuccessor
 			return r
 		}
 	}
-	r.Decidable, r.Taken, r.Reason = true, succ.Count > 0, ReasonSuccessor
-	return r
+	return decide(r, succ.Count > 0, ReasonSuccessor)
 }
 
-// judgeIfFalseArm is the inference the issue spells out: with no else, the
-// false outcome is visible only in the count of the statement after the if.
+// judgeIfFalseArm recovers the false outcome of an `if` with no `else` from
+// the count of the statement after the if — but only in the two shapes where
+// the arithmetic is exact.
 //
-//   - When the then arm RETURNS (or otherwise leaves), the successor is
-//     reached only on the false path: any count there proves it was taken.
-//   - When the then arm falls through, the successor's count is the sum of
-//     both paths, so the false path was taken exactly when it EXCEEDS the
-//     then arm's count.
-func judgeIfFalseArm(d *Decision, armIdx int, r ArmResult, succ ExecBlock, blocks []ExecBlock) ArmResult {
+//   - NO path through the then arm reaches the successor (the arm returns, or
+//     panics, on every path): the successor is reached only on the false path,
+//     so any count there proves the false outcome was taken.
+//   - EVERY path through the then arm reaches the successor: the successor's
+//     count is both paths summed, so the false path was taken exactly when it
+//     EXCEEDS the then arm's count.
+//
+// In between — a then arm that usually falls through but sometimes returns
+// from a nested guard — the successor's count is neither quantity, and the
+// difference is off by however many times the nested path fired. That is the
+// case this function refuses, because a verdict computed there is not
+// conservative: it reports the false arm as untaken when it was taken, and as
+// taken when it was not, depending only on which way the nested path went.
+func (jc *judgeCtx) judgeIfFalseArm(d *Decision, armIdx int, r ArmResult, succ ExecBlock) ArmResult {
 	if armIdx == 0 || len(d.Arms) == 0 {
 		r.Reason = ReasonNoCounter
 		return r
 	}
 	thenArm := d.Arms[0]
-	if thenArm.Start == 0 {
+	if thenArm.Start == 0 || thenArm.Block == 0 || d.JoinBlock == 0 {
 		// Not the shape this function reasons about (an if whose THEN arm has
 		// no body cannot occur in Go, so this is defensive).
 		r.Reason = ReasonNoCounter
 		return r
 	}
-	if thenArm.Terminates {
-		r.Decidable, r.Taken, r.Reason = true, succ.Count > 0, ReasonSuccessor
+	if !jc.reaches(thenArm.Block, d.JoinBlock) {
+		return decide(r, succ.Count > 0, ReasonSuccessor)
+	}
+	if !jc.alwaysReaches(thenArm.Block, d.JoinBlock) {
+		r.Reason = ReasonArmEscapes
 		return r
 	}
-	thenCount, ok := entryCount(blocks, thenArm)
+	thenCount, ok := entryCount(jc.blocks, thenArm)
 	if !ok {
 		r.Reason = ReasonNoCounter
 		return r
 	}
-	r.Decidable, r.Taken, r.Reason = true, succ.Count > thenCount, ReasonSuccessor
-	return r
+	return decide(r, succ.Count > thenCount, ReasonSuccessor)
+}
+
+// reaches reports whether SOME path from `from` arrives at `join`.
+func (jc *judgeCtx) reaches(from, join int) bool {
+	if from < 0 || from >= len(jc.succ) {
+		return false
+	}
+	seen := make([]bool, len(jc.succ))
+	queue := []int{from}
+	seen[from] = true
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if cur == join {
+			return true
+		}
+		for _, n := range jc.succ[cur] {
+			if !seen[n] {
+				seen[n] = true
+				queue = append(queue, n)
+			}
+		}
+	}
+	return false
+}
+
+// alwaysReaches reports whether EVERY path leaving `from` arrives at `join` —
+// the condition that makes "the successor's count is both arms summed" true.
+//
+// The walk stops at `join` (arriving there is the success case) and fails on
+// two things: reaching the function's exit node, which is a path that left
+// without joining, and reaching a block with no successors at all, which is
+// where control went somewhere the graph does not model. Both are answered
+// "no" rather than assumed away.
+func (jc *judgeCtx) alwaysReaches(from, join int) bool {
+	if from < 0 || from >= len(jc.succ) || join < 0 || join >= len(jc.succ) {
+		return false
+	}
+	seen := make([]bool, len(jc.succ))
+	queue := []int{from}
+	seen[from] = true
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if cur == join {
+			continue
+		}
+		if cur == exitBlock || len(jc.succ[cur]) == 0 {
+			return false
+		}
+		for _, n := range jc.succ[cur] {
+			if !seen[n] {
+				seen[n] = true
+				queue = append(queue, n)
+			}
+		}
+	}
+	return true
 }
 
 // entryCount returns the execution count of the block that runs FIRST when

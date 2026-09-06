@@ -102,12 +102,16 @@ counts, and 'set' mode throws them away.`,
 // percentage, and emitting 0 there would be read as "no branch was covered"
 // rather than "no branch could be judged".
 type flowCoverageSummary struct {
-	OutcomesTotal     int      `json:"outcomes_total"`
-	OutcomesDecidable int      `json:"outcomes_decidable"`
-	OutcomesTaken     int      `json:"outcomes_taken"`
-	Undecidable       int      `json:"undecidable"`
-	Percent           *float64 `json:"percent"`
-	Source            string   `json:"source"`
+	OutcomesTotal     int `json:"outcomes_total"`
+	OutcomesDecidable int `json:"outcomes_decidable"`
+	OutcomesTaken     int `json:"outcomes_taken"`
+	// Undetermined is the third verdict, carried as its own number rather
+	// than left to be recovered by subtraction: these are outcomes the
+	// profile could not judge either way, and they are neither taken nor
+	// untaken.
+	Undetermined int      `json:"outcomes_undetermined"`
+	Percent      *float64 `json:"percent"`
+	Source       string   `json:"source"`
 }
 
 type flowBuildResult struct {
@@ -169,12 +173,26 @@ func emitFlowBuild(cmd *cobra.Command, f flowBuildFlags, b *flowBuilder) error {
 				"whose flow belongs to the closure and not to the enclosing symbol); e.g. %s",
 			b.unmodelled, strings.Join(b.unmodelledEg, "; ")))
 	}
+	if b.gotoSuppressed > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"flow.unreachable was NOT computed for %d function(s) containing a `goto`: the graph does not model "+
+				"goto edges, so a label reached only by one has no predecessor in it and would be reported as "+
+				"dead code that in fact runs. Nothing is claimed about reachability there — e.g. %s",
+			b.gotoSuppressed, strings.Join(b.gotoSuppressedEg, "; ")))
+	}
 	if res.DecisionCoverage != nil {
 		// Said on every run that produces a number, because the single most
 		// likely misreading of this output is that it supersedes `atlas cov`.
 		warnings = append(warnings,
 			"decision coverage is NOT statement coverage: it answers whether each branch was taken both ways, "+
 				"not whether each line ran. Read it beside `atlas cov`, never instead of it.")
+	}
+	if f.profile != "" && res.DecisionCoverage == nil {
+		warnings = append(warnings, fmt.Sprintf(
+			"the profile %s covers none of the files these symbols live in, so NOTHING was measured. "+
+				"No decision-coverage row was written: an absent row means \"not measured\", and recording "+
+				"zero-coverage rows from a profile that never looked at this code would read as \"no branch was taken\".",
+			f.profile))
 	}
 	if flags.JSON {
 		return emitJSON(stdoutOrJSON(cmd), "flow.build",
@@ -187,7 +205,7 @@ func emitFlowBuild(cmd *cobra.Command, f flowBuildFlags, b *flowBuilder) error {
 	}
 	fmt.Fprintf(w, "  conditions: %d (%d independently exercisable in principle)\n",
 		res.Conditions, res.Independent)
-	writeFlowCoverage(w, res.DecisionCoverage)
+	writeFlowCoverage(w, res.DecisionCoverage, f.profile)
 	writeFlowFindingCounts(w, res.Findings)
 	fmt.Fprintf(w, "  MC/DC: %s\n", cfg.MCDCNotDerivable)
 	for _, warn := range warnings {
@@ -196,18 +214,22 @@ func emitFlowBuild(cmd *cobra.Command, f flowBuildFlags, b *flowBuilder) error {
 	return nil
 }
 
-func writeFlowCoverage(w io.Writer, dc *flowCoverageSummary) {
+func writeFlowCoverage(w io.Writer, dc *flowCoverageSummary, profile string) {
 	if dc == nil {
+		if profile != "" {
+			fmt.Fprintf(w, "  decision coverage: not measured -- %s covers none of these files\n", profile)
+			return
+		}
 		fmt.Fprintf(w, "  decision coverage: not measured (pass --profile to measure it)\n")
 		return
 	}
 	if dc.Percent == nil {
-		fmt.Fprintf(w, "  decision coverage: UNAVAILABLE -- none of the %d outcome(s) is decidable from statement coverage\n",
+		fmt.Fprintf(w, "  decision coverage: UNAVAILABLE -- all %d outcome(s) are UNDETERMINED from statement coverage\n",
 			dc.OutcomesTotal)
 		return
 	}
-	fmt.Fprintf(w, "  decision coverage: %.1f%% (%d of %d decidable outcomes taken; %d outcome(s) not decidable)\n",
-		*dc.Percent, dc.OutcomesTaken, dc.OutcomesDecidable, dc.Undecidable)
+	fmt.Fprintf(w, "  decision coverage: %.1f%% (%d of %d decidable outcomes taken; %d outcome(s) UNDETERMINED)\n",
+		*dc.Percent, dc.OutcomesTaken, dc.OutcomesDecidable, dc.Undetermined)
 }
 
 func writeFlowFindingCounts(w io.Writer, findings map[string]int) {
@@ -250,12 +272,20 @@ type flowBuilder struct {
 	indep    int
 	findings map[string]int
 	cov      struct {
-		total, decidable, taken int
-		any                     bool
+		total, decidable, taken, undetermined int
+		// any is set only by a symbol whose FILE the profile actually
+		// covered, so a profile that names other packages produces no
+		// summary at all rather than a 0% one.
+		any bool
 	}
 	unmodelled   int
 	unmodelledEg []string
-	warnings     []string
+	// gotoSuppressed counts the symbols whose reachability analysis was
+	// declined because the graph omits their `goto` edges. See
+	// notReachabilityAnalysed.
+	gotoSuppressed   int
+	gotoSuppressedEg []string
+	warnings         []string
 }
 
 func (b *flowBuilder) loadProfile() error {
@@ -358,12 +388,25 @@ func (b *flowBuilder) runFunc(
 		return fmt.Errorf("build cfg for %s: %w", sym.QualifiedName, err)
 	}
 	analysis := cfg.Analyze(g, blocks)
-	unreachable := g.Unreachable()
+	// The second return is a refusal, not a detail. Over a function containing
+	// a `goto` the graph is missing edges, so a label reached only by that
+	// goto has no predecessor here and would be reported as dead code that in
+	// fact runs. Nothing is claimed in that case -- neither the count nor the
+	// findings -- and the run says so at the end.
+	unreachable, unreachableSound := g.Unreachable()
+	if !unreachableSound {
+		b.notReachabilityAnalysed(sym)
+	}
 
 	if err := b.store.ControlFlow().Replace(ctx, toStoreFlow(sym.ID, g, analysis, len(unreachable))); err != nil {
 		return fmt.Errorf("persist cfg for %s: %w", sym.QualifiedName, err)
 	}
-	if err := b.persistDecisionCoverage(ctx, sym.ID, analysis); err != nil {
+	// measured is per FILE, not per run. A profile that covers some other
+	// package yields no blocks for this file, and writing a zero-coverage row
+	// from it would record "no branch was taken" where the truth is "nothing
+	// measured this function".
+	measured := b.profilePath != "" && len(blocks) > 0
+	if err := b.persistDecisionCoverage(ctx, sym.ID, analysis, measured); err != nil {
 		return fmt.Errorf("%s: %w", sym.QualifiedName, err)
 	}
 
@@ -372,9 +415,20 @@ func (b *flowBuilder) runFunc(
 		return fmt.Errorf("persist findings for %s: %w", sym.QualifiedName, err)
 	}
 
-	b.tally(sym, g, analysis, findings, len(blocks) > 0)
+	b.tally(sym, g, analysis, findings, measured)
 	b.noteUnmodelled(sym, g)
 	return nil
+}
+
+// notReachabilityAnalysed records a symbol whose `flow.unreachable` analysis
+// was declined. Counting them rather than logging each one keeps a large repo
+// readable, but the count is always printed: a diagnostic that silently stops
+// running for a subset of the code is worse than one that never ran.
+func (b *flowBuilder) notReachabilityAnalysed(sym store.SymbolRow) {
+	b.gotoSuppressed++
+	if len(b.gotoSuppressedEg) < 3 {
+		b.gotoSuppressedEg = append(b.gotoSuppressedEg, string(sym.QualifiedName))
+	}
 }
 
 // noteUnmodelled accumulates the constructs the builder could not represent
@@ -411,6 +465,7 @@ func (b *flowBuilder) tally(
 		b.cov.total += a.OutcomesTotal
 		b.cov.decidable += a.OutcomesDecidable
 		b.cov.taken += a.OutcomesTaken
+		b.cov.undetermined += a.OutcomesUndetermined
 	}
 }
 
@@ -432,9 +487,9 @@ func (b *flowBuilder) findingsFor(
 	}
 	for _, arm := range a.Arms {
 		// Only outcomes the profile can actually judge become findings. An
-		// outcome nothing could observe is not evidence of an untested
-		// branch, and reporting it as one would bury the real ones.
-		if !arm.Decidable || arm.Taken {
+		// UNDETERMINED outcome is not evidence of an untested branch, and
+		// reporting it as one would bury the real ones.
+		if !arm.Decidable() || arm.Taken() {
 			continue
 		}
 		out = append(out, store.FlowFinding{
@@ -524,7 +579,7 @@ func (b *flowBuilder) result() flowBuildResult {
 			OutcomesTotal:     b.cov.total,
 			OutcomesDecidable: b.cov.decidable,
 			OutcomesTaken:     b.cov.taken,
-			Undecidable:       b.cov.total - b.cov.decidable,
+			Undetermined:      b.cov.undetermined,
 			Source:            b.profilePath,
 		}
 		if dc.OutcomesDecidable > 0 {
@@ -537,11 +592,21 @@ func (b *flowBuilder) result() flowBuildResult {
 }
 
 // persistDecisionCoverage writes the per-symbol measurement so `flow show`
-// can report one symbol without re-reading the profile. With no profile it
-// writes NOTHING -- an absent row means "not measured", which must never be
-// stored as a zero-coverage row and read back as "no branch was taken".
-func (b *flowBuilder) persistDecisionCoverage(ctx context.Context, symbolID int64, a cfg.Analysis) error {
-	if b.profilePath == "" {
+// can report one symbol without re-reading the profile. When the symbol's file
+// was not measured it writes NOTHING -- an absent row means "not measured",
+// which must never be stored as a zero-coverage row and read back as "no
+// branch was taken".
+//
+// `measured` is deliberately per FILE and not per run. Supplying a profile is
+// not the same as that profile covering this file: profiling one package,
+// running an integration-test profile, or analysing a package with no tests at
+// all yields a profile that names other files, and every symbol here would
+// then be recorded as measured at 0% on the strength of a file the run never
+// looked at.
+func (b *flowBuilder) persistDecisionCoverage(
+	ctx context.Context, symbolID int64, a cfg.Analysis, measured bool,
+) error {
+	if !measured {
 		return nil
 	}
 	if err := b.store.ControlFlow().SetDecisionCoverage(ctx, store.DecisionCoverage{
@@ -667,16 +732,21 @@ func writeFlowShow(w io.Writer, res flowShowResult) {
 
 func writeFlowShowCoverage(w io.Writer, dc *store.DecisionCoverage, branchArms int) {
 	if dc == nil {
-		fmt.Fprintf(w, "  decision coverage: not measured (run `atlas flow build --profile cover.out`)\n")
+		// No row at all. That is "never measured", which is a different fact
+		// from 0% and from UNAVAILABLE, and it is stated as its own sentence
+		// so nobody reads a blank as a zero. A profile that did not cover
+		// this symbol's file leaves exactly this state.
+		fmt.Fprintf(w, "  decision coverage: not measured -- no profile has covered this file "+
+			"(run `atlas flow build --profile cover.out` over a profile that includes it)\n")
 		return
 	}
 	pct, ok := dc.Percent()
 	if !ok {
-		fmt.Fprintf(w, "  decision coverage: UNAVAILABLE -- none of the %d outcome(s) is decidable from statement coverage\n",
+		fmt.Fprintf(w, "  decision coverage: UNAVAILABLE -- all %d outcome(s) are UNDETERMINED from statement coverage\n",
 			dc.OutcomesTotal)
 	} else {
-		fmt.Fprintf(w, "  decision coverage: %.1f%% (%d of %d decidable outcomes taken; %d not decidable)\n",
-			pct, dc.OutcomesTaken, dc.OutcomesDecidable, dc.Undecidable())
+		fmt.Fprintf(w, "  decision coverage: %.1f%% (%d of %d decidable outcomes taken; %d UNDETERMINED)\n",
+			pct, dc.OutcomesTaken, dc.OutcomesDecidable, dc.Undetermined())
 	}
 	if dc.OutcomesTotal != branchArms {
 		fmt.Fprintf(w, "  WARNING: that measurement was taken over a different version of this function "+

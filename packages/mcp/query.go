@@ -203,8 +203,10 @@ func filesOfSurface(symbols []surfaceSymbol) map[string]bool {
 var symbolInfoNotes = []string{
 	"atlas indexes declarations, not source text: doc comments and signatures are not stored. " +
 		"Read the declaration at the file:line above for either.",
-	"caller_count and callee_count cover statically resolved `call` edges only. " +
-		"Calls through interfaces, DI containers or reflection are not counted.",
+	"caller_count and callee_count count DISTINCT symbols, not call sites: a function that calls this one " +
+		"five times counts once, so both numbers are usually smaller than the row count of `callers`/`callees`. " +
+		"They cover statically resolved `call` edges only — calls through interfaces, DI containers or " +
+		"reflection are counted by neither.",
 }
 
 func (ts *toolset) symbolInfo(ctx context.Context, a *toolArgs) (any, error) {
@@ -236,8 +238,8 @@ func (ts *toolset) symbolInfo(ctx context.Context, a *toolArgs) (any, error) {
 		symbolRef:      refOf(row),
 		BCPath:         row.BCPath,
 		Features:       owners,
-		CallerCount:    countCalls(in),
-		CalleeCount:    countCalls(out),
+		CallerCount:    countDistinctNeighbours(in, inbound),
+		CalleeCount:    countDistinctNeighbours(out, outbound),
 		Notes:          symbolInfoNotes,
 		IndexFreshness: checkFreshness(ctx, ts.freshness, map[string]bool{row.FilePath: true}),
 	}, nil
@@ -264,14 +266,28 @@ func (ts *toolset) featureLinks(ctx context.Context, links []store.FeatureSymbol
 	return out, nil
 }
 
-func countCalls(edges []store.EdgeRow) int {
-	n := 0
+// countDistinctNeighbours counts the distinct symbols at the far end of a
+// symbol's `call` edges — NOT the edges themselves.
+//
+// The edges table is keyed on (from, to, kind, file, line), so it holds one row
+// per call SITE. A helper invoked five times from one function is five rows,
+// and reporting that as "5 callers" answers "is this safe to change" with a
+// blast radius five times too large. The callers/callees tools deliberately
+// return sites, because an agent citing a call needs its file:line; these two
+// fields answer the other question and must count what they are named for.
+func countDistinctNeighbours(edges []store.EdgeRow, dir direction) int {
+	seen := make(map[int64]bool, len(edges))
 	for _, e := range edges {
-		if e.Kind == store.EdgeKindCall {
-			n++
+		if e.Kind != store.EdgeKindCall {
+			continue
 		}
+		if dir == inbound {
+			seen[e.FromID] = true
+			continue
+		}
+		seen[e.ToID] = true
 	}
-	return n
+	return len(seen)
 }
 
 // ---------------------------------------------------------------------------
@@ -424,11 +440,25 @@ func (ts *toolset) testsCovering(ctx context.Context, a *toolArgs) (any, error) 
 
 	tests, truncated := bound(rows, limit, "tests")
 	return testsCoveringResult{
-		QualifiedName: name,
-		Tests:         tests,
-		Frontier:      describeFrontier(frontier),
-		Truncated:     truncated,
+		QualifiedName:  name,
+		Tests:          tests,
+		Frontier:       describeFrontier(frontier),
+		Truncated:      truncated,
+		IndexFreshness: checkFreshness(ctx, ts.freshness, filesOfCoveringTests(tests)),
 	}, nil
+}
+
+// filesOfCoveringTests is the set of files this answer sends the agent to. A
+// test symbol whose id has no row in the symbol table has no file to check;
+// omitting it is what keeps the empty string out of the freshness report.
+func filesOfCoveringTests(tests []coveringTest) map[string]bool {
+	out := make(map[string]bool, len(tests))
+	for _, t := range tests {
+		if t.File != "" {
+			out[t.File] = true
+		}
+	}
+	return out
 }
 
 // collectCoveringTests returns the tests that executed symbolID plus whether

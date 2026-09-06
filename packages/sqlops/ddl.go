@@ -102,6 +102,14 @@ func (s Schema) LeadingIndexFor(table string, filtered map[string]bool) (Index, 
 // A directory that does not exist is skipped rather than failing: the caller
 // probes conventional locations (db/migrations, the sqlc schema path) and most
 // repositories have only one of them.
+//
+// Rollback migrations are NOT read. A `*.down.sql` file undoes its `up`
+// sibling; reading both leaves the inventory holding a table that was created
+// once and dropped once, so the "26 tables, 65 indexes" line overstates the
+// schema by exactly the migrations that have a rollback. Within the files that
+// ARE read, statements apply in order: a later DROP or RENAME rewrites what an
+// earlier CREATE recorded, so the inventory is the schema as of the last
+// migration rather than the union of everything ever declared.
 func ParseSchemaDirs(dirs []string, root string) (Schema, error) {
 	sc := Schema{byTable: map[string]bool{}}
 	for _, dir := range dirs {
@@ -110,6 +118,9 @@ func ParseSchemaDirs(dirs []string, root string) (Schema, error) {
 			return Schema{}, err
 		}
 		for _, f := range files {
+			if isRollbackMigration(f) {
+				continue
+			}
 			if err := sc.addFile(f, root); err != nil {
 				return Schema{}, err
 			}
@@ -139,11 +150,31 @@ func (s *Schema) addFile(path, root string) error {
 	return nil
 }
 
-// absorb routes one DDL statement to the right extractor. Anything that is
-// neither CREATE TABLE nor CREATE INDEX is ignored -- ALTER TABLE ADD COLUMN,
+// absorb routes one DDL statement to the right extractor.
+//
+// CREATE adds; DROP and ALTER ... RENAME TO take away. A migration set that
+// drops a table must not leave it in the inventory, or every count built on
+// the inventory overstates the schema and `sql.orphan-table` fires on a table
+// that no longer exists. Everything else is ignored -- ALTER TABLE ADD COLUMN,
 // views, triggers and data seeds all live in migration files and none of them
-// change the index picture Atlas reasons about.
+// change the index picture Atlas reasons about. The inventory is therefore
+// exact in its tables and indexes and additive in its columns: an ALTER that
+// drops or renames a column is not applied.
 func (s *Schema) absorb(toks []sqlToken, pos shared.FilePosition) {
+	if len(toks) == 0 || toks[0].kind != tokKeyword {
+		return
+	}
+	switch toks[0].val {
+	case "CREATE":
+		s.absorbCreate(toks, pos)
+	case "DROP":
+		s.absorbDrop(toks)
+	case "ALTER":
+		s.absorbAlter(toks)
+	}
+}
+
+func (s *Schema) absorbCreate(toks []sqlToken, pos shared.FilePosition) {
 	i := skipKeywords(toks, 0, "CREATE", "TEMP", "TEMPORARY")
 	if i >= len(toks) || toks[i].kind != tokKeyword {
 		return
@@ -160,6 +191,118 @@ func (s *Schema) absorb(toks []sqlToken, pos shared.FilePosition) {
 	}
 }
 
+// absorbDrop applies `DROP TABLE [IF EXISTS] a, b` and
+// `DROP INDEX [CONCURRENTLY] [IF EXISTS] name`.
+func (s *Schema) absorbDrop(toks []sqlToken) {
+	i := skipKeywords(toks, 0, "DROP")
+	if i >= len(toks) || toks[i].kind != tokKeyword {
+		return
+	}
+	kind := toks[i].val
+	i = skipKeywords(toks, skipConcurrently(toks, i+1), "IF", "EXISTS")
+	for _, name := range droppedNames(toks, i) {
+		switch kind {
+		case "TABLE":
+			s.dropTable(name)
+		case "INDEX":
+			s.dropIndex(name)
+		}
+	}
+}
+
+// droppedNames reads the comma-separated object list of a DROP, stopping at
+// the first token that is not part of it -- CASCADE, RESTRICT, or the
+// `ON table` of MySQL's DROP INDEX.
+func droppedNames(toks []sqlToken, i int) []string {
+	var out []string
+	for i < len(toks) {
+		name, next := readQualifiedName(toks, i)
+		if name == "" {
+			return out
+		}
+		out = append(out, name)
+		if next >= len(toks) || toks[next].kind != tokPunct || toks[next].val != "," {
+			return out
+		}
+		i = next + 1
+	}
+	return out
+}
+
+// absorbAlter applies `ALTER TABLE [IF EXISTS] [ONLY] old RENAME TO new`.
+//
+// Only the table rename is applied. `RENAME COLUMN` is deliberately skipped:
+// rewriting an index definition Atlas never re-read from a column rename would
+// be a guess dressed as a fact, and the index columns are what the
+// missing-index check reasons over.
+func (s *Schema) absorbAlter(toks []sqlToken) {
+	i := skipKeywords(toks, 0, "ALTER")
+	if i >= len(toks) || toks[i].kind != tokKeyword || toks[i].val != "TABLE" {
+		return
+	}
+	i = skipKeywords(toks, i+1, "IF", "EXISTS", "ONLY")
+	from, i := readQualifiedName(toks, i)
+	if from == "" || !isWord(toks, i, "RENAME") || !isWord(toks, i+1, "TO") {
+		return
+	}
+	if to, _ := readQualifiedName(toks, i+2); to != "" {
+		s.renameTable(from, to)
+	}
+}
+
+// dropTable forgets a table and every index that served it.
+func (s *Schema) dropTable(name string) {
+	if !s.byTable[name] {
+		return
+	}
+	delete(s.byTable, name)
+	kept := s.Tables[:0]
+	for _, t := range s.Tables {
+		if t.Name != name {
+			kept = append(kept, t)
+		}
+	}
+	s.Tables = kept
+	keptIx := s.Indexes[:0]
+	for _, ix := range s.Indexes {
+		if ix.Table != name {
+			keptIx = append(keptIx, ix)
+		}
+	}
+	s.Indexes = keptIx
+}
+
+// dropIndex forgets one index by name. A synthetic constraint index is never
+// matched: `DROP INDEX users_pk` names a real declaration, and the ones Atlas
+// inferred from PRIMARY KEY carry names it made up.
+func (s *Schema) dropIndex(name string) {
+	kept := s.Indexes[:0]
+	for _, ix := range s.Indexes {
+		if ix.Name != name || ix.Origin != OriginCreateIndex {
+			kept = append(kept, ix)
+		}
+	}
+	s.Indexes = kept
+}
+
+func (s *Schema) renameTable(from, to string) {
+	if !s.byTable[from] {
+		return
+	}
+	delete(s.byTable, from)
+	s.byTable[to] = true
+	for i := range s.Tables {
+		if s.Tables[i].Name == from {
+			s.Tables[i].Name = to
+		}
+	}
+	for i := range s.Indexes {
+		if s.Indexes[i].Table == from {
+			s.Indexes[i].Table = to
+		}
+	}
+}
+
 func (s *Schema) absorbTable(toks []sqlToken, i int, pos shared.FilePosition) {
 	i = skipKeywords(toks, i, "IF", "NOT", "EXISTS")
 	name, i := readQualifiedName(toks, i)
@@ -171,12 +314,26 @@ func (s *Schema) absorbTable(toks []sqlToken, i int, pos shared.FilePosition) {
 	s.Indexes = append(s.Indexes, tableConstraintIndexes(toks, i, name, pos)...)
 }
 
+// absorbIndex reads `CREATE [UNIQUE] INDEX [CONCURRENTLY] [IF NOT EXISTS]
+// name ON table (cols) [WHERE ...]`.
+//
+// The `ON` is required rather than skipped-if-present, and CONCURRENTLY is
+// stepped over explicitly. Postgres' CONCURRENTLY is not a reserved word here,
+// so it lexes as an identifier; taking whatever follows INDEX as the name and
+// whatever follows that as the table recorded
+// `CREATE INDEX CONCURRENTLY i ON t` as an index named `i` against a table
+// called `i`, which does not exist -- while t went on looking unindexed and
+// the missing-index advisory fired on it. Anchoring the table on the keyword
+// means a spelling atlas has not met records nothing rather than something
+// false.
 func (s *Schema) absorbIndex(toks []sqlToken, i int, pos shared.FilePosition, unique bool) {
-	i = skipKeywords(toks, i, "IF", "NOT", "EXISTS")
+	i = skipKeywords(toks, skipConcurrently(toks, i), "IF", "NOT", "EXISTS")
 	name, i := readQualifiedName(toks, i)
-	i = skipKeywords(toks, i, "ON")
-	table, i := readQualifiedName(toks, i)
-	if name == "" || table == "" {
+	if name == "" || !isKeyword(toks, i, "ON") {
+		return
+	}
+	table, i := readQualifiedName(toks, i+1)
+	if table == "" {
 		return
 	}
 	cols, next := identsInGroup(toks, i)
@@ -284,6 +441,35 @@ func skipKeywords(toks []sqlToken, i int, words ...string) int {
 		}
 	}
 	return i
+}
+
+// skipConcurrently steps over Postgres' CONCURRENTLY. It is not in the keyword
+// set on purpose -- putting it there would make a column of that name vanish
+// from every predicate -- so it arrives as a bare identifier.
+func skipConcurrently(toks []sqlToken, i int) int {
+	if isWord(toks, i, "CONCURRENTLY") {
+		return i + 1
+	}
+	return i
+}
+
+// isKeyword reports that the token at i is exactly the given reserved word.
+func isKeyword(toks []sqlToken, i int, word string) bool {
+	return i >= 0 && i < len(toks) && toks[i].kind == tokKeyword && toks[i].val == word
+}
+
+// isWord is isKeyword's tolerant sibling: it also matches an identifier,
+// because RENAME, TO and CONCURRENTLY are not in the keyword set (the clause
+// walker has no use for them) and therefore lex as identifiers.
+func isWord(toks []sqlToken, i int, word string) bool {
+	if i < 0 || i >= len(toks) {
+		return false
+	}
+	switch toks[i].kind {
+	case tokKeyword, tokIdent:
+		return strings.EqualFold(toks[i].val, word)
+	}
+	return false
 }
 
 // parenBody returns the tokens inside the parenthesised group starting at or
@@ -440,6 +626,14 @@ func collectSQLFiles(dir string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+// isRollbackMigration recognises the `*.down.sql` naming every migration
+// runner (golang-migrate, dbmate, node-pg-migrate) gives the statements that
+// undo a migration rather than apply it.
+func isRollbackMigration(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	return base == "down.sql" || strings.HasSuffix(base, ".down.sql")
 }
 
 // relativeTo renders path relative to root with forward slashes, falling back

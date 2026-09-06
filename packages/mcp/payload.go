@@ -92,7 +92,10 @@ type symbolInfoResult struct {
 	BCPath   *string       `json:"bc_path,omitempty"`
 	Features []featureLink `json:"features"`
 	// CallerCount / CalleeCount orient the agent before it pays for the list:
-	// "412 callers" is itself the answer to "is this safe to change".
+	// "412 distinct callers" is itself the answer to "is this safe to change".
+	// They count DISTINCT symbols, not the call sites the edges table holds one
+	// row per — five calls from one function are one caller, and counting them
+	// as five overstates the blast radius of a signature change.
 	CallerCount    int              `json:"caller_count"`
 	CalleeCount    int              `json:"callee_count"`
 	Notes          []string         `json:"notes"`
@@ -144,6 +147,10 @@ type testsCoveringResult struct {
 	Tests         []coveringTest `json:"tests"`
 	Frontier      frontierInfo   `json:"frontier"`
 	Truncated     *Truncation    `json:"truncated,omitempty"`
+	// Every row here carries the test's own file and line, so this result
+	// cites spans and owes the same freshness statement as the others: an
+	// agent sent to a test at foo_test.go:31 opens foo_test.go:31.
+	IndexFreshness *freshnessReport `json:"index_freshness,omitempty"`
 }
 
 type coverageForResult struct {

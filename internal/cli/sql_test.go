@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/atlas/packages/store"
 )
 
 // sqlFixture lays out a repository whose data layer contains one of each
@@ -106,7 +109,7 @@ func TestSQL_CommandIsRegistered(t *testing.T) {
 	for _, c := range NewRootCmd().Commands() {
 		if c.Name() == "sql" {
 			found = true
-			for _, sub := range []string{"scan", "list", "advise"} {
+			for _, sub := range []string{"scan", "list", "advise", "capabilities"} {
 				var haveSub bool
 				for _, s := range c.Commands() {
 					if s.Name() == sub {
@@ -141,6 +144,72 @@ func TestSQL_ScanReportsResolvedFraction(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "50% of the data layer analysed") {
 		t.Errorf("expected the resolved fraction (50%%); got:\n%s", stdout)
+	}
+}
+
+// writeInto adds a file to an existing fixture.
+func writeInto(t *testing.T, fix *sqlFixture, rel, body string) {
+	t.Helper()
+	p := filepath.Join(fix.root, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A sqlc query is in the sources twice -- the .sql definition and the
+// generated Go call that passes the same text to database/sql. Counting both
+// inflates the operation count and moves the resolved fraction, so scan
+// reconciles them and has to SAY that it did: an unexplained gap between call
+// sites read and operations reported is what makes a reader stop trusting the
+// counters.
+func TestSQL_ScanReportsMergedSQLCQueries(t *testing.T) {
+	fix := newSQLFixture(t)
+	writeInto(t, fix, "db/queries/audit.sql", `-- name: ListAudit :many
+SELECT id FROM audit_log;
+`)
+	writeInto(t, fix, "repo/gen.go", "package repo\n\nimport \"context\"\n\n"+
+		"const listAudit = `-- name: ListAudit :many\nSELECT id FROM audit_log\n`\n\n"+
+		`type Queries struct{ db dbtx }
+
+type dbtx interface{}
+
+func (q *R) ListAudit(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, listAudit)
+	return err
+}
+`)
+
+	stdout, stderr, err := runSQLCmd(t, fix, "scan", fix.root, "--query-dir", "db/queries")
+	if err != nil {
+		t.Fatalf("sql scan: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "merged 1 generated call site") {
+		t.Errorf("the merge is not reported in the output:\n%s", stdout)
+	}
+
+	stdout, _, err = runSQLCmd(t, fix, "scan", fix.root, "--query-dir", "db/queries", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env struct {
+		Result struct {
+			Operations int `json:"operations"`
+			Merged     int `json:"merged"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, stdout)
+	}
+	if env.Result.Merged != 1 {
+		t.Errorf("merged = %d, want 1", env.Result.Merged)
+	}
+	// Four call sites from the base fixture, plus the one sqlc query. The
+	// generated echo of that query is not a fifth operation.
+	if env.Result.Operations != 5 {
+		t.Errorf("operations = %d, want 5", env.Result.Operations)
 	}
 }
 
@@ -296,6 +365,139 @@ func TestSQL_ListFiltersUnresolved(t *testing.T) {
 	}
 	if strings.Contains(stdout, "R.One") {
 		t.Errorf("--unresolved listed a resolved query:\n%s", stdout)
+	}
+}
+
+// seedCapabilities links features to the symbols the fixture's queries live
+// in, the way `atlas scan` does from annotations. It runs before `sql scan`
+// because the operation rows resolve their symbol link by qualified name at
+// write time.
+func seedCapabilities(t *testing.T, fix *sqlFixture, links map[string]string) {
+	t.Helper()
+	ctx := context.Background()
+	s, err := store.Open(ctx, fix.dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	for symbol, feature := range links {
+		id, err := s.Symbols().Insert(ctx, store.SymbolRow{
+			QualifiedName: shared.SymbolID(symbol), Kind: shared.KindMethod,
+			FilePath: "repo/repo.go", Line: 1,
+		})
+		if err != nil {
+			t.Fatalf("insert symbol %s: %v", symbol, err)
+		}
+		if err := s.Features().Upsert(ctx, store.Feature{
+			ID: shared.FeatureID(feature), Title: feature,
+		}); err != nil {
+			t.Fatalf("upsert feature %s: %v", feature, err)
+		}
+		if err := s.FeatureSymbols().Link(ctx, store.FeatureSymbolLink{
+			FeatureID: shared.FeatureID(feature), SymbolID: id,
+			Role: store.RoleImpl, Source: store.SourceAnnotation,
+		}); err != nil {
+			t.Fatalf("link %s -> %s: %v", feature, symbol, err)
+		}
+	}
+}
+
+// Issue #126 asks for a capability's read/write table set. This is the data
+// side of it: the rollup a per-capability ERD would be drawn from, and the
+// answer a privacy or migration review needs -- including the part where the
+// answer is only a lower bound.
+func TestSQL_CapabilitiesRollUpReadsAndWrites(t *testing.T) {
+	fix := newSQLFixture(t)
+	seedCapabilities(t, fix, map[string]string{
+		"R.All":   "audit.read",
+		"R.Built": "audit.dynamic",
+	})
+	if _, stderr, err := runSQLCmd(t, fix, "scan", fix.root); err != nil {
+		t.Fatalf("sql scan: %v\n%s", err, stderr)
+	}
+
+	stdout, stderr, err := runSQLCmd(t, fix, "capabilities", "--json")
+	if err != nil {
+		t.Fatalf("sql capabilities: %v\n%s", err, stderr)
+	}
+	var env struct {
+		Command string `json:"command"`
+		Result  struct {
+			Capabilities []struct {
+				FeatureID  string   `json:"feature_id"`
+				Reads      []string `json:"reads"`
+				Writes     []string `json:"writes"`
+				Operations int      `json:"operations"`
+				Unresolved int      `json:"unresolved"`
+			} `json:"capabilities"`
+			Linked     int `json:"linked_operations"`
+			Operations int `json:"operations"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, stdout)
+	}
+	if env.Command != "sql.capabilities" {
+		t.Errorf("command = %q, want sql.capabilities", env.Command)
+	}
+
+	byID := map[string]int{}
+	for i, c := range env.Result.Capabilities {
+		byID[c.FeatureID] = i
+	}
+	read, ok := byID["audit.read"]
+	if !ok {
+		t.Fatalf("audit.read is missing from the rollup: %+v", env.Result.Capabilities)
+	}
+	if strings.Join(env.Result.Capabilities[read].Reads, ",") != "audit_log" {
+		t.Errorf("audit.read reads = %v, want audit_log", env.Result.Capabilities[read].Reads)
+	}
+	if n := env.Result.Capabilities[read].Unresolved; n != 0 {
+		t.Errorf("audit.read unresolved = %d, want 0", n)
+	}
+
+	// The capability whose only query is builder-assembled keeps its row with
+	// an empty footprint and the count that explains it. Reporting "touches no
+	// tables" for it would be the confident wrong answer.
+	dyn, ok := byID["audit.dynamic"]
+	if !ok {
+		t.Fatalf("audit.dynamic was dropped from the rollup: %+v", env.Result.Capabilities)
+	}
+	if len(env.Result.Capabilities[dyn].Reads) != 0 || len(env.Result.Capabilities[dyn].Writes) != 0 {
+		t.Errorf("audit.dynamic footprint = %+v, want empty", env.Result.Capabilities[dyn])
+	}
+	if env.Result.Capabilities[dyn].Unresolved != 1 {
+		t.Errorf("audit.dynamic unresolved = %d, want 1", env.Result.Capabilities[dyn].Unresolved)
+	}
+	if env.Result.Linked != 2 || env.Result.Operations != 4 {
+		t.Errorf("linked/total = %d/%d, want 2/4", env.Result.Linked, env.Result.Operations)
+	}
+
+	// The human rendering has to carry the caveat too.
+	stdout, _, err = runSQLCmd(t, fix, "capabilities")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "audit_log") {
+		t.Errorf("the table footprint is missing from the output:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "PARTIAL") {
+		t.Errorf("a capability with an unresolved query must be flagged partial:\n%s", stdout)
+	}
+}
+
+func TestSQL_CapabilitiesBeforeAnyLinkSaysSo(t *testing.T) {
+	fix := newSQLFixture(t)
+	if _, _, err := runSQLCmd(t, fix, "scan", fix.root); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, err := runSQLCmd(t, fix, "capabilities")
+	if err != nil {
+		t.Fatalf("capabilities with no links should not error: %v", err)
+	}
+	if !strings.Contains(stdout, "no capability owns any recorded query") {
+		t.Errorf("expected the empty rollup to explain itself; got:\n%s", stdout)
 	}
 }
 

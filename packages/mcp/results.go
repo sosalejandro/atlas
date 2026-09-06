@@ -88,9 +88,25 @@ func bound[T any](rows []T, limit int, what string) ([]T, *Truncation) {
 		Returned: limit,
 		Total:    len(rows),
 		Limit:    limit,
-		Note: fmt.Sprintf(
-			"TRUNCATED: showing %d of %d %s. The remaining %d are NOT in this response — "+
-				"do not conclude they do not exist. Narrow the question or raise `limit` (server cap applies).",
-			limit, len(rows), what, len(rows)-limit),
+		Note:     truncationNote(limit, len(rows), what),
 	}
+}
+
+// truncationNote tells the model what it can actually DO about the cut.
+//
+// This surface has no pagination: every inputSchema is
+// additionalProperties:false with no cursor, offset or page token, so an
+// instruction to "fetch the next page" — or to raise `limit` past a cap the
+// caller has already hit — is an instruction the protocol cannot satisfy, and
+// the model burns its turn discovering that. Saying plainly that the remainder
+// is unreachable from here, and naming the two things that ARE reachable
+// (a narrower question, or the uncapped CLI), is the honest version.
+func truncationNote(limit, total int, what string) string {
+	return fmt.Sprintf(
+		"TRUNCATED: showing %d of %d %s. The remaining %d are NOT in this response — do not conclude they "+
+			"do not exist. There is NO cursor and no offset: calling this tool again cannot retrieve them, and "+
+			"`limit` may only narrow the server cap, never exceed it. Ask a narrower question, or read the "+
+			"complete set outside MCP with the atlas CLI (e.g. `atlas trace --json` for call edges). The server "+
+			"cap itself is set by the operator with `atlas mcp --max-features/--max-symbols/--max-edges/--max-tests`.",
+		limit, total, what, total-limit)
 }

@@ -113,7 +113,13 @@ func runInit(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPath
 	}
 	defer func() { _ = s.Close() }()
 
-	stats, err := s.Ingest(ctx, idx)
+	// The configured globs travel with the ingest, as they do for `atlas
+	// scan`: the index records that a glob claimed a file but not WHICH
+	// glob, and the pattern is the half an operator can act on. Without
+	// this the ledger init writes names no config line at all.
+	stats, err := s.Ingest(ctx, idx, store.IngestOptions{
+		GeneratedGlobs: loaded.Scan.Generated,
+	})
 	if err != nil {
 		return fmt.Errorf("ingest project: %w", err)
 	}

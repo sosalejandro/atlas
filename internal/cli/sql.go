@@ -42,7 +42,7 @@ reports the resolved fraction so you can weigh the advisories against how
 much of the data layer they were computed over.`,
 		Args: cobra.NoArgs,
 	}
-	cmd.AddCommand(newSQLScanCmd(), newSQLListCmd(), newSQLAdviseCmd())
+	cmd.AddCommand(newSQLScanCmd(), newSQLListCmd(), newSQLAdviseCmd(), newSQLCapabilitiesCmd())
 	return cmd
 }
 
@@ -89,9 +89,15 @@ type sqlScanResult struct {
 	Resolved         int      `json:"resolved"`
 	Unresolved       int      `json:"unresolved"`
 	ResolvedFraction float64  `json:"resolved_fraction"`
-	Tables           int      `json:"tables"`
-	Indexes          int      `json:"indexes"`
-	Warnings         []string `json:"warnings,omitempty"`
+	// Merged is how many generated sqlc call sites were reconciled onto the
+	// .sql query that defines them. It is in the payload because it is the
+	// difference between the number of call sites read and the number of
+	// operations reported, and an unexplained gap between those two is the
+	// kind of thing that makes a consumer distrust the rest.
+	Merged   int      `json:"merged"`
+	Tables   int      `json:"tables"`
+	Indexes  int      `json:"indexes"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func runSQLScan(cmd *cobra.Command, opts sqlops.Options) error {
@@ -126,6 +132,7 @@ func runSQLScan(cmd *cobra.Command, opts sqlops.Options) error {
 		Resolved:         rep.Resolved,
 		Unresolved:       rep.Unresolved,
 		ResolvedFraction: rep.ResolvedFraction(),
+		Merged:           rep.Merged,
 		Tables:           len(tables),
 		Indexes:          len(indexes),
 		Warnings:         rep.Warnings,
@@ -141,6 +148,9 @@ func runSQLScan(cmd *cobra.Command, opts sqlops.Options) error {
 func renderSQLScan(w io.Writer, res sqlScanResult, rep sqlops.Report) {
 	fmt.Fprintf(w, "\n  indexed %d operations from %s\n", res.Operations, res.Root)
 	fmt.Fprintf(w, "  %s\n", coverageLine(res.Resolved, res.Unresolved))
+	if res.Merged > 0 {
+		fmt.Fprintf(w, "  merged %d generated call site(s) onto the .sql queries that define them\n", res.Merged)
+	}
 	fmt.Fprintf(w, "  schema: %d tables, %d indexes", res.Tables, res.Indexes)
 	if len(res.SchemaDirs) == 0 {
 		fmt.Fprint(w, "  (no DDL found -- pass --schema-dir to enable the index checks)")
@@ -291,6 +301,138 @@ func predicateLine(op store.SQLOperationRecord) string {
 		parts = append(parts, fmt.Sprintf("%s %s", col, p.Operator))
 	}
 	return "filters: " + strings.Join(parts, ", ")
+}
+
+// --- capabilities --------------------------------------------------------
+
+func newSQLCapabilitiesCmd() *cobra.Command {
+	var feature string
+	cmd := &cobra.Command{
+		Use:   "capabilities",
+		Short: "Show the tables each capability reads and writes",
+		Long: `capabilities rolls the recorded SQL operations up to the capability that
+owns them: for each feature, the tables its queries read and the tables they
+write -- the data footprint a privacy review, a migration blast radius or a
+per-capability ERD is drawn from.
+
+The footprint is a LOWER BOUND wherever a capability has unresolved queries.
+Those queries touch tables atlas could not see, so every row carries the count
+and the output says "partial" rather than letting the set read as complete.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runSQLCapabilities(cmd, feature)
+		},
+	}
+	cmd.Flags().StringVar(&feature, "feature", "",
+		"show only this capability")
+	return cmd
+}
+
+// sqlCapabilitiesResult is the --json payload for `atlas sql capabilities`.
+type sqlCapabilitiesResult struct {
+	Capabilities []store.SQLCapabilityTables `json:"capabilities"`
+	// Linked is how many operations reached a capability at all. An operation
+	// in an unannotated symbol is in the inventory but in nobody's footprint,
+	// and a reader comparing this with `operations` can see how much of the
+	// data layer the rollup speaks for.
+	Linked           int     `json:"linked_operations"`
+	Operations       int     `json:"operations"`
+	Resolved         int     `json:"resolved"`
+	Unresolved       int     `json:"unresolved"`
+	ResolvedFraction float64 `json:"resolved_fraction"`
+}
+
+func runSQLCapabilities(cmd *cobra.Command, feature string) error {
+	ctx := sqlCmdContext(cmd)
+	s, err := openStoreForRead(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = s.Close() }()
+
+	caps, err := s.SQLOps().CapabilityTables(ctx)
+	if err != nil {
+		return fmt.Errorf("sql capabilities: %w", err)
+	}
+	rows, err := s.SQLOps().List(ctx)
+	if err != nil {
+		return fmt.Errorf("sql capabilities: %w", err)
+	}
+	resolved, unresolved := countResolution(rows)
+
+	res := sqlCapabilitiesResult{
+		Capabilities:     filterCapabilities(caps, feature),
+		Linked:           linkedOperations(caps),
+		Operations:       len(rows),
+		Resolved:         resolved,
+		Unresolved:       unresolved,
+		ResolvedFraction: fraction(resolved, unresolved),
+	}
+	if flags.JSON {
+		return emitJSON(stdoutOrJSON(cmd), "sql.capabilities",
+			map[string]any{"feature": feature}, res, nil)
+	}
+	renderSQLCapabilities(cmd.OutOrStdout(), res)
+	return nil
+}
+
+func filterCapabilities(in []store.SQLCapabilityTables, feature string) []store.SQLCapabilityTables {
+	out := make([]store.SQLCapabilityTables, 0, len(in))
+	for _, c := range in {
+		if feature != "" && c.FeatureID != feature {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// linkedOperations counts the operations that reach any capability. An
+// operation counted under two capabilities is counted twice here on purpose:
+// the number answers "how much of the inventory is spoken for", not "how many
+// distinct rows".
+func linkedOperations(caps []store.SQLCapabilityTables) int {
+	n := 0
+	for _, c := range caps {
+		n += c.Operations
+	}
+	return n
+}
+
+func renderSQLCapabilities(w io.Writer, res sqlCapabilitiesResult) {
+	fmt.Fprintln(w)
+	if res.Operations == 0 {
+		fmt.Fprintln(w, "  no SQL operations recorded -- run `atlas sql scan` first")
+		fmt.Fprintln(w)
+		return
+	}
+	fmt.Fprintf(w, "  %s\n", coverageLine(res.Resolved, res.Unresolved))
+	if len(res.Capabilities) == 0 {
+		fmt.Fprintln(w, "\n  no capability owns any recorded query -- link features to the symbols")
+		fmt.Fprintln(w, "  that issue them (`atlas scan` indexes the annotations) and re-run")
+		fmt.Fprintln(w)
+		return
+	}
+	fmt.Fprintf(w, "  %d of %d operations belong to a capability\n\n", res.Linked, res.Operations)
+	for _, c := range res.Capabilities {
+		fmt.Fprintf(w, "  %s\n", c.FeatureID)
+		fmt.Fprintf(w, "    reads:  %s\n", tableSetLine(c.Reads))
+		fmt.Fprintf(w, "    writes: %s\n", tableSetLine(c.Writes))
+		if !c.Complete() {
+			fmt.Fprintf(w, "    PARTIAL: %d of %d queries could not be resolved; tables only they touch are missing\n",
+				c.Unresolved, c.Operations)
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+// tableSetLine renders an empty footprint as a word rather than as nothing, so
+// "reads no tables" is never mistaken for "this line failed to render".
+func tableSetLine(tables []string) string {
+	if len(tables) == 0 {
+		return "(none)"
+	}
+	return strings.Join(tables, ", ")
 }
 
 // --- advise --------------------------------------------------------------

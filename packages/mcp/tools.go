@@ -174,7 +174,8 @@ func limitProp(capValue int, what string) map[string]any {
 		"default": capValue,
 		"description": fmt.Sprintf(
 			"Maximum %s to return. Values above the server cap of %d are clamped to it. "+
-				"Whenever the answer is cut, the response carries a `truncated` block saying by how much.",
+				"Whenever the answer is cut, the response carries a `truncated` block saying by how much. "+
+				"There is no cursor or offset: rows past the cap cannot be paged through from this tool.",
 			what, capValue),
 	}
 }
