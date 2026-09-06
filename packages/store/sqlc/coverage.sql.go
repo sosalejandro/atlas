@@ -12,7 +12,9 @@ import (
 )
 
 const getCoverageRun = `-- name: GetCoverageRun :one
-SELECT id, framework, started_at, finished_at, raw_path, summary_json
+SELECT id, framework, started_at, finished_at, raw_path, summary_json,
+       files_in_report, files_matched, files_unmatched,
+       stmts_attributed, stmts_unattributed, gaps_truncated
 FROM coverage_runs
 WHERE id = ?
 `
@@ -27,6 +29,12 @@ func (q *Queries) GetCoverageRun(ctx context.Context, id int64) (CoverageRun, er
 		&i.FinishedAt,
 		&i.RawPath,
 		&i.SummaryJson,
+		&i.FilesInReport,
+		&i.FilesMatched,
+		&i.FilesUnmatched,
+		&i.StmtsAttributed,
+		&i.StmtsUnattributed,
+		&i.GapsTruncated,
 	)
 	return i, err
 }
@@ -58,16 +66,25 @@ func (q *Queries) InsertCoverageResult(ctx context.Context, arg InsertCoverageRe
 }
 
 const insertCoverageRun = `-- name: InsertCoverageRun :execresult
-INSERT INTO coverage_runs (framework, started_at, finished_at, raw_path, summary_json)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO coverage_runs (
+  framework, started_at, finished_at, raw_path, summary_json,
+  files_in_report, files_matched, files_unmatched,
+  stmts_attributed, stmts_unattributed
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertCoverageRunParams struct {
-	Framework   string    `db:"framework" json:"framework"`
-	StartedAt   time.Time `db:"started_at" json:"started_at"`
-	FinishedAt  time.Time `db:"finished_at" json:"finished_at"`
-	RawPath     *string   `db:"raw_path" json:"raw_path"`
-	SummaryJson string    `db:"summary_json" json:"summary_json"`
+	Framework         string    `db:"framework" json:"framework"`
+	StartedAt         time.Time `db:"started_at" json:"started_at"`
+	FinishedAt        time.Time `db:"finished_at" json:"finished_at"`
+	RawPath           *string   `db:"raw_path" json:"raw_path"`
+	SummaryJson       string    `db:"summary_json" json:"summary_json"`
+	FilesInReport     int64     `db:"files_in_report" json:"files_in_report"`
+	FilesMatched      int64     `db:"files_matched" json:"files_matched"`
+	FilesUnmatched    int64     `db:"files_unmatched" json:"files_unmatched"`
+	StmtsAttributed   int64     `db:"stmts_attributed" json:"stmts_attributed"`
+	StmtsUnattributed int64     `db:"stmts_unattributed" json:"stmts_unattributed"`
 }
 
 func (q *Queries) InsertCoverageRun(ctx context.Context, arg InsertCoverageRunParams) (sql.Result, error) {
@@ -77,11 +94,18 @@ func (q *Queries) InsertCoverageRun(ctx context.Context, arg InsertCoverageRunPa
 		arg.FinishedAt,
 		arg.RawPath,
 		arg.SummaryJson,
+		arg.FilesInReport,
+		arg.FilesMatched,
+		arg.FilesUnmatched,
+		arg.StmtsAttributed,
+		arg.StmtsUnattributed,
 	)
 }
 
 const listAllCoverageRuns = `-- name: ListAllCoverageRuns :many
-SELECT id, framework, started_at, finished_at, raw_path, summary_json
+SELECT id, framework, started_at, finished_at, raw_path, summary_json,
+       files_in_report, files_matched, files_unmatched,
+       stmts_attributed, stmts_unattributed, gaps_truncated
 FROM coverage_runs
 ORDER BY finished_at DESC, id DESC
 `
@@ -102,6 +126,12 @@ func (q *Queries) ListAllCoverageRuns(ctx context.Context) ([]CoverageRun, error
 			&i.FinishedAt,
 			&i.RawPath,
 			&i.SummaryJson,
+			&i.FilesInReport,
+			&i.FilesMatched,
+			&i.FilesUnmatched,
+			&i.StmtsAttributed,
+			&i.StmtsUnattributed,
+			&i.GapsTruncated,
 		); err != nil {
 			return nil, err
 		}
@@ -165,7 +195,9 @@ func (q *Queries) ListCoverageResults(ctx context.Context, runID int64) ([]ListC
 }
 
 const listCoverageRunsByFramework = `-- name: ListCoverageRunsByFramework :many
-SELECT id, framework, started_at, finished_at, raw_path, summary_json
+SELECT id, framework, started_at, finished_at, raw_path, summary_json,
+       files_in_report, files_matched, files_unmatched,
+       stmts_attributed, stmts_unattributed, gaps_truncated
 FROM coverage_runs
 WHERE framework = ?
 ORDER BY finished_at DESC, id DESC
@@ -187,6 +219,12 @@ func (q *Queries) ListCoverageRunsByFramework(ctx context.Context, framework str
 			&i.FinishedAt,
 			&i.RawPath,
 			&i.SummaryJson,
+			&i.FilesInReport,
+			&i.FilesMatched,
+			&i.FilesUnmatched,
+			&i.StmtsAttributed,
+			&i.StmtsUnattributed,
+			&i.GapsTruncated,
 		); err != nil {
 			return nil, err
 		}

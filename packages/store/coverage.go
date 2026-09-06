@@ -39,6 +39,26 @@ type CoverageRun struct {
 	FinishedAt  time.Time `json:"finished_at"`
 	RawPath     *string   `json:"raw_path,omitempty"`
 	SummaryJSON string    `json:"summary_json"`
+
+	// The attribution accounting (schema 0011, issue #100): how much of the
+	// coverage report the ingest could charge to a symbol. Statement-coverage
+	// ingests (go-cover, istanbul) fill these; the pass/fail frameworks and
+	// every run written before 0011 leave them at 0, so a reader that sees
+	// an all-zero set must report "no accounting recorded" rather than a
+	// perfect 0-of-0 attribution.
+	//
+	// StmtsUnattributed is the honest size of the coverage blind spot, and
+	// it stays exact however the per-file gap list (CoverageGaps) was capped.
+	FilesInReport     int `json:"files_in_report"`
+	FilesMatched      int `json:"files_matched"`
+	FilesUnmatched    int `json:"files_unmatched"`
+	StmtsAttributed   int `json:"stmts_attributed"`
+	StmtsUnattributed int `json:"stmts_unattributed"`
+
+	// GapsTruncated is how many gap FILES did not fit MaxRunGapRows. It is
+	// written by CoverageGaps.Insert, not by the run insert, and is ignored
+	// on input.
+	GapsTruncated int `json:"gaps_truncated"`
 }
 
 // CoverageResult is one row of the `coverage_results` table (§5.9).
@@ -107,6 +127,13 @@ func fromSQLCCoverageRun(r sqlc.CoverageRun) CoverageRun {
 		FinishedAt:  r.FinishedAt,
 		RawPath:     r.RawPath,
 		SummaryJSON: r.SummaryJson,
+
+		FilesInReport:     int(r.FilesInReport),
+		FilesMatched:      int(r.FilesMatched),
+		FilesUnmatched:    int(r.FilesUnmatched),
+		StmtsAttributed:   int(r.StmtsAttributed),
+		StmtsUnattributed: int(r.StmtsUnattributed),
+		GapsTruncated:     int(r.GapsTruncated),
 	}
 }
 
@@ -138,6 +165,12 @@ func insertCoverageRunQ(ctx context.Context, q *sqlc.Queries, r *CoverageRun) (i
 		FinishedAt:  r.FinishedAt,
 		RawPath:     r.RawPath,
 		SummaryJson: r.SummaryJSON,
+
+		FilesInReport:     int64(r.FilesInReport),
+		FilesMatched:      int64(r.FilesMatched),
+		FilesUnmatched:    int64(r.FilesUnmatched),
+		StmtsAttributed:   int64(r.StmtsAttributed),
+		StmtsUnattributed: int64(r.StmtsUnattributed),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("coverage InsertRun: %w", err)

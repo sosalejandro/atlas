@@ -8,7 +8,7 @@ fall back to other signals (annotation freshness, aggregate linkage, etc.).
 | Subcommand                | Purpose                                                                        |
 | ------------------------- | ------------------------------------------------------------------------------ |
 | [`sync`](#sync)           | Ingest a test framework's report into the atlas store.                         |
-| [`status`](#status)       | Per-feature coverage view from the latest coverage run.                        |
+| [`status`](#status)       | Per-feature coverage view, and the attribution gap, from the latest run.       |
 
 ## Subcommand reference
 
@@ -128,6 +128,15 @@ full `gaps` list (the terminal view caps at 25 rows). Treat a large
 `no-indexed-symbol` bucket as a **scan** problem, not a test problem: the
 tests ran, atlas just doesn't know what they touched.
 
+All of it is also **persisted with the run** — the counters as columns on
+`coverage_runs`, the per-file list as `coverage_run_gaps` rows that cascade
+with it. So the blind spot stays inspectable long after the ingest that
+measured it, via [`cov status --gaps`](#example-the-attribution-gap-of-the-latest-run),
+without re-running the profile. The stored gap list is capped at 500 files
+per run; when it is cut, the number of files dropped is recorded on the run
+and reported, and the statement totals stay exact regardless — a truncated
+list never passes itself off as a complete one.
+
 #### Example: per-test evidence (what each test actually ran)
 
 ```bash
@@ -178,11 +187,16 @@ atlas cov status [flags]
 summarises pass/fail/skip counts grouped by `feature_id`. With `--feature`
 the output is filtered to a single feature.
 
+With `--gaps` it also reports that run's **attribution accounting** — read
+back from the store, not recomputed — so "how much of what ran can atlas
+actually see?" is answerable by anything that did not run the ingest itself.
+
 #### Flags
 
 | Flag                          | Default               | Description                                              |
 | ----------------------------- | --------------------- | -------------------------------------------------------- |
 | `--feature`                   | (all features)        | Restrict output to one feature id.                       |
+| `--gaps`                      | off                   | Also report the run's attribution accounting and the files whose execution could not be attributed. |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                    |
 | `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                          |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope.                           |
@@ -195,6 +209,37 @@ the output is filtered to a single feature.
 $ atlas cov status
 Coverage run 1 (go-test, finished 2026-05-22 00:00:01)
   <unassigned>                              pass=1 fail=1 skip=0  (50%)
+```
+
+#### Example: the attribution gap of the latest run
+
+```
+# Run from: a Go project root, after `atlas cov sync --framework go-cover`
+$ atlas cov status --gaps
+Coverage run 5 (go-test, finished 2026-09-05 11:20:14)
+  billing.checkout                          pass=412 fail=0 skip=0  (100%)
+attribution: 392327/1204331 statements (32.6%) unattributed, files 641/852 matched
+    5312 stmts  no-indexed-symbol      github.com/org/repo/src/infrastructure/persistence/generated/scheduling.sql.go
+     871 stmts  outside-symbol-spans   github.com/org/repo/src/contexts/billing/service.go
+  ... +229 more
+```
+
+The counters and the per-file list come from the `coverage_runs` row and the
+`coverage_run_gaps` table respectively; nothing is recomputed, so this is
+cheap enough to run in CI on every build. `--json` carries the whole thing
+under `result.attribution`, which is what a gate like "fail if
+`stmts_unattributed` exceeds 10% of the total" reads.
+
+A run that recorded no accounting — one ingested before schema `0011`, or by
+a framework with no statement coverage (`playwright`, `maestro`, the
+`go-test` pass/fail model) — says so rather than reporting a flawless
+zero-of-zero:
+
+```
+$ atlas cov status --gaps
+Coverage run 1 (playwright, finished 2026-05-22 00:00:01)
+  <unassigned>                              pass=1 fail=1 skip=0  (50%)
+run 1 carries no attribution metadata (ingested before schema 0011, or by a framework without statement coverage)
 ```
 
 `<unassigned>` is the bucket for tests that didn't link to a feature —
@@ -214,6 +259,11 @@ annotated with `// @atlas:feature auth.login` would group under
 3. `cov status` pulls the highest `run_id` from `coverage_runs`, joins
    `coverage_tests` against `feature_symbols`, and emits the pass / fail /
    skip rollup per feature.
+4. The statement-coverage ingests additionally stamp their attribution
+   accounting onto the `coverage_runs` row and write one `coverage_run_gaps`
+   row per file they could not attribute. Both cascade with the run, so the
+   accounting cannot outlive the run it describes — and `cov status --gaps`
+   reads them straight back.
 
 There is no "merge with previous run" mode — each `cov sync` is a
 standalone run. To see history across runs, query the `coverage_runs`

@@ -412,20 +412,30 @@ func sniffFramework(path string) string {
 // newCovStatusCmd implements `atlas cov status [--feature <id>]` — show
 // per-feature coverage counts from the latest coverage run.
 func newCovStatusCmd() *cobra.Command {
-	var feature string
+	var (
+		feature string
+		gaps    bool
+	)
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Per-feature coverage view from the latest coverage run",
 		Long: `cov status pulls the most recent coverage run from the store and
 summarises pass/fail/skip counts grouped by feature_id. With --feature
-the output is filtered to one feature only.`,
+the output is filtered to one feature only.
+
+--gaps additionally reports the run's ATTRIBUTION accounting: how much of
+the coverage report atlas could charge to a symbol, and which files it
+could not. That is read back from the store, so the blind spot is
+inspectable long after the ingest that measured it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCovStatus(cmd, feature)
+			return runCovStatus(cmd, feature, gaps)
 		},
 	}
 	cmd.Flags().StringVar(&feature, "feature", "",
 		"restrict output to one feature id")
+	cmd.Flags().BoolVar(&gaps, "gaps", false,
+		"report the run's attribution accounting and the files whose execution could not be attributed")
 	return cmd
 }
 
@@ -433,6 +443,29 @@ the output is filtered to one feature only.`,
 type covStatusResult struct {
 	RunID    int64                 `json:"run_id"`
 	Features []covStatusFeatureRow `json:"features"`
+
+	// Attribution is populated by --gaps from what the ingest persisted on
+	// the run (schema 0011). Absent when the flag is off; present-but-zeroed
+	// never happens — a run that recorded no accounting is reported as such
+	// rather than as a perfect 0-of-0 attribution.
+	Attribution *covStatusAttribution `json:"attribution,omitempty"`
+}
+
+// covStatusAttribution is the persisted answer to "how much of what ran can
+// atlas actually see?" — the run-level counters plus the per-file enumeration
+// behind them. This is what a CI gate ("fail if unattributed > 10%") reads.
+type covStatusAttribution struct {
+	Recorded          bool `json:"recorded"`
+	FilesInReport     int  `json:"files_in_report"`
+	FilesMatched      int  `json:"files_matched"`
+	FilesUnmatched    int  `json:"files_unmatched"`
+	StmtsAttributed   int  `json:"stmts_attributed"`
+	StmtsUnattributed int  `json:"stmts_unattributed"`
+	// GapsTruncated is how many gap files did not fit the store's per-run
+	// cap. The statement totals above stay exact regardless, so a non-zero
+	// value narrows the enumeration, never the accounting.
+	GapsTruncated int                 `json:"gaps_truncated"`
+	Gaps          []store.CoverageGap `json:"gaps"`
 }
 
 type covStatusFeatureRow struct {
@@ -444,7 +477,7 @@ type covStatusFeatureRow struct {
 	PassRate  float64           `json:"pass_rate"`
 }
 
-func runCovStatus(cmd *cobra.Command, feature string) error {
+func runCovStatus(cmd *cobra.Command, feature string, gaps bool) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -480,12 +513,79 @@ func runCovStatus(cmd *cobra.Command, feature string) error {
 
 	rows := aggregateCovStatus(results, feature)
 	res := covStatusResult{RunID: latest.ID, Features: rows}
+	if gaps {
+		attr, err := loadCovAttribution(ctx, s, latest)
+		if err != nil {
+			return err
+		}
+		res.Attribution = &attr
+	}
 	if flags.JSON {
 		return emitJSON(stdoutOrJSON(cmd), "cov.status",
-			map[string]any{"feature": feature}, res, nil)
+			map[string]any{"feature": feature, "gaps": gaps}, res, nil)
 	}
 	printCovStatusText(cmd, latest, rows)
+	if res.Attribution != nil {
+		printCovAttribution(cmd, latest.ID, *res.Attribution)
+	}
 	return nil
+}
+
+// loadCovAttribution reads a run's persisted attribution accounting. The
+// counters live on the run row; the per-file enumeration behind them is a
+// separate read, because a run with a large blind spot can carry hundreds of
+// gap rows that the default view never wants.
+func loadCovAttribution(ctx context.Context, s *store.Store, run store.CoverageRun) (covStatusAttribution, error) {
+	rows, err := s.CoverageGaps().List(ctx, run.ID)
+	if err != nil {
+		return covStatusAttribution{}, fmt.Errorf("cov status: list gaps %d: %w", run.ID, err)
+	}
+	return covStatusAttribution{
+		// A run predating schema 0011, or one from a framework with no
+		// statement coverage at all, leaves every counter at zero. Reporting
+		// that as 0-of-0 attributed would read as "nothing was lost", which
+		// is the opposite of what it means.
+		Recorded:          run.FilesInReport > 0 || run.StmtsAttributed > 0 || run.StmtsUnattributed > 0,
+		FilesInReport:     run.FilesInReport,
+		FilesMatched:      run.FilesMatched,
+		FilesUnmatched:    run.FilesUnmatched,
+		StmtsAttributed:   run.StmtsAttributed,
+		StmtsUnattributed: run.StmtsUnattributed,
+		GapsTruncated:     run.GapsTruncated,
+		Gaps:              rows,
+	}, nil
+}
+
+// printCovAttribution renders the accounting under the feature rollup. The
+// terminal list is capped at maxGapLines; --json carries every stored row.
+func printCovAttribution(cmd *cobra.Command, runID int64, a covStatusAttribution) {
+	out := cmd.OutOrStdout()
+	if !a.Recorded {
+		fmt.Fprintf(out,
+			"run %d carries no attribution metadata (ingested before schema 0011, "+
+				"or by a framework without statement coverage)\n", runID)
+		return
+	}
+	total := a.StmtsAttributed + a.StmtsUnattributed
+	pct := 0.0
+	if total > 0 {
+		pct = 100 * float64(a.StmtsUnattributed) / float64(total)
+	}
+	fmt.Fprintf(out,
+		"attribution: %d/%d statements (%.1f%%) unattributed, files %d/%d matched\n",
+		a.StmtsUnattributed, total, pct, a.FilesMatched, a.FilesInReport)
+	if a.GapsTruncated > 0 {
+		fmt.Fprintf(out,
+			"  %d gap file(s) stored; %d more were dropped at the store's cap of %d\n",
+			len(a.Gaps), a.GapsTruncated, store.MaxRunGapRows)
+	}
+	for i, g := range a.Gaps {
+		if i == maxGapLines {
+			fmt.Fprintf(out, "  ... +%d more\n", len(a.Gaps)-maxGapLines)
+			break
+		}
+		fmt.Fprintf(out, "  %6d stmts  %-22s %s\n", g.Stmts, g.Reason, g.Path)
+	}
 }
 
 func aggregateCovStatus(rs []store.CoverageResult, filter string) []covStatusFeatureRow {
