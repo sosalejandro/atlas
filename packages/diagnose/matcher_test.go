@@ -55,11 +55,12 @@ func writeFile(t *testing.T, dir, relPath, content string) string {
 // pointer deref at handler.go:42" symptom should ideally rank FormatError
 // near the top (it emits the string + is called by multiple sites).
 //
-//nolint:funlen // a test fixture is necessarily long; the project's
 // .golangci.yml intends to exclude _test.go from funlen via the v1
 // issues.exclude-rules schema, but that schema is invalid under v2 in
 // the version we're running. Once .golangci.yml moves to
 // linters.exclusions.rules this directive can be removed.
+//
+//nolint:funlen // a test fixture is necessarily long; the project's
 func buildSyntheticProject(t *testing.T, s *store.Store) string {
 	t.Helper()
 
@@ -124,11 +125,11 @@ func errorsNew(s string) error { return nil }
 	for _, n := range []*graph.Node{handler, service, repo, formatErr} {
 		g.AddNode(n)
 	}
-	g.AddEdge("pkg.LoginHandler", "pkg.LoginService")
-	g.AddEdge("pkg.LoginHandler", "pkg.FormatError")
-	g.AddEdge("pkg.LoginService", "pkg.UserRepo_FindByEmail")
+	g.AddEdgeTier("pkg.LoginHandler", "pkg.LoginService", graph.TierNameResolved)
+	g.AddEdgeTier("pkg.LoginHandler", "pkg.FormatError", graph.TierNameResolved)
+	g.AddEdgeTier("pkg.LoginService", "pkg.UserRepo_FindByEmail", graph.TierNameResolved)
 	// A second caller of FormatError to bump its centrality.
-	g.AddEdge("pkg.UserRepo_FindByEmail", "pkg.FormatError")
+	g.AddEdgeTier("pkg.UserRepo_FindByEmail", "pkg.FormatError", graph.TierNameResolved)
 
 	idx := &codeindex.Index{
 		Root:        dir,

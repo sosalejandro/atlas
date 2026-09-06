@@ -104,6 +104,25 @@ type Options struct {
 	// default of "include tests" without requiring a constructor.
 	SkipTests bool
 
+	// SkipTypedResolution turns off the go/packages-backed resolver and
+	// scans with the AST name heuristics alone (issue #87).
+	//
+	// The default (zero value: false) is to TYPE-CHECK. Everything atlas
+	// claims rests on which declaration a call binds to, and a name is
+	// not an answer to that question: two packages in one repo declare
+	// the same `Chat.MarkLoaded`, and no amount of scope preference
+	// makes a string pick the right one. Type checking is per package
+	// and degrades per package, so a tree that does not compile still
+	// scans -- see Result.Resolution for what actually happened.
+	//
+	// Set it when the load itself is the problem: no toolchain on the
+	// machine, a build that needs credentials to resolve modules, or a
+	// scan whose latency budget cannot absorb the load (measured at
+	// roughly 0.8s on this repository -- docs/languages/go.md has the
+	// numbers). Named with inverse polarity, like SkipTests, so the zero
+	// value is the intended default.
+	SkipTypedResolution bool
+
 	// SkipUnexportedFuncs, when true, excludes unexported plain functions
 	// (package-private `func helper()`) from the index. The default (zero
 	// value: false) is to INCLUDE them because the Go compiler instruments

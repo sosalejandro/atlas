@@ -344,6 +344,12 @@ var verbsWithNoArtifact = map[string]bool{
 	"diff": true, "contract": true, "diagnose": true, "codebase": true,
 	"doctor": true, "affected": true, "trend": true, "sql": true,
 	"flow": true, "hotspots": true, "security": true,
+	// resolve writes nothing: it scans the working tree in memory and
+	// prints package counts, a tier histogram and timings. The one place
+	// repository content reaches its output is the first type error of
+	// each degraded package -- the same class of disclosure as a scan
+	// warning, on the same --json envelope the catalogue already covers.
+	"resolve": true,
 	// version reports only the build stamps compiled into the binary --
 	// no repository content reaches it at all.
 	"version": true,

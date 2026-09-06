@@ -138,14 +138,16 @@ type CoverageSymbolSpan struct {
 }
 
 type Edge struct {
-	ID           int64     `db:"id" json:"id"`
-	FromSymbolID int64     `db:"from_symbol_id" json:"from_symbol_id"`
-	ToSymbolID   int64     `db:"to_symbol_id" json:"to_symbol_id"`
-	Kind         string    `db:"kind" json:"kind"`
-	FilePath     string    `db:"file_path" json:"file_path"`
-	Line         int64     `db:"line" json:"line"`
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
-	EdgeMeta     *string   `db:"edge_meta" json:"edge_meta"`
+	ID             int64     `db:"id" json:"id"`
+	FromSymbolID   int64     `db:"from_symbol_id" json:"from_symbol_id"`
+	ToSymbolID     int64     `db:"to_symbol_id" json:"to_symbol_id"`
+	Kind           string    `db:"kind" json:"kind"`
+	FilePath       string    `db:"file_path" json:"file_path"`
+	Line           int64     `db:"line" json:"line"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
+	EdgeMeta       *string   `db:"edge_meta" json:"edge_meta"`
+	ResolutionTier string    `db:"resolution_tier" json:"resolution_tier"`
+	Ambiguous      int64     `db:"ambiguous" json:"ambiguous"`
 }
 
 type Feature struct {

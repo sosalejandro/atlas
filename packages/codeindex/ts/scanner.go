@@ -289,33 +289,44 @@ func (s *Scanner) Scan(ctx context.Context, rootDir string) (*Result, error) {
 
 // buildScannerArgs assembles the Node argv for the scanner.ts subprocess.
 //
-// Defense-in-depth: every user-influenced value (Include / Exclude patterns,
-// TsconfigPath, Router enum) is run through validateScannerArg to reject
-// shell metacharacters, newlines, and leading dashes. The Node call form
-// itself is shell-free (exec.Command, not exec.Command("sh", "-c", ...))
-// so an injection vector requires both (a) bypassing this validator AND
-// (b) finding a Node CLI flag that re-invokes the shell — neither of which
-// has a known exploit path here. The validator exists to satisfy static
-// analysis and provide a single chokepoint if Node ever grows one.
+// Defense-in-depth: every path- or glob-shaped value (the script path, the
+// project root, Include / Exclude patterns, TsconfigPath) goes through
+// sanitizeScannerPathArg, which normalises the host separator to "/" and
+// then rejects shell metacharacters, control characters and leading
+// dashes. The Router enum is not user text at all — it is matched against
+// a closed set below.
+//
+// The Node call form itself is shell-free (exec.Command, not
+// exec.Command("sh", "-c", ...)), so an injection vector requires both
+// (a) bypassing this validator AND (b) finding a Node CLI flag that
+// re-invokes the shell — neither of which has a known exploit path here.
+// TestNewNodeCommand_IsArgvNotShell pins the shell-free half so it stays
+// true; the validator exists to satisfy static analysis and to give a
+// single chokepoint if Node ever grows one.
 func buildScannerArgs(scriptPath, projectRoot string, opts Options) ([]string, error) {
-	if err := validateScannerArg(scriptPath); err != nil {
+	sep := filepath.Separator
+	script, err := sanitizeScannerPathArg(scriptPath, sep)
+	if err != nil {
 		return nil, fmt.Errorf("scriptPath: %w", err)
 	}
-	if err := validateScannerArg(projectRoot); err != nil {
+	root, err := sanitizeScannerPathArg(projectRoot, sep)
+	if err != nil {
 		return nil, fmt.Errorf("projectRoot: %w", err)
 	}
-	args := []string{"--experimental-strip-types", scriptPath, "--root", projectRoot}
+	args := []string{"--experimental-strip-types", script, "--root", root}
 	for _, inc := range opts.Include {
-		if err := validateScannerArg(inc); err != nil {
+		clean, err := sanitizeScannerPathArg(inc, sep)
+		if err != nil {
 			return nil, fmt.Errorf("include[%q]: %w", inc, err)
 		}
-		args = append(args, "--include", inc)
+		args = append(args, "--include", clean)
 	}
 	for _, exc := range opts.Exclude {
-		if err := validateScannerArg(exc); err != nil {
+		clean, err := sanitizeScannerPathArg(exc, sep)
+		if err != nil {
 			return nil, fmt.Errorf("exclude[%q]: %w", exc, err)
 		}
-		args = append(args, "--exclude", exc)
+		args = append(args, "--exclude", clean)
 	}
 	for _, rk := range opts.Routers {
 		switch rk {
@@ -326,18 +337,58 @@ func buildScannerArgs(scriptPath, projectRoot string, opts Options) ([]string, e
 		}
 	}
 	if opts.TsconfigPath != "" {
-		if err := validateScannerArg(opts.TsconfigPath); err != nil {
+		clean, err := sanitizeScannerPathArg(opts.TsconfigPath, sep)
+		if err != nil {
 			return nil, fmt.Errorf("tsconfigPath: %w", err)
 		}
-		args = append(args, "--tsconfig", opts.TsconfigPath)
+		args = append(args, "--tsconfig", clean)
 	}
 	return args, nil
 }
 
+// sanitizeScannerPathArg normalises a path- or glob-shaped argument to
+// forward slashes and then validates it.
+//
+// The order matters, and getting it backwards is what broke every Windows
+// scan (issue #143): validateScannerArg lists '\' among the shell
+// metacharacters, so `C:\Users\RUNNER~1\...\scanner.ts` — which is what
+// os.MkdirTemp hands back on a Windows runner — was rejected before it
+// could reach Node, and the TS scanner could not run at all on the
+// platform atlas ships a binary for.
+//
+// Normalising first is not the same as loosening the guard:
+//
+//   - sep is the caller's separator, passed in rather than read from
+//     filepath.Separator inside, so the Windows branch is testable from
+//     Linux. On POSIX sep is '/', ReplaceAll finds nothing, and a
+//     backslash in the argument is still a metacharacter and still
+//     rejected — the POSIX rule is unchanged, byte for byte.
+//   - On Windows '\' is the path separator and not a metacharacter of any
+//     kind: cmd.exe escapes with '^', not '\'. Rewriting it to '/' — which
+//     every Win32 file API, Node and Python accept — means the argument
+//     that reaches argv contains no backslash either way, so the guard
+//     loses no coverage; it just stops mistaking a separator for an escape.
+//
+// The reason a separator is harmless here at all is that the command is
+// never assembled into a shell line (see newNodeCommand). That is the
+// invariant doing the security work; this function is the chokepoint that
+// keeps static analysis honest about it.
+func sanitizeScannerPathArg(s string, sep rune) (string, error) {
+	if sep != '/' {
+		s = strings.ReplaceAll(s, string(sep), "/")
+	}
+	if err := validateScannerArg(s); err != nil {
+		return "", err
+	}
+	return s, nil
+}
+
 // validateScannerArg rejects strings that contain shell metacharacters,
 // newlines, NUL bytes, or look like flag injections. The set is
-// intentionally broad — none of these belong in a file path or glob, and
-// rejecting them costs nothing.
+// intentionally broad — none of these belong in a file path or glob once
+// it has been normalised to forward slashes, and rejecting them costs
+// nothing. Callers handling paths should go through
+// sanitizeScannerPathArg rather than calling this directly.
 func validateScannerArg(s string) error {
 	if s == "" {
 		return errors.New("empty argument")
@@ -541,6 +592,23 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 		res.Edges = append(res.Edges, graph.Edge{
 			From: shared.SymbolID(e.From),
 			To:   shared.SymbolID(e.To),
+			// Tier C, uniformly, and not a placeholder awaiting a
+			// finer split (issue #146).
+			//
+			// scanner.ts parses every file with ts.createSourceFile
+			// and never constructs a ts.Program, so there is no type
+			// checker and no module resolution anywhere in it. Its
+			// edges come from directory conventions
+			// (src/services/api/**), identifier text and route-literal
+			// shapes. That is the definition of tier C: the shape of
+			// the source said so, and nothing was bound across files.
+			//
+			// This is what #105 step 2 moves: replacing scanner.ts
+			// with the tree-sitter + stack-graphs sidecar should turn
+			// these into name_resolved, and the tier histogram is how
+			// that becomes reviewable instead of a count that happens
+			// to land nearby.
+			Tier: graph.TierSyntactic,
 		})
 	}
 	return res

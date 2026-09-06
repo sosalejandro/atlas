@@ -164,6 +164,71 @@ func TestGoldenCorpus_SymbolsAndEdgesMatchSnapshot(t *testing.T) {
 	}
 }
 
+// TestGoldenCorpus_TierChangeFailsSnapshot proves the snapshot can see
+// a resolution-tier change.
+//
+// This is the test that makes #87 reviewable, and it is deliberately
+// about the DETECTOR rather than about any particular edge. #146 exists
+// because an edge produced by a name heuristic and the same edge
+// produced by a type checker are identical in (from, to, kind, file,
+// line) — so every count comparison and every set diff over that tuple
+// reports "unchanged" across the exact migration that changes
+// everything. If the tier ever stops being serialised, the golden file
+// silently goes back to being blind, and nothing else in the suite
+// would notice.
+//
+// It scans the real corpus, promotes one edge's tier by hand, and
+// asserts the canonical document changes and the diff names the move.
+// Nothing is written to disk.
+func TestGoldenCorpus_TierChangeFailsSnapshot(t *testing.T) {
+	t.Parallel()
+
+	res, err := Scan(context.Background(), goldenCorpusDir, Options{})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	before := canonicalize(res)
+
+	// Pick a syntactic edge and promote it to typed — the exact
+	// movement #87 is expected to produce, and the one a count-based
+	// or tuple-based check cannot see.
+	promoted := -1
+	for i, e := range res.Graph.Edges {
+		if e.Tier == graph.TierSyntactic {
+			promoted = i
+			break
+		}
+	}
+	if promoted < 0 {
+		t.Fatal("corpus has no syntactic edge to promote; the fixture no longer exercises the guess path")
+	}
+	moved := res.Graph.Edges[promoted]
+	res.Graph.Edges[promoted].Tier = graph.TierTyped
+
+	after := canonicalize(res)
+	if after == before {
+		t.Fatalf("promoting %s -> %s from %q to %q left the canonical document byte-identical; "+
+			"the snapshot cannot see a resolver migration",
+			moved.From, moved.To, graph.TierSyntactic, graph.TierTyped)
+	}
+
+	// The header counts are unchanged — same symbols, same edges. That
+	// is the point: only the tier line moved, which is precisely the
+	// failure mode #87's old acceptance criterion ("same symbol and
+	// edge counts +/- a documented delta") could not detect.
+	beforeHeader := strings.SplitN(before, "\n", 2)[0]
+	afterHeader := strings.SplitN(after, "\n", 2)[0]
+	if beforeHeader != afterHeader {
+		t.Fatalf("edge counts moved (%q vs %q); the test perturbed more than the tier",
+			beforeHeader, afterHeader)
+	}
+
+	diff := diffCanonical(before, after)
+	if !strings.Contains(diff, "tier="+string(graph.TierTyped)) {
+		t.Errorf("diff does not name the new tier, so a reviewer could not tell what moved:\n%s", diff)
+	}
+}
+
 // corpusRoutes is the pre-resolved route table the "with-routes" variant
 // feeds in. `orderHandler.Create` resolves to exactly one handler-kind
 // symbol; `.Get` matches both OrderHandler.Get and AdminHandler.Get, so
@@ -200,7 +265,15 @@ func canonicalScan(t *testing.T, root string, opts Options) string {
 	if len(res.Symbols) == 0 {
 		t.Fatalf("Scan(%s): no symbols; fixture missing?", root)
 	}
+	return canonicalize(res)
+}
 
+// canonicalize renders a scan result as the stable text document
+// canonicalScan compares. It is split out from the scan so a test can
+// perturb a result and ask what the snapshot would say about it —
+// which is how TestGoldenCorpus_TierChangeFailsSnapshot proves the
+// snapshot can see a tier move at all.
+func canonicalize(res *Result) string {
 	lines := make([]string, 0, len(res.Symbols)+len(res.Graph.Edges)+len(res.Warnings))
 	for _, sym := range res.Symbols {
 		lines = append(lines, symbolLine(sym))
@@ -252,6 +325,15 @@ func edgeLine(e graph.Edge) string {
 		"cycle=" + strconv.FormatBool(e.Cycle),
 		"ambiguous=" + strconv.FormatBool(e.Ambiguous),
 		"meta=" + e.Meta,
+		// The tier is pinned because it is the ONE field a resolver
+		// migration changes without changing anything else. #87
+		// replaces the Go call resolver with go/packages + callgraph:
+		// the same (from, to, kind, line) tuples come back out of a
+		// completely different mechanism, so a snapshot over the tuple
+		// alone reports "no change" for the largest change this
+		// scanner has ever had. See
+		// TestGoldenCorpus_TierChangeFailsSnapshot.
+		"tier=" + string(e.Tier),
 	}, "\t")
 }
 

@@ -1,8 +1,18 @@
 // Package audit computes per-feature health scores over the indexed Atlas
-// state. The scoring algorithm is a weighted blend of four signals:
+// state. The scoring algorithm is a weighted blend of five signals:
 //
-//   - Coverage (default 40%) — fraction of a feature's linked symbols with at
-//     least one `pass` result in the latest coverage_run.
+//   - Coverage (default 40%) — statement coverage over the feature's
+//     implementation surface: the line-weighted executed/total statement
+//     fraction where the run carries statement counts, otherwise the fraction
+//     of surface symbols with at least one `pass` result.
+//   - Decision coverage — branch outcomes taken over branch outcomes a
+//     statement profile could JUDGE, read from the cfg_* tables that
+//     `atlas flow` writes. It has no weight of its own: when available it
+//     splits the coverage weight with statement coverage (0.6 of it by
+//     default), because the two are two resolutions of one question derived
+//     from one profile rather than two independent witnesses. See
+//     blendWeights, and decision.go for why an unmeasured feature reports the
+//     signal UNAVAILABLE rather than zero.
 //   - Annotation freshness (default 15%) — fraction of a feature's annotation
 //     sites whose latest git author-date falls inside the freshness window
 //     (default: 30 days).

@@ -11,6 +11,7 @@ import (
 
 	"github.com/sosalejandro/atlas/packages/codeindex"
 	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/redact"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store/sqlc"
@@ -300,7 +301,14 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index, opts ...Ingest
 			// (NULL) so a future scanner that emits a Meta value we
 			// don't recognise here can't pollute the column.
 			meta := NormalizeEdgeMeta(kind, e.Meta)
-			inserted, err := upsertEdgeTx(ctx, qtx, fromID, toID, kind, path, line, meta)
+			// Tier and Ambiguous ride through untouched (issue #146).
+			// Nothing between the scanner and this line may infer,
+			// upgrade or supply a tier: the scanner is the only layer
+			// that knows which mechanism ran, and a tier invented here
+			// would be a claim about work nobody did. An edge that
+			// arrives without one fails the ingest by name rather than
+			// landing as a plausible-looking row.
+			inserted, err := upsertEdgeTx(ctx, qtx, fromID, toID, kind, path, line, meta, e.Tier, e.Ambiguous)
 			if err != nil {
 				return nil, err
 			}
@@ -705,14 +713,19 @@ func lookupSymbolIDTx(ctx context.Context, qtx *sqlc.Queries, qn shared.SymbolID
 	return id, true, nil
 }
 
-func upsertEdgeTx(ctx context.Context, qtx *sqlc.Queries, fromID, toID int64, kind EdgeKind, filePath string, line int, meta string) (bool, error) {
+func upsertEdgeTx(ctx context.Context, qtx *sqlc.Queries, fromID, toID int64, kind EdgeKind, filePath string, line int, meta string, tier graph.ResolutionTier, ambiguous bool) (bool, error) {
+	if err := requireTier(fromID, toID, tier); err != nil {
+		return false, fmt.Errorf("ingest %s:%d: %w", filePath, line, err)
+	}
 	res, err := qtx.InsertEdge(ctx, sqlc.InsertEdgeParams{
-		FromSymbolID: fromID,
-		ToSymbolID:   toID,
-		Kind:         string(kind),
-		FilePath:     filePath,
-		Line:         int64(line),
-		EdgeMeta:     metaParam(meta),
+		FromSymbolID:   fromID,
+		ToSymbolID:     toID,
+		Kind:           string(kind),
+		FilePath:       filePath,
+		Line:           int64(line),
+		EdgeMeta:       metaParam(meta),
+		ResolutionTier: string(tier),
+		Ambiguous:      boolToInt(ambiguous),
 	})
 	if err != nil {
 		return false, fmt.Errorf("ingest edge %d->%d: %w", fromID, toID, err)

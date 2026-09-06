@@ -68,7 +68,7 @@ func (f *cyclesFixture) seedImportEdge(t *testing.T, fromQN, fromFile, toQN, toF
 		t.Fatalf("insert to symbol: %v", err)
 	}
 	if _, err := s.Edges().Insert(ctx, store.EdgeRow{
-		FromID: from, ToID: to, Kind: store.EdgeKindImport,
+		Tier: graph.TierNameResolved, FromID: from, ToID: to, Kind: store.EdgeKindImport,
 		FilePath: fromFile, Line: 1, Meta: scope,
 	}); err != nil {
 		t.Fatalf("insert import edge: %v", err)

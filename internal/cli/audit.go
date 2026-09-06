@@ -111,8 +111,35 @@ func printAuditText(cmd *cobra.Command, hs []audit.FeatureHealth) {
 		for _, k := range keys {
 			fmt.Fprintf(cmd.OutOrStdout(), "    %-22s %6.2f\n", k, h.Components[k])
 		}
+		if line := decisionLine(h.Decision); line != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "    %s\n", line)
+		}
 		for _, r := range h.Reasons {
 			fmt.Fprintf(cmd.OutOrStdout(), "    - %s\n", r)
 		}
 	}
+}
+
+// decisionLine renders the decision-coverage reading underneath the component
+// list. Empty when nothing on the feature's surface was ever measured.
+//
+// The unavailable case is the one that has to be printed. It carries no
+// component — an unjudgeable signal must not be scored — so without this line
+// an operator who had just run `atlas flow` over the feature would see no
+// trace of it and conclude the run did nothing. And the undetermined count is
+// printed even at 100%, because "every branch we could judge was taken, and
+// four we could not judge at all" is not the same report as "every branch was
+// taken".
+func decisionLine(d *audit.DecisionCoverageReport) string {
+	if d == nil {
+		return ""
+	}
+	symbols := fmt.Sprintf("%d/%d symbols measured",
+		d.SymbolsMeasured, d.SymbolsMeasured+d.SymbolsUnmeasured)
+	if !d.Available {
+		return fmt.Sprintf("decision: not scored - no decidable branch outcome (%d undetermined, %s)",
+			d.OutcomesUndetermined, symbols)
+	}
+	return fmt.Sprintf("decision: %d/%d decidable outcomes taken, %d undetermined, %s",
+		d.OutcomesTaken, d.OutcomesDecidable, d.OutcomesUndetermined, symbols)
 }

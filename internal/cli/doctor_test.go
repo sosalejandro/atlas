@@ -215,8 +215,8 @@ func TestDoctor_JSONEnvelopeCarriesEveryCheck(t *testing.T) {
 	if env.Command != "doctor" {
 		t.Errorf("command = %q, want doctor", env.Command)
 	}
-	if len(env.Result.Checks) != 5 {
-		t.Fatalf("got %d checks, want 5", len(env.Result.Checks))
+	if len(env.Result.Checks) != 6 {
+		t.Fatalf("got %d checks, want 6", len(env.Result.Checks))
 	}
 	total := env.Result.Counts.OK + env.Result.Counts.Warn +
 		env.Result.Counts.Fail + env.Result.Counts.NotApplicable

@@ -1,48 +1,60 @@
-# symbols=51 edges=43 warnings=1
-EDGE	Client.CreateOrder	Client.post		0	cycle=false	ambiguous=true	meta=
-EDGE	GET /admin/orders/{id}	AdminHandler.Get		0	cycle=false	ambiguous=false	meta=
-EDGE	GET /api/v1/orders/{id}	OrderHandler.Get		0	cycle=false	ambiguous=false	meta=
-EDGE	GET /healthz	HealthHandler.Check		0	cycle=false	ambiguous=false	meta=
-EDGE	InventoryService.Reserve	InventoryService.available		0	cycle=false	ambiguous=false	meta=
-EDGE	InventoryService.available	Item.InStock		0	cycle=false	ambiguous=true	meta=
-EDGE	MemoryOrderRepository.Find	MemoryOrderRepository.key		0	cycle=false	ambiguous=false	meta=
-EDGE	MemoryOrderRepository.Save	MemoryOrderRepository.key		0	cycle=false	ambiguous=false	meta=
-EDGE	Order.Subtotal	Item.LineTotal		0	cycle=false	ambiguous=true	meta=
-EDGE	OrderHandler.Create	OrderHandler.decode		0	cycle=false	ambiguous=false	meta=
-EDGE	OrderHandler.Create	OrderService.Create		0	cycle=false	ambiguous=false	meta=
-EDGE	OrderHandler.Get	OrderService.Get		0	cycle=false	ambiguous=false	meta=
-EDGE	OrderService.Create	OrderService.validate		0	cycle=false	ambiguous=false	meta=
-EDGE	OrderService.validate	Order.Subtotal		0	cycle=false	ambiguous=true	meta=
-EDGE	POST /api/v1/orders	OrderHandler.Create		0	cycle=false	ambiguous=false	meta=
-EDGE	Router.Handle	AdminHandler.Get		0	cycle=false	ambiguous=false	meta=
-EDGE	Router.Handle	HealthHandler.Check		0	cycle=false	ambiguous=false	meta=
-EDGE	Router.Handle	OrderHandler.Create		0	cycle=false	ambiguous=false	meta=
-EDGE	StdLogger.Info	StdLogger.write		0	cycle=false	ambiguous=true	meta=
-EDGE	StdLogger.Warn	StdLogger.write		0	cycle=false	ambiguous=true	meta=
-EDGE	apiclient.TestClient_CreateOrder	Client.CreateOrder		0	cycle=false	ambiguous=true	meta=
-EDGE	apiclient.TestClient_CreateOrder	apiclient.New		0	cycle=false	ambiguous=false	meta=
-EDGE	apiclient.TestClient_CreateOrder_RejectsEmptyID	Client.CreateOrder		0	cycle=false	ambiguous=true	meta=
-EDGE	apiclient.TestClient_CreateOrder_RejectsEmptyID	apiclient.New		0	cycle=false	ambiguous=false	meta=
-EDGE	config.Load	Config.Validate		0	cycle=false	ambiguous=true	meta=
-EDGE	config.Load	config.defaultAddr		0	cycle=false	ambiguous=false	meta=
-EDGE	config.Load	config.isBlank		0	cycle=false	ambiguous=false	meta=
-EDGE	handlers.TestOrderHandler_Create	OrderHandler.Create		0	cycle=false	ambiguous=true	meta=
-EDGE	handlers.TestOrderHandler_Create	handlers.NewOrderHandler		0	cycle=false	ambiguous=false	meta=
-EDGE	internal/platform/config.Config.Validate	config.isBlank		0	cycle=false	ambiguous=false	meta=
-EDGE	main.Run	Router.Handle		0	cycle=false	ambiguous=true	meta=
-EDGE	main.Run	config.Load		0	cycle=false	ambiguous=false	meta=
-EDGE	main.Run	handlers.NewAdminHandler		0	cycle=false	ambiguous=false	meta=
-EDGE	main.Run	handlers.NewHealthHandler		0	cycle=false	ambiguous=false	meta=
-EDGE	main.Run	handlers.NewOrderHandler		0	cycle=false	ambiguous=false	meta=
-EDGE	main.Run	handlers.NewRouter		0	cycle=false	ambiguous=false	meta=
-EDGE	main.Run	orders.NewOrderService		0	cycle=false	ambiguous=false	meta=
-EDGE	main.Run	persistence.NewMemoryOrderRepository		0	cycle=false	ambiguous=false	meta=
-EDGE	main.main	main.Run		0	cycle=false	ambiguous=false	meta=
-EDGE	orders.TestOrderService_Create	orders.NewOrderService		0	cycle=false	ambiguous=false	meta=
-EDGE	orders.TestOrderService_Create	persistence.NewMemoryOrderRepository		0	cycle=false	ambiguous=false	meta=
-EDGE	orders.TestOrderService_Get	orders.NewOrderService		0	cycle=false	ambiguous=false	meta=
-EDGE	orders.TestOrderService_Get	persistence.NewMemoryOrderRepository		0	cycle=false	ambiguous=false	meta=
+# symbols=55 edges=52 warnings=1
+EDGE	Client.CreateOrder	Client.post		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	GET /admin/orders/{id}	AdminHandler.Get		0	cycle=false	ambiguous=false	meta=	tier=syntactic
+EDGE	GET /api/v1/orders/{id}	OrderHandler.Get		0	cycle=false	ambiguous=false	meta=	tier=syntactic
+EDGE	GET /healthz	HealthHandler.Check		0	cycle=false	ambiguous=false	meta=	tier=syntactic
+EDGE	InventoryService.Reserve	InventoryService.available		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	InventoryService.available	Item.InStock		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	MemoryOrderRepository.Find	Cache.Get		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	MemoryOrderRepository.Find	MemoryOrderRepository.key		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	MemoryOrderRepository.Save	Cache.Put		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	MemoryOrderRepository.Save	MemoryOrderRepository.key		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	Order.Subtotal	Item.LineTotal		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	OrderHandler.Create	OrderHandler.decode		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	OrderHandler.Create	OrderService.Create		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	OrderHandler.Get	OrderService.Get		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	OrderService.Create	MemoryOrderRepository.Save		0	cycle=false	ambiguous=true	meta=	tier=typed
+EDGE	OrderService.Create	OrderService.validate		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	OrderService.Create	PostgresOrderRepository.Save		0	cycle=false	ambiguous=true	meta=	tier=typed
+EDGE	OrderService.Get	MemoryOrderRepository.Find		0	cycle=false	ambiguous=true	meta=	tier=typed
+EDGE	OrderService.Get	PostgresOrderRepository.Find		0	cycle=false	ambiguous=true	meta=	tier=typed
+EDGE	OrderService.validate	Order.Subtotal		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	POST /api/v1/orders	OrderHandler.Create		0	cycle=false	ambiguous=false	meta=	tier=syntactic
+EDGE	Router.Handle	AdminHandler.Get		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	Router.Handle	HealthHandler.Check		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	Router.Handle	OrderHandler.Create		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	StdLogger.Info	StdLogger.write		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	StdLogger.Warn	StdLogger.write		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	apiclient.TestClient_CreateOrder	Client.CreateOrder		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	apiclient.TestClient_CreateOrder	apiclient.New		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	apiclient.TestClient_CreateOrder_RejectsEmptyID	Client.CreateOrder		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	apiclient.TestClient_CreateOrder_RejectsEmptyID	apiclient.New		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	config.Load	config.defaultAddr		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	config.Load	config.isBlank		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	config.Load	internal/platform/config.Config.Validate		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	handlers.TestOrderHandler_Create	OrderHandler.Create		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	handlers.TestOrderHandler_Create	handlers.NewOrderHandler		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	internal/platform/config.Config.Validate	config.isBlank		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	main.Run	Router.Handle		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	main.Run	config.Load		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	main.Run	handlers.NewAdminHandler		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	main.Run	handlers.NewHealthHandler		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	main.Run	handlers.NewOrderHandler		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	main.Run	handlers.NewRouter		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	main.Run	orders.NewOrderService		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	main.Run	persistence.NewMemoryOrderRepository		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	main.main	main.Run		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	orders_test.TestOrderService_Create	OrderService.Create		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	orders_test.TestOrderService_Create	orders.NewOrderService		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	orders_test.TestOrderService_Create	persistence.NewMemoryOrderRepository		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	orders_test.TestOrderService_Get	OrderService.Get		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	orders_test.TestOrderService_Get	orders.NewOrderService		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	orders_test.TestOrderService_Get	persistence.NewMemoryOrderRepository		0	cycle=false	ambiguous=false	meta=	tier=typed
+EDGE	persistence.NewMemoryOrderRepository	collections.NewCache		0	cycle=false	ambiguous=false	meta=	tier=typed
 SYM	AdminHandler.Get	handler	internal/handlers/admin_handler.go	21	0	23	internal/handlers	"func (*AdminHandler) Get(_ context.Context, _ string) (string, error)"	"@api GET /admin/orders/{id}\n\nGet returns the operator view of one order."
+SYM	Cache.Get	service	internal/platform/collections/cache.go	28	0	31	internal/platform/collections	"func (*Cache[K, V]) Get(k K) (V, bool)"	"Get returns the value stored under k."
+SYM	Cache.Len	service	internal/platform/collections/cache.go	34	0	36	internal/platform/collections	"func (*Cache[K, V]) Len() int"	"Len reports how many entries the cache holds."
+SYM	Cache.Put	service	internal/platform/collections/cache.go	23	0	25	internal/platform/collections	"func (*Cache[K, V]) Put(k K, v V)"	"Put stores v under k."
 SYM	Client.CreateOrder	service	pkg/apiclient/client.go	22	0	27	pkg/apiclient	"func (*Client) CreateOrder(ctx context.Context, id string) error"	"CreateOrder posts a new order."
 SYM	Client.post	service	pkg/apiclient/client.go	30	0	32	pkg/apiclient	"func (*Client) post(_ context.Context, _ string, _ string) error"	"post is the unexported transport helper every verb funnels through."
 SYM	Config.Validate	repository	internal/persistence/config.go	13	0	18	internal/persistence	"func (*Config) Validate() error"	"Validate rejects a pool configuration the daemon could not open."
@@ -54,16 +66,16 @@ SYM	InventoryService.Reserve	service	internal/services/inventory/service.go	22	0
 SYM	InventoryService.available	service	internal/services/inventory/service.go	33	0	39	internal/services/inventory	"func (*InventoryService) available(sku string, qty int) bool"	"available is an unexported method that fans out to Item.InStock."
 SYM	Item.InStock	service	internal/services/inventory/model.go	12	0	14	internal/services/inventory	"func (Item) InStock(qty int) bool"	"InStock reports whether at least qty units are available."
 SYM	Item.LineTotal	service	internal/services/orders/model.go	30	0	32	internal/services/orders	"func (Item) LineTotal() int"	"LineTotal is the extended price for one line."
-SYM	MemoryOrderRepository.Find	repository	internal/persistence/memory_repository.go	28	0	34	internal/persistence	"func (*MemoryOrderRepository) Find(_ context.Context, id string) (*orders.Order, error)"	"Find returns the order stored under id, or orders.ErrNotFound."
-SYM	MemoryOrderRepository.Save	repository	internal/persistence/memory_repository.go	22	0	25	internal/persistence	"func (*MemoryOrderRepository) Save(_ context.Context, o *orders.Order) error"	"Save stores o under its normalised key."
-SYM	MemoryOrderRepository.key	repository	internal/persistence/memory_repository.go	37	0	39	internal/persistence	"func (*MemoryOrderRepository) key(id string) string"	"key normalises an id into a map key."
+SYM	MemoryOrderRepository.Find	repository	internal/persistence/memory_repository.go	36	0	42	internal/persistence	"func (*MemoryOrderRepository) Find(_ context.Context, id string) (*orders.Order, error)"	"Find returns the order stored under id, or orders.ErrNotFound."
+SYM	MemoryOrderRepository.Save	repository	internal/persistence/memory_repository.go	30	0	33	internal/persistence	"func (*MemoryOrderRepository) Save(_ context.Context, o *orders.Order) error"	"Save stores o under its normalised key."
+SYM	MemoryOrderRepository.key	repository	internal/persistence/memory_repository.go	45	0	47	internal/persistence	"func (*MemoryOrderRepository) key(id string) string"	"key normalises an id into a map key."
 SYM	Order.Subtotal	service	internal/services/orders/model.go	21	0	27	internal/services/orders	"func (*Order) Subtotal() int"	"Subtotal sums the order's line totals."
 SYM	OrderHandler.Create	handler	internal/handlers/order_handler.go	23	0	29	internal/handlers	"func (*OrderHandler) Create(ctx context.Context, body []byte) error"	"@api POST /api/v1/orders\n\nCreate accepts a new order."
 SYM	OrderHandler.Get	handler	internal/handlers/order_handler.go	34	0	36	internal/handlers	"func (*OrderHandler) Get(ctx context.Context, id string) (*orders.Order, error)"	"@api GET /api/v1/orders/{id}\n\nGet returns one order."
 SYM	OrderHandler.decode	handler	internal/handlers/decode.go	11	0	13	internal/handlers	"func (*OrderHandler) decode(_ []byte) (*orders.Order, error)"	"decode turns a request body into an order.\n\nIt lives in its own file rather than next to Create because the scanner\nattaches an @api annotation to the next function declared within ten\nlines of it — keeping the unexported helper out of that window keeps the\ngolden snapshot free of an endpoint -> decode edge that nobody meant."
-SYM	OrderService.Create	service	internal/services/orders/service.go	25	0	30	internal/services/orders	"func (*OrderService) Create(ctx context.Context, o *Order) error"	"Create validates the order and hands it to the repository.\n\nThe repo field is interface-typed and the interface has two\nimplementations in the same package, so the scanner cannot pick a\nconcrete callee. It does not fall back to an ambiguous edge either: the\ncall is dropped, and the golden snapshot pins that absence."
-SYM	OrderService.Get	service	internal/services/orders/service.go	33	0	35	internal/services/orders	"func (*OrderService) Get(ctx context.Context, id string) (*Order, error)"	"Get loads one order by id."
-SYM	OrderService.validate	service	internal/services/orders/service.go	39	0	47	internal/services/orders	"func (*OrderService) validate(o *Order) error"	"validate is an unexported method, so the scanner keeps it and wires the\nCreate -> validate edge."
+SYM	OrderService.Create	service	internal/services/orders/service.go	23	0	28	internal/services/orders	"func (*OrderService) Create(ctx context.Context, o *Order) error"	"Create validates the order and hands it to the repository.\n\nThe repo field is interface-typed and the interface has two\nimplementations, so s.repo.Save has no single concrete callee. This is\nthe payoff case for issue #87: the AST resolver dropped the call\nentirely (nothing in the source names a receiver type), while the\ntyped resolver reports BOTH implementations, marked ambiguous because\nclass-hierarchy analysis genuinely cannot tell which one runs."
+SYM	OrderService.Get	service	internal/services/orders/service.go	31	0	33	internal/services/orders	"func (*OrderService) Get(ctx context.Context, id string) (*Order, error)"	"Get loads one order by id."
+SYM	OrderService.validate	service	internal/services/orders/service.go	37	0	45	internal/services/orders	"func (*OrderService) validate(o *Order) error"	"validate is an unexported method, so the scanner keeps it and wires the\nCreate -> validate edge."
 SYM	POST /api/v1/orders	endpoint	internal/handlers/order_handler.go	23	0	0		""	""
 SYM	PostgresOrderRepository.Find	repository	internal/persistence/postgres_repository.go	27	0	29	internal/persistence	"func (*PostgresOrderRepository) Find(ctx context.Context, id string) (*orders.Order, error)"	"Find loads one order through the generated query layer."
 SYM	PostgresOrderRepository.Save	repository	internal/persistence/postgres_repository.go	22	0	24	internal/persistence	"func (*PostgresOrderRepository) Save(ctx context.Context, o *orders.Order) error"	"Save upserts o through the generated query layer."
@@ -74,6 +86,7 @@ SYM	StdLogger.write	service	internal/platform/log/logger.go	31	0	33	internal/pla
 SYM	apiclient.New	service	pkg/apiclient/client.go	17	0	19	pkg/apiclient	"func New(base string) *Client"	"New returns a client pointed at base."
 SYM	apiclient.TestClient_CreateOrder	service	pkg/apiclient/client_test.go	13	0	18	pkg/apiclient	"func TestClient_CreateOrder(t *testing.T)"	"@atlas:feature orders.create #real\n\nTestClient_CreateOrder is the client-side half of the create-order\nfeature. The annotation sits on the test, not on the transport code it\nexercises — that is the attribution convention Atlas is built around."
 SYM	apiclient.TestClient_CreateOrder_RejectsEmptyID	service	pkg/apiclient/client_test.go	22	0	27	pkg/apiclient	"func TestClient_CreateOrder_RejectsEmptyID(t *testing.T)"	"TestClient_CreateOrder_RejectsEmptyID carries no annotation on purpose:\nthe corpus needs both annotated and unannotated tests."
+SYM	collections.NewCache	service	internal/platform/collections/cache.go	18	0	20	internal/platform/collections	"func NewCache[K comparable, V any]() *Cache[K, V]"	"NewCache returns an empty cache."
 SYM	config.Load	service	internal/platform/config/config.go	22	0	32	internal/platform/config	"func Load(path string) (*Config, error)"	"Load reads a config file and applies defaults for anything missing."
 SYM	config.defaultAddr	service	internal/platform/config/config.go	50	0	52	internal/platform/config	"func defaultAddr() string"	""
 SYM	config.isBlank	service	internal/platform/config/config.go	46	0	48	internal/platform/config	"func isBlank(s string) bool"	"isBlank is an unexported plain function. The scanner indexes it by default\nso that statement coverage has a symbol to charge its lines to; only an\nexplicit SkipUnexportedFuncs drops it. The golden snapshot pins the default\n-- isBlank present, with call edges from both Load and Validate."
@@ -88,9 +101,9 @@ SYM	log.New	service	internal/platform/log/logger.go	15	0	17	internal/platform/lo
 SYM	main.Run	service	cmd/orderd/main.go	20	0	33	cmd/orderd	"func Run(cfgPath string) error"	"Run wires the object graph and returns the first wiring error."
 SYM	main.main	service	cmd/orderd/main.go	13	0	17	cmd/orderd	"func main()"	""
 SYM	orders.IsNotFound	service	internal/services/orders/errors.go	12	0	14	internal/services/orders	"func IsNotFound(err error) bool"	"IsNotFound reports whether err is (or wraps) ErrNotFound."
-SYM	orders.NewOrderService	service	internal/services/orders/service.go	15	0	17	internal/services/orders	"func NewOrderService(repo persistence.OrderRepository) *OrderService"	"NewOrderService returns a service backed by repo."
-SYM	orders.TestOrderService_Create	service	internal/services/orders/service_test.go	13	0	19	internal/services/orders	"func TestOrderService_Create(t *testing.T)"	"@atlas:feature orders.create #real\n\nTestOrderService_Create covers the happy path through the service."
-SYM	orders.TestOrderService_Get	service	internal/services/orders/service_test.go	24	0	29	internal/services/orders	"func TestOrderService_Get(t *testing.T)"	"@atlas:feature orders.read\n\nTestOrderService_Get covers the read path."
-SYM	persistence.NewMemoryOrderRepository	repository	internal/persistence/memory_repository.go	17	0	19	internal/persistence	"func NewMemoryOrderRepository() *MemoryOrderRepository"	"NewMemoryOrderRepository returns an empty in-memory repository."
+SYM	orders.NewOrderService	service	internal/services/orders/service.go	11	0	13	internal/services/orders	"func NewOrderService(repo OrderRepository) *OrderService"	"NewOrderService returns a service backed by repo."
+SYM	orders_test.TestOrderService_Create	service	internal/services/orders/service_test.go	22	0	28	internal/services/orders	"func TestOrderService_Create(t *testing.T)"	"@atlas:feature orders.create #real\n\nTestOrderService_Create covers the happy path through the service."
+SYM	orders_test.TestOrderService_Get	service	internal/services/orders/service_test.go	33	0	38	internal/services/orders	"func TestOrderService_Get(t *testing.T)"	"@atlas:feature orders.read\n\nTestOrderService_Get covers the read path."
+SYM	persistence.NewMemoryOrderRepository	repository	internal/persistence/memory_repository.go	25	0	27	internal/persistence	"func NewMemoryOrderRepository() *MemoryOrderRepository"	"NewMemoryOrderRepository returns an empty in-memory repository."
 SYM	persistence.NewPostgresOrderRepository	repository	internal/persistence/postgres_repository.go	17	0	19	internal/persistence	"func NewPostgresOrderRepository(db *sql.DB, conf Config) *PostgresOrderRepository"	"NewPostgresOrderRepository returns a repository bound to db."
 WARN	"symbol name collision: Config.Validate declared in both internal/persistence/config.go and internal/platform/config/config.go — the second is indexed under a package-qualified id"

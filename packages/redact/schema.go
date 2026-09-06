@@ -163,6 +163,7 @@ var columns = []Column{
 	{"edges", "kind", ClassEnum, "call, implement, embed, construct, import, inheritance, decorator", false},
 	{"edges", "file_path", ClassPath, "repo-relative path the relation was observed in", false},
 	{"edges", "edge_meta", ClassEnum, "kind-specific qualifier, e.g. the scope of a Python import", false},
+	{"edges", "resolution_tier", ClassEnum, "which mechanism resolved the edge: typed, name_resolved, syntactic or imported", false},
 
 	{"feature_symbols", "feature_id", ClassIdentifier, "the feature side of the link", false},
 	{"feature_symbols", "role", ClassEnum, "test, impl or contract", false},

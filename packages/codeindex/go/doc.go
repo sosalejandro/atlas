@@ -1,11 +1,38 @@
 // Package goscan is the Go AST scanner — successor to testreg's
 // internal/adapters/go_ast_scanner.go (1,376 LOC).
 //
-// Per docs/architecture.md §3.2.1 it uses ONLY stdlib go/ast + go/parser
-// (no go/types, no golang.org/x/tools) — keeps scans fast and free of
-// module-resolution headaches. Output is a *graph.Graph plus a slice of
-// shared.Symbol records; downstream consumers (audit, contract, store)
-// decide how to persist or render.
+// Output is a *graph.Graph plus a slice of shared.Symbol records;
+// downstream consumers (audit, contract, store) decide how to persist or
+// render.
+//
+// # Two resolvers, one scan
+//
+// docs/architecture.md §3.2.1 originally specified stdlib go/ast +
+// go/parser only, on the reasoning that it keeps scans fast and free of
+// module-resolution headaches. Issue #87 measured what that bought and
+// what it cost: on a 39-module workspace, 210 production files produced
+// no symbols because their short names collided, and every call through
+// an interface-typed field bound by substring match or not at all.
+// Symbol identity and call resolution are what every other number atlas
+// reports is computed FROM, so they are the wrong place to save a
+// second.
+//
+// So the scan now has two resolvers and uses both:
+//
+//   - packages/resolver loads the tree with golang.org/x/tools/go/packages
+//     and resolves each call through go/types, with callgraph/cha for
+//     interface dispatch. Edges it produces are tier `typed`.
+//   - the AST ladder in this package — resolveInScope, then
+//     fuzzyResolveMethod, then fuzzyResolve — resolves by name. Edges it
+//     produces are tier `name_resolved` or `syntactic`.
+//
+// The choice is per FILE, not per scan: a package the type checker
+// rejects falls back on its own, and the rest of the repo stays typed.
+// The typed resolver is authoritative wherever it runs — the ladder does
+// not get a second opinion on a call go/types already answered, because
+// that would put a guess back into a graph that had an exact answer.
+// Options.SkipTypedResolution disables the typed half entirely;
+// Result.Resolution reports what actually happened.
 //
 // The 4-phase scan model is preserved:
 //
@@ -35,9 +62,13 @@
 //     that conventionally live on the test that verifies the feature.
 //     Set Options.SkipTests=true for pure production graph-only audits.
 //  4. Call graph extraction — walk function bodies; resolve each
-//     ast.CallExpr to a target Node ID (selector chain via struct
-//     fields → fieldType.MethodName; package-level call via
-//     pkg.FuncName; ambiguous interface call via fuzzy match).
+//     ast.CallExpr to a target Node ID. For a type-checked file that is
+//     one go/types lookup (plus, for an interface call, the CHA
+//     candidate set — which is why one call site can emit several
+//     edges, each marked ambiguous). For the rest it is the legacy
+//     ladder: selector chain via struct fields → fieldType.MethodName;
+//     package-level call via pkg.FuncName; ambiguous interface call via
+//     fuzzy match.
 //
 // Public API:
 //
@@ -45,9 +76,13 @@
 //	res.Graph        // *graph.Graph
 //	res.Symbols      // []shared.Symbol (denormalised view, same data)
 //	res.SkippedFiles // []SkippedFile (path + reason, in walk order)
+//	res.Resolution   // *ResolutionReport (what type checking achieved)
 //	res.Warnings     // []string
 //
 // What is intentionally NOT in this package (per architecture doc):
+//   - No go/packages plumbing: loading, type checking and class-hierarchy
+//     analysis live in packages/resolver, which knows nothing about
+//     SymbolIDs. Identity stays here; types stay there.
 //   - No SQLite persistence (store/ is a tier-2.5 side-channel).
 //   - No yaml/json output formatting (each cmd/atlas verb owns its
 //     JSON shape).

@@ -115,8 +115,15 @@ func TestAcceptance_CLI_TheFixtureEndToEnd(t *testing.T) {
 	if scanRes.SymbolsInserted != 10 {
 		t.Errorf("symbols_inserted = %d, want 10", scanRes.SymbolsInserted)
 	}
-	if scanRes.EdgesInserted != 4 {
-		t.Errorf("edges_inserted = %d, want 4", scanRes.EdgesInserted)
+	// Five, not four, since issue #87 moved Go call resolution onto
+	// go/packages. The fifth is shipping.TestOrderTotalLight ->
+	// shipping.Order.Total: the test calls New(4).Total(), a method on the
+	// RESULT of a call, and the AST resolver only ever walked selector
+	// chains rooted at an identifier, so it saw nothing there to look up.
+	// The type checker knows the receiver is *shipping.Order and binds it
+	// to the package-qualified id the collision forced that method into.
+	if scanRes.EdgesInserted != 5 {
+		t.Errorf("edges_inserted = %d, want 5", scanRes.EdgesInserted)
 	}
 	if scanRes.AnnotationsInserted != 5 {
 		t.Errorf("annotations_inserted = %d, want 5", scanRes.AnnotationsInserted)

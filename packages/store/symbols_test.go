@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 )
 
@@ -222,7 +223,7 @@ func TestSymbols_DeleteByFile_CascadesEdges(t *testing.T) {
 	a, _ := syms.Insert(ctx, SymbolRow{QualifiedName: "p.A", Kind: shared.KindFunc, FilePath: "src/a.go", Line: 1})
 	b, _ := syms.Insert(ctx, SymbolRow{QualifiedName: "p.B", Kind: shared.KindFunc, FilePath: "src/b.go", Line: 1})
 	if _, err := edges.Insert(ctx, EdgeRow{
-		FromID: a, ToID: b, Kind: EdgeKindCall, FilePath: "src/a.go", Line: 2,
+		Tier: graph.TierNameResolved, FromID: a, ToID: b, Kind: EdgeKindCall, FilePath: "src/a.go", Line: 2,
 	}); err != nil {
 		t.Fatalf("edges Insert: %v", err)
 	}

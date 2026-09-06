@@ -63,6 +63,20 @@ type Edge struct {
 	// every pre-#16 caller; existing tests + non-Python scanners
 	// are unaffected.
 	Meta string `json:"meta,omitempty"`
+
+	// Tier records which mechanism resolved this edge — see tier.go.
+	// It is set by the scanner that produced the edge and carried
+	// through unchanged; nothing between here and the store may
+	// infer, upgrade or default it.
+	//
+	// The zero value (TierUnset) means "this producer did not say",
+	// and packages/store refuses to persist it. That is deliberate:
+	// the graph layer is also used for in-memory work that never
+	// reaches a database (packages/diff, `atlas trace` fixtures),
+	// so a constructor without a tier still has to exist — but an
+	// edge that came from one of those must never be filed away as
+	// though a scanner had vouched for it. Closes issue #146.
+	Tier ResolutionTier `json:"tier,omitempty"`
 }
 
 // Graph is the in-memory call-graph DAG.
@@ -141,6 +155,15 @@ func (g *Graph) MergeNode(oldID shared.SymbolID, resolved *Node) {
 // Kind defaults to the empty string (treated as "call" by downstream
 // consumers). Callers that want to record a specific relationship kind
 // (e.g. "inheritance", "import") should use AddEdgeKind.
+//
+// This overload and its Kind/Line/Meta siblings record NO resolution
+// tier, so the edges they build cannot be persisted (issue #146 —
+// packages/store refuses an edge whose producer never said which
+// mechanism resolved it). They remain because the graph layer is also
+// used for work that never reaches a database: packages/diff, the
+// `atlas trace` fixtures, and the cycle tests here. A scanner uses
+// AddEdgeTier / AddEdgeKindLineTier / AddEdgeKindLineMetaTier /
+// AddAmbiguousEdgeTier instead.
 func (g *Graph) AddEdge(from, to shared.SymbolID) {
 	g.AddEdgeKind(from, to, "")
 }
@@ -194,6 +217,18 @@ func (g *Graph) AddEdgeKindMeta(from, to shared.SymbolID, kind, meta string) {
 // qualifier (issue #16) so a caller that has both signals doesn't
 // have to choose. Pass 0/"" for the slots you don't have.
 func (g *Graph) AddEdgeKindLineMeta(from, to shared.SymbolID, kind string, line int, meta string) {
+	g.AddEdgeKindLineMetaTier(from, to, kind, line, meta, TierUnset)
+}
+
+// AddEdgeKindLineMetaTier is the one place an Edge is constructed. Every
+// other AddEdge* helper funnels here so the cycle check, the adjacency
+// invalidation and the field set cannot drift apart between overloads.
+//
+// tier states which mechanism resolved this edge (issue #146). Scanners
+// MUST pass a real tier; TierUnset is accepted here only because the
+// provenance-free overloads above still exist for in-memory consumers,
+// and packages/store refuses to persist what they build.
+func (g *Graph) AddEdgeKindLineMetaTier(from, to shared.SymbolID, kind string, line int, meta string, tier ResolutionTier) {
 	g.invalidateAdjacency()
 	cycle := g.hasPath(to, from)
 	g.Edges = append(g.Edges, Edge{
@@ -203,16 +238,50 @@ func (g *Graph) AddEdgeKindLineMeta(from, to shared.SymbolID, kind string, line 
 		Line:  line,
 		Meta:  meta,
 		Cycle: cycle,
+		Tier:  tier,
 	})
+}
+
+// AddEdgeTier is AddEdge with the resolution tier stated. This is the
+// entry point a scanner uses for a plain call edge; the bare AddEdge is
+// for graphs that never get persisted.
+func (g *Graph) AddEdgeTier(from, to shared.SymbolID, tier ResolutionTier) {
+	g.AddEdgeKindLineMetaTier(from, to, "", 0, "", tier)
+}
+
+// AddEdgeKindLineTier is AddEdgeKindLine with the resolution tier
+// stated — the shape the Python and TypeScript sub-scanners need, where
+// the kind and the per-edge line are both known.
+func (g *Graph) AddEdgeKindLineTier(from, to shared.SymbolID, kind string, line int, tier ResolutionTier) {
+	g.AddEdgeKindLineMetaTier(from, to, kind, line, "", tier)
 }
 
 // AddAmbiguousEdge is AddEdge with Ambiguous=true. Used by the codeindex
 // scanners when an interface→concrete resolution had multiple candidates
-// or fell back to fuzzy matching.
+// or fell back to fuzzy matching. It records no tier; see
+// AddAmbiguousEdgeTier.
 func (g *Graph) AddAmbiguousEdge(from, to shared.SymbolID) {
-	g.invalidateAdjacency()
-	cycle := g.hasPath(to, from)
-	g.Edges = append(g.Edges, Edge{From: from, To: to, Cycle: cycle, Ambiguous: true})
+	g.AddAmbiguousEdgeTier(from, to, TierUnset)
+}
+
+// AddAmbiguousEdgeTier is AddEdgeTier with Ambiguous=true.
+//
+// Ambiguity and tier answer different questions and neither implies the
+// other. The tier says which mechanism ran; Ambiguous says that
+// mechanism saw more than one candidate and picked. A name_resolved
+// edge can be ambiguous (two packages declare the short name) and a
+// syntactic one can be unambiguous (one substring match, still a
+// guess). Both are persisted, because collapsing them would throw away
+// the finer of the two signals — which is precisely what atlas did with
+// Ambiguous before #146: computed on every edge, dropped at the storage
+// boundary.
+func (g *Graph) AddAmbiguousEdgeTier(from, to shared.SymbolID, tier ResolutionTier) {
+	// Routed through the canonical constructor and then marked, rather
+	// than appending its own Edge, so there stays exactly one place
+	// that decides Cycle and invalidates the adjacency caches. The
+	// append below it adds exactly one element, so the index is safe.
+	g.AddEdgeKindLineMetaTier(from, to, "", 0, "", tier)
+	g.Edges[len(g.Edges)-1].Ambiguous = true
 }
 
 // Out returns the outgoing edges of nodeID — every edge whose From equals

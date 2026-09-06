@@ -46,8 +46,11 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	// per-commit measurement series behind `atlas trend`), and
 	// 17 by issue #136 (coverage_symbol_spans + its AFTER INSERT trigger: the
 	// span each coverage result was measured against, which is what lets a
-	// carried result be invalidated when the symbol moves).
-	const expected = 17
+	// carried result be invalidated when the symbol moves), and
+	// 18 by issue #146 (edges.resolution_tier + edges.ambiguous: which
+	// mechanism resolved each edge, without which a resolver migration
+	// changes every guess into a claim with no test able to see it).
+	const expected = 18
 	if v != expected {
 		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}

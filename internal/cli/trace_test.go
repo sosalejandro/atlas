@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -85,8 +86,8 @@ func (f *traceFixture) seedChain(t *testing.T, rootQN, midQN, leafQN string) (in
 		t.Fatalf("insert leaf: %v", err)
 	}
 	for _, e := range []store.EdgeRow{
-		{FromID: a, ToID: b, Kind: store.EdgeKindCall, FilePath: "src/a.go", Line: 11},
-		{FromID: b, ToID: c, Kind: store.EdgeKindCall, FilePath: "src/b.go", Line: 21},
+		{Tier: graph.TierNameResolved, FromID: a, ToID: b, Kind: store.EdgeKindCall, FilePath: "src/a.go", Line: 11},
+		{Tier: graph.TierNameResolved, FromID: b, ToID: c, Kind: store.EdgeKindCall, FilePath: "src/b.go", Line: 21},
 	} {
 		if _, err := s.Edges().Insert(ctx, e); err != nil {
 			t.Fatalf("insert edge: %v", err)
@@ -250,7 +251,7 @@ func TestTrace_AcceptsFeatureID(t *testing.T) {
 		t.Fatalf("insert leafB: %v", err)
 	}
 	if _, err := s.Edges().Insert(ctx, store.EdgeRow{
-		FromID: rootB, ToID: leafB, Kind: store.EdgeKindCall, FilePath: "src/b.go", Line: 101,
+		Tier: graph.TierNameResolved, FromID: rootB, ToID: leafB, Kind: store.EdgeKindCall, FilePath: "src/b.go", Line: 101,
 	}); err != nil {
 		t.Fatalf("insert edge B: %v", err)
 	}
@@ -504,10 +505,10 @@ func (f *traceFixture) seedFanChain(t *testing.T, rootQN string) int64 {
 	leaf1 := insert("pkg.Leaf1", "src/leaf1.go", 40)
 	leaf2 := insert("pkg.Leaf2", "src/leaf2.go", 50)
 	for _, e := range []store.EdgeRow{
-		{FromID: root, ToID: mid1, Kind: store.EdgeKindCall, FilePath: "src/root.go", Line: 11},
-		{FromID: root, ToID: mid2, Kind: store.EdgeKindCall, FilePath: "src/root.go", Line: 12},
-		{FromID: mid1, ToID: leaf1, Kind: store.EdgeKindCall, FilePath: "src/mid1.go", Line: 21},
-		{FromID: mid2, ToID: leaf2, Kind: store.EdgeKindCall, FilePath: "src/mid2.go", Line: 31},
+		{Tier: graph.TierNameResolved, FromID: root, ToID: mid1, Kind: store.EdgeKindCall, FilePath: "src/root.go", Line: 11},
+		{Tier: graph.TierNameResolved, FromID: root, ToID: mid2, Kind: store.EdgeKindCall, FilePath: "src/root.go", Line: 12},
+		{Tier: graph.TierNameResolved, FromID: mid1, ToID: leaf1, Kind: store.EdgeKindCall, FilePath: "src/mid1.go", Line: 21},
+		{Tier: graph.TierNameResolved, FromID: mid2, ToID: leaf2, Kind: store.EdgeKindCall, FilePath: "src/mid2.go", Line: 31},
 	} {
 		if _, err := s.Edges().Insert(ctx, e); err != nil {
 			t.Fatalf("insert edge: %v", err)
@@ -539,8 +540,8 @@ func (f *traceFixture) seedCycleChain(t *testing.T, aQN, bQN string) int64 {
 		t.Fatalf("insert %q: %v", bQN, err)
 	}
 	for _, e := range []store.EdgeRow{
-		{FromID: a, ToID: b, Kind: store.EdgeKindCall, FilePath: "src/a.go", Line: 11},
-		{FromID: b, ToID: a, Kind: store.EdgeKindCall, FilePath: "src/b.go", Line: 21},
+		{Tier: graph.TierNameResolved, FromID: a, ToID: b, Kind: store.EdgeKindCall, FilePath: "src/a.go", Line: 11},
+		{Tier: graph.TierNameResolved, FromID: b, ToID: a, Kind: store.EdgeKindCall, FilePath: "src/b.go", Line: 21},
 	} {
 		if _, err := s.Edges().Insert(ctx, e); err != nil {
 			t.Fatalf("insert edge: %v", err)
@@ -571,7 +572,7 @@ func TestTrace_DepthDefault(t *testing.T) {
 	}
 	for i := 0; i < 4; i++ {
 		if _, err := s.Edges().Insert(ctx, store.EdgeRow{
-			FromID: ids[i], ToID: ids[i+1], Kind: store.EdgeKindCall,
+			Tier: graph.TierNameResolved, FromID: ids[i], ToID: ids[i+1], Kind: store.EdgeKindCall,
 			FilePath: "src/x.go", Line: 100 + i,
 		}); err != nil {
 			t.Fatalf("insert edge: %v", err)

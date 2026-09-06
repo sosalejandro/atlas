@@ -34,12 +34,25 @@ func (a *auditImpl) scoreFromFeature(
 
 	set := newSignalSet()
 	a.lastSurfaceSource = ""
+	a.lastSurfaceSymbols = nil
 
 	if !frontier.Empty() && len(links) > 0 {
 		cov, ok, err := a.coverageSignal(ctx, feat.ID, links, frontier)
 		if err := set.add(SignalCoverage, "coverage", cov, ok, err); err != nil {
 			return FeatureHealth{}, err
 		}
+	}
+	// Decision coverage is scored over the SAME surface the statement signal
+	// just used (issue #140). It runs whether or not that signal was
+	// available: `atlas flow measure` reads a coverprofile off disk, so a repo
+	// can have branch verdicts with nothing in coverage_results.
+	var decision *DecisionCoverageReport
+	if len(links) > 0 {
+		dec, rep, ok, err := a.decisionCoverageSignal(ctx, links, frontier, a.lastSurfaceSymbols)
+		if err := set.add(SignalDecisionCoverage, "decision coverage", dec, ok, err); err != nil {
+			return FeatureHealth{}, err
+		}
+		decision = rep
 	}
 	if a.opts.GitBlame != nil && len(links) > 0 {
 		fresh, ok, err := a.annotationFreshnessSignal(ctx, links, now)
@@ -67,7 +80,7 @@ func (a *auditImpl) scoreFromFeature(
 	// symbol link exists (the same condition `atlas trace feature:<id>`
 	// uses) thus scores >0 but ranks at the bottom, where it belongs until a
 	// coverage run verifies it. See issues #78 / #77.
-	score := weightedAverage(components, available, a.opts.Weights)
+	score := weightedAverage(components, available, a.blendWeights(available))
 	switch {
 	case len(available) > 0:
 		// Real signals decided the score; presence adds nothing on top.
@@ -100,6 +113,7 @@ func (a *auditImpl) scoreFromFeature(
 		Reasons:       topReasons(notes, 3),
 		SampledAt:     now,
 		SurfaceSource: a.lastSurfaceSource,
+		Decision:      decision,
 	}, nil
 }
 
@@ -221,6 +235,7 @@ func (a *auditImpl) coverageSignalPooled(
 	// dead job measured, which filters the carried results back out again.
 	wanted, useSurface, source, err := a.resolveWantedSet(ctx, links, pool.surfaceFrontier(frontier))
 	a.lastSurfaceSource = source
+	a.lastSurfaceSymbols = wanted
 	if err != nil {
 		return signalResult{}, false, err
 	}
@@ -235,12 +250,16 @@ func (a *auditImpl) coverageSignalPooled(
 	denom, numer := coverageRatio(wanted, pass, skipOnly)
 
 	if a.shouldTryPackageAnchor(useSurface, numer, wanted) {
-		anchored, ok, err := a.packageAnchorSignal(ctx, links, results, testSyms, featureID)
+		anchored, pkgSurface, ok, err := a.packageAnchorSignal(ctx, links, results, testSyms, featureID)
 		if err != nil {
 			return signalResult{}, false, err
 		}
 		if ok {
 			a.lastSurfaceSource = SurfacePackageAnchor
+			// The anchor surface, not the (all-test-file) wanted set, is what
+			// this score was actually computed over — so it is what decision
+			// coverage must be computed over too.
+			a.lastSurfaceSymbols = pkgSurface
 			return pool.annotate(anchored, wanted, testSyms), true, nil
 		}
 	}
@@ -518,27 +537,31 @@ func scoreCoverage(
 // infrastructure whose execution rate reflects many features, not this one.
 //
 // Reports ok=false when the anchor surface is empty or contributes no
-// denominator, leaving the caller's normal path in charge.
+// denominator, leaving the caller's normal path in charge. On ok=true it also
+// returns the surface it scored over, because that — not the caller's wanted
+// set — is the symbol set this feature's coverage was actually measured on,
+// and decision coverage has to be measured on the same one.
 func (a *auditImpl) packageAnchorSignal(
 	ctx context.Context,
 	links []store.FeatureSymbolLink,
 	results []store.CoverageResult,
 	testSyms map[int64]bool,
 	featureID shared.FeatureID,
-) (signalResult, bool, error) {
+) (signalResult, map[int64]bool, bool, error) {
 	pkgSurface, err := a.featurePackageAnchorSurface(ctx, links, a.opts.MaxPackageAnchorSymbols)
 	if err != nil {
-		return signalResult{}, false, fmt.Errorf("package-anchor surface: %w", err)
+		return signalResult{}, nil, false, fmt.Errorf("package-anchor surface: %w", err)
 	}
 	if len(pkgSurface) == 0 {
-		return signalResult{}, false, nil
+		return signalResult{}, nil, false, nil
 	}
 	pkgPass, pkgSkipOnly, pkgStmts, _, _ := classifyCoverageResults(results, pkgSurface, testSyms, featureID)
 	pkgDenom, pkgNumer := coverageRatio(pkgSurface, pkgPass, pkgSkipOnly)
 	if pkgDenom == 0 {
-		return signalResult{}, false, nil
+		return signalResult{}, nil, false, nil
 	}
-	return scoreCoverage(pkgSurface, pkgPass, pkgSkipOnly, pkgStmts, pkgNumer, pkgDenom, " (package-anchor)"), true, nil
+	res := scoreCoverage(pkgSurface, pkgPass, pkgSkipOnly, pkgStmts, pkgNumer, pkgDenom, " (package-anchor)")
+	return res, pkgSurface, true, nil
 }
 
 // stmtCounts is a per-symbol statement tally read from coverage_results

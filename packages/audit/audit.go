@@ -32,6 +32,50 @@ type FeatureHealth struct {
 	// provenance is invisible is how issue #84 survived three releases, so
 	// every score carries it.
 	SurfaceSource string `json:"surface_source,omitempty"`
+
+	// Decision is the decision-coverage reading behind
+	// Components["decision_coverage"], and it is a separate field rather than
+	// a second number folded into the coverage component on purpose: issue
+	// #127's acceptance criterion is that statement and decision coverage stay
+	// separately visible, and a single composite would satisfy the letter of
+	// that and defeat the point.
+	//
+	// nil means no symbol on the feature's surface has ever been measured —
+	// the feature predates `atlas flow`, and its JSON is byte-for-byte what it
+	// was. Non-nil with Available=false means the measurement DID happen and
+	// produced no judgeable outcome, which is a different fact and one an
+	// operator who just ran `atlas flow` needs to see.
+	Decision *DecisionCoverageReport `json:"decision_coverage,omitempty"`
+}
+
+// DecisionCoverageReport is the audit's per-feature roll-up of
+// `cfg_decision_coverage` over the symbols on the feature's implementation
+// surface (issue #140).
+//
+// The counters are separate for the same reason they are separate in the
+// store: Percent is Taken/Decidable, NEVER Taken/Total. OutcomesUndetermined
+// is the blind spot — outcomes that exist in the source and that no
+// statement-coverage profile can judge, such as the operands of `a && b`.
+// They are neither taken nor untaken; folding them into either side of the
+// ratio would report a verdict the data does not contain.
+//
+// SymbolsUnmeasured is the same distinction one level up: a surface symbol
+// with no row was never analysed, and it contributes nothing to the ratio
+// rather than contributing a zero.
+type DecisionCoverageReport struct {
+	// Available is whether this reading scored. False means it was excluded
+	// from the weighted average entirely (no decidable outcome), not that it
+	// scored zero.
+	Available bool `json:"available"`
+	// Percent is 100 * OutcomesTaken / OutcomesDecidable, and is 0 and
+	// meaningless when Available is false.
+	Percent              float64 `json:"percent"`
+	OutcomesTaken        int     `json:"outcomes_taken"`
+	OutcomesDecidable    int     `json:"outcomes_decidable"`
+	OutcomesUndetermined int     `json:"outcomes_undetermined"`
+	OutcomesTotal        int     `json:"outcomes_total"`
+	SymbolsMeasured      int     `json:"symbols_measured"`
+	SymbolsUnmeasured    int     `json:"symbols_unmeasured"`
 }
 
 // Signal names — closed enum used as keys in FeatureHealth.Components.
@@ -42,6 +86,16 @@ const (
 	SignalAnnotationFresh   = "annotation_freshness"
 	SignalPatternCompliance = "pattern_compliance"
 	SignalContractDrift     = "contract_drift"
+	// SignalDecisionCoverage is the branch-outcome half of the coverage
+	// question (issue #140): of the branch outcomes the CFG found and a
+	// profile could judge, how many were actually taken? It is scored ONLY
+	// over symbols that carry a `cfg_decision_coverage` row and that have at
+	// least one decidable outcome. Everything else — a symbol nobody ran
+	// `atlas flow` over, a symbol whose only branching is a short-circuit
+	// operator — leaves the signal unavailable rather than scoring it zero,
+	// because weightedAverage re-normalises over what is available and a zero
+	// here would drop the score of every feature the signal cannot see.
+	SignalDecisionCoverage = "decision_coverage"
 	// SignalAnnotationPresence fires when the feature has at least one linked
 	// symbol in the feature_symbols table. This is the same signal that
 	// `atlas trace feature:<id>` consumes — when trace resolves a chain,
@@ -107,6 +161,18 @@ type Options struct {
 	// Default: 0.5. Ignored for suites smaller than a handful of tests, where
 	// the ratio carries no signal.
 	UbiquityCutoff float64
+
+	// DecisionCoverageShare is decision coverage's share of the COVERAGE
+	// BUDGET — the weight named by Weights[SignalCoverage] — when both halves
+	// of the coverage question are available. Statement coverage keeps the
+	// remainder. See blendWeights for why the two split one budget instead of
+	// each drawing their own, and why the split leans the way it does.
+	//
+	// Default: 0.6 (decision coverage weighs 1.5x statement coverage). Values
+	// outside (0, 1) fall back to the default: 0 would silence the new signal
+	// through the weights instead of through availability, and 1 would silence
+	// the old one.
+	DecisionCoverageShare float64
 }
 
 // defaultUbiquityCutoff and minTestsForUbiquityCutoff govern the dynamic
@@ -117,6 +183,10 @@ const (
 	defaultUbiquityCutoff     = 0.5
 	minTestsForUbiquityCutoff = 8
 )
+
+// defaultDecisionCoverageShare splits the coverage budget 1.5:1 in decision
+// coverage's favour. See blendWeights for the argument.
+const defaultDecisionCoverageShare = 0.6
 
 // defaultWeights returns the spec-default signal weights.
 func defaultWeights() map[string]float64 {
@@ -151,6 +221,9 @@ func (o Options) applyDefaults() Options {
 	if o.MaxPackageAnchorSymbols == 0 {
 		o.MaxPackageAnchorSymbols = defaultMaxPackageAnchorSymbols
 	}
+	if o.DecisionCoverageShare <= 0 || o.DecisionCoverageShare >= 1 {
+		o.DecisionCoverageShare = defaultDecisionCoverageShare
+	}
 	return o
 }
 
@@ -184,6 +257,19 @@ type auditImpl struct {
 	// scorer would carry it through the signal result instead.
 	lastSurfaceSource string
 
+	// lastSurfaceSymbols is the symbol set that same coverage signal actually
+	// scored over, handed sideways to the decision-coverage signal for the
+	// same reason: it must be judged over EXACTLY the symbols statement
+	// coverage was judged over, or the two numbers describe different code and
+	// the weighting argument in blendWeights stops holding. Re-deriving the
+	// surface instead would also pay the dynamic-surface query cost twice per
+	// feature, for every store, including the ones with no decision coverage
+	// to find.
+	//
+	// nil (as opposed to empty) means the coverage signal did not run at all,
+	// and the decision signal resolves its own surface.
+	lastSurfaceSymbols map[int64]bool
+
 	// covPool memoises the carryforward resolution of ONE frontier
 	// (issue #136). Resolution depends on the frontier and the window, not on
 	// the feature, but it costs three grouped scans over the carry window;
@@ -200,6 +286,15 @@ type auditImpl struct {
 	// callAdjLoaded distinguishes "not loaded" from "loaded but empty".
 	callAdj       map[int64][]int64
 	callAdjLoaded bool
+
+	// decisionCache memoises `cfg_decision_coverage` lookups across features.
+	// The store exposes decision coverage one symbol at a time, and a symbol
+	// on two features' surfaces would otherwise be read once per feature —
+	// ScoreAll's surfaces overlap heavily in any codebase with shared domain
+	// services. A nil VALUE records "asked, and there is no row", so the
+	// absent case is memoised too; that is the common case on a store nobody
+	// has run `atlas flow` over, and it is the one worth not repeating.
+	decisionCache map[int64]*store.DecisionCoverage
 }
 
 // New returns an Audit backed by the given store, using the supplied

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 )
 
@@ -16,7 +17,7 @@ func TestEdges_InsertIdempotent(t *testing.T) {
 	a, _ := syms.Insert(ctx, SymbolRow{QualifiedName: "p.A", Kind: shared.KindFunc, FilePath: "src/a.go", Line: 1})
 	b, _ := syms.Insert(ctx, SymbolRow{QualifiedName: "p.B", Kind: shared.KindFunc, FilePath: "src/b.go", Line: 1})
 
-	row := EdgeRow{FromID: a, ToID: b, Kind: EdgeKindCall, FilePath: "src/a.go", Line: 7}
+	row := EdgeRow{Tier: graph.TierNameResolved, FromID: a, ToID: b, Kind: EdgeKindCall, FilePath: "src/a.go", Line: 7}
 	id1, err := edges.Insert(ctx, row)
 	if err != nil {
 		t.Fatalf("Insert #1: %v", err)
@@ -41,9 +42,9 @@ func TestEdges_OutIn(t *testing.T) {
 	c, _ := syms.Insert(ctx, SymbolRow{QualifiedName: "p.C", Kind: shared.KindFunc, FilePath: "src/c.go", Line: 1})
 
 	for _, e := range []EdgeRow{
-		{FromID: a, ToID: b, Kind: EdgeKindCall, FilePath: "src/a.go", Line: 5},
-		{FromID: a, ToID: c, Kind: EdgeKindCall, FilePath: "src/a.go", Line: 6},
-		{FromID: b, ToID: c, Kind: EdgeKindCall, FilePath: "src/b.go", Line: 5},
+		{Tier: graph.TierNameResolved, FromID: a, ToID: b, Kind: EdgeKindCall, FilePath: "src/a.go", Line: 5},
+		{Tier: graph.TierNameResolved, FromID: a, ToID: c, Kind: EdgeKindCall, FilePath: "src/a.go", Line: 6},
+		{Tier: graph.TierNameResolved, FromID: b, ToID: c, Kind: EdgeKindCall, FilePath: "src/b.go", Line: 5},
 	} {
 		if _, err := edges.Insert(ctx, e); err != nil {
 			t.Fatalf("Insert: %v", err)
@@ -80,9 +81,9 @@ func TestEdges_Walk_RecursiveCTE(t *testing.T) {
 	d, _ := syms.Insert(ctx, SymbolRow{QualifiedName: "p.D", Kind: shared.KindFunc, FilePath: "src/d.go", Line: 1})
 
 	for _, e := range []EdgeRow{
-		{FromID: a, ToID: b, Kind: EdgeKindCall, FilePath: "src/a.go", Line: 2},
-		{FromID: b, ToID: c, Kind: EdgeKindCall, FilePath: "src/b.go", Line: 2},
-		{FromID: c, ToID: d, Kind: EdgeKindCall, FilePath: "src/c.go", Line: 2},
+		{Tier: graph.TierNameResolved, FromID: a, ToID: b, Kind: EdgeKindCall, FilePath: "src/a.go", Line: 2},
+		{Tier: graph.TierNameResolved, FromID: b, ToID: c, Kind: EdgeKindCall, FilePath: "src/b.go", Line: 2},
+		{Tier: graph.TierNameResolved, FromID: c, ToID: d, Kind: EdgeKindCall, FilePath: "src/c.go", Line: 2},
 	} {
 		if _, err := edges.Insert(ctx, e); err != nil {
 			t.Fatalf("Insert: %v", err)
