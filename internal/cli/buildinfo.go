@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 
 	"github.com/spf13/cobra"
 )
@@ -127,11 +128,19 @@ func normaliseModuleVersion(v string) string {
 //     and a cgo build is additionally tied to the host's libc. Losing this
 //     silently is the failure this field exists to expose.
 type buildSettings struct {
-	GoVersion  string
-	OS         string
-	Arch       string
-	Trimpath   bool
-	CGOEnabled bool
+	GoVersion string
+	OS        string
+	Arch      string
+	Trimpath  bool
+	// CGOEnabled is nil when the build-settings table did not say.
+	//
+	// It is a pointer rather than a bool because for cgo the FAVOURABLE
+	// answer is `false`: a reader who sees `cgo: false` concludes this is
+	// the cgo-free binary. Rendering an unknown as `false` would hand out
+	// that reassurance on no evidence. Trimpath is the mirror image —
+	// there `false` denies the claim, so it is the safe default — which is
+	// why only this field is tri-state.
+	CGOEnabled *bool
 	// ReproducibleFlags reports whether the two build-flag preconditions
 	// for a byte-identical rebuild hold. It is deliberately NOT called
 	// "Reproducible": these are necessary conditions, not proof. The only
@@ -149,10 +158,14 @@ type buildSettings struct {
 // runtime/debug contract does not promise them, so they fall back to the
 // runtime constants — which are correct by construction for the process
 // doing the reporting. GoVersion falls back to runtime.Version() for the
-// same reason. The build FLAGS have no such fallback: when the table is
-// unreadable we know nothing about them, and reporting an unknown as
-// "false" is the honest rendering (it denies the reproducibility claim
-// rather than granting it).
+// same reason.
+//
+// The build FLAGS have no such fallback: when the table is unreadable we
+// know nothing about them. For -trimpath, reporting the unknown as false is
+// the honest rendering, because false DENIES the reproducibility claim. For
+// CGO_ENABLED the polarity is reversed — false is the favourable answer —
+// so an unknown stays nil rather than collapsing onto the answer that
+// happens to flatter the binary.
 func resolveBuildSettings(bi *debug.BuildInfo, ok bool) buildSettings {
 	bs := buildSettings{
 		GoVersion: runtime.Version(),
@@ -170,7 +183,10 @@ func resolveBuildSettings(bi *debug.BuildInfo, ok bool) buildSettings {
 		case "-trimpath":
 			bs.Trimpath = s.Value == "true"
 		case "CGO_ENABLED":
-			bs.CGOEnabled = s.Value == "1"
+			if s.Value != "" {
+				on := s.Value == "1"
+				bs.CGOEnabled = &on
+			}
 		case "GOOS":
 			if s.Value != "" {
 				bs.OS = s.Value
@@ -181,8 +197,17 @@ func resolveBuildSettings(bi *debug.BuildInfo, ok bool) buildSettings {
 			}
 		}
 	}
-	bs.ReproducibleFlags = bs.Trimpath && !bs.CGOEnabled
+	bs.ReproducibleFlags = bs.Trimpath && bs.CGOEnabled != nil && !*bs.CGOEnabled
 	return bs
+}
+
+// cgoText renders the tri-state cgo answer for humans. "unknown" is a
+// distinct third value on purpose — see buildSettings.CGOEnabled.
+func cgoText(v *bool) string {
+	if v == nil {
+		return "unknown"
+	}
+	return strconv.FormatBool(*v)
 }
 
 // versionResult is the `atlas version --json` payload. Field names are a
@@ -190,15 +215,19 @@ func resolveBuildSettings(bi *debug.BuildInfo, ok bool) buildSettings {
 // reproducible one" reads them, so renaming one is a breaking change to
 // that job (docs/architecture.md §6: additive within a major version).
 type versionResult struct {
-	Version           string `json:"version"`
-	Commit            string `json:"commit"`
-	BuildDate         string `json:"build_date"`
-	GoVersion         string `json:"go_version"`
-	OS                string `json:"os"`
-	Arch              string `json:"arch"`
-	Trimpath          bool   `json:"trimpath"`
-	CGOEnabled        bool   `json:"cgo_enabled"`
-	ReproducibleFlags bool   `json:"reproducible_flags"`
+	Version   string `json:"version"`
+	Commit    string `json:"commit"`
+	BuildDate string `json:"build_date"`
+	GoVersion string `json:"go_version"`
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	Trimpath  bool   `json:"trimpath"`
+	// CGOEnabled is null when the running binary's build-settings table did
+	// not carry CGO_ENABLED. Null means "not determined": a consumer
+	// asserting the binary is cgo-free must read it as a failure to
+	// establish that, not as a false.
+	CGOEnabled        *bool `json:"cgo_enabled"`
+	ReproducibleFlags bool  `json:"reproducible_flags"`
 }
 
 // collectVersionResult assembles the payload from the two independent
@@ -240,6 +269,11 @@ preconditions for a byte-identical rebuild: without -trimpath the binary
 embeds the absolute path of the checkout, and a cgo build is tied to the
 host's C library. Both are also what keeps cross-compilation working.
 
+cgo is reported as "unknown" (JSON null) when the binary's build-settings
+table did not say. That is a distinct answer from "false": for cgo, false
+is the favourable answer, so reporting an unknown as false would hand out
+the reassuring result on no evidence.
+
 reproducible_flags means "the preconditions hold", NOT "this binary has
 been verified reproducible". The only thing that proves reproducibility
 is rebuilding the same commit and comparing digests; docs/install.md
@@ -263,7 +297,7 @@ func runVersion(cmd *cobra.Command) error {
 	fmt.Fprintf(w, "  go:          %s\n", res.GoVersion)
 	fmt.Fprintf(w, "  platform:    %s/%s\n", res.OS, res.Arch)
 	fmt.Fprintf(w, "  trimpath:    %t\n", res.Trimpath)
-	fmt.Fprintf(w, "  cgo:         %t\n", res.CGOEnabled)
+	fmt.Fprintf(w, "  cgo:         %s\n", cgoText(res.CGOEnabled))
 	fmt.Fprintf(w, "  build flags allow a reproducible rebuild: %t\n", res.ReproducibleFlags)
 	fmt.Fprintf(w, "  (not a verification — to prove it, rebuild and compare digests: docs/install.md)\n")
 	return nil

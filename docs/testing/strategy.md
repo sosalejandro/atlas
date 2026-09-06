@@ -55,7 +55,7 @@ decoration.
 | `TestProperty_Scan_GraphIsReferentiallyClosed` | `codeindex/go` | #97. Every edge endpoint names a node the graph holds. |
 | `TestProperty_Scan_IsReproducibleAndRootRelative` | `codeindex/go` | PR #99. Two scans of one tree render identically; two checkouts at different paths do too. |
 | `TestProperty_Attribution_ConservesStatements` | `coverage` | #85. attributed + unattributed == the statements the profile holds. |
-| `TestProperty_Attribution_ChargesEachStatementOnce` | `coverage` | Double counting. Per-symbol totals sum to exactly the attributed figure. |
+| `TestProperty_Attribution_ChargesEachStatementOnce` | `coverage` | Double counting. Per-symbol totals sum to exactly the attributed figure, and per file never exceed what the profile holds for that file. |
 | `TestProperty_Attribution_IsMonotoneInTheIndex` | `coverage` | Indexing more symbols never charges fewer statements. Scoped — see the caveat below. |
 | `TestProperty_Attribution_IsDeterministic` | `coverage` | A percentage that wobbles between CI runs with no source change. |
 | `TestProperty_Attribution_MergeIsIdempotent` | `coverage` | The per-test fold. Union, not summation — a 1,122-test run must not report a blind spot 1,122× too large. |
@@ -68,6 +68,7 @@ decoration.
 | `TestProperty_Symbols_InsertIsIdempotent` | `store` | #97 at the port. A re-scan must not renumber a symbol. |
 | `TestProperty_Edges_EndpointsSurvivePersistence` | `store` | The same, for edges, compared through qualified names. |
 | `TestProperty_Ingest_ReScanNeverRenumbersAnExistingSymbol` | `store` | The incremental path, which runs on every commit. |
+| `TestProperty_Ingest_EdgesInsertedCountsOnlyNewRows` | `store` | #97 on the edge path. `INSERT OR IGNORE` leaves `last_insert_rowid` untouched, so deciding "inserted" from `LastInsertId` counted every already-known edge as new. |
 
 ### Reproducing a failure
 
@@ -107,11 +108,16 @@ indexes where every symbol carries a real end line, and
 exhibit it) so the caveat stays executable rather than becoming a comment
 nobody rechecks.
 
-**`atlas scan --json` under-reports.** `features_materialized` and
-`feature_symbols_linked` are always `0`, because `internal/cli/scan.go` builds
-its result field by field from `store.IngestStats` and never copies those two.
-`TestAcceptance_CLI_ScanOmitsTheFeatureCounts` characterises the defect and
-fails the moment it is fixed, at which point the test should be deleted.
+**`atlas scan --json` under-reports.** `features_materialized`,
+`feature_symbols_linked` **and** `orphan_annotations_skipped` are always `0`,
+because `internal/cli/scan.go` builds its result field by field from
+`store.IngestStats` and never copies those three. `atlas init` copies all
+three from the same struct, which is what makes the divergence provable rather
+than merely suspected.
+`TestAcceptance_CLI_ScanOmitsTheIngestFeatureCounts` characterises the defect
+over a purpose-built tree (the shared fixture produces no orphan annotation, so
+the third field could not be told apart there) and fails the moment any of the
+three is wired up, at which point the test should be deleted.
 
 ## Why an acceptance layer
 
@@ -156,16 +162,27 @@ against this repository and checks the answers.
 ./test/acceptance/run.sh
 ```
 
-CI wiring is one step, placed **after** the existing `go test` step so the
-suite is not run twice:
+In CI it is the `atlas gates atlas (blocking)` job in
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). Three details of
+that job are load-bearing:
 
-```yaml
-- name: atlas gates atlas
-  env:
-    ATLAS_DOGFOOD_PROFILE: coverage.out   # the profile the test step wrote
-    ATLAS_DOGFOOD_BASE: origin/main
-  run: ./test/acceptance/run.sh
-```
+- **It blocks.** Issue #122's criterion is that CI goes red when the dogfood
+  numbers regress. A `continue-on-error` job would satisfy the letter and
+  nothing else.
+- **It reuses the test job's coverprofile.** `build-and-test` on Linux runs
+  `go test ./... -race -coverprofile=cover.coverprofile
+  -coverpkg=./packages/...,./internal/...` and uploads the result as the
+  `repo-coverprofile` artifact; the dogfood job downloads it and passes it in
+  through `ATLAS_DOGFOOD_PROFILE`. Without that, `run.sh` regenerates one,
+  which means running the whole suite a second time to measure the same code.
+- **It checks out with `fetch-depth: 0`.** `atlas cov diff` needs a base ref.
+  On the default single-commit checkout there is neither `origin/main` nor
+  `HEAD~1`, and `run.sh` then hands the suite an empty base — which the suite
+  reports as not-applicable rather than failing. The gate would stay green
+  having quietly made one assertion fewer.
+
+Before this job existed the dogfood suite ran in no pipeline at all: it is
+behind the `dogfood` build tag, which `go test ./...` does not set.
 
 ### What it asserts, and what it only records
 
@@ -185,22 +202,38 @@ denominator behind it.
 
 ### The baselines, and how to move them
 
-Measured on this worktree (Go 1.26.4, linux/amd64) with a profile from
+Measured on branch `fix/test-strategy` (base `189e713`), Go 1.26.4,
+linux/amd64, with a profile from
 `go test ./packages/... ./internal/... -coverprofile=… -coverpkg=./packages/...,./internal/...`:
 
-| Metric | Observed | Committed floor |
-| --- | --- | --- |
-| statements charged to a symbol | 22,396 / 23,165 = 0.9668 | 0.95 |
-| SQL operations resolved | 128 / 129 = 0.9922 | 0.97 |
-| symbols indexed | 4,565 | 2,000 |
-| edges recorded | 10,433 | 2,000 |
+| Metric | Observed | Committed floor | Margin |
+| --- | --- | --- | --- |
+| statements charged to a symbol | 24,118 / 24,934 = 0.9673 | 0.95 | ~430 statements |
+| SQL operations resolved | 134 / 138 = 0.9710 | 0.97 | **one operation** |
+| symbols indexed | 4,895 | 2,000 | large |
+| edges recorded | 9,281 | 2,000 | large |
 
 The attribution floor sits below the observation because the figure moves with
-the code — the residual ~4% is dominated by `packages/store/sqlc`, which is
+the code — the residual ~3.3% is dominated by `packages/store/sqlc`, which is
 generated and excluded from the index by design, so a new generated file lowers
-it without anything being wrong. The SQL floor sits close to the observation
-because an unresolvable operation is a query atlas cannot advise on, and adding
-one should be a deliberate act.
+it without anything being wrong.
+
+**The SQL floor has almost no margin left.** It was set at 0.97 when the
+observation was 0.9922; the observation is now 0.9710, so one more unresolvable
+operation (134/138 → 133/138 = 0.9638) turns the gate red. That is the floor
+behaving as designed — an unresolvable query is one atlas cannot advise on, and
+adding one should be a deliberate act — but it is a gate a contributor will
+trip without knowing why, so it is recorded here rather than discovered in CI.
+Deciding whether to fix the four unresolved operations or restate the floor is
+its own change; this document does not pre-empt it.
+
+The edge count is lower than the 10,433 an earlier revision of this document
+recorded, and the difference is not a regression. `upsertEdgeTx` decided
+"inserted" from `LastInsertId` after an `INSERT OR IGNORE`, which SQLite does
+not update when it skips a row, so duplicate edges were counted as insertions.
+Measured on this tree: a first scan into an empty database reported **11,185**
+edges inserted before the fix and **9,281** after, and the `edges` table holds
+9,281 rows in both cases. The old number over-reported by 1,904.
 
 **Ratchet upward in a PR that says why. Never downward without one.** Re-measure
 with `ATLAS_DOGFOOD_KEEP=1 ./test/acceptance/run.sh`, which logs every observed
@@ -208,38 +241,99 @@ value beside its floor.
 
 ## Cost
 
-Measured on this worktree, `-count=1`, warm build cache:
+Measured on branch `fix/test-strategy`, `-count=1`, warm build cache,
+same machine as the baselines above:
 
 | Layer | Wall clock |
 | --- | --- |
-| `-run TestProperty_` in `codeindex/go` | 0.15 s |
-| `-run TestProperty_` in `coverage` | 0.18 s |
+| `-run TestProperty_` in `codeindex/go` | 0.26 s |
+| `-run TestProperty_` in `coverage` | 0.26 s |
 | `-run TestProperty_` in `graph` | 0.01 s |
-| `-run TestProperty_` in `store` | 1.04 s (each case opens a SQLite file) |
-| `test/acceptance` (fixture + CLI, includes one `go build`) | 0.65 s |
-| `test/acceptance` with `-tags=dogfood` | 6.2 s, plus whatever produced the coverprofile |
+| `-run TestProperty_` in `store` | 1.27 s (each case opens a SQLite file) |
+| `test/acceptance` (fixture + CLI, includes one `go build`) | 0.68 s |
+| `test/acceptance` with `-tags=dogfood` | 11.8 s, plus whatever produced the coverprofile |
 
 Everything except the dogfood layer runs on every `go test ./...`. The dogfood
 layer is gated separately only because its input is a coverprofile of this
 repository, and producing one means running the suite that would be running it
-— not because it is slow. Given CI's existing profile it costs six seconds.
+— not because it is slow. Given CI's existing profile it costs twelve seconds.
 
-## What is still missing
+## Issue #122's acceptance criteria, one by one
 
-The acceptance criteria on issue #122 that this work does **not** close, so the
-next reader is not misled about coverage of the coverage tool:
+Issue #122 lists five. This is where each one actually stands, so the next
+reader is not misled about the coverage of the coverage tool. "Not started" is
+recorded as not started; nothing here is described as done because part of it
+is.
 
-- **Evidence sources other than go-cover are not yet pinned to external ground
-  truth.** `go-cover` is pinned to `go tool cover -func`. Istanbul has ingest
-  tests but nothing that compares against `nyc report` or vitest's own summary;
-  Gherkin binding (#117) and diagram verify (#111) likewise.
-- **`.atlas/features/` does not declare atlas's own capabilities** (#106), so
-  the dogfood gate cannot fail on a per-capability coverage regression — only
-  on the repo-wide attribution floor. That is a weaker gate than the issue asks
-  for, and it is the next thing to build here.
-- **The README does not yet show atlas's own feature matrix.** The numbers the
-  dogfood run prints are the raw material; nothing publishes them.
-- **No mutation testing.** `gremlins` over `packages/audit` and
-  `packages/coverage` on a nightly schedule remains the right next move, and
-  the property layer is what makes it affordable: mutation testing is only
-  informative when the suite has invariants to violate.
+### 1. Property tests exist for the six invariants, and run in CI — **met**
+
+The issue names six invariants. Each has a property, and all of them run under
+the plain `go test ./...` that `build-and-test` executes:
+
+| Invariant from the issue | Property |
+| --- | --- |
+| Σ per-symbol `total_stmts` over a file never exceeds the profile's count for that file | `TestProperty_Attribution_ChargesEachStatementOnce` (per-file half) |
+| Every executed block is attributed to at most one symbol | `TestProperty_Attribution_ChargesEachStatementOnce` (global half) + `TestProperty_Attribution_ConservesStatements` |
+| Attribution is monotone in the index | `TestProperty_Attribution_IsMonotoneInTheIndex` (scoped — see the caveat above) |
+| A symbol's span never overlaps another's in the same file | `TestProperty_Scan_SpansDoNotStraddle` |
+| Re-ingesting the same profile twice produces identical per-symbol counts | `TestProperty_Attribution_ReIngestIsStable` |
+| Scan → ingest → scan again is idempotent | `TestProperty_Ingest_ReScanNeverRenumbersAnExistingSymbol` |
+
+### 2. Every evidence source pinned to an external ground truth — **one of four**
+
+| Evidence source | Ground truth | Status |
+| --- | --- | --- |
+| `go-cover` | `go tool cover -func`, invoked live on the same profile | done — `TestAcceptance_PerSymbolCoverageMatchesGoToolCover` |
+| Istanbul / vitest | `nyc report` or vitest's own summary | **not done** |
+| Gherkin binding (#117) | the framework's own step-definition resolution | **not done** |
+| Diagram verify (#111) | a hand-checked fixture with one finding of each kind | **not done** |
+
+The reason all three outstanding rows are outstanding is the same one, and it
+is a real constraint rather than a preference: each needs a second toolchain in
+the test environment. `nyc`/vitest and a Gherkin runner are Node and would put
+`npm install` on the critical path of the suite that certifies atlas; the whole
+Go suite currently runs on a container with no Node at all, and
+`packages/coverage`'s Istanbul tests are hermetic for that reason. The concrete
+next step is not "write the test" but "decide whether CI grows a Node job":
+until that is decided, an Istanbul acceptance test would either be skipped in
+CI (a green check measuring nothing) or would compare atlas against a
+reimplementation of `nyc` living in this repo, which is pinning atlas to
+itself under another name. Diagram verify (#111) has no external tool to pin
+against at all — the honest ground truth there is a hand-checked fixture, which
+is example-based, and it belongs in #111's own change rather than here.
+
+### 3. `.atlas/features/` declares atlas's own capabilities, CI fails on regression — **partly, and the weaker part**
+
+CI does now fail on regression against a committed threshold: the dogfood job
+blocks, and `atlas cov sync`'s attributed share is gated at 0.95 with `atlas
+sql scan` gated at 0.97. What does *not* exist is `.atlas/features/`, so the
+gate is repo-wide rather than per capability — exactly the single global
+percentage this tool exists to replace.
+
+This is issue #106's deliverable, not something the test layer can supply on
+its own: writing feature declarations is a claim about what atlas's
+capabilities *are*, and inventing that taxonomy inside a testing change would
+produce a feature map nobody reviewed and a per-capability floor derived from
+whatever it happened to measure on the day. Once `.atlas/features/` exists,
+`dogfood_test.go` gains a per-capability assertion beside the repo-wide one;
+the harness for it (`runAtlas` + `atlas audit --json`) is already in that file.
+
+### 4. The README shows atlas's own feature matrix, regenerated on release — **not started**
+
+The dogfood run prints the raw material — attributed share, per-feature audit
+scores, SQL resolution — and nothing publishes it. Two things are missing: a
+renderer (`atlas audit --json` → a Markdown table) and a release-time step to
+regenerate it. Neither is a test, which is why neither is here; the blocker for
+the *matrix* specifically is criterion 3, since a feature matrix with no
+declared features is a table of one row.
+
+### 5. Nightly mutation run over `packages/audit` and `packages/coverage` — **not started**
+
+Nothing in this repo runs `gremlins` or `go-mutesting`, and adding it to
+`ci.yml` would be wrong twice over: `ci.yml` runs on push and pull_request, and
+the issue asks for a nightly schedule precisely because a mutation run is far
+too slow for per-PR. It needs its own scheduled workflow. The property layer is
+what makes it worth doing — mutation testing is only informative when the suite
+has invariants to violate — so this is the natural next change, and it was not
+attempted here because a mutation score is a number, and committing a number
+nobody has measured is the failure this whole document is against.

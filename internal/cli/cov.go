@@ -526,6 +526,16 @@ type covStatusCarry struct {
 	MaxBuilds int    `json:"max_builds"`
 	MaxAge    string `json:"max_age"`
 
+	// Ran says whether the carry policy actually looked for anything to carry,
+	// and SkipReason says why it did not. `results: 0` on its own is
+	// ambiguous: it is the same value for "this build measured everything" and
+	// for "carryforward never ran because the frontier has no run group",
+	// which is the default for any store that does not pass
+	// `cov sync --run-group`. Reporting the second as the first states an
+	// unknown as a measurement.
+	Ran        bool   `json:"ran"`
+	SkipReason string `json:"skip_reason,omitempty"`
+
 	Results         int `json:"results"`
 	Evidence        int `json:"evidence"`
 	DenominatorOnly int `json:"denominator_only"`
@@ -722,10 +732,12 @@ func applyCovCarryCounts(
 // nobody can reason about when a number looks wrong.
 func covCarrySummary(resolved store.ResolvedCoverage, enabled bool) covStatusCarry {
 	out := covStatusCarry{
-		Enabled:   enabled,
-		MaxBuilds: resolved.Window.MaxBuilds,
-		MaxAge:    resolved.Window.MaxAge.String(),
-		Results:   len(resolved.Carried),
+		Enabled:    enabled,
+		MaxBuilds:  resolved.Window.MaxBuilds,
+		MaxAge:     resolved.Window.MaxAge.String(),
+		Ran:        resolved.Ran(),
+		SkipReason: string(resolved.SkipReason),
+		Results:    len(resolved.Carried),
 	}
 	bySource := map[string]*covStatusCarrySource{}
 	for _, c := range resolved.Carried {
@@ -750,11 +762,17 @@ func covCarrySummary(resolved store.ResolvedCoverage, enabled bool) covStatusCar
 
 // printCovCarry states the inheritance in the terminal. It prints even when
 // nothing was carried, because "this build measured everything it was asked
-// to" is the reassuring half of the same fact.
+// to" is the reassuring half of the same fact -- but only when the carry
+// actually ran, because otherwise that sentence is an unknown dressed as a
+// measurement.
 func printCovCarry(cmd *cobra.Command, c covStatusCarry) {
 	out := cmd.OutOrStdout()
 	if !c.Enabled {
 		fmt.Fprintln(out, "carryforward: off (--carry=false); symbols this build did not measure are simply absent")
+		return
+	}
+	if !c.Ran {
+		fmt.Fprintf(out, "carryforward: did not run - %s\n", covCarrySkipExplanation(c.SkipReason))
 		return
 	}
 	if c.Results == 0 {
@@ -765,10 +783,41 @@ func printCovCarry(cmd *cobra.Command, c covStatusCarry) {
 		"carryforward: %d result(s) carried (%d as evidence, %d holding the denominator only), window %d builds / %s\n",
 		c.Results, c.Evidence, c.DenominatorOnly, c.MaxBuilds, c.MaxAge)
 	for _, src := range c.Sources {
-		fmt.Fprintf(out, "  %d from build %q (%d build(s) back)\n", src.Results, src.Group, src.BuildsBack)
+		fmt.Fprintf(out, "  %d from build %q (%s)\n", src.Results, src.Group, covBuildsBackLabel(src.BuildsBack))
 	}
 	fmt.Fprintln(out,
 		"  pass/fail/skip above are OBSERVED counts - a CI gate should read those, not the carried ones")
+}
+
+// covCarrySkipExplanation turns the store's reason code into the sentence a
+// reader can act on. An unrecognised code is reported verbatim rather than
+// paraphrased into something the store did not say.
+func covCarrySkipExplanation(reason string) string {
+	switch store.CarrySkipReason(reason) {
+	case store.CarrySkippedUngrouped:
+		return "this frontier has no run group, so \"the previous build\" is undefined; " +
+			"tag the syncs of one build with 'atlas cov sync --run-group <id>' to enable it"
+	case store.CarrySkippedNoFrontier:
+		return "no coverage runs in the store"
+	case store.CarrySkippedDisabled:
+		return "switched off (--carry=false)"
+	default:
+		return fmt.Sprintf("reason %q", reason)
+	}
+}
+
+// covBuildsBackLabel renders the distance to a source build.
+// store.CarryBuildsBackBeyondWindow is not a distance and must not print as
+// one -- it used to render as "0 build(s) back", which reads as "this build".
+func covBuildsBackLabel(back int) string {
+	switch {
+	case back < 1:
+		return "beyond the carry window"
+	case back == 1:
+		return "1 build back"
+	default:
+		return fmt.Sprintf("%d builds back", back)
+	}
 }
 
 // frontierRunRows counts each run's contribution to the pooled result set, so

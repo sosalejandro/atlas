@@ -243,6 +243,22 @@ func (b *builder) claimDirectories() {
 				Detail: fmt.Sprintf("%d undeclared symbols share the directory %s", len(dirs[d]), displayDir(d)),
 				File:   dirs[d][0].FilePath, Line: dirs[d][0].Line,
 			})
+		} else {
+			// The directory-derived id collides with a capability an
+			// earlier, stronger signal already proposed. Merging is the
+			// right call -- two proposals under one id would be two things
+			// the user cannot tell apart -- but a merge that leaves no
+			// trace means the reader sees route-derived or test-derived
+			// evidence above a symbol list that a directory sweep filled
+			// in, with nothing saying so. Say so.
+			c.Evidence = append(c.Evidence, Evidence{
+				Kind: SourceDirectory,
+				Detail: fmt.Sprintf(
+					"merged in: %d further undeclared symbols under %s share this capability's id, "+
+						"which was proposed from %s evidence",
+					len(dirs[d]), displayDir(d), c.Source),
+				File: dirs[d][0].FilePath, Line: dirs[d][0].Line,
+			})
 		}
 		for _, s := range dirs[d] {
 			b.attach(c, s)
@@ -410,13 +426,27 @@ func (b *builder) attachSQL(c *Capability, attr *attributor) {
 	c.Reads, c.Writes = sortedKeys(reads), sortedKeys(writes)
 }
 
+// attachTestEvidence grades how atlas knows this capability is exercised.
+//
+// A coverage run is consulted for BOTH answers it can give. Reading it only
+// for a positive -- and falling through to colocation when it says nothing
+// executed -- would replace a measurement with a weaker guess in exactly the
+// case where the measurement exists: "an ingested run recorded none of these
+// symbols executing" is the more useful finding than "a test file sits in
+// this directory", and it is the one the reader can act on.
 func (b *builder) attachTestEvidence(c *Capability) {
 	if b.in.Coverage.Available {
+		measured := false
 		for _, id := range c.SymbolIDs {
 			if b.in.Coverage.Executed[id] {
 				c.TestEvidence = TestEvidenceExecution
 				return
 			}
+			measured = measured || b.in.Coverage.measured(id)
+		}
+		if measured {
+			c.TestEvidence = TestEvidenceNotExecuted
+			return
 		}
 	}
 	for _, f := range c.Files {

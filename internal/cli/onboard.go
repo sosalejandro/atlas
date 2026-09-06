@@ -76,9 +76,14 @@ type onboardFlags struct {
 // than restating it so the JSON and the on-disk map cannot drift apart.
 type onboardResult struct {
 	onboard.Result
-	MapPath   string         `json:"map_path"`
-	Timings   onboardTimings `json:"timings_ms"`
-	CISnippet string         `json:"ci_snippet"`
+	MapPath string `json:"map_path"`
+	// SQLScanned says whether the SQL pass ran. Without it the header's
+	// "0 operations, 0 unresolved" is an unknown wearing a measurement's
+	// clothes, and a JSON consumer reading stats.sql_operations has no way
+	// to tell "this project has no queries" from "nobody looked".
+	SQLScanned bool           `json:"sql_scanned"`
+	Timings    onboardTimings `json:"timings_ms"`
+	CISnippet  string         `json:"ci_snippet"`
 }
 
 // onboardTimings is the per-phase wall clock. The five-minute claim in the
@@ -129,7 +134,10 @@ func runOnboard(cmd *cobra.Command, f onboardFlags) error {
 		return fmt.Errorf("onboard: %w", err)
 	}
 
-	out := onboardResult{Result: res, MapPath: mapPath, Timings: timings, CISnippet: ciSnippet}
+	out := onboardResult{
+		Result: res, MapPath: mapPath, SQLScanned: in.SQLScanned,
+		Timings: timings, CISnippet: ciSnippet,
+	}
 	if flags.JSON {
 		return emitJSON(stdoutOrJSON(cmd), "onboard",
 			map[string]any{"root": root, "skip_sql": f.skipSQL, "skip_churn": f.skipChurn},
@@ -323,9 +331,16 @@ func collectChurn(ctx context.Context, root string) onboard.ChurnLookup {
 	return rep
 }
 
-// collectCoverage reduces the coverage frontier to "which symbols did a test
-// actually execute". A failure to read it degrades to "no evidence", which
-// the limits section then states, rather than failing the run.
+// collectCoverage reduces the coverage frontier to two sets: which symbols a
+// test actually executed, and which symbols the run reported on at all.
+//
+// The second set is what lets the inference say "measured and not executed"
+// rather than falling back to colocation. Without it, a Go coverprofile
+// ingested into a Go+TypeScript repository would make every TS capability
+// look measured-and-dead when nothing measured it.
+//
+// A failure to read the frontier degrades to "no evidence", which the limits
+// section then states, rather than failing the run.
 func collectCoverage(ctx context.Context, s *store.Store) (onboard.CoverageEvidence, error) {
 	frontier, err := s.Coverage().LatestFrontier(ctx)
 	if err != nil || frontier.Empty() {
@@ -335,11 +350,16 @@ func collectCoverage(ctx context.Context, s *store.Store) (onboard.CoverageEvide
 	if err != nil {
 		return onboard.CoverageEvidence{}, nil //nolint:nilerr // same.
 	}
-	ev := onboard.CoverageEvidence{Available: true, Executed: map[int64]bool{}}
+	ev := onboard.CoverageEvidence{
+		Available: true,
+		Executed:  map[int64]bool{},
+		Measured:  map[int64]bool{},
+	}
 	for _, r := range results {
 		if r.SymbolID == nil {
 			continue
 		}
+		ev.Measured[*r.SymbolID] = true
 		if r.CoveredStmts > 0 || r.Status == store.StatusPass {
 			ev.Executed[*r.SymbolID] = true
 		}
@@ -401,8 +421,16 @@ func printOnboardHeader(w io.Writer, r onboardResult) {
 	fmt.Fprintf(w, "\natlas onboard — %s\n\n", r.Root)
 	fmt.Fprintf(w, "  scanned      %d production symbols, %d test symbols   %s\n",
 		st.ProductionSymbols, st.TestSymbols, ms(r.Timings.Scan))
-	fmt.Fprintf(w, "  sql          %d operations, %d unresolved             %s\n",
-		st.SQLOperations, st.SQLUnresolved, ms(r.Timings.SQL))
+	// With --skip-sql the pass never ran, so there is no count to print.
+	// "0 operations, 0 unresolved 0.0s" would read as a measurement of a
+	// project with no queries, complete with the time it took to find that
+	// out; the honest line is the word "skipped".
+	if r.SQLScanned {
+		fmt.Fprintf(w, "  sql          %d operations, %d unresolved             %s\n",
+			st.SQLOperations, st.SQLUnresolved, ms(r.Timings.SQL))
+	} else {
+		fmt.Fprintf(w, "  sql          skipped (--skip-sql), so no capability below has a data footprint\n")
+	}
 	fmt.Fprintf(w, "  routes       %d registrations\n", st.Routes)
 	fmt.Fprintf(w, "  declared     %d features from annotations, adopted as they are\n", st.DeclaredFeatures)
 	// Not printed as a fraction of the undeclared symbols: the directory
@@ -606,11 +634,13 @@ func runOnboardPromote(cmd *cobra.Command, root string, ids []string, all, apply
 	if apply {
 		res.Mode = "apply"
 	}
-	for _, c := range selected {
-		pr, err := onboard.Promote(root, c, apply)
-		if err != nil {
-			return err //nolint:wrapcheck // already namespaced by packages/onboard.
-		}
+	// PromoteAll rather than a loop over Promote: several proposals can
+	// anchor in one file, and each insertion moves the lines below it.
+	promoted, err := onboard.PromoteAll(root, selected, apply)
+	if err != nil {
+		return err //nolint:wrapcheck // already namespaced by packages/onboard.
+	}
+	for _, pr := range promoted {
 		switch {
 		case pr.Applied:
 			res.Applied++

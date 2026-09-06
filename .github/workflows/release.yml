@@ -43,6 +43,8 @@ jobs:
   release:
     name: build, sign and publish (blocking)
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     permissions:
       contents: write # create the GitHub Release and upload assets
       id-token: write # OIDC token for cosign keyless signing + provenance
@@ -170,3 +172,103 @@ jobs:
               --title "$TAG" \
               --generate-notes
           fi
+
+  homebrew:
+    name: publish the Homebrew formula (after publish, non-gating)
+    runs-on: ubuntu-latest
+    needs: release
+    # Non-gating by name as well as by position: it runs after the release
+    # is already public, so it cannot block anything. Calling it "blocking"
+    # would be a lie about what a red X here means.
+    permissions:
+      contents: read # read the release assets this repo just published
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ needs.release.outputs.tag }}
+
+      - name: Fetch the release's signed checksum manifest
+        # The formula's digests are copied from SHA256SUMS rather than
+        # recomputed. Recomputing would mean the formula could disagree with
+        # the manifest a user verifies against, and the disagreement would
+        # only ever be discovered by whoever ran `brew install` first.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: gh release download "$TAG" --pattern SHA256SUMS --dir dist
+
+      - name: Generate the formula
+        env:
+          TAG: ${{ needs.release.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          .github/scripts/brew-formula.sh \
+            --version "$TAG" --dist dist --repo "$REPO" \
+            --out formula/atlas.rb
+          cat formula/atlas.rb
+
+      - name: Push the formula to the configured tap
+        if: vars.HOMEBREW_TAP_REPO != ''
+        env:
+          TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            echo "HOMEBREW_TAP_REPO is set but the HOMEBREW_TAP_TOKEN secret is not." >&2
+            echo "A tap lives in a second repository, so the default GITHUB_TOKEN cannot write to it." >&2
+            exit 1
+          fi
+          # Shape check before the value reaches a URL. A repo variable is
+          # maintainer-controlled, not attacker-controlled, but the standing
+          # rule here is that nothing from the Actions context is expanded
+          # into a command without being pinned to a known shape first.
+          if ! printf '%s' "$TAP_REPO" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+            echo "HOMEBREW_TAP_REPO must be owner/name; got '$TAP_REPO'" >&2
+            exit 1
+          fi
+          git clone --depth 1 \
+            "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" "$RUNNER_TEMP/tap"
+          mkdir -p "$RUNNER_TEMP/tap/Formula"
+          cp formula/atlas.rb "$RUNNER_TEMP/tap/Formula/atlas.rb"
+          cd "$RUNNER_TEMP/tap"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          # Stage first, then compare the index: a formula the tap has never
+          # seen is an UNTRACKED file, and `git diff` on the worktree reports
+          # no change for one of those. Checking the wrong thing here would
+          # skip the very first publish and report success.
+          git add Formula/atlas.rb
+          if git diff --cached --quiet; then
+            echo "tap already carries this formula; nothing to push"
+            exit 0
+          fi
+          git commit -m "atlas ${TAG}"
+          git push
+
+      - name: Say what is missing when no tap is configured
+        if: vars.HOMEBREW_TAP_REPO == ''
+        run: |
+          set -euo pipefail
+          {
+            echo '### Homebrew formula not published'
+            echo
+            echo 'The formula was generated and checked against this release'"'"'s `SHA256SUMS`,'
+            echo 'but nothing published it: a tap is a second repository and this one has no'
+            echo 'setting pointing at it.'
+            echo
+            echo 'To turn `brew install` on, an operator sets both:'
+            echo
+            echo '- repository variable `HOMEBREW_TAP_REPO` — `<owner>/homebrew-<tap>`'
+            echo '- repository secret `HOMEBREW_TAP_TOKEN` — a token that can push to it'
+            echo
+            echo 'Until then this step reports the gap rather than pretending it is closed.'
+            echo
+            echo '```ruby'
+            cat formula/atlas.rb
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "no HOMEBREW_TAP_REPO configured; formula generated but not published" >&2

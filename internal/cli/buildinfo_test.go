@@ -214,6 +214,50 @@ func TestResolveBuildInfo_StampedReleaseAllThreeBaked(t *testing.T) {
 	}
 }
 
+// TestResolveBuildInfo_SourceStampsShadowModuleInfo pins the consequence of
+// the source-baked stamps that docs/install.md has to describe honestly.
+//
+// Because release-please bakes literal Version/Commit/BuildDate values into
+// internal/cli/root.go on the release commit, ldflagsStamped() is true for
+// EVERY build made from that source — including `go install …@main`,
+// `go install …@<sha>` and a plain `go build` in a clone. resolveBuildInfo
+// short-circuits there, so runtime/debug.ReadBuildInfo is never consulted:
+// the reported commit and build date are the release commit's stamps, not
+// the ones belonging to the thing you actually installed.
+//
+// That is a real limitation, not a bug to paper over — but a claim that a
+// non-tag install "reports dev" is false, and this test is what stops that
+// claim being written back into the docs.
+func TestResolveBuildInfo_SourceStampsShadowModuleInfo(t *testing.T) {
+	const (
+		bakedVersion = "v0.13.0"
+		bakedCommit  = "fba0d11"
+		bakedDate    = "2026-05-24T01:31:52Z"
+	)
+	withLdflagsVars(t, bakedVersion, bakedCommit, bakedDate)
+
+	// What the module proxy would report for an install from a later,
+	// unstamped ref — a pseudo-version and the real revision.
+	proxy := &debug.BuildInfo{
+		Main: debug.Module{Version: "v0.13.1-0.20260906074419-189e713abcde"},
+		Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "189e713abcde0000000000000000000000000000"},
+			{Key: "vcs.time", Value: "2026-09-06T07:44:19Z"},
+		},
+	}
+	if v, _, _ := resolveFromBuildInfo(proxy); v == bakedVersion {
+		t.Fatalf("fixture is not discriminating: module info also yields %q", v)
+	}
+
+	v, c, b := resolveBuildInfo()
+	if v != bakedVersion || c != bakedCommit || b != bakedDate {
+		t.Errorf("got %q/%q/%q; the source-baked stamps must win over module info", v, c, b)
+	}
+	if v == defaultVersion {
+		t.Error("a build from stamped source never reports the 'dev' sentinel")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Build-provenance reporting (issue #121).
 //
@@ -251,7 +295,10 @@ func TestResolveBuildSettings_ReleaseBuildFlagsAreReported(t *testing.T) {
 	if !got.Trimpath {
 		t.Error("trimpath: got false, want true (release builds pass -trimpath)")
 	}
-	if got.CGOEnabled {
+	if got.CGOEnabled == nil {
+		t.Fatal("cgo: got unknown, want a determined answer (CGO_ENABLED=0 was in the table)")
+	}
+	if *got.CGOEnabled {
 		t.Error("cgo: got enabled, want disabled (modernc.org/sqlite is cgo-free)")
 	}
 	if !got.ReproducibleFlags {
@@ -273,7 +320,7 @@ func TestResolveBuildSettings_CGOBuildIsNotFlaggedReproducible(t *testing.T) {
 		},
 	}
 	got := resolveBuildSettings(bi, true)
-	if !got.CGOEnabled {
+	if got.CGOEnabled == nil || !*got.CGOEnabled {
 		t.Fatal("CGO_ENABLED=1 must be reported as enabled")
 	}
 	if got.ReproducibleFlags {
@@ -315,6 +362,63 @@ func TestResolveBuildSettings_UnreadableBuildInfoFallsBackToRuntime(t *testing.T
 	}
 	if got.Trimpath || got.ReproducibleFlags {
 		t.Error("nothing is known about flags when build info is unreadable; must not claim reproducible")
+	}
+}
+
+// TestResolveBuildSettings_UnknownCGOIsNotReportedAsDisabled is the
+// asymmetry between the two flags, made explicit.
+//
+// For -trimpath, false is the unfavourable answer, so defaulting an unknown
+// to false costs the binary the benefit of the doubt and is safe. For cgo it
+// is the other way round: `cgo: false` is what a cgo-free release build
+// looks like, so reporting an unreadable build table as `false` publishes
+// the reassuring answer on no evidence at all. Unknown must stay unknown.
+func TestResolveBuildSettings_UnknownCGOIsNotReportedAsDisabled(t *testing.T) {
+	got := resolveBuildSettings(nil, false)
+	if got.CGOEnabled != nil {
+		t.Errorf("cgo: got a determined %v from an unreadable build table; want unknown", *got.CGOEnabled)
+	}
+	if cgoText(got.CGOEnabled) != "unknown" {
+		t.Errorf("human rendering: got %q want %q", cgoText(got.CGOEnabled), "unknown")
+	}
+	if got.ReproducibleFlags {
+		t.Error("an unknown cgo setting cannot satisfy the reproducible-build preconditions")
+	}
+}
+
+// TestResolveBuildSettings_AbsentCGOSettingIsUnknown covers the readable-
+// but-incomplete table: runtime/debug does not promise CGO_ENABLED is
+// present, and its absence is no more evidence of a cgo-free build than an
+// unreadable table is.
+func TestResolveBuildSettings_AbsentCGOSettingIsUnknown(t *testing.T) {
+	bi := &debug.BuildInfo{
+		GoVersion: "go1.25.14",
+		Settings:  []debug.BuildSetting{{Key: "-trimpath", Value: "true"}},
+	}
+	got := resolveBuildSettings(bi, true)
+	if got.CGOEnabled != nil {
+		t.Errorf("cgo: got a determined %v with no CGO_ENABLED setting; want unknown", *got.CGOEnabled)
+	}
+	if got.ReproducibleFlags {
+		t.Error("trimpath alone does not establish the reproducible-build preconditions")
+	}
+}
+
+// TestCGOText pins the three renderings the human output can produce.
+func TestCGOText(t *testing.T) {
+	yes, no := true, false
+	for _, tc := range []struct {
+		name string
+		in   *bool
+		want string
+	}{
+		{"unknown", nil, "unknown"},
+		{"cgo off", &no, "false"},
+		{"cgo on", &yes, "true"},
+	} {
+		if got := cgoText(tc.in); got != tc.want {
+			t.Errorf("%s: got %q want %q", tc.name, got, tc.want)
+		}
 	}
 }
 
@@ -376,7 +480,7 @@ func TestVersionCmd_JSONEnvelopeCarriesProvenanceFields(t *testing.T) {
 			OS                string `json:"os"`
 			Arch              string `json:"arch"`
 			Trimpath          bool   `json:"trimpath"`
-			CGOEnabled        bool   `json:"cgo_enabled"`
+			CGOEnabled        *bool  `json:"cgo_enabled"`
 			ReproducibleFlags bool   `json:"reproducible_flags"`
 		} `json:"result"`
 	}

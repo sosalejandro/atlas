@@ -228,6 +228,265 @@ func TestAudit_Issue136_MovedSpanIsNotCarriedAsEvidence(t *testing.T) {
 	}
 }
 
+// seedDynamicFeature links only the feature's TEST symbols, which is what
+// makes the dynamic surface (#104) the tier that resolves its denominator: the
+// symbol set comes from what those tests were observed to execute, not from a
+// link table. Returns the two test symbols and the two impl symbols they run.
+func seedDynamicFeature(t *testing.T, s *store.Store, id shared.FeatureID) (goTest, feTest, goImpl, feImpl int64) {
+	t.Helper()
+	ctx := context.Background()
+	if err := s.Features().Upsert(ctx, store.Feature{
+		ID: id, Title: "Checkout", Kind: store.FeatureKindFeature,
+	}); err != nil {
+		t.Fatalf("Upsert %q: %v", id, err)
+	}
+	insert := func(name, file string, line, endLine int, role store.FeatureSymbolRole) int64 {
+		t.Helper()
+		end := endLine
+		sid, err := s.Symbols().Insert(ctx, store.SymbolRow{
+			QualifiedName: shared.SymbolID(name),
+			Kind:          shared.KindFunc,
+			FilePath:      file,
+			Line:          line,
+			EndLine:       &end,
+		})
+		if err != nil {
+			t.Fatalf("Insert symbol %q: %v", name, err)
+		}
+		if role != "" {
+			if err := s.FeatureSymbols().Link(ctx, store.FeatureSymbolLink{
+				FeatureID: id, SymbolID: sid,
+				Role: role, Source: store.SourceAnnotation,
+			}); err != nil {
+				t.Fatalf("Link %q->%d: %v", id, sid, err)
+			}
+		}
+		return sid
+	}
+	goTest = insert("billing.TestCharge", "src/contexts/billing/charge_test.go", 5, 40, store.RoleTest)
+	feTest = insert("billing.checkoutSpec", "web/src/features/billing/checkout.spec.ts", 3, 30, store.RoleTest)
+	goImpl = insert("billing.Charge", "src/contexts/billing/charge.go", 10, 120, "")
+	feImpl = insert("billing.Checkout", "web/src/features/billing/checkout.ts", 1, 12, "")
+	return goTest, feTest, goImpl, feImpl
+}
+
+// seedExecutions writes the per-test execution evidence (schema 0010) the
+// dynamic surface is derived from.
+func seedExecutions(t *testing.T, s *store.Store, runID int64, rows []store.TestExecution) {
+	t.Helper()
+	if err := s.TestCoverage().Insert(context.Background(), runID, rows); err != nil {
+		t.Fatalf("TestCoverage.Insert(run %d): %v", runID, err)
+	}
+}
+
+// THE load-bearing test for issue #136 once the surface tiers are in play.
+//
+// The carry only helps if the symbol set the score is computed over survives
+// the lost job. The preferred tier (SurfaceDynamic, #104) derives that set from
+// the per-test evidence of the frontier's own runs -- so when the Go job dies,
+// the set shrinks by exactly the symbols the Go job measured, and the carried
+// results standing in for them are filtered straight back out. Coverage rises
+// anyway, which is issue #136 with the fix applied and not firing.
+func TestAudit_Issue136_LostRunMustNotRaiseCoverage_DynamicSurface(t *testing.T) {
+	s := openTestStore(t)
+	const feature shared.FeatureID = "billing.checkout"
+	goTest, feTest, goImpl, feImpl := seedDynamicFeature(t, s, feature)
+
+	// Build 1: both jobs land under one run group, each with its own evidence.
+	goRun := seedStmtRun(t, s, store.FrameworkGoTest, "ci-1", 1*time.Minute,
+		map[int64]stmtRow{goImpl: {covered: 5, total: 100}})
+	seedExecutions(t, s, goRun, []store.TestExecution{
+		{TestSymbolID: goTest, SymbolID: goImpl, CoveredStmts: 5, TotalStmts: 100},
+	})
+	feRun := seedStmtRun(t, s, store.FrameworkVitest, "ci-1", 2*time.Minute,
+		map[int64]stmtRow{feImpl: {covered: 10, total: 10}})
+	seedExecutions(t, s, feRun, []store.TestExecution{
+		{TestSymbolID: feTest, SymbolID: feImpl, CoveredStmts: 10, TotalStmts: 10},
+	})
+
+	before, ok := coverageOf(t, s, feature)
+	if !ok {
+		t.Fatal("build 1: coverage signal absent, want present")
+	}
+	if want := 100.0 * 15 / 110; !approxEqual(before, want) {
+		t.Fatalf("build 1 coverage = %.2f, want %.2f (15 of 110 statements)", before, want)
+	}
+
+	// Build 2: the Go job crashed. Only the front-end sync lands, so only the
+	// front-end evidence is in the frontier.
+	feRun2 := seedStmtRun(t, s, store.FrameworkVitest, "ci-2", 10*time.Minute,
+		map[int64]stmtRow{feImpl: {covered: 10, total: 10}})
+	seedExecutions(t, s, feRun2, []store.TestExecution{
+		{TestSymbolID: feTest, SymbolID: feImpl, CoveredStmts: 10, TotalStmts: 10},
+	})
+
+	after, ok := coverageOf(t, s, feature)
+	if !ok {
+		t.Fatal("build 2: coverage signal absent, want present")
+	}
+	if after > before+1e-9 {
+		t.Fatalf("coverage ROSE from %.2f to %.2f when the Go run vanished from the group; "+
+			"the dynamic surface shrank with it, so the carried Go symbol was filtered back out",
+			before, after)
+	}
+	if !approxEqual(after, before) {
+		t.Errorf("coverage = %.2f, want %.2f -- the carried Go symbol must stay in the denominator",
+			after, before)
+	}
+}
+
+// A carried result on a TEST symbol moves the score: it is what
+// classifyCoverageResults reads as "the feature's test passed", which credits
+// the feature under the gotest pass/fail model (#82). Counting only carries
+// whose symbol is in `wanted` left that movement out of the "how much of this
+// is carried" number entirely -- so a 100 assembled from another build's test
+// run presented itself as this build's measurement, which is the one thing
+// carryforward exists to prevent.
+func TestAudit_Issue136_CarriedTestPassIsCountedInTheShare(t *testing.T) {
+	s := openTestStore(t)
+	const feature shared.FeatureID = "billing.checkout"
+	ctx := context.Background()
+
+	if err := s.Features().Upsert(ctx, store.Feature{
+		ID: feature, Title: "Checkout", Kind: store.FeatureKindFeature,
+	}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	insert := func(name, file string, line, endLine int, role store.FeatureSymbolRole) int64 {
+		t.Helper()
+		end := endLine
+		sid, err := s.Symbols().Insert(ctx, store.SymbolRow{
+			QualifiedName: shared.SymbolID(name), Kind: shared.KindFunc,
+			FilePath: file, Line: line, EndLine: &end,
+		})
+		if err != nil {
+			t.Fatalf("Insert %q: %v", name, err)
+		}
+		if role != "" {
+			if err := s.FeatureSymbols().Link(ctx, store.FeatureSymbolLink{
+				FeatureID: feature, SymbolID: sid, Role: role, Source: store.SourceAnnotation,
+			}); err != nil {
+				t.Fatalf("Link %q: %v", name, err)
+			}
+		}
+		return sid
+	}
+	// Only a TEST symbol is annotated -- the #82 shape, where a passing
+	// annotated test IS the coverage signal. A test symbol is never in
+	// `wanted`, so a carry on it is invisible to a share computed over
+	// `wanted` alone.
+	testSym := insert("billing.TestCharge", "src/contexts/billing/charge_test.go", 5, 40, store.RoleTest)
+	otherSym := insert("shipping.Ship", "src/contexts/shipping/ship.go", 3, 60, "")
+
+	// Build 1: the Go job reports the annotated test passing.
+	seedStatusRun(t, s, store.FrameworkGoTest, "ci-1", 1*time.Minute, map[int64]store.CoverageStatus{
+		testSym:  store.StatusPass,
+		otherSym: store.StatusPass,
+	})
+	// Build 2: that job never landed. Only an unrelated symbol was measured,
+	// so the test result is carried.
+	seedStatusRun(t, s, store.FrameworkVitest, "ci-2", 10*time.Minute, map[int64]store.CoverageStatus{
+		otherSym: store.StatusPass,
+	})
+
+	score, ok := coverageOf(t, s, feature)
+	if !ok {
+		t.Fatal("coverage signal absent, want present -- the carried test pass is the signal")
+	}
+	if !approxEqual(score, 100) {
+		t.Fatalf("coverage = %.2f, want 100 -- the carried test pass is what produces this "+
+			"score; if it does not, this test is no longer about the share", score)
+	}
+	joined := strings.Join(reasonsOf(t, s, feature), " | ")
+	if !strings.Contains(joined, "test result(s) carried") {
+		t.Errorf("reasons = %q, want the carried TEST result counted in the share", joined)
+	}
+	if !strings.Contains(joined, "credit this feature") {
+		t.Errorf("reasons = %q, want the note to say the carried test result is what moved the score", joined)
+	}
+}
+
+// Resolution is a property of the frontier, not of the feature: it costs three
+// grouped scans over the carry window, and ScoreAll paying that once per
+// feature multiplies out on a repo with many capabilities.
+func TestAudit_Issue136_CoveragePoolIsMemoisedPerFrontier(t *testing.T) {
+	s := openTestStore(t)
+	const feature shared.FeatureID = "billing.checkout"
+	goSym, feSym := seedFullStackFeature(t, s, feature)
+	seedStmtRun(t, s, store.FrameworkGoTest, "ci-1", 1*time.Minute,
+		map[int64]stmtRow{goSym: {covered: 5, total: 100}})
+	seedStmtRun(t, s, store.FrameworkVitest, "ci-2", 10*time.Minute,
+		map[int64]stmtRow{feSym: {covered: 10, total: 10}})
+
+	ctx := context.Background()
+	a, ok := New(s, Options{}).(*auditImpl)
+	if !ok {
+		t.Fatal("New did not return *auditImpl")
+	}
+	frontier, err := a.latestCoverageFrontier(ctx)
+	if err != nil {
+		t.Fatalf("latestCoverageFrontier: %v", err)
+	}
+	first, err := a.resolveCoveragePool(ctx, frontier)
+	if err != nil {
+		t.Fatalf("resolveCoveragePool: %v", err)
+	}
+	if len(first.results) == 0 {
+		t.Fatal("fixture produced no pooled results; the memoisation check would be vacuous")
+	}
+
+	// Poison the cache with a value no store read could return. A second call
+	// for the SAME frontier must hand it back rather than re-scanning.
+	a.covPool = coveragePool{}
+	second, err := a.resolveCoveragePool(ctx, frontier)
+	if err != nil {
+		t.Fatalf("resolveCoveragePool (second): %v", err)
+	}
+	if len(second.results) != 0 {
+		t.Errorf("the same frontier was resolved twice: got %d results, want the memoised (poisoned) 0",
+			len(second.results))
+	}
+
+	// A DIFFERENT frontier must not be served the cached answer.
+	other := frontier
+	other.Newest = frontier.Newest + 1000
+	third, err := a.resolveCoveragePool(ctx, other)
+	if err != nil {
+		t.Fatalf("resolveCoveragePool (other frontier): %v", err)
+	}
+	if len(third.results) == 0 {
+		t.Error("a different frontier was served the cached pool; the key does not identify the frontier")
+	}
+}
+
+// seedStatusRun writes a binary (no statement counts) coverage run, which is
+// the shape the gotest pass/fail model reads.
+func seedStatusRun(
+	t *testing.T,
+	s *store.Store,
+	framework store.Framework,
+	group string,
+	offset time.Duration,
+	statuses map[int64]store.CoverageStatus,
+) int64 {
+	t.Helper()
+	finished := carryBase.Add(offset)
+	run := store.CoverageRun{Framework: framework, StartedAt: finished, FinishedAt: finished}
+	if group != "" {
+		run.RunGroup = &group
+	}
+	results := make([]store.CoverageResult, 0, len(statuses))
+	for sid, st := range statuses {
+		v := sid
+		results = append(results, store.CoverageResult{SymbolID: &v, Status: st})
+	}
+	id, err := s.Coverage().InsertRunWithResults(context.Background(), run, results)
+	if err != nil {
+		t.Fatalf("InsertRunWithResults(%s, group=%q): %v", framework, group, err)
+	}
+	return id
+}
+
 func approxEqual(a, b float64) bool {
 	d := a - b
 	if d < 0 {

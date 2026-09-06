@@ -49,6 +49,50 @@ func Text(s string) Result {
 	return Result{Text: b.String(), Findings: findings}
 }
 
+// redactableColumns indexes the registry by "table.column", for callers that
+// have a value in hand and need to know whether they may rewrite it.
+//
+// Built once from the same slice schema_test.go compares against a migrated
+// store, so a column that stops being redactable stops being redacted at
+// ingest in the same commit.
+var redactableColumns = func() map[string]bool {
+	m := make(map[string]bool, len(columns))
+	for _, c := range columns {
+		if c.Redactable {
+			m[c.Table+"."+c.Name] = true
+		}
+	}
+	return m
+}()
+
+// Redactable reports whether the registry allows table.column to be
+// rewritten in place. An unregistered column is not redactable: this package
+// does not rewrite a column it cannot describe.
+func Redactable(table, column string) bool {
+	return redactableColumns[table+"."+column]
+}
+
+// Field redacts a value on its way INTO one registered column.
+//
+// It is the ingest-time half of Sweep. Sweep cleans a store that already
+// holds a credential; Field is what a write path calls so the credential
+// never lands there in the first place -- the concrete case being a
+// hardcoded connection string inside a query, stored verbatim as
+// sql_operations.sql_text.
+//
+// A column the registry does not mark redactable comes back unchanged and
+// with no findings. That is not an oversight: rewriting an identifier or a
+// path would change what the index MEANS rather than what it discloses, and
+// a Sweep still reports the disclosure to the operator either way. The
+// asymmetry is the same one `atlas security redact` applies, and it is
+// stated in one place -- the registry -- so the two cannot drift.
+func Field(table, column, value string) Result {
+	if value == "" || !Redactable(table, column) {
+		return Result{Text: value}
+	}
+	return Text(value)
+}
+
 // placeholderPrefix and placeholderSuffix bracket a redaction.
 //
 // Square brackets rather than a comment or a quoted string: the redacted

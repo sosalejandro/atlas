@@ -8,11 +8,16 @@ name: release (edge channel)
 # users, and the two must not drift):
 #
 #   - the same build guarantees as stable: reproducible, cgo-free, signed
-#     with the same keyless identity, covered by the same SHA256SUMS
+#     with the same keyless identity, covered by the same SHA256SUMS, and
+#     carrying the same SLSA provenance attestation
 #   - nothing else. No compatibility promise between one edge build and the
 #     next, for the CLI surface, the --json envelope or the on-disk store
 #     schema. The `edge` tag is force-moved, so yesterday's edge binary is
 #     not retrievable from this channel.
+#
+# Asset names are FIXED (`atlas_edge_<goos>_<goarch>`), not describe-stamped
+# — see edge-assets.sh. A rolling channel needs a URL that does not move,
+# and the consumer action asks for exactly those names.
 #
 # It exists because "wait for the next release to find out whether the fix
 # works" is how a gate stops being adopted, not because edge is a place to
@@ -39,7 +44,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # move the `edge` tag and replace its release assets
-      id-token: write # OIDC token for cosign keyless signing
+      id-token: write # OIDC token for cosign keyless signing + provenance
+      attestations: write # store the SLSA provenance attestation
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -89,6 +95,14 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
 
+      - name: Give the assets the edge channel's fixed names
+        # Before SHA256SUMS on purpose: the manifest, and the signature over
+        # it, must cover the names consumers actually download. The binaries
+        # keep their describe-stamped version internally.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: .github/scripts/edge-assets.sh --dist dist --version "$VERSION"
+
       - name: Write SHA256SUMS
         run: .github/scripts/checksums.sh dist
 
@@ -103,6 +117,15 @@ jobs:
           cosign sign-blob --yes \
             --bundle dist/SHA256SUMS.cosign.bundle \
             dist/SHA256SUMS
+
+      - name: Attest build provenance (SLSA)
+        # The channels table in docs/install.md promises edge the same
+        # provenance as stable, and the consumer action defaults
+        # verify-provenance to true for every channel. Both were false
+        # while this step was missing.
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'dist/atlas_edge_*'
 
       - name: Publish the rolling edge release
         env:
@@ -125,7 +148,11 @@ jobs:
           {
             printf 'Rolling build of `main` at `%s`.\n\n' "$VERSION"
             printf 'Same pipeline as a stable release: reproducible, cgo-free, signed with the\n'
-            printf 'same keyless Sigstore identity, covered by the same `SHA256SUMS`.\n\n'
+            printf 'same keyless Sigstore identity, covered by the same `SHA256SUMS`, and\n'
+            printf 'attested with the same SLSA build provenance.\n\n'
+            printf 'Assets are named `atlas_edge_<os>_<arch>` — fixed, not version-stamped, so\n'
+            printf 'the download URL does not move when this tag does. The binary itself still\n'
+            printf 'reports `%s` from `atlas version`.\n\n' "$VERSION"
             printf 'No compatibility promise of any kind between edge builds. CLI flags, the\n'
             printf '`--json` envelope and the store schema may all change without notice, and this\n'
             printf 'tag is force-moved on every commit to `main`, so this build will not be\n'

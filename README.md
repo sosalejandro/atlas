@@ -63,9 +63,13 @@ reaching it, SQL advisories, dead-code candidates), states plainly what it
 could **not** see, and prints the CI snippet that turns the whole thing into
 a gate.
 
-Measured cold-start wall time on one laptop: **5.9 s** on this repository
-(581 indexed files, 4,385 symbols, Go + TypeScript + Python) and **2.2 s** on
-a synthetic 3,000-file Go tree.
+Cold-start wall time, measured with `time` on one developer laptop against
+an empty state DB: **6.5 s** on this repository (619 indexed files, 4,674
+symbols, Go + TypeScript + Python; three runs at 7.1 / 6.6 / 6.5 s) and
+**1.2 s** on a synthetic 3,000-file pure-Go tree. Those are one machine's
+numbers rather than a benchmark — `onboard` prints its own per-phase timings
+so you can take the measurement on yours. See
+[How long it takes](./docs/quickstart.md#how-long-it-takes).
 
 **Inferred is not declared.** Everything `onboard` proposes is namespaced
 under `provisional:`, written to `.atlas/provisional/capabilities.json`, and
@@ -75,7 +79,9 @@ because a human wrote every row in it. The single path in is
 your source (dry run by default) and lets the ordinary scan pick it up.
 Annotations you already have are adopted as-is and never re-proposed.
 
-- [Quickstart](./docs/quickstart.md) — the whole first run, with real output
+- [Quickstart](./docs/quickstart.md) — the whole first run, with recorded output
+- [`atlas onboard`](./docs/commands/onboard.md) — the command reference,
+  including `onboard promote` and what each test-evidence grade claims
 - [Languages](./docs/languages/) — per-language usage guides
   ([Go](./docs/languages/go.md) /
   [TypeScript](./docs/languages/ts.md) /
@@ -127,18 +133,28 @@ conventional-commit messages on `main`.
 binary per platform, plus `SHA256SUMS`, a keyless Sigstore signature over
 it, an SPDX SBOM and SLSA provenance.
 
-Releases are reproducible: the same commit and the pinned Go toolchain
-produce byte-identical binaries, so you can rebuild a release yourself and
-compare digests rather than taking anyone's word for it. CI proves it on
-every push by building twice and comparing.
+Releases are reproducible: the same commit built with the pinned Go
+toolchain produces byte-identical binaries, so you can rebuild a release
+yourself and compare digests rather than taking anyone's word for it.
 
 ```bash
 git checkout v0.14.0 && make build VERSION=v0.14.0
 sha256sum dist/atlas_v0.14.0_linux_amd64   # compare against the release's SHA256SUMS
 ```
 
-Verify with `atlas version`, which reports the stamps and the build flags. A
-version of `dev` means you installed from a non-tag ref.
+That rebuild, run by you, is the check that settles it. CI's `make repro`
+builds twice and compares, but both builds are on one machine with one
+toolchain, so what it establishes is narrower: that the bytes do not depend
+on the output directory, `TMPDIR`, `GOMAXPROCS` or the absolute path of the
+checkout. Scope and method are in
+[docs/install.md](./docs/install.md#reproducing-a-release-build).
+
+`atlas version` reports the stamps and the build flags. Read the version
+string with care on a build you did not download from a release: the release
+commit carries its stamps in the source, so a `go install` from any ref —
+tag or not — reports those baked values rather than `dev`. See
+[docs/install.md](./docs/install.md#go-install) and
+[docs/commands/version.md](./docs/commands/version.md).
 
 ### Optional runtime dependencies
 

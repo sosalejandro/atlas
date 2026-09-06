@@ -21,6 +21,20 @@ name: release-please
 #   The dev-build path (`go build` from a local clone with the stamps
 #   absent / set to defaults) is unaffected — the resolution order still
 #   falls back to runtime/debug.ReadBuildInfo() when no stamping ran.
+#
+# Handing off to release.yml (issue #121):
+#   GitHub does not start new workflow runs from events raised with the
+#   default GITHUB_TOKEN. So the `vX.Y.Z` tag release-please pushes here
+#   does NOT fire release.yml's `on: push: tags` trigger, and without the
+#   `dispatch-release-build` job below no release would ever be built —
+#   the pipeline would look green and ship nothing.
+#
+#   `workflow_dispatch` and `repository_dispatch` are the two documented
+#   exceptions to that rule, so the bridge dispatches release.yml
+#   explicitly. That is why it needs `actions: write`, and why it needs no
+#   PAT or GitHub App token: an operator has no secret to configure.
+#   docs/releasing.md records the alternative (a PAT on the release-please
+#   step) and why this repo does not use it.
 
 on:
   push:
@@ -42,6 +56,7 @@ jobs:
       pr: ${{ steps.release-please-action.outputs.pr }}
       version: ${{ steps.release-please-action.outputs.version }}
       release_created: ${{ steps.release-please-action.outputs.release_created }}
+      tag_name: ${{ steps.release-please-action.outputs.tag_name }}
     steps:
       - name: release-please-action
         id: release-please-action
@@ -58,6 +73,47 @@ jobs:
           # the action stays declarative and reproducible across runs.
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  dispatch-release-build:
+    name: dispatch the release build for the new tag
+    runs-on: ubuntu-latest
+    needs: release-please
+    # Only on the post-merge run that actually cut the tag.
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: read
+      actions: write # start a workflow_dispatch run of release.yml
+    steps:
+      - name: Dispatch release.yml for the tag release-please just cut
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          # Action-generated, never user-controlled — but routed through env
+          # and shape-checked below all the same, per the standing rule that
+          # no Actions-context string is expanded by a shell.
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$'; then
+            echo "release-please reported release_created=true but no usable tag: '$TAG'" >&2
+            echo "refusing to dispatch a release build without one." >&2
+            exit 1
+          fi
+          # --ref is the TAG, not main. workflow_dispatch accepts either, and
+          # the choice is load-bearing: the run's OIDC identity — and so the
+          # Sigstore certificate the published signature is checked against —
+          # is "release.yml at this ref". Dispatching from main would sign as
+          # `release.yml@refs/heads/main`, quietly turning the identity
+          # docs/install.md tells people to verify into a different one, and
+          # would run whatever main's workflow says rather than what shipped
+          # in the tag.
+          #
+          # release.yml re-derives everything from the tag it is handed, and
+          # re-running it is safe (the build is reproducible and asset upload
+          # clobbers), so a duplicate dispatch is recoverable. A MISSING
+          # dispatch is not: nothing else fires that workflow.
+          echo "dispatching release.yml at $TAG"
+          gh workflow run release.yml --ref "$TAG" -f tag="$TAG"
 
   stamp-release-binary:
     name: stamp build metadata into release PR

@@ -13,6 +13,7 @@ on without them.
 - [Download a release](#download-a-release)
 - [Verifying what you downloaded](#verifying-what-you-downloaded)
 - [`go install`](#go-install)
+- [Homebrew](#homebrew)
 - [Build from source](#build-from-source)
 - [Reproducing a release build](#reproducing-a-release-build)
 - [Channels](#channels)
@@ -136,9 +137,49 @@ and there is nothing to verify a signature against. What you get instead is
 the module proxy's checksum-database guarantee that the source is the source
 that was published under that tag.
 
-`atlas --version` still reports a real version here: the release commit
-carries the stamps in the source, so a tagged install does not report `dev`.
-An install from a branch or commit ref will.
+What `atlas version` reports after a `go install` needs stating precisely,
+because it is not what you might assume.
+
+release-please bakes literal `Version` / `Commit` / `BuildDate` values into
+`internal/cli/root.go` on the release commit. `resolveBuildInfo()` returns
+those verbatim whenever any of them differs from its sentinel, and never
+consults `runtime/debug.ReadBuildInfo()` when it does. So:
+
+- **From a tag** (`@v0.14.0`): the version matches the tag. The `commit` and
+  `built` values are the ones written into the source when the release PR
+  was stamped — the release branch's tip and the time of stamping — not the
+  tagged commit and not your build time.
+- **From a branch or commit ref** (`@main`, `@<sha>`): you get the *same*
+  baked values as the last stamped release, not `dev` and not the ref you
+  asked for. A `go build` in a clone behaves the same way. Measured on a
+  clone 39 commits past `v0.11.0`: `go run ./cmd/atlas version` printed
+  `atlas v0.13.0`, `commit fba0d11`, `built 2026-05-24T01:31:52Z`.
+
+So the version string from a non-tag install is *not* evidence of what you
+installed. If you need that, install a tag, or use a release binary and
+verify its provenance attestation, which is bound to a run and a commit
+rather than to a string in a file.
+
+The build flags differ too: `go install` passes neither `-trimpath` nor
+`CGO_ENABLED=0`, so `atlas version` on such a build reports `trimpath:
+false`, whatever cgo your machine defaults to, and
+`reproducible_flags: false`. That is correct — it says this binary is not
+one anybody can reproduce byte-for-byte.
+
+## Homebrew
+
+Every release generates a Homebrew formula from that release's signed
+`SHA256SUMS`, so the digest `brew` checks and the digest the release
+published cannot disagree. Publishing it needs a tap — a second repository
+named `<owner>/homebrew-<tap>` — which is an operator decision rather than a
+script, so **`brew install` is not available unless the maintainers have set
+one up**; check the [releases page](https://github.com/sosalejandro/atlas/releases)
+or the repository's README for a tap name before assuming it exists.
+
+When no tap is configured the release run generates the formula anyway and
+prints it in the job summary along with the two settings needed to publish
+it (`HOMEBREW_TAP_REPO`, `HOMEBREW_TAP_TOKEN`). See
+[docs/releasing.md](./releasing.md#homebrew).
 
 ## Build from source
 
@@ -155,9 +196,10 @@ when you intend the output to match a release.
 `atlas version` reports how the binary in front of you was built:
 
 ```
-atlas v0.13.0
-  commit:      7e9ccc2
-  built:       2026-09-06T06:28:57Z
+$ ./dist/atlas_v0.11.0-39-g189e713_linux_amd64 version
+atlas v0.11.0-39-g189e713
+  commit:      189e713
+  built:       2026-09-06T07:44:19Z
   go:          go1.26.4-X:nodwarf5
   platform:    linux/amd64
   trimpath:    true
@@ -166,9 +208,21 @@ atlas v0.13.0
   (not a verification — to prove it, rebuild and compare digests: docs/install.md)
 ```
 
-(Captured from a local `make build-dev`; the `go:` line shows whichever
-toolchain compiled the binary, which is precisely why it is printed. A
-release build shows the pinned version.)
+That is real output, captured on 2026-09-06 from a binary produced by
+`make build-dev` in a clone at commit `189e713` (the build's own log lines
+are omitted; nothing else is). It is a **development** build, not a release,
+which is why every field looks the way it does:
+
+- the version is `git describe` output (39 commits past `v0.11.0`), because
+  no tag names this commit;
+- `built` is the commit's committer date, not the wall clock — that is the
+  `SOURCE_DATE_EPOCH` rule that makes rebuilds match;
+- the `go:` line shows whichever toolchain compiled the binary, which is
+  precisely why it is printed. A release build shows the pinned version from
+  `.github/scripts/toolchain.txt`.
+
+A release binary prints the same shape with a `vX.Y.Z` version. The numbers
+above are one machine's, on one commit; do not read them as a release's.
 
 `atlas version --json` emits the same fields in the standard envelope:
 `version`, `commit`, `build_date`, `go_version`, `os`, `arch`, `trimpath`,
@@ -177,6 +231,14 @@ release build shows the pinned version.)
 `reproducible_flags` means the two preconditions hold — `-trimpath` was
 passed and cgo was off. It does **not** mean anything has been verified.
 Only the next section verifies anything.
+
+`cgo_enabled` is a three-valued field: `true`, `false`, or `null` when the
+binary's build-settings table did not say. `null` is not `false`. For cgo,
+`false` is the *favourable* answer — it is what a release build looks like —
+so reporting an unknown as `false` would hand out the reassuring answer on
+no evidence. In the human output the same state prints as `cgo: unknown`.
+`trimpath` has no such problem: there `false` denies the claim, so an
+unknown is safely reported as `false`.
 
 ## Reproducing a release build
 
@@ -231,16 +293,35 @@ different absolute path with no `.git` present — and compares digests. CI
 runs it on every push, and the release job runs it across all six targets
 before publishing.
 
+**What that check does and does not establish.** Both builds run on one
+machine with one Go toolchain, so what it proves is that the output does not
+depend on the output directory, the temp directory, the compiler's
+parallelism, or the absolute path of the checkout — the four things that
+break reproducible builds most often, and the last of which a same-directory
+rebuild silently passes. It says nothing on its own about a *different*
+machine, OS, filesystem or toolchain. The claim that you get the same bytes
+is the recipe above, run by you: build the tag yourself with the pinned
+toolchain and compare your digest against `SHA256SUMS`. That is the check
+this section exists for, and it is the only one performed by someone who
+does not have to trust us.
+
 ## Channels
 
 | | **stable** | **edge** |
 | --- | --- | --- |
 | Tag | `vX.Y.Z` | `edge` (force-moved) |
 | Cut by | a git tag, via release-please | every commit to `main` |
+| Asset names | `atlas_vX.Y.Z_<os>_<arch>` | `atlas_edge_<os>_<arch>` |
 | Reproducible, cgo-free, signed, SBOM, provenance | yes | yes |
 | CLI flags and `--json` envelope | additive within a major version | may change without notice |
 | Store schema | migrated forward | may change without notice |
 | Previous builds retrievable | yes, every release stays | no, one rolling tag |
+
+Every row of that table is a property of `.github/workflows/edge.yml`, not a
+description of intent: the signing, SBOM, checksum and attestation steps are
+the same steps `release.yml` runs, and `.github/scripts/scripts_test.sh`
+fails if the attestation step disappears from the edge workflow while this
+table still promises it.
 
 Both channels come out of the same pipeline with the same verification
 story. The difference is entirely about compatibility, not about build
@@ -252,6 +333,20 @@ many commits past it, and which commit. Under semver precedence that sorts
 *below* `v0.13.0` even though it is newer code. That is a known property of
 the convention and the reason edge carries no ordering promise relative to
 stable.
+
+That string is what `atlas version` prints; it is **not** in the filename.
+Edge assets are named `atlas_edge_<os>_<arch>` and stay at that name across
+commits, because a rolling channel needs a download URL that does not move:
+
+```bash
+BASE="https://github.com/sosalejandro/atlas/releases/download/edge"
+curl -fsSLO "$BASE/atlas_edge_linux_amd64"
+curl -fsSLO "$BASE/SHA256SUMS"
+grep " atlas_edge_linux_amd64$" SHA256SUMS | sha256sum -c -
+```
+
+The signature and provenance checks are the same two commands as for a
+stable release. In the action, `with: { version: edge }` installs it.
 
 Use stable in CI. Use edge to find out whether a fix works before the next
 release.

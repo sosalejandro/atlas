@@ -73,6 +73,23 @@ var allClasses = []Class{
 // the system without any verbatim source text.
 var structuralClasses = []Class{ClassPath, ClassIdentifier, ClassEnum}
 
+// mcpClasses is structuralClasses plus ClassSourceText.
+//
+// The source text is features.title, which this package's own registry
+// classifies as ClassSourceText because the title is lifted out of the
+// annotation comment rather than typed by the operator. packages/mcp returns
+// it from find_feature, feature_surface and feature_health, so declaring
+// only structural classes here understated the one surface where indexed
+// content routinely reaches a third-party model provider -- the exact
+// direction of error this catalogue exists to prevent.
+//
+// A title is a short line, not a doc comment or a query: no MCP tool returns
+// symbol Doc, Signature, sql_text or a branch condition. The list says
+// source-text because that is the class of the field, and the note below
+// says which field, because "source-text" alone would read as worse than it
+// is.
+var mcpClasses = []Class{ClassPath, ClassIdentifier, ClassEnum, ClassSourceText}
+
 var exports = []Export{
 	{
 		Verb:        "onboard",
@@ -153,9 +170,13 @@ var exports = []Export{
 		Verb:        "mcp",
 		Surface:     "MCP tool results",
 		Destination: "stdout, as JSON-RPC to the client process that spawned it",
-		Classes:     structuralClasses,
-		Note: "read-only by construction and capped per tool. The client is " +
-			"usually an editor talking to a model provider, so treat this " +
+		Classes:     mcpClasses,
+		Note: "read-only by construction and capped per tool. The source text " +
+			"it carries is features.title -- taken from the annotation " +
+			"comment, so it is source text and not something the operator " +
+			"typed -- and nothing else: no doc comment, signature, query " +
+			"text or branch condition reaches an MCP tool result. The client " +
+			"is usually an editor talking to a model provider, so treat this " +
 			"as the one surface where indexed content routinely reaches a " +
 			"third party -- through the client, never through atlas.",
 	},
@@ -173,8 +194,35 @@ var exports = []Export{
 		Surface:     "rewritten source files",
 		Destination: "the repository's own files, in place",
 		Classes:     nil,
-		Note: "the only command that writes to the working tree. It moves " +
-			"annotations between comment grammars; it emits nothing and " +
-			"discloses nothing.",
+		Note: "one of the three commands that write into the working tree; " +
+			"the others are `atlas cov shim init` and " +
+			"`atlas onboard promote --apply`. It moves annotations between " +
+			"comment grammars, preserving the file mode. The text it writes " +
+			"is your own annotation in another grammar, so it discloses " +
+			"nothing that was not already in the file.",
+	},
+	{
+		Verb:        "onboard promote",
+		Surface:     "the promoted @atlas:feature annotation",
+		Destination: "the repository's own files, in place, with --apply",
+		Classes:     []Class{ClassIdentifier},
+		Note: "writes one `@atlas:feature <id>` comment above the anchor " +
+			"declaration. The id is inferred from the index, so this is the " +
+			"one repository write that puts something atlas derived into " +
+			"your source -- an identifier, and only an identifier. Without " +
+			"--apply it is a dry run that prints the line and touches " +
+			"nothing.",
+	},
+	{
+		Verb:        "cov shim init",
+		Surface:     "the generated TestMain shim",
+		Destination: "atlas_shim_test.go in each selected package of the repository",
+		Classes:     nil,
+		Note: "writes a generated source file into the working tree, which is " +
+			"why it is listed here even though it discloses nothing: the " +
+			"file is atlas's own template plus the package clause, it " +
+			"carries no indexed content, and it is inert unless ATLAS_COV_DIR " +
+			"is set. A package that already declares its own TestMain is " +
+			"left alone and reported.",
 	},
 }

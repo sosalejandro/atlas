@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
@@ -32,9 +33,8 @@ type coveragePool struct {
 
 // coverageSignal resolves the pool and scores against it.
 //
-// The pool is resolved per feature, which is how ListFrontierResults was
-// already being read before this change -- carryforward adds two grouped reads
-// over the same window on top, and does not change the shape of the cost.
+// The pool is a property of the FRONTIER, not of the feature, so it is
+// resolved once and reused (see resolveCoveragePool).
 func (a *auditImpl) coverageSignal(
 	ctx context.Context,
 	featureID shared.FeatureID,
@@ -52,16 +52,82 @@ func (a *auditImpl) coverageSignal(
 // clock is passed through so a test that pins Now pins the staleness window
 // with it; a staleness bound that reads a different clock than the scores
 // around it is a bound nobody can reproduce.
+//
+// The answer is MEMOISED per frontier for the life of the Audit instance.
+// Resolution is a property of the frontier and of the window, neither of which
+// varies by feature, but it costs three grouped scans over the whole carry
+// window plus one GetRun per source run. Paying that once per feature made
+// ScoreAll's cost O(features x window) for an answer that is the same every
+// time, which on a repo with hundreds of features is the difference between a
+// second and a minute. Keyed by the frontier's own identity so a caller that
+// hands over a different frontier gets a fresh resolution rather than the
+// previous one's.
 func (a *auditImpl) resolveCoveragePool(ctx context.Context, frontier store.CoverageFrontier) (coveragePool, error) {
+	key := coveragePoolKey(frontier)
+	if a.covPoolReady && a.covPoolKey == key {
+		return a.covPool, nil
+	}
 	resolved, err := a.store.CoverageCarry().Resolve(ctx, frontier, store.CarryOptions{Now: a.opts.Now})
 	if err != nil {
 		return coveragePool{}, fmt.Errorf("resolve coverage frontier: %w", err)
 	}
-	return coveragePool{
+	pool := coveragePool{
 		results:  resolved.Pool(),
 		carried:  resolved.CarriedBySymbol(),
 		resolved: resolved,
-	}, nil
+	}
+	a.covPool, a.covPoolKey, a.covPoolReady = pool, key, true
+	return pool, nil
+}
+
+// coveragePoolKey identifies a frontier by everything the resolution depends
+// on: the run group it was read under and the exact set of runs in it.
+func coveragePoolKey(f store.CoverageFrontier) string {
+	var b strings.Builder
+	if f.Group != nil {
+		b.WriteString(*f.Group)
+	}
+	b.WriteByte('\x00')
+	fmt.Fprintf(&b, "%d", f.Newest)
+	for _, id := range f.RunIDs() {
+		fmt.Fprintf(&b, ",%d", id)
+	}
+	return b.String()
+}
+
+// surfaceFrontier is the frontier the SURFACE resolution must be shown: this
+// build's runs plus the runs the carries came from.
+//
+// Without this, carryforward does not fire in the case it exists for. The
+// preferred surface tier (SurfaceDynamic, #104) derives a feature's symbol set
+// from the per-test evidence of the frontier's OWN runs, and the scorer then
+// keeps only results whose symbol is in that set. When a framework's job dies,
+// its evidence leaves the frontier, the surface shrinks by exactly the symbols
+// that job measured, and the carried results standing in for them are filtered
+// straight back out -- so the denominator shrinks anyway and coverage rises,
+// which is issue #136 unfixed.
+//
+// The carry sources are added as bare run ids because that is all the surface
+// derivation reads off a frontier (CoverageFrontier.RunIDs). Ubiquity is still
+// computed per run, so a carried run's shared-runtime cutoff is its own.
+func (p coveragePool) surfaceFrontier(frontier store.CoverageFrontier) store.CoverageFrontier {
+	sources := p.resolved.CarrySourceRunIDs()
+	if len(sources) == 0 {
+		return frontier
+	}
+	present := make(map[int64]bool, len(frontier.Runs))
+	for _, r := range frontier.Runs {
+		present[r.ID] = true
+	}
+	out := frontier
+	out.Runs = append([]store.CoverageRun(nil), frontier.Runs...)
+	for _, id := range sources {
+		if present[id] {
+			continue
+		}
+		out.Runs = append(out.Runs, store.CoverageRun{ID: id})
+	}
+	return out
 }
 
 // carryShare is one feature's slice of the carry: how much of ITS denominator
@@ -74,20 +140,35 @@ type carryShare struct {
 	obsTotal  int
 	fromGroup string
 	backBuild int
+
+	// testSymbols / testPasses count carries on this feature's TEST-role
+	// symbols. They are not in `wanted` -- a test symbol is never part of the
+	// implementation denominator -- but classifyCoverageResults reads them as
+	// "the feature's test passed", which credits the feature outright under
+	// the gotest pass/fail model (#82). A carried pass there moves the score
+	// exactly as an observed one would, so leaving it out of the accounting
+	// let a number assembled from two builds present itself as one.
+	testSymbols int
+	testPasses  int
 }
 
-// share computes the accounting over the symbols this feature is scored on.
-// Restricting to `wanted` matters: a frontier-wide carry percentage attached to
-// a feature whose every symbol was freshly measured would be a true statement
-// about the wrong thing.
-func (p coveragePool) share(wanted map[int64]bool) carryShare {
+// any reports whether anything this feature's score consumes was carried:
+// either a symbol in the scored denominator, or one of the feature's test
+// symbols, which credits the feature through the pass/fail model.
+func (s carryShare) any() bool { return s.symbols > 0 || s.testSymbols > 0 }
+
+// share computes the accounting over the symbols this feature's score actually
+// consumes. Restricting to those matters: a frontier-wide carry percentage
+// attached to a feature whose every symbol was freshly measured would be a true
+// statement about the wrong thing.
+func (p coveragePool) share(wanted, testSyms map[int64]bool) carryShare {
 	var out carryShare
 	// The named build is the NEWEST carry in this feature's share -- the
 	// closest thing to "and the rest is from build X". Ordering by symbol id
 	// keeps the choice deterministic when several carries tie.
 	ids := make([]int64, 0, len(p.carried))
 	for sid := range p.carried {
-		if wanted[sid] {
+		if wanted[sid] || testSyms[sid] {
 			ids = append(ids, sid)
 		}
 	}
@@ -95,10 +176,18 @@ func (p coveragePool) share(wanted map[int64]bool) carryShare {
 	var newest store.CarriedResult
 	for i, sid := range ids {
 		c := p.carried[sid]
-		out.symbols++
-		out.stmts += c.TotalStmts
-		if c.Mode == store.CarryEvidence {
-			out.evidence += c.TotalStmts
+		if testSyms[sid] {
+			out.testSymbols++
+			if c.Status == store.StatusPass {
+				out.testPasses++
+			}
+		}
+		if wanted[sid] {
+			out.symbols++
+			out.stmts += c.TotalStmts
+			if c.Mode == store.CarryEvidence {
+				out.evidence += c.TotalStmts
+			}
 		}
 		if i == 0 || c.MeasuredAt.After(newest.MeasuredAt) {
 			newest = c
@@ -130,24 +219,35 @@ func (p coveragePool) share(wanted map[int64]bool) carryShare {
 //     score itself may not move at all when a job dies -- that is the point of
 //     carrying -- so a gate reading the score would sail through the build
 //     that stopped measuring. The observed fraction collapses instead.
-func (p coveragePool) annotate(res signalResult, wanted map[int64]bool) signalResult {
-	sh := p.share(wanted)
-	if sh.symbols == 0 {
+func (p coveragePool) annotate(res signalResult, wanted, testSyms map[int64]bool) signalResult {
+	sh := p.share(wanted, testSyms)
+	if !sh.any() {
 		return res
 	}
 	denom := sh.obsTotal + sh.stmts
 	suffix := ""
-	if denom > 0 {
+	switch {
+	case sh.symbols > 0 && denom > 0:
 		observed := 100.0 * float64(sh.obsCover) / float64(denom)
 		suffix = fmt.Sprintf(
 			"; %d/%d statements carried from build %q (%s), observed %d/%d (%.0f%%)",
 			sh.stmts, denom, sh.fromGroup, buildsBackLabel(sh.backBuild),
 			sh.obsCover, denom, observed)
-	} else {
+	case sh.symbols > 0:
 		// No statement data anywhere in this feature's reading: the score came
 		// from the binary symbol model, so the share is stated in symbols.
 		suffix = fmt.Sprintf("; %d symbol(s) carried from build %q (%s), not re-measured in this build",
 			sh.symbols, sh.fromGroup, buildsBackLabel(sh.backBuild))
+	default:
+		// Nothing in the denominator is carried, but a test result is -- see
+		// carryShare.testSymbols. Saying only "0 carried" here would be the
+		// same lie in the other direction.
+		suffix = fmt.Sprintf("; %d test result(s) carried from build %q (%s)",
+			sh.testSymbols, sh.fromGroup, buildsBackLabel(sh.backBuild))
+	}
+	if sh.testPasses > 0 {
+		suffix += fmt.Sprintf("; %d carried test result(s) still credit this feature, not re-run in this build",
+			sh.testPasses)
 	}
 	if sh.evidence < sh.stmts {
 		// Part of the carry credits nothing: it is too old, the symbol moved,
@@ -176,14 +276,15 @@ func (p coveragePool) annotate(res signalResult, wanted map[int64]bool) signalRe
 	return res
 }
 
-// buildsBackLabel renders the distance to the source build. Zero means the
-// build sits further back than the window looked at all, which is a different
-// statement from "one build back" and must not render as "0 builds back".
+// buildsBackLabel renders the distance to the source build.
+// store.CarryBuildsBackBeyondWindow means the build sits further back than the
+// window looked at all, which is a different statement from "one build back"
+// and must not render as a distance.
 func buildsBackLabel(back int) string {
-	switch back {
-	case 0:
+	switch {
+	case back < 1:
 		return "beyond the carry window"
-	case 1:
+	case back == 1:
 		return "1 build back"
 	default:
 		return fmt.Sprintf("%d builds back", back)

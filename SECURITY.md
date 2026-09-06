@@ -56,10 +56,18 @@ for the test that enforces the no-network claim.
 
 - Anything that makes atlas write outside the paths documented in
   [docs/security.md §2](docs/security.md), or read outside the scan root.
+  Three verbs write into the working tree by design —
+  `migrate-annotations --apply`, `cov shim init` and
+  `onboard promote --apply` — and a write from any other verb, or from those
+  three to a path they do not document, is a finding.
 - Command injection through a repository atlas scans, a config file, a
-  coverage report, or a flag value. Atlas launches `git`, `go`, `node` and
-  `python`; every invocation is argv-style and none goes through a shell, so
-  a way to break that is a vulnerability.
+  coverage report, or a flag value. On its own initiative atlas launches
+  `git`, `go`, `node` and `python`; `atlas cov run -- <command>` additionally
+  runs the argv you hand it, which is the point of that verb and not a
+  finding. Every invocation is argv-style and none goes through a shell, so a
+  way to break *that* — to get a value out of scanned content or config into
+  a shell, or into the argv of a program you did not name — is a
+  vulnerability.
 - Any path by which atlas transmits data off the machine.
 - Escapes from the MCP server's read-only boundary (`atlas mcp`): a tool call
   that writes to the store, reads an arbitrary path, executes anything, or
@@ -67,16 +75,25 @@ for the test that enforces the no-network claim.
 - SQL injection into the state database from indexed content — a symbol
   name, a file path, or query text that changes what atlas executes.
 - A defect in `atlas security` that causes it to *understate* what the
-  database holds: a table or column omitted from the inventory, or a detected
+  database holds, what leaves it, or what atlas writes and launches: a table
+  or column omitted from the inventory, an export surface missing from the
+  catalogue or declaring fewer content classes than it carries, or a detected
   secret reported in a way that discloses the secret.
+- Anything that makes `atlas security` (or `atlas security redact --dry-run`)
+  modify the database it is describing. Both open it read-only and neither
+  migrates it; see [docs/security.md §6](docs/security.md).
 
 **Out of scope**
 
-- Credentials that atlas found in your own source and stored faithfully.
-  That is your source's problem; `atlas security redact` cleans the index,
+- Credentials atlas found in your own source. That is your source's problem.
+  The ingest paths redact what they can before storing it and
+  `atlas security redact` cleans the rest, but neither touches your repository
   and you still have to rotate the credential. A gap in the detection
-  *heuristics* is a bug report, not a vulnerability — the detector is
-  documented as deliberately conservative and incomplete.
+  *heuristics*, or a redactable column not yet covered at ingest, is a bug
+  report rather than a vulnerability — the detector is documented as
+  deliberately conservative and incomplete, and
+  [docs/security.md §5](docs/security.md) lists which columns are covered
+  where.
 - The absence of encryption at rest. The state database is a plain SQLite
   file with your umask's permissions, documented as such. If the machine is
   untrusted, so is the database.

@@ -152,3 +152,101 @@ func TestPromote_RefusesPathsOutsideTheRoot(t *testing.T) {
 		t.Error("promote wrote outside the repository root")
 	}
 }
+
+// The bug this pins corrupted the user's source. Promote addresses its
+// target by line number against the file as it stands, so applying one
+// annotation shifts every declaration below it; a caller looping over
+// Promote in map order wrote its second annotation into that file one line
+// off its declaration, its third two lines off, and said nothing. PromoteAll
+// orders the writes per file bottom-up, so no anchor a later write needs has
+// moved.
+func TestPromoteAll_SeveralAnnotationsInOneFileEachLandOnTheirOwnDeclaration(t *testing.T) {
+	root := t.TempDir()
+	rel := "internal/orders/orders.go"
+	abs := writeFile(t, root, rel,
+		"package orders\n\nfunc Alpha() {}\n\nfunc Beta() {}\n\nfunc Gamma() {}\n")
+
+	// Ascending line order is the order the provisional map hands them over
+	// in, and the order that used to break.
+	caps := []Capability{
+		capWithAnchor("orders.alpha", rel, 3),
+		capWithAnchor("orders.beta", rel, 5),
+		capWithAnchor("orders.gamma", rel, 7),
+	}
+	res, err := PromoteAll(root, caps, true)
+	if err != nil {
+		t.Fatalf("PromoteAll: %v", err)
+	}
+	if len(res) != len(caps) {
+		t.Fatalf("got %d results, want %d", len(res), len(caps))
+	}
+	for i, r := range res {
+		// Results come back in the caller's order, not in the order the
+		// writes were applied.
+		if r.ID != caps[i].ID {
+			t.Errorf("result %d is %s, want %s -- results must keep the caller's order",
+				i, r.ID, caps[i].ID)
+		}
+		if !r.Applied {
+			t.Errorf("%s reported nothing applied: %+v", r.ID, r)
+		}
+		if r.Line != caps[i].Anchor.Line {
+			t.Errorf("%s reported line %d, want %d (the line as the user's file numbers it)",
+				r.ID, r.Line, caps[i].Anchor.Line)
+		}
+	}
+
+	got, err := os.ReadFile(abs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "package orders\n\n" +
+		"// @atlas:feature orders.alpha\nfunc Alpha() {}\n\n" +
+		"// @atlas:feature orders.beta\nfunc Beta() {}\n\n" +
+		"// @atlas:feature orders.gamma\nfunc Gamma() {}\n"
+	if string(got) != want {
+		t.Errorf("file after promoting three capabilities:\n%q\nwant:\n%q", got, want)
+	}
+}
+
+// The ordering must not cost anything else: promotions spanning several
+// files all land, and a dry run still touches nothing.
+func TestPromoteAll_SpansFilesAndHonoursDryRun(t *testing.T) {
+	root := t.TempDir()
+	bodyA := "package a\n\nfunc One() {}\n\nfunc Two() {}\n"
+	bodyB := "package b\n\nfunc Three() {}\n"
+	absA := writeFile(t, root, "a/a.go", bodyA)
+	absB := writeFile(t, root, "b/b.go", bodyB)
+	caps := []Capability{
+		capWithAnchor("a.one", "a/a.go", 3),
+		capWithAnchor("b.three", "b/b.go", 3),
+		capWithAnchor("a.two", "a/a.go", 5),
+	}
+
+	dry, err := PromoteAll(root, caps, false)
+	if err != nil {
+		t.Fatalf("PromoteAll dry run: %v", err)
+	}
+	for _, r := range dry {
+		if r.Applied {
+			t.Errorf("%s reported itself applied on a dry run", r.ID)
+		}
+	}
+	if a, _ := os.ReadFile(absA); string(a) != bodyA {
+		t.Errorf("dry run modified a/a.go:\n%q", a)
+	}
+
+	if _, err := PromoteAll(root, caps, true); err != nil {
+		t.Fatalf("PromoteAll apply: %v", err)
+	}
+	gotA, _ := os.ReadFile(absA)
+	wantA := "package a\n\n// @atlas:feature a.one\nfunc One() {}\n\n// @atlas:feature a.two\nfunc Two() {}\n"
+	if string(gotA) != wantA {
+		t.Errorf("a/a.go after promote:\n%q\nwant:\n%q", gotA, wantA)
+	}
+	gotB, _ := os.ReadFile(absB)
+	wantB := "package b\n\n// @atlas:feature b.three\nfunc Three() {}\n"
+	if string(gotB) != wantB {
+		t.Errorf("b/b.go after promote:\n%q\nwant:\n%q", gotB, wantB)
+	}
+}

@@ -109,7 +109,7 @@ func (q *Queries) ListCarrySources(ctx context.Context, arg ListCarrySourcesPara
 
 const listCarrySymbolTotals = `-- name: ListCarrySymbolTotals :many
 SELECT
-  r.run_id                                          AS run_id,
+  g.run_group                                       AS run_group,
   r.symbol_id                                       AS symbol_id,
   CAST(SUM(r.covered_stmts) AS INTEGER)             AS covered_stmts,
   CAST(SUM(r.total_stmts) AS INTEGER)               AS total_stmts,
@@ -122,7 +122,7 @@ WHERE r.symbol_id IS NOT NULL
   AND g.run_group <> ?1
   AND g.finished_at <= ?2
   AND g.finished_at >= ?3
-GROUP BY r.run_id, r.symbol_id
+GROUP BY g.run_group, r.symbol_id
 `
 
 type ListCarrySymbolTotalsParams struct {
@@ -132,17 +132,23 @@ type ListCarrySymbolTotalsParams struct {
 }
 
 type ListCarrySymbolTotalsRow struct {
-	RunID        int64  `db:"run_id" json:"run_id"`
-	SymbolID     *int64 `db:"symbol_id" json:"symbol_id"`
-	CoveredStmts int64  `db:"covered_stmts" json:"covered_stmts"`
-	TotalStmts   int64  `db:"total_stmts" json:"total_stmts"`
-	AnyPass      int64  `db:"any_pass" json:"any_pass"`
-	AnySkip      int64  `db:"any_skip" json:"any_skip"`
+	RunGroup     *string `db:"run_group" json:"run_group"`
+	SymbolID     *int64  `db:"symbol_id" json:"symbol_id"`
+	CoveredStmts int64   `db:"covered_stmts" json:"covered_stmts"`
+	TotalStmts   int64   `db:"total_stmts" json:"total_stmts"`
+	AnyPass      int64   `db:"any_pass" json:"any_pass"`
+	AnySkip      int64   `db:"any_skip" json:"any_skip"`
 }
 
-// Per (run, symbol) statement totals and status rollup over the same window.
+// Per (BUILD, symbol) statement totals and status rollup over the same window.
 // Summing is what classifyCoverageResults does when it pools a live frontier,
-// so a carried reading is assembled the same way the observed one is.
+// so a carried reading is assembled the same way the observed one is -- and a
+// frontier pools the whole BUILD, not one run of it. Grouping per run instead
+// would key the rollup on something ListCarrySources does not identify a
+// source by: it names the newest run that measured the symbol, while a build
+// routinely measures one symbol from two runs (a unit job and an integration
+// job over the same package). Rolling up per run then reads whichever of them
+// finished last and silently discards the rest.
 func (q *Queries) ListCarrySymbolTotals(ctx context.Context, arg ListCarrySymbolTotalsParams) ([]ListCarrySymbolTotalsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listCarrySymbolTotals, arg.CurrentGroup, arg.FrontierAt, arg.HorizonAt)
 	if err != nil {
@@ -153,7 +159,7 @@ func (q *Queries) ListCarrySymbolTotals(ctx context.Context, arg ListCarrySymbol
 	for rows.Next() {
 		var i ListCarrySymbolTotalsRow
 		if err := rows.Scan(
-			&i.RunID,
+			&i.RunGroup,
 			&i.SymbolID,
 			&i.CoveredStmts,
 			&i.TotalStmts,

@@ -67,11 +67,12 @@ func TestAtlasBinary_ImportsNoNetworkPackage(t *testing.T) {
 	}
 	walk(modulePath + "/cmd/atlas")
 
-	// A floor, not a measurement. When this was written the walk reached 38
-	// packages -- the exact set `go list -deps ./cmd/atlas` reports as
-	// first-party -- so 30 leaves room for consolidation while still
-	// failing loudly if the directory mapping ever breaks and the check
-	// starts passing because it inspected almost nothing.
+	// A floor, not a measurement. The walk covers the first-party packages
+	// `go list -deps ./cmd/atlas` reports, and that number moves with every
+	// package split, so no exact figure is asserted here or in
+	// docs/security.md. 30 leaves room for consolidation while still failing
+	// loudly if the directory mapping ever breaks and the check starts
+	// passing because it inspected almost nothing.
 	if len(reached) < 30 {
 		t.Fatalf("the walk reached only %d packages (%v); it is not exercising the binary",
 			len(reached), sortedKeys(reached))

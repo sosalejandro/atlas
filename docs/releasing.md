@@ -4,6 +4,8 @@ This document is for maintainers. Users want [docs/install.md](./install.md).
 
 - [The one mechanism](#the-one-mechanism)
 - [Cutting a stable release](#cutting-a-stable-release)
+- [How release.yml actually gets triggered](#how-releaseyml-actually-gets-triggered)
+- [Homebrew](#homebrew)
 - [The edge channel](#the-edge-channel)
 - [What CI checks, and what blocks](#what-ci-checks-and-what-blocks)
 - [The version-consistency debt](#the-version-consistency-debt)
@@ -37,7 +39,9 @@ disagrees with its tag is not evidence of anything.
    updates a Release PR that bumps the version, regenerates `CHANGELOG.md`,
    and bakes the stamps into `internal/cli/root.go`.
 2. Review and merge the Release PR. release-please cuts the `vX.Y.Z` tag.
-3. The tag push triggers `release.yml`, which:
+3. `release-please.yml`'s `dispatch-release-build` job hands that tag to
+   `release.yml` (see the next section — the tag push alone does **not**
+   start it), which:
    - checks the version, manifest, changelog and tag agree — and stops here
      if they do not;
    - cross-compiles all six targets with `CGO_ENABLED=0` and asserts, by
@@ -55,17 +59,109 @@ Re-running is safe. `workflow_dispatch` accepts an existing tag, and asset
 upload uses `--clobber`, which is only safe *because* the build is
 reproducible: the replacement bytes are the same bytes.
 
+## How release.yml actually gets triggered
+
+`release.yml` declares `on: push: tags: ['v*']`, and that trigger is
+**never** what fires it for a release-please tag. GitHub does not start new
+workflow runs from events raised with the default `GITHUB_TOKEN`, and
+release-please pushes the tag with exactly that token. Left alone, the
+result is a pipeline that looks green and builds nothing: the Release PR
+merges, the tag appears, and no release is ever published.
+
+`workflow_dispatch` and `repository_dispatch` are the two documented
+exceptions to that rule. So `release-please.yml` carries a
+`dispatch-release-build` job that runs only when `release_created == 'true'`
+and calls:
+
+```bash
+gh workflow run release.yml --ref "$TAG" -f tag="$TAG"
+```
+
+`--ref` is the tag, not `main`, and that is load-bearing rather than
+stylistic: the run's OIDC identity is "this workflow file at this ref", so
+it is what the published Sigstore signature is checked against. Dispatching
+from `main` would sign as `release.yml@refs/heads/main` and quietly change
+the identity docs/install.md tells people to verify — and would run
+whatever `main`'s workflow says rather than what shipped in the tag.
+
+**What an operator has to configure: nothing.** That is the reason this
+bridge was chosen over the alternative. The other fix is a personal access
+token or GitHub App token on the release-please step, so the tag push comes
+from a non-`GITHUB_TOKEN` identity and fires the `push: tags` trigger
+normally. It works, and it costs a long-lived credential with write access
+to this repository plus a rotation story — for a pipeline whose entire
+selling point is that its signing identity is keyless and has nothing to
+rotate. The bridge needs `actions: write` on one job and no secret at all.
+
+If you do switch to a PAT, remove the `dispatch-release-build` job in the
+same change. With both in place a release-please tag fires `release.yml`
+twice; the second run is harmless (reproducible build, `--clobber` upload)
+but the duplicate is noise nobody should have to explain.
+
+The `push: tags` trigger stays because it is still the right behaviour for a
+tag pushed by a human, and `workflow_dispatch` also lets a maintainer
+re-run an existing tag by hand.
+
+## Homebrew
+
+`brew install` is an acceptance criterion of issue #121. What lives in this
+repository is the formula generator: `.github/scripts/brew-formula.sh`
+renders `Formula/atlas.rb` for a tag, taking every `sha256` from that
+release's signed `SHA256SUMS` rather than recomputing it, so the digest a
+user's `brew` checks and the digest the release published cannot diverge. It
+fails if any of the four `brew`-relevant assets (darwin/linux x
+amd64/arm64) is missing from the manifest — a formula silently missing a
+platform fails first for a user, not for us.
+
+What is **not** in this repository is the tap. Homebrew resolves
+`brew install <owner>/<tap>/atlas` to a repository named
+`<owner>/homebrew-<tap>`, which has to exist and has to be writable by
+something other than the default `GITHUB_TOKEN`. That is two settings, and
+until they exist the `homebrew` job in `release.yml` generates the formula,
+prints it in the job summary, and says so:
+
+| Setting | Kind | Value |
+| --- | --- | --- |
+| `HOMEBREW_TAP_REPO` | repository **variable** | `<owner>/homebrew-<tap>` |
+| `HOMEBREW_TAP_TOKEN` | repository **secret** | a token that can push to that repository |
+
+With both set, the job commits `Formula/atlas.rb` to the tap's default
+branch on every release. With neither, it reports the gap. It never fails
+the release: it runs after publication, so a red X there could not undo
+anything, and naming it "blocking" would misrepresent what it gates.
+
+Nobody has run `brew install atlas` end to end from this repository, because
+there is no tap to run it against. Do not write that it works until someone
+has.
+
 ## The edge channel
 
 `edge.yml` runs the same pipeline on every commit to `main` and publishes to
 a single rolling prerelease tagged `edge`. Same build guarantees, same
-signature, same SBOM. No compatibility promise of any kind — see the channel
-table in [docs/install.md](./install.md#channels), and keep the two in sync
-if you change one.
+signature, same SBOM, same SLSA provenance attestation. No compatibility
+promise of any kind — see the channel table in
+[docs/install.md](./install.md#channels), and keep the two in sync if you
+change one.
 
 The `edge` git tag is force-moved on every publish, so yesterday's edge
 build is not retrievable. That is the promise, stated so nobody builds a
 process on top of the opposite assumption.
+
+**Asset names are fixed, and that is load-bearing.** `build.sh` stamps an
+edge build with `git describe`, so it writes
+`atlas_v0.13.0-7-gabc1234_linux_amd64`. But the consumer action installs
+`edge` by asking for `atlas_edge_<goos>_<goarch>` — `install.sh` builds the
+name from the version string it was handed, and for this channel that string
+is literally `edge`. Nothing reconciled the two until
+`.github/scripts/edge-assets.sh`, so every documented edge install 404'd.
+That script renames the built assets before `SHA256SUMS` is written, so the
+manifest and the signature over it cover the names people actually download;
+the version inside the binary is untouched, and `atlas version` still
+reports the describe string.
+
+Two cases in `scripts_test.sh` check the installer's asset name and the
+publisher's asset name against **each other** rather than each against a
+literal, because two literals in two files is how they drifted apart.
 
 ## What CI checks, and what blocks
 
@@ -75,7 +171,7 @@ nothing teaches contributors that checks do not matter.
 | Job | Blocks? | What it establishes |
 | --- | --- | --- |
 | `build + test + lint — {ubuntu,macos,windows}` | yes | The suite passes on all three OSes. `-race` on Linux and macOS only — the race detector needs cgo and a C toolchain, which this project deliberately does not require. |
-| `reproducible build + cross-compile + release scripts` | yes | `make test-scripts-full`: the release scripts' own tests, the six-target cross-compile with its cgo-free assertion, the build-twice digest comparison, workflow YAML parsing, and the "every action is pinned to a SHA" check. |
+| `reproducible build + cross-compile + release scripts` | yes | `make test-scripts-full`: the release scripts' own tests, the six-target cross-compile with its cgo-free assertion, the build-twice digest comparison, workflow YAML parsing, and the "every action is pinned to a SHA" check. The digest comparison is same-machine, same-toolchain — see [When reproducibility breaks](#when-reproducibility-breaks) for what that scopes it to. |
 | `scan determinism` | yes | The suite from [docs/testing/determinism.md](./testing/determinism.md), run with `-count=1` so a cached pass cannot stand in for a measurement. |
 | `version / manifest / changelog agree` | **no — see below** | The four version sources agree. |
 
@@ -145,6 +241,15 @@ not about "same source, forever".
 
 ## When reproducibility breaks
 
+`make repro` varies four things between the two builds — output directory,
+`TMPDIR`, `GOMAXPROCS`, and the absolute path of the source tree — and holds
+everything else fixed. Both builds run on one machine with one Go toolchain,
+so a green result scopes to "the output does not depend on those four", not
+to "any machine produces these bytes". The cross-machine claim is
+established by a third party rebuilding a tag with the pinned toolchain and
+comparing against `SHA256SUMS`, which is the recipe in docs/install.md. Do
+not let the two be written up as the same check.
+
 `make repro` failing means something in the build depends on the environment
 rather than on the source. In rough order of likelihood:
 
@@ -172,10 +277,12 @@ go version -m /tmp/a/atlas_*   # and /tmp/b — the settings tables often differ
 
 Named here rather than left for someone to discover:
 
-- **Homebrew tap and Scoop manifest.** Issue #121 asks for both. The release
-  assets and `SHA256SUMS` are exactly what a formula needs, but publishing
-  to a tap repository needs a second repository and a token, which is a
-  decision rather than a script.
+- **The Homebrew tap repository, and the Scoop manifest.** Issue #121 asks
+  for both. The formula itself is now generated on every release from the
+  signed `SHA256SUMS` (see [Homebrew](#homebrew) above), but it has nowhere
+  to go until someone creates `<owner>/homebrew-<tap>` and a token for it —
+  a second repository is a decision, not a script. Nothing Scoop-shaped
+  exists at all.
 - **Marketplace listing for the action.** The action ships in-tree at
   `.github/actions/atlas` and is usable today as
   `sosalejandro/atlas/.github/actions/atlas@vX.Y.Z`. A Marketplace listing

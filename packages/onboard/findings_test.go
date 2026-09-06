@@ -235,6 +235,184 @@ func TestLimits_StatedEvenWhenNothingIsAvailable(t *testing.T) {
 	}
 }
 
+// findLimit returns the limit with this code, failing if it is absent.
+func findLimit(t *testing.T, res Result, code string) Limit {
+	t.Helper()
+	for _, l := range res.Limits {
+		if l.Code == code {
+			return l
+		}
+	}
+	t.Fatalf("no limit %q", code)
+	return Limit{}
+}
+
+// A coverage run that measured a capability's symbols and recorded none of
+// them executing is a MEASUREMENT, and the strongest thing this report can
+// say about that capability. Downgrading it to "a test file sits in the same
+// directory" -- which the code did, by consulting coverage only for a
+// positive -- turns the measured negative into a vague positive and loses
+// the only finding the reader could have acted on.
+func TestInfer_MeasuredNonExecutionOutranksColocation(t *testing.T) {
+	in := Input{
+		Root: "/repo",
+		Symbols: []store.SymbolRow{
+			sym(1, "orders.Place", "internal/orders/place.go"),
+			// A test file sits right beside it -- the colocation signal
+			// that used to win.
+			sym(2, "orders.TestPlace", "internal/orders/place_test.go"),
+		},
+		Coverage: CoverageEvidence{
+			Available: true,
+			Executed:  map[int64]bool{},
+			Measured:  map[int64]bool{1: true},
+		},
+	}
+	c := findCap(t, Infer(in), "internal.orders")
+	if c.TestEvidence != TestEvidenceNotExecuted {
+		t.Errorf("test evidence = %q, want %q -- a measured negative was downgraded to colocation",
+			c.TestEvidence, TestEvidenceNotExecuted)
+	}
+
+	// The positive is still read off the same run.
+	in.Coverage.Executed = map[int64]bool{1: true}
+	if c := findCap(t, Infer(in), "internal.orders"); c.TestEvidence != TestEvidenceExecution {
+		t.Errorf("test evidence = %q, want %q", c.TestEvidence, TestEvidenceExecution)
+	}
+}
+
+// The negative is only a measurement for symbols the run actually reported
+// on. A Go coverprofile ingested into a Go+TypeScript repo measures half the
+// tree, and claiming the other half was measured and dead would be an
+// assertion about something nothing looked at.
+func TestInfer_UnmeasuredSymbolsAreNotReportedAsNotExecuted(t *testing.T) {
+	res := Infer(Input{
+		Root: "/repo",
+		Symbols: []store.SymbolRow{
+			sym(1, "web.Render", "web/render.ts"),
+			sym(2, "web.TestRender", "web/render.test.ts"),
+		},
+		Coverage: CoverageEvidence{
+			Available: true,
+			Executed:  map[int64]bool{99: true},
+			Measured:  map[int64]bool{99: true},
+		},
+	})
+	if c := findCap(t, res, "root.web"); c.TestEvidence != TestEvidenceColocated {
+		t.Errorf("test evidence = %q, want %q -- nothing measured this capability",
+			c.TestEvidence, TestEvidenceColocated)
+	}
+}
+
+// A route the coverage run measured and found dead belongs in the untested
+// finding, and it is the strongest entry in it. Filtering on "none" alone
+// dropped exactly the endpoints atlas had a measurement for.
+func TestFindings_UntestedRoutesIncludeMeasuredNonExecution(t *testing.T) {
+	res := Infer(Input{
+		Root: "/repo",
+		Symbols: []store.SymbolRow{
+			sym(1, "api.CreateMeasurement", "internal/api/measurements.go"),
+			sym(2, "api.TestCreateMeasurement", "internal/api/measurements_test.go"),
+		},
+		Routes: []Route{{
+			Method: "POST", Path: "/measurements",
+			HandlerSymbolID: 1, HandlerName: "api.CreateMeasurement",
+			FilePath: "internal/api/router.go", Line: 42,
+		}},
+		Coverage: CoverageEvidence{
+			Available: true,
+			Executed:  map[int64]bool{},
+			Measured:  map[int64]bool{1: true},
+		},
+	})
+	f := findFinding(t, res, "untested-routes")
+	if f.Count != 1 {
+		t.Fatalf("untested-routes Count = %d, want 1", f.Count)
+	}
+	// The citation has to say WHICH claim it is: measured-and-dead and
+	// nothing-known-at-all are both on this list and are not the same fact.
+	details := strings.Join(evidenceDetails(f), " | ")
+	if !strings.Contains(details, string(TestEvidenceNotExecuted)) {
+		t.Errorf("citation does not record the grade of the evidence: %s", details)
+	}
+}
+
+// The scan reports two different things and must not add them together. A
+// scanner warning is a diagnostic -- on this repository most of them are
+// name-collision notices about symbols that WERE indexed -- and presenting
+// the warning count as "files atlas could not read" states a number nothing
+// measured.
+func TestLimits_ScannerWarningsAreNotReportedAsUnreadFiles(t *testing.T) {
+	res := Infer(Input{
+		Root:          "/repo",
+		Symbols:       []store.SymbolRow{sym(1, "orders.Place", "internal/orders/place.go")},
+		FilesExcluded: 26,
+		ScannerWarnings: []string{
+			"symbol name collision: cmd.init declared in both cmd/a.go and cmd/b.go — the second is indexed under a package-qualified id",
+			"no router signal detected (react-router, tanstack, or expo)",
+		},
+	})
+	l := findLimit(t, res, "scan-incomplete")
+	lower := strings.ToLower(l.Detail)
+	for _, phrase := range []string{"could not read 2", "and could not read", "2 files"} {
+		if strings.Contains(lower, phrase) {
+			t.Errorf("scan limit presents the warning count as unread files (%q): %s", phrase, l.Detail)
+		}
+	}
+	if !strings.Contains(l.Detail, "26 files") {
+		t.Errorf("scan limit lost the excluded-file count, which IS measured: %s", l.Detail)
+	}
+	if !strings.Contains(l.Detail, "2 scanner warnings") {
+		t.Errorf("scan limit does not report the warnings as warnings: %s", l.Detail)
+	}
+}
+
+// Claiming a directory whose derived id already belongs to a capability
+// proposed from another signal attaches its symbols to that capability. That
+// merge is defensible; doing it invisibly is not, because the reader is then
+// shown route or test-name evidence above a symbol list a directory sweep
+// filled in.
+func TestInfer_DirectoryMergeIntoAnExistingCapabilityIsRecorded(t *testing.T) {
+	res := Infer(Input{
+		Root: "/repo",
+		Symbols: []store.SymbolRow{
+			// Two tests agreeing on "place" propose orders.place from the
+			// directory internal/orders, claiming only the matching symbol.
+			sym(1, "orders.PlaceOrder", "internal/orders/place.go"),
+			sym(2, "orders.TestPlaceIdempotent", "internal/orders/place_test.go"),
+			sym(3, "orders.TestPlaceRetry", "internal/orders/place_test.go"),
+			// This one no cluster claims, and its directory-derived id is
+			// also "orders.place" -- so the fallback stage merges it in.
+			sym(4, "orders.Settle", "internal/orders/place/settle.go"),
+		},
+	})
+	c := findCap(t, res, "orders.place")
+	if c.Source != SourceTestName {
+		t.Fatalf("capability source = %q, want %q (the stronger signal keeps the proposal)", c.Source, SourceTestName)
+	}
+	if c.Symbols != 2 {
+		t.Fatalf("capability holds %d symbols, want 2 (the cluster's plus the merged directory's)", c.Symbols)
+	}
+	var merged bool
+	for _, e := range c.Evidence {
+		if strings.HasPrefix(e.Detail, "merged in:") {
+			merged = true
+		}
+	}
+	if !merged {
+		t.Errorf("directory symbols were merged into a %s capability with no trace in the evidence: %v",
+			c.Source, evidenceDetailsOf(c))
+	}
+}
+
+func evidenceDetailsOf(c Capability) []string {
+	out := make([]string, 0, len(c.Evidence))
+	for _, e := range c.Evidence {
+		out = append(out, e.Detail)
+	}
+	return out
+}
+
 func hasLimit(res Result, code string) bool {
 	for _, l := range res.Limits {
 		if l.Code == code {

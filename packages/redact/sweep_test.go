@@ -1,10 +1,14 @@
-package redact
+package redact_test
+
+// External test package: see the note at the top of schema_test.go.
 
 import (
 	"context"
 	"database/sql"
 	"strings"
 	"testing"
+
+	. "github.com/sosalejandro/atlas/packages/redact"
 )
 
 // seedOperation inserts one sql_operations row with the given query text.
@@ -205,5 +209,91 @@ func TestSweep_LooksInsideSnapshotBlobs(t *testing.T) {
 	}
 	if len(rep.Hits) != 1 || rep.Hits[0].Column != "index_json" {
 		t.Fatalf("Hits = %+v, want one in snapshots.index_json", rep.Hits)
+	}
+}
+
+// TestSweep_DryRunCountsWhatItWouldRewrite.
+//
+// ValuesRewritten used to be set only inside the apply branch, so a dry run
+// over a store full of secrets reported "0 distinct values" -- "running this
+// would change nothing", which is the one answer a dry run must never give.
+// The count is the entire product of the dry run; Hit.Applied is what says
+// whether the database was actually written.
+func TestSweep_DryRunCountsWhatItWouldRewrite(t *testing.T) {
+	db, _ := newTestDB(t)
+	const leaky = `SELECT dblink_connect('postgres://reporting:Kq9Xm2Vz7Pw4Rt6Y@warehouse.internal:5432/dw')`
+	seedOperation(t, db, "q1", leaky)
+	// The same credential in a second row: one leak, two rows. The count is
+	// of distinct VALUES, so it must still be 1.
+	seedOperation(t, db, "q2", leaky)
+
+	rep, err := Sweep(context.Background(), db, SweepOptions{})
+	if err != nil {
+		t.Fatalf("Sweep(dry run): %v", err)
+	}
+	if rep.ValuesRewritten != 1 {
+		t.Errorf("ValuesRewritten = %d on a dry run over 2 rows holding 1 credential, want 1",
+			rep.ValuesRewritten)
+	}
+	if len(rep.Hits) != 2 {
+		t.Fatalf("Hits = %+v, want one per row", rep.Hits)
+	}
+	for _, h := range rep.Hits {
+		if h.Applied {
+			t.Errorf("a dry-run hit is marked Applied: %+v", h)
+		}
+	}
+	for _, ref := range []string{"q1", "q2"} {
+		if readSQLText(t, db, ref) != leaky {
+			t.Errorf("the dry run modified row %s", ref)
+		}
+	}
+}
+
+// TestSweep_NamesTheColumnsItDidNotRead.
+//
+// The sweep iterates the compiled-in registry, so a TEXT column the schema
+// has and the registry does not is never read -- and "no secrets found"
+// prints identically whether the store is clean or half of it went unlooked
+// at. The bound has to be reported, not inferred from an empty hit list.
+func TestSweep_NamesTheColumnsItDidNotRead(t *testing.T) {
+	db, _ := newTestDB(t)
+
+	// A migrated store must have nothing unregistered: schema_test.go fails
+	// the build on drift, and this is the same statement from the sweep's
+	// side.
+	rep, err := Sweep(context.Background(), db, SweepOptions{})
+	if err != nil {
+		t.Fatalf("Sweep: %v", err)
+	}
+	if len(rep.ColumnsNotSwept) != 0 {
+		t.Errorf("ColumnsNotSwept = %v on a freshly migrated store", rep.ColumnsNotSwept)
+	}
+
+	// Now stand in for a database newer than the binary reading it.
+	if _, err := db.Exec(`CREATE TABLE future_notes (id INTEGER PRIMARY KEY, body TEXT)`); err != nil {
+		t.Fatalf("seed unregistered table: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO future_notes (body) VALUES ` +
+			`('dsn postgres://reporting:Kq9Xm2Vz7Pw4Rt6Y@warehouse.internal:5432/dw')`); err != nil {
+		t.Fatalf("seed unregistered row: %v", err)
+	}
+	rep, err = Sweep(context.Background(), db, SweepOptions{})
+	if err != nil {
+		t.Fatalf("Sweep: %v", err)
+	}
+	if len(rep.Hits) != 0 {
+		t.Fatalf("the sweep read an unregistered column after all: %+v", rep.Hits)
+	}
+	var named bool
+	for _, c := range rep.ColumnsNotSwept {
+		if c == "future_notes.body" {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("ColumnsNotSwept = %v; it must name future_notes.body, which holds a "+
+			"credential nothing looked at", rep.ColumnsNotSwept)
 	}
 }

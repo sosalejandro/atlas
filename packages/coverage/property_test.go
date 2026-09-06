@@ -114,25 +114,54 @@ func TestProperty_Attribution_ConservesStatements(t *testing.T) {
 // symbols and counting it once in the total — the sum would balance while
 // every per-symbol fraction inflated. Attribution defends against that by
 // keying on the block's START line and picking the tightest containing span,
-// so a block has exactly one owner. This asserts the consequence: the
-// per-symbol totals sum to exactly the attributed figure, no more.
+// so a block has exactly one owner. This asserts the consequence in both the
+// forms issue #122 asks for: the per-symbol totals sum to exactly the
+// attributed figure, and PER FILE they never exceed what the profile holds
+// for that file.
+//
+// The per-file half is not implied by the global one. A global equality
+// survives a bug that moves statements between files — symbol A in f0.go
+// charged for a block declared in f1.go — because the two errors cancel in
+// the sum, and the visible symptom is one file's coverage inflated and
+// another's deflated by the same amount.
 func TestProperty_Attribution_ChargesEachStatementOnce(t *testing.T) {
 	t.Parallel()
 	atlastest.ForEachSeed(t, atlastest.DefaultCases, func(t *testing.T, r *atlastest.Rand) {
 		c := atlastest.GenCoverageCase(r, atlastest.CoverageCaseOptions{})
-		rep, _ := attributeCase(t, c, c.Indexed)
+		rep, byFile := attributeCase(t, c, c.Indexed)
+
+		// Keyed by the PROFILE's path, not atlas's: a profile qualifies
+		// files with the module path and atlas stores them repo-relative,
+		// and the suffix reconciliation between the two is itself a step
+		// where whole files have gone missing.
+		fileOf := make(map[int64]string, len(c.Indexed))
+		for _, sp := range c.Indexed {
+			fileOf[sp.ID] = c.ModulePath + "/" + sp.File
+		}
 
 		sum := 0
+		perFile := map[string]int{}
 		for id, counts := range rep.counts {
 			if counts.covered > counts.total {
 				t.Fatalf("seed %d: symbol %d covered %d > total %d",
 					r.Seed(), id, counts.covered, counts.total)
 			}
 			sum += counts.total
+			perFile[fileOf[id]] += counts.total
 		}
 		if sum != rep.stmtsAttributed {
 			t.Fatalf("seed %d: per-symbol totals sum to %d but the run reports %d attributed; a statement is charged more than once",
 				r.Seed(), sum, rep.stmtsAttributed)
+		}
+		for file, charged := range perFile {
+			held := 0
+			for _, b := range byFile[file] {
+				held += b.NumStmts
+			}
+			if charged > held {
+				t.Fatalf("seed %d: symbols declared in %s were charged %d statements, but the profile holds %d for that file",
+					r.Seed(), file, charged, held)
+			}
 		}
 	})
 }

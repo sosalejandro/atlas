@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/sosalejandro/atlas/packages/shared"
 	"os"
 
 	// The "sqlite" driver name is registered by modernc.org/sqlite's init.
@@ -38,6 +39,10 @@ type probe struct {
 	db *sql.DB
 }
 
+// escapeDBPath makes path safe inside a `file:` DSN. See
+// shared.EscapeSQLitePath for why this matters and how it was found.
+func escapeDBPath(path string) string { return shared.EscapeSQLitePath(path) }
+
 // openReadOnly attaches a read-only handle to path. A missing file is
 // reported as such rather than created: sql.Open on a nonexistent SQLite
 // path would happily produce an empty database, and a doctor that
@@ -52,7 +57,7 @@ func openReadOnly(path string) (*sql.DB, error) {
 	// mode=ro plus a busy timeout: the store's own connection may hold a
 	// WAL write lock while doctor reads, and failing the schema check on
 	// a transient SQLITE_BUSY would be a false alarm.
-	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", path)
+	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", escapeDBPath(path))
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("doctor: open %s read-only: %w", path, err)

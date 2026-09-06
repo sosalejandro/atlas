@@ -11,6 +11,7 @@ import (
 
 	"github.com/sosalejandro/atlas/packages/codeindex"
 	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
+	"github.com/sosalejandro/atlas/packages/redact"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
@@ -33,6 +34,70 @@ type IngestStats struct {
 	FilesSkipped                     int           `json:"files_skipped"`
 	SkippedFilesRecorded             int           `json:"skipped_files_recorded"`
 	Duration                         time.Duration `json:"duration"`
+
+	// Redactions names every credential this ingest replaced with a
+	// placeholder before writing it. Empty on a clean scan.
+	//
+	// It is a list rather than a count because a count answers the wrong
+	// question: "atlas changed 3 of your values" is not actionable, and the
+	// operator needs to know WHICH file the credential is still sitting in.
+	Redactions []Redaction `json:"redactions,omitempty"`
+}
+
+// Redaction records one credential a write path replaced on the way into
+// the store, described without reproducing it.
+//
+// Everything here is safe to print and to put in a JSON envelope: the rule
+// that fired and a digest, never the secret. It is the same evidence
+// `atlas security` reports for a credential already stored, which is
+// deliberate -- an operator should not have to learn two vocabularies for
+// "there is a credential in your source".
+type Redaction struct {
+	Table  string `json:"table"`
+	Column string `json:"column"`
+
+	// Where locates the row in the operator's terms -- a repo-relative
+	// "file:line", or an operation ref -- not by surrogate id. The point of
+	// reporting a redaction at all is that the credential is STILL in the
+	// source file, and the operator has to go and rotate it.
+	Where string `json:"where"`
+
+	// Kind is the redact rule that fired, and Digest the first 12 hex
+	// characters of SHA-256 over what was removed. The same credential in
+	// nine places carries the same digest, so it reads as one leak.
+	Kind   string `json:"kind"`
+	Digest string `json:"digest"`
+}
+
+// redactForStore runs a value bound for a registered TEXT column through
+// packages/redact, returning the text to store and what was replaced.
+//
+// This is where secret detection stops being a report about a store that
+// already leaked and becomes a property of the write. packages/redact owns
+// the decision -- which columns may be rewritten lives in its registry, not
+// here -- so this function is only the wiring and the accounting.
+//
+// A non-redactable column comes back untouched with no findings; see
+// redact.Field for why that is the right asymmetry rather than a gap.
+func redactForStore(
+	ctx context.Context, logger shared.Logger, table, column, where, value string,
+) (string, []Redaction) {
+	res := redact.Field(table, column, value)
+	if !res.Redacted() {
+		return value, nil
+	}
+	out := make([]Redaction, 0, len(res.Findings))
+	for _, f := range res.Findings {
+		out = append(out, Redaction{
+			Table: table, Column: column, Where: where,
+			Kind: string(f.Kind), Digest: f.Digest,
+		})
+		logger.Warn(ctx,
+			"store: replaced a credential with a placeholder before storing it",
+			"table", table, "column", column, "where", where,
+			"rule", string(f.Kind), "digest", f.Digest)
+	}
+	return res.Text, out
 }
 
 // IngestOptions carries the scan-time facts the index itself does not
@@ -263,6 +328,9 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index, opts ...Ingest
 		if value == "" && len(ann.IDs) > 0 {
 			value = strings.Join(ann.IDs, " ")
 		}
+		value, reds := redactForStore(ctx, s.logger, "annotations", "value",
+			fmt.Sprintf("%s:%d", path, ann.Position.Line), value)
+		stats.Redactions = append(stats.Redactions, reds...)
 		if err := qtx.UpsertAnnotation(ctx, sqlc.UpsertAnnotationParams{
 			FilePath: path,
 			Line:     int64(ann.Position.Line),
@@ -306,7 +374,9 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index, opts ...Ingest
 		if jerr != nil {
 			return nil, fmt.Errorf("store ingest patterns marshal %q: %w", sym, jerr)
 		}
-		val := string(b)
+		val, reds := redactForStore(ctx, s.logger, "symbols", "pattern_matches",
+			string(sym), string(b))
+		stats.Redactions = append(stats.Redactions, reds...)
 		if err := qtx.SetSymbolPatternMatches(ctx, sqlc.SetSymbolPatternMatchesParams{
 			PatternMatches: &val,
 			ID:             id,
@@ -463,8 +533,14 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index, opts ...Ingest
 	// vanish from it. Inside the same transaction as everything above, so
 	// the ledger and the index it explains commit together — a ledger that
 	// survived a failed ingest would describe a scan that never happened.
-	recorded, err := replaceSkippedLedgerTx(ctx, qtx,
-		skippedLedgerRows(idx.SkippedFiles, opt.GeneratedGlobs, start.UTC()))
+	ledger := skippedLedgerRows(idx.SkippedFiles, opt.GeneratedGlobs, start.UTC())
+	for i := range ledger {
+		var reds []Redaction
+		ledger[i].Detail, reds = redactForStore(ctx, s.logger, "skipped_files", "detail",
+			ledger[i].FilePath, ledger[i].Detail)
+		stats.Redactions = append(stats.Redactions, reds...)
+	}
+	recorded, err := replaceSkippedLedgerTx(ctx, qtx, ledger)
 	if err != nil {
 		return nil, fmt.Errorf("store ingest skipped ledger: %w", err)
 	}
@@ -641,8 +717,17 @@ func upsertEdgeTx(ctx context.Context, qtx *sqlc.Queries, fromID, toID int64, ki
 	if err != nil {
 		return false, fmt.Errorf("ingest edge %d->%d: %w", fromID, toID, err)
 	}
-	id, _ := res.LastInsertId()
-	return id != 0, nil
+	// Same #97 hazard as upsertSymbolTx: INSERT OR IGNORE leaves
+	// last_insert_rowid untouched when it skips a conflicting row, so
+	// LastInsertId would report the id of whatever this transaction inserted
+	// previously — a neighbouring edge, or a symbol from the earlier loop —
+	// and every already-known edge would be counted as newly inserted.
+	// RowsAffected is the only value the statement actually sets.
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("ingest edge %d->%d: rows affected: %w", fromID, toID, err)
+	}
+	return affected > 0, nil
 }
 
 // extractFeatureIDsFromAnnotation returns the feature ids carried by a

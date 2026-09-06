@@ -28,8 +28,10 @@ server, and no cloud tier today.
 That is enforced, not promised. `packages/redact/egress_test.go` walks the
 import graph of the `atlas` binary from `cmd/atlas` and fails the build if
 any first-party package imports `net`, `net/http`, `net/rpc` or `net/smtp`.
-When this was written the walk reached 38 first-party packages — the same set
-`go list -deps ./cmd/atlas` reports — and found none.
+The walk covers the first-party packages `go list -deps ./cmd/atlas` reports.
+No count is quoted here on purpose: the number moves with every package
+split, and a stale figure in a security document is worse than none. To see
+it for your checkout, run `go list -deps ./cmd/atlas | grep sosalejandro`.
 
 **The bound on that check:** it covers first-party code. It does not audit
 third-party dependencies, and it does not prove that a dependency could not
@@ -53,17 +55,52 @@ which columns.
 | the file named by `report --out` | `report sarif`, `report github`, `report pr` | The rendering, byte for byte, that would otherwise go to stdout. | `0600` |
 | `<test symbol>.out` in the directory named by `cov run --out` | `cov run` | One Go coverprofile per test: file paths, line ranges, execution counts. The test's qualified symbol name is the filename. | `0644` |
 | the directory named by `cov run --work` | `cov run` | Go coverage meta and counter files plus atlas's own plan and report JSON. A temporary directory by default, removed after the run unless `--keep` is passed. | `0755` dirs |
-| your own source files | `migrate-annotations --apply` | Rewritten annotation comments, with the original file mode preserved. This is the only command that writes to the working tree. | unchanged |
+| your own source files | `migrate-annotations --apply` | Rewritten annotation comments, with the original file mode preserved. | unchanged |
+| your own source files | `onboard promote --apply` | One `@atlas:feature <id>` comment above the anchor declaration. The id is inferred from the index. | unchanged |
+| `atlas_shim_test.go` in each selected package | `cov shim init` | A generated `TestMain` — atlas's own template plus your package clause, no indexed content. Inert unless `ATLAS_COV_DIR` is set. A package that already declares a `TestMain` is left alone and reported. | `0644` |
+| `.atlas/provisional/capabilities.json` | `onboard` | The provisional capability map: package and directory names, symbol names, route paths, table names. No verbatim source text. | default |
 | `$TMPDIR/atlas-pyscan-*/scanner.py` | the Python scanner | Atlas's own embedded scanner script. None of your code. | `0600` |
 | `$TMPDIR/atlas-tsscan-*/scanner.ts` (+ a `node_modules` bridge beside it) | the TypeScript scanner | Atlas's own embedded scanner script, and a symlink (or copy, where symlinks are unavailable) of the TypeScript compiler already installed in your project. | `0600` |
 
 The database path comes from `--db-path`, then `db_path` in `.atlas.yaml`,
 then the default `.atlas/atlas.db` relative to the repository root.
 
-Atlas also launches these local programs, and nothing else: `git` (history,
-blame, diff, `rev-parse`), `go` (`go test`, `go tool covdata`), `node` and
-`python` (the TypeScript and Python scanners). Every invocation is argv-style;
-no command string is ever handed to a shell.
+**Three commands write into your working tree:**
+
+- `migrate-annotations --apply` rewrites your annotation comments into another
+  grammar, preserving the file mode. It writes back what was already there.
+- `cov shim init` writes a generated `TestMain` into each selected package —
+  atlas's own template plus your package clause.
+- `onboard promote --apply` writes one `@atlas:feature <id>` comment above an
+  anchor declaration. This is the only repository write that puts something
+  atlas *derived* into your source, and what it puts there is an identifier.
+  Without `--apply` it prints the line and touches nothing.
+
+Everything else atlas produces goes to stdout, to `.atlas/`, or to a path you
+named on the command line.
+
+### Programs atlas launches
+
+Atlas chooses to launch these, and nothing else:
+
+| Program | Used for |
+| --- | --- |
+| `git` | history, blame, diff, `rev-parse` |
+| `go` | `go test`, `go tool covdata`, `go list` |
+| `node` | the TypeScript scanner |
+| `python` | the Python scanner |
+
+**Plus whatever you tell it to run.** `atlas cov run -- <command>` executes
+the argv you supply — anything at all, with your environment and your
+permissions — and, for a `go test` command, adds the coverage flags per-test
+collection needs. With no `--` argument it runs `go test ./...`. Atlas wraps
+that process to collect coverage; it does not restrict it. So the accurate
+statement is: atlas launches the four programs above on its own initiative,
+and exactly one verb runs a command of your choosing.
+
+Every invocation is argv-style — `exec.Command(name, args...)`. No command
+string is ever handed to a shell, so nothing atlas passes through (a branch
+name, a file path, your `cov run` argv) is subject to shell expansion.
 
 ---
 
@@ -174,14 +211,23 @@ and what happens to it afterwards is your decision. Run
 | `atlas report pr` | stdout; you pipe it to `gh pr comment` | the same findings. Atlas never calls the GitHub API itself; the comment becomes public the moment it is posted on a public repository |
 | `atlas cov run --out` | one local coverprofile per test | file paths, line ranges, execution counts; the filenames are test symbol names |
 | `atlas cov run --work` | a local directory, temporary unless `--keep` | coverage meta and counter files, and atlas's plan and report JSON |
-| `atlas mcp` | stdout, as JSON-RPC to the client that launched it | paths, identifiers, coverage figures, capped per tool and read-only by construction |
+| `atlas mcp` | stdout, as JSON-RPC to the client that launched it | paths, identifiers, coverage figures, **and `features.title`** — which is source text, lifted out of your annotation comments. Capped per tool and read-only by construction |
 | `atlas snapshot` | the `snapshots` table | the whole index, doc comments and signatures included |
+| `atlas cov shim init` | `atlas_shim_test.go` in your packages | nothing from the index: atlas's own generated `TestMain` |
+| `atlas migrate-annotations --apply` | your source files, in place | nothing from the index: it rewrites your annotation comments into another grammar |
+| `atlas onboard promote --apply` | your source files, in place | one inferred feature id, as an `@atlas:feature` comment |
 
 **`atlas mcp` is the one to think hardest about.** It discloses nothing over
 a network by itself — it speaks JSON-RPC on stdin/stdout to the process that
 spawned it. But that process is usually an editor talking to a model
 provider, so it is the surface where indexed content routinely reaches a
 third party. Through your client, never through atlas.
+
+The source text it carries is `features.title` and nothing else. A title is
+taken from your annotation comment rather than typed by an operator, which is
+why §3 classifies it as source text and why the catalogue declares it here.
+No MCP tool returns a doc comment, a signature, query text or a branch
+condition.
 
 ---
 
@@ -192,7 +238,24 @@ faithfully store them: a hardcoded connection string inside a query becomes
 `sql_operations.sql_text`, and a key quoted in a doc comment becomes part of
 `snapshots.index_json`.
 
-`atlas security` scans every stored TEXT column for four high-signal shapes:
+Atlas attacks this from both ends.
+
+**At ingest.** The write paths run every value bound for a redactable column
+through the same detector before it is stored, so a hardcoded connection
+string inside a query never reaches `sql_operations.sql_text` in the first
+place — it is stored as `[redacted:connection-string:<digest>]`, with the
+scheme, user and host left intact so `atlas sql` can still analyse the query.
+Each replacement is logged with the file and line the credential is still
+sitting in, because rotating it is the part atlas cannot do for you. The
+columns covered today are `sql_operations.sql_text`, `.interpolation`,
+`.unresolved_reason` and `.suppressions`, `sql_indexes.predicate`,
+`annotations.value`, `symbols.pattern_matches` and `skipped_files.detail`.
+The other redactable columns in §3.1 — snapshot blobs, coverage messages,
+branch conditions, audit score blobs — are not yet redacted at ingest and are
+cleaned by the sweep below.
+
+**After the fact.** `atlas security` scans the stored TEXT columns for four
+high-signal shapes:
 
 | Rule | What it matches |
 | --- | --- |
@@ -218,8 +281,19 @@ bits of entropy per byte, measured — and so is anything containing `${`,
 `{{`, a printf verb, whitespace, or a placeholder word. What *is* redacted is
 always reported: the column, the row, the rule and the digest.
 
-Two more limits, stated rather than hidden:
+Three more limits, stated rather than hidden:
 
+- **The sweep reads the columns in the registry, not every TEXT column in the
+  file.** It iterates the enumeration in `packages/redact/schema.go`, so a
+  column that exists in the database and not in that list is never read — and
+  a clean result says nothing about it. In a released build that set is empty,
+  because `packages/redact/schema_test.go` compares the registry against a
+  freshly migrated store and fails the build on drift. That is a *build-time*
+  guarantee, and it does not hold when an older binary is pointed at a newer
+  database, so both `atlas security` and `atlas security redact` print a
+  `NOT SWEPT` line naming exactly which columns went unread (`columns_not_swept`
+  in `--json`). "No secrets found" and "nothing was looked at" are different
+  answers and the report distinguishes them.
 - **Identity columns are reported, never rewritten.** A credential that ended
   up in a symbol name or a file path is shown to you and left in place.
   Rewriting it would change what the index *means* rather than what it
@@ -231,6 +305,9 @@ Two more limits, stated rather than hidden:
 
 ## 6. Using `atlas security`
 
+The per-verb reference, with flags and worked output, is
+[docs/commands/security.md](commands/security.md). The short version:
+
 ```
 atlas security                     # the whole report: store, egress, secrets
 atlas security --json              # the same, as a stable envelope
@@ -239,10 +316,19 @@ atlas security redact --dry-run    # what redaction would change
 atlas security redact              # replace the credentials it can
 ```
 
-`atlas security` never modifies the database. `atlas security redact` does,
-in one transaction: either every replacement lands or none does, so you are
-never left with a database that is neither the one you inspected nor a clean
-one.
+`atlas security` and `atlas security redact --dry-run` open the state
+database **read-only** — SQLite's own `mode=ro`, with `query_only` on top of
+it — and do not run migrations. Inspecting a store cannot alter it, and it
+cannot bring one into existence either: pointed at a path with no database,
+the command fails rather than creating and migrating an empty one. The
+schema version in the report is the version the file actually carries, so a
+store captured from a machine running an older atlas reads back as that older
+store.
+
+`atlas security redact` (without `--dry-run`) is the only one that opens for
+writing, and it writes in one transaction: either every replacement lands or
+none does, so you are never left with a database that is neither the one you
+inspected nor a clean one. It still does not migrate.
 
 Neither command prints a credential. Findings carry the rule, the column, the
 row, the byte length and a 12-hex-character digest, so the output is safe to

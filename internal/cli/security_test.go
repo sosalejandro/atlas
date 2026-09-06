@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sosalejandro/atlas/packages/codeindex"
 	"github.com/sosalejandro/atlas/packages/redact"
+	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
 )
 
@@ -344,7 +347,7 @@ var verbsWithNoArtifact = map[string]bool{
 	// version reports only the build stamps compiled into the binary --
 	// no repository content reaches it at all.
 	"version": true,
-	"help": true, "completion": true,
+	"help":    true, "completion": true,
 	// cov has artifact-producing subcommands (cov run), which the catalogue
 	// names individually; the verb itself writes only to the store.
 	"cov": true,
@@ -392,4 +395,261 @@ func TestSecurity_ExportCatalogueNamesRealCommands(t *testing.T) {
 // `report` command and no error, which would let a typo pass the check above.
 func sameVerbPath(cmd *cobra.Command, path []string) bool {
 	return cmd.CommandPath() == "atlas "+strings.Join(path, " ")
+}
+
+// ---- redaction happens at ingest, not only in a later sweep ------------
+
+// TestSecurity_IngestRedactsBeforeTheCredentialReachesTheStore is the check
+// on issue #131's second deliverable.
+//
+// packages/redact used to be read-only in practice: nothing outside
+// `atlas security` called it, so a hardcoded connection string landed in
+// sql_operations.sql_text verbatim and stayed there until somebody remembered
+// to run `atlas security redact`. The write path now runs the value through
+// redact.Field, so the store never holds it in the first place, and
+// `atlas security` on a freshly ingested store comes back clean rather than
+// reporting the leak atlas itself just wrote.
+func TestSecurity_IngestRedactsBeforeTheCredentialReachesTheStore(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "atlas.db")
+	ctx := context.Background()
+
+	s, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	leaky := "SELECT * FROM dblink('postgres://reporting:" + leakedPassword +
+		"@warehouse.internal:5432/dw', 'SELECT 1')"
+	err = s.SQLOps().Replace(ctx, []store.SQLOperationRecord{
+		{
+			Ref: "orders.list", Source: "go", Name: "list",
+			FilePath: "internal/orders/repo.go", Line: 12,
+			SymbolName: "orders.Repo.List", Kind: "select",
+			Resolved: true, SQLText: leaky,
+		},
+		{
+			Ref: "orders.count", Source: "go", Name: "count",
+			FilePath: "internal/orders/repo.go", Line: 40,
+			SymbolName: "orders.Repo.Count", Kind: "select",
+			Resolved: true, SQLText: "SELECT count(*) FROM orders WHERE tenant_id = $1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("SQLOps().Replace: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("store.Close: %v", err)
+	}
+	t.Chdir(dir)
+
+	stored := storedSQL(t, dbPath, "orders.list")
+	if strings.Contains(stored, leakedPassword) {
+		t.Fatalf("the credential reached the store verbatim: %q", stored)
+	}
+	if !strings.Contains(stored, "[redacted:connection-string:") {
+		t.Errorf("the stored query carries no redaction placeholder: %q", stored)
+	}
+	// The query has to remain the query: `atlas sql` analyses this text.
+	for _, keep := range []string{"dblink", "postgres://", "reporting", "warehouse.internal"} {
+		if !strings.Contains(stored, keep) {
+			t.Errorf("ingest-time redaction destroyed %q: %q", keep, stored)
+		}
+	}
+	if clean := storedSQL(t, dbPath, "orders.count"); !strings.Contains(clean, "count(*)") {
+		t.Errorf("a query with no secret in it was rewritten: %q", clean)
+	}
+
+	// And the whole point: the answer to "what am I sending" is now clean.
+	stdout, _, err := runSecurityCmd(t, dbPath, "--json")
+	if err != nil {
+		t.Fatalf("atlas security --json: %v", err)
+	}
+	var env struct {
+		Result struct {
+			Secrets struct {
+				Hits []json.RawMessage `json:"hits"`
+			} `json:"secrets"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if len(env.Result.Secrets.Hits) != 0 {
+		t.Errorf("atlas security still reports %d hit(s) after an ingest that should have "+
+			"redacted them: %v", len(env.Result.Secrets.Hits), env.Result.Secrets.Hits)
+	}
+}
+
+// TestSecurity_IngestRecordsWhereItRedacted: a redaction the operator cannot
+// locate is not much better than one that never happened. The credential is
+// still in the source file, and rotating it is the one fix atlas cannot
+// perform for them.
+func TestSecurity_IngestRecordsWhereItRedacted(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "atlas.db")
+	ctx := context.Background()
+
+	s, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	idx := &codeindex.Index{
+		Annotations: []shared.Annotation{{
+			Kind:     shared.AnnOwner,
+			Raw:      `aws_secret_access_key = "` + leakedPassword + `"`,
+			Position: shared.FilePosition{Path: "internal/orders/repo.go", Line: 7},
+		}},
+	}
+	stats, err := s.Ingest(ctx, idx)
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if len(stats.Redactions) != 1 {
+		t.Fatalf("Redactions = %+v, want the one seeded credential", stats.Redactions)
+	}
+	r := stats.Redactions[0]
+	if r.Table != "annotations" || r.Column != "value" {
+		t.Errorf("redaction reported at %s.%s, want annotations.value", r.Table, r.Column)
+	}
+	if r.Where != "internal/orders/repo.go:7" {
+		t.Errorf("Where = %q, want the file and line the credential is still sitting in", r.Where)
+	}
+	if r.Digest == "" || r.Kind == "" {
+		t.Errorf("redaction reports neither rule nor digest: %+v", r)
+	}
+	// The record must not be a second copy of the leak.
+	if strings.Contains(fmt.Sprintf("%+v", stats.Redactions), leakedPassword) {
+		t.Errorf("the redaction record quotes the credential: %+v", stats.Redactions)
+	}
+	var storedValue string
+	if err := queryOne(t, dbPath, `SELECT value FROM annotations WHERE line = 7`, &storedValue); err != nil {
+		t.Fatalf("read annotation back: %v", err)
+	}
+	if strings.Contains(storedValue, leakedPassword) {
+		t.Errorf("the credential reached annotations.value: %q", storedValue)
+	}
+}
+
+// queryOne reads a single scalar out of the store on a fresh connection.
+func queryOne(t *testing.T, dbPath, query string, into any) error {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return db.QueryRow(query).Scan(into)
+}
+
+// ---- `atlas security` must not modify the database it describes --------
+
+// TestSecurity_DoesNotCreateAStoreThatIsNotThere.
+//
+// openStateDB used to go through store.Open, which creates the file and runs
+// every pending migration before the command reads a row. Asking what a
+// database contains is not permission to bring one into existence, and for a
+// security review a store that appeared because someone inspected it is a
+// worse answer than an error.
+func TestSecurity_DoesNotCreateAStoreThatIsNotThere(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	absent := filepath.Join(dir, "absent.db")
+
+	if _, _, err := runSecurityCmd(t, absent); err == nil {
+		t.Fatal("atlas security succeeded against a database that does not exist")
+	}
+	if _, err := os.Stat(absent); !os.IsNotExist(err) {
+		t.Errorf("atlas security created %s just by being asked what it holds", absent)
+	}
+}
+
+// TestSecurity_DoesNotMigrateTheDatabaseItInspects.
+//
+// The fixture is rewound to schema version 1 with its tables left in place,
+// standing in for a store captured from a machine running an older atlas.
+// `atlas security` has to report the version it finds. Migrating it would
+// mean the artifact you audited is not the artifact you now have -- and on a
+// copy taken as evidence, that is the whole ballgame.
+func TestSecurity_DoesNotMigrateTheDatabaseItInspects(t *testing.T) {
+	dbPath := newSecurityFixture(t)
+	rewindSchemaVersion(t, dbPath, 1)
+
+	stdout, _, err := runSecurityCmd(t, dbPath, "--json")
+	if err != nil {
+		t.Fatalf("atlas security --json: %v", err)
+	}
+	var env struct {
+		Result struct {
+			Store struct {
+				SchemaVersion int `json:"schema_version"`
+			} `json:"store"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if env.Result.Store.SchemaVersion != 1 {
+		t.Errorf("reported schema_version = %d, want the 1 it was handed",
+			env.Result.Store.SchemaVersion)
+	}
+	if got := storedSchemaVersion(t, dbPath); got != 1 {
+		t.Errorf("atlas security migrated the store it was asked to describe: "+
+			"schema_migrations is now %d, was 1", got)
+	}
+}
+
+// rewindSchemaVersion rewrites schema_migrations to claim an older version
+// without touching the tables, which is what a store written by an older
+// atlas looks like to a newer binary.
+func rewindSchemaVersion(t *testing.T, dbPath string, version int) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`DELETE FROM schema_migrations`); err != nil {
+		t.Fatalf("clear schema_migrations: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO schema_migrations (version, dirty) VALUES (?, 0)`, version); err != nil {
+		t.Fatalf("seed schema_migrations: %v", err)
+	}
+}
+
+func storedSchemaVersion(t *testing.T, dbPath string) int {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	var v int
+	if err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	return v
+}
+
+// TestSecurityRedact_DryRunReportsTheCountItWouldChange.
+//
+// printSecurityRedact prints Sweep.ValuesRewritten, which Sweep used to set
+// only inside the apply branch. A dry run therefore printed "0 distinct
+// value(s)" over a store holding a credential: it told the operator that
+// running the command for real would change nothing.
+func TestSecurityRedact_DryRunReportsTheCountItWouldChange(t *testing.T) {
+	dbPath := newSecurityFixture(t)
+
+	stdout, err := runSecurityRedactCLI(t, dbPath, "--dry-run")
+	if err != nil {
+		t.Fatalf("atlas security redact --dry-run: %v", err)
+	}
+	if !strings.Contains(stdout, "1 distinct value(s) would be replaced") {
+		t.Errorf("the dry run does not report what it would change:\n%s", stdout)
+	}
+	if got := storedSQL(t, dbPath, "leaky"); !strings.Contains(got, leakedPassword) {
+		t.Errorf("--dry-run wrote to the database: %q", got)
+	}
 }

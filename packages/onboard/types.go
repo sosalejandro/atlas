@@ -35,7 +35,7 @@ const (
 	SourceChurn Source = "churn"
 )
 
-// TestEvidence grades how atlas knows a capability is exercised. The three
+// TestEvidence grades how atlas knows a capability is exercised. The four
 // values are not a scale of confidence in the code -- they are a scale of
 // confidence in the CLAIM, and they are printed rather than collapsed
 // because "a test file sits in this directory" and "a test executed this
@@ -44,15 +44,33 @@ type TestEvidence string
 
 const (
 	// TestEvidenceExecution means an ingested coverage run recorded one of
-	// the capability's symbols executing. This is the only value that is a
-	// measurement.
+	// the capability's symbols executing. It and TestEvidenceNotExecuted are
+	// the two values that are measurements; the other two are inferences
+	// from file layout.
 	TestEvidenceExecution TestEvidence = "execution"
+	// TestEvidenceNotExecuted means an ingested coverage run MEASURED the
+	// capability's symbols and recorded none of them executing. Like
+	// execution, this is a measurement -- the negative one -- and it
+	// outranks colocation: "the run reached this code and nothing ran it"
+	// is a stronger and more useful statement than "a test file sits
+	// nearby", and collapsing it into the weaker one turns a measured
+	// negative into a vague positive.
+	TestEvidenceNotExecuted TestEvidence = "measured-not-executed"
 	// TestEvidenceColocated means test files sit alongside the capability's
 	// code. It says a test exists near it, not that a test reaches it.
 	TestEvidenceColocated TestEvidence = "colocated-tests"
 	// TestEvidenceNone means neither -- no test file, no execution record.
 	TestEvidenceNone TestEvidence = "none"
 )
+
+// Untested reports whether the evidence says nothing executes this
+// capability. Both an absence of any signal and a measured non-execution
+// qualify; the second is the stronger claim, and a finding that filtered on
+// TestEvidenceNone alone would silently drop exactly the capabilities it has
+// a measurement for.
+func (t TestEvidence) Untested() bool {
+	return t == TestEvidenceNone || t == TestEvidenceNotExecuted
+}
 
 // Route is one HTTP route registration atlas read statically. The CLI layer
 // fills these from packages/contract; the type is restated here so the
@@ -97,6 +115,25 @@ type ChurnLookup interface {
 type CoverageEvidence struct {
 	Available bool
 	Executed  map[int64]bool
+
+	// Measured is every symbol the run reported on, executed or not. It is
+	// what separates "the run reached this code and nothing ran it" from
+	// "the run never looked at this code" -- a Go coverprofile ingested into
+	// a Go+TS repository measures half the tree, and reporting the other
+	// half as not executed would be an assertion about something nothing
+	// measured.
+	//
+	// A nil Measured therefore means "scope unknown": no symbol is treated
+	// as measured, and the negative is never claimed. Executed always
+	// implies measured, so a caller that fills only Executed still gets the
+	// positive.
+	Measured map[int64]bool
+}
+
+// measured reports whether the coverage run said anything at all about this
+// symbol.
+func (c CoverageEvidence) measured(id int64) bool {
+	return c.Executed[id] || c.Measured[id]
 }
 
 // Input is everything the inference reads. Every field is optional except
@@ -114,9 +151,15 @@ type Input struct {
 	Churn      ChurnLookup
 
 	// ScannerWarnings and FilesExcluded are carried through into the limits
-	// section: what the scan could not read is part of what atlas cannot
-	// see, and burying it in a log makes the rest of the report look more
-	// complete than it is.
+	// section, and they are two different facts.
+	//
+	// ScannerWarnings is a diagnostic list, NOT a count of files atlas could
+	// not read: most of its entries on a real repository are notices about
+	// symbols that were indexed anyway (a name collision resolved by
+	// qualifying the id, a router shape a sub-scanner did not recognise).
+	// Nothing here classifies them, so the limits section reports them as
+	// warnings and sends the reader to `atlas doctor` rather than turning
+	// the count into a number about unread files.
 	//
 	// FilesExcluded is the size of the scanner's EXCLUSION LEDGER --
 	// generated files and ignored packages it declined to index. It is not

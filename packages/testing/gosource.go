@@ -74,12 +74,21 @@ type GoProjectOptions struct {
 	//
 	// The default is high on purpose. The bug class this guards only exists
 	// in the colliding part of the input space, and a generator that mostly
-	// produces easy input mostly proves the easy case. Measured over the 64
-	// default seeds, the first version of this generator (pressure 40 on
-	// each half of the pair independently) produced a cross-package
-	// collision in 2 of the 64 default trees; drawing the PAIR at pressure
-	// 70 produces one in 64 of 64. That difference is the difference
-	// between a property test and a slower unit test.
+	// produces easy input mostly proves the easy case.
+	//
+	// Measured with TestMeasureCollisionRate in this package, over the 64
+	// default seeds and with NoRootCollision set (so the count is what
+	// PRESSURE buys, not what addMainCollision hands over for free): a tree
+	// holds at least one cross-package method-id collision in 17 of 64 trees
+	// at pressure 20, 32 of 64 at 40, 52 of 64 at the default 70, and 58 of
+	// 64 at 100. Re-run the harness after changing hotPairs or the tree-size
+	// ranges; those move the figure as much as the pressure does.
+	//
+	// Note what the number is NOT: with NoRootCollision left false, every
+	// one of the 64 trees collides at every pressure, because
+	// addMainCollision plants a main.main pair unconditionally. Counting
+	// that is how you get a rate of 64/64 that says nothing about this
+	// field.
 	CollisionPressure int
 
 	// NoRootCollision suppresses the two-`package main` shape below. It

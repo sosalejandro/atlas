@@ -306,3 +306,112 @@ func TestCarry_MeasuredSymbolIsNeverCarried(t *testing.T) {
 		t.Errorf("carried %d results, want 0 -- this build measured the symbol itself", len(got.Carried))
 	}
 }
+
+// The carried reading must be the SOURCE BUILD's, not one run of it.
+//
+// A build routinely measures one symbol from two runs -- a unit job and an
+// integration job over the same package. ListCarrySources names the newest RUN
+// that measured the symbol; rolling the statement totals up per run then reads
+// only that run and silently discards the rest of the build. That is the
+// mismatch between the totals query's grouping and the key the lookup builds.
+func TestCarry_PoolsTheWholeSourceBuildNotOneRun(t *testing.T) {
+	s := openTestStore(t)
+	goSym := carrySeedSymbol(t, s, "billing.Charge", "src/billing/charge.go", 10, 120)
+	feSym := carrySeedSymbol(t, s, "billing.Checkout", "web/src/checkout.ts", 1, 12)
+
+	// Build ci-1 is two runs, and BOTH measured the Go symbol.
+	carrySeedRun(t, s, "ci-1", 90*time.Minute, map[int64][]carryStmt{goSym: {{covered: 5, total: 50}}})
+	carrySeedRun(t, s, "ci-1", 80*time.Minute, map[int64][]carryStmt{goSym: {{covered: 20, total: 50}}})
+	// Build ci-2 lost the Go job.
+	carrySeedRun(t, s, "ci-2", 10*time.Minute, map[int64][]carryStmt{feSym: {{covered: 1, total: 1}}})
+
+	c := carryFor(t, resolveLatest(t, s, carryOpts(CarryOptions{})), goSym)
+	if c.CoveredStmts != 25 || c.TotalStmts != 100 {
+		t.Errorf("carried statements = %d/%d, want 25/100 -- both runs of build ci-1, "+
+			"which is how a live frontier pools a build", c.CoveredStmts, c.TotalStmts)
+	}
+	if c.FromGroup != "ci-1" {
+		t.Errorf("source build = %q, want ci-1", c.FromGroup)
+	}
+}
+
+// A source further back than the ordinal scan reached has NO distance, and must
+// not report one. Zero used to mean both "this build" and "beyond the window",
+// and `cov status` rendered the sentinel as "0 build(s) back".
+func TestCarry_BeyondOrdinalWindowReportsNoDistance(t *testing.T) {
+	s := openTestStore(t)
+	goSym := carrySeedSymbol(t, s, "billing.Charge", "src/billing/charge.go", 10, 120)
+	feSym := carrySeedSymbol(t, s, "billing.Checkout", "web/src/checkout.ts", 1, 12)
+
+	carrySeedRun(t, s, "ci-1", 300*time.Minute, map[int64][]carryStmt{goSym: {{covered: 100, total: 100}}})
+	for i, group := range []string{"ci-2", "ci-3", "ci-4"} {
+		carrySeedRun(t, s, group, time.Duration(200-i*50)*time.Minute,
+			map[int64][]carryStmt{feSym: {{covered: 1, total: 1}}})
+	}
+	carrySeedRun(t, s, "ci-5", 10*time.Minute, map[int64][]carryStmt{feSym: {{covered: 1, total: 1}}})
+
+	// MaxBuilds 2 makes the ordinal scan read three frontiers (ci-5, ci-4,
+	// ci-3), so ci-1 never gets an ordinal at all.
+	c := carryFor(t, resolveLatest(t, s, carryOpts(CarryOptions{MaxBuilds: 2})), goSym)
+	if c.BuildsBack != CarryBuildsBackBeyondWindow {
+		t.Errorf("builds back = %d, want %d (beyond the window is not a distance)",
+			c.BuildsBack, CarryBuildsBackBeyondWindow)
+	}
+	if c.Mode != CarryDenominator || c.Reason != CarryStale {
+		t.Errorf("mode/reason = %s/%s, want %s/%s", c.Mode, c.Reason, CarryDenominator, CarryStale)
+	}
+}
+
+// "Nothing was carried" and "the carry never ran" are the same empty slice and
+// completely different facts. Resolve has to say which one it is, or every
+// reader downstream renders an unknown as a measurement.
+func TestCarry_ReportsWhyItDidNotRun(t *testing.T) {
+	seed := func(t *testing.T, group string) *Store {
+		t.Helper()
+		s := openTestStore(t)
+		feSym := carrySeedSymbol(t, s, "billing.Checkout", "web/src/checkout.ts", 1, 12)
+		carrySeedRun(t, s, group, 10*time.Minute, map[int64][]carryStmt{feSym: {{covered: 1, total: 1}}})
+		return s
+	}
+
+	t.Run("ungrouped frontier", func(t *testing.T) {
+		got := resolveLatest(t, seed(t, ""), carryOpts(CarryOptions{}))
+		if got.Ran() || got.SkipReason != CarrySkippedUngrouped {
+			t.Errorf("ran=%v reason=%q, want ran=false reason=%q",
+				got.Ran(), got.SkipReason, CarrySkippedUngrouped)
+		}
+	})
+	t.Run("disabled", func(t *testing.T) {
+		got := resolveLatest(t, seed(t, "ci-1"), carryOpts(CarryOptions{Disabled: true}))
+		if got.Ran() || got.SkipReason != CarrySkippedDisabled {
+			t.Errorf("ran=%v reason=%q, want ran=false reason=%q",
+				got.Ran(), got.SkipReason, CarrySkippedDisabled)
+		}
+	})
+	t.Run("grouped frontier with nothing to carry", func(t *testing.T) {
+		got := resolveLatest(t, seed(t, "ci-1"), carryOpts(CarryOptions{}))
+		if !got.Ran() || len(got.Carried) != 0 {
+			t.Errorf("ran=%v carried=%d, want ran=true carried=0 -- this one IS a measurement",
+				got.Ran(), len(got.Carried))
+		}
+	})
+}
+
+// The carry sources have to be nameable. The audit derives a feature's symbol
+// SET from per-test evidence, and evidence living in a run outside the frontier
+// is unreachable unless the resolution is told which runs those are.
+func TestCarry_ExposesTheRunsItReadFrom(t *testing.T) {
+	s := openTestStore(t)
+	goSym := carrySeedSymbol(t, s, "billing.Charge", "src/billing/charge.go", 10, 120)
+	feSym := carrySeedSymbol(t, s, "billing.Checkout", "web/src/checkout.ts", 1, 12)
+
+	srcRun := carrySeedRun(t, s, "ci-1", 90*time.Minute,
+		map[int64][]carryStmt{goSym: {{covered: 5, total: 100}}})
+	carrySeedRun(t, s, "ci-2", 10*time.Minute, map[int64][]carryStmt{feSym: {{covered: 1, total: 1}}})
+
+	got := resolveLatest(t, s, carryOpts(CarryOptions{}))
+	ids := got.CarrySourceRunIDs()
+	if len(ids) != 1 || ids[0] != srcRun {
+		t.Errorf("carry source runs = %v, want [%d]", ids, srcRun)
+	}
+}

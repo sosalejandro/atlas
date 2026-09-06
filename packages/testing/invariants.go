@@ -42,11 +42,20 @@ func CheckSpansWellNested(spans []SymbolSpan) error {
 
 	for _, f := range files {
 		in := byFile[f]
+		// (Start asc, End DESC). The descending tie-break is what makes
+		// enclosure on a shared start line legal: two spans opening on the
+		// same line are only well nested if the WIDER one encloses the
+		// narrower, and the scan below reads `in[i]` as the potential
+		// enclosure of every later span. Sorting End ascending puts the
+		// enclosing span second, so the pair (a=[10,12], b=[10,40]) is read
+		// as "b starts inside a and ends past a" — a straddle — when it is
+		// the ordinary shape of a one-line func literal inside a func
+		// declared on the same line.
 		sort.Slice(in, func(i, j int) bool {
 			if in[i].Start != in[j].Start {
 				return in[i].Start < in[j].Start
 			}
-			return in[i].End < in[j].End
+			return in[i].End > in[j].End
 		})
 		for i := 0; i < len(in); i++ {
 			for j := i + 1; j < len(in); j++ {

@@ -225,49 +225,94 @@ func TestAcceptance_CLI_TheFixtureEndToEnd(t *testing.T) {
 	}
 }
 
-// TestAcceptance_CLI_ScanOmitsTheFeatureCounts is a characterisation test for
-// a DEFECT, not a specification of desired behaviour.
+// TestAcceptance_CLI_ScanOmitsTheIngestFeatureCounts is a characterisation
+// test for a DEFECT, not a specification of desired behaviour.
 //
-// `atlas scan --json` reports features_materialized and feature_symbols_linked
-// as 0 on every run, including runs that materialise features. The cause is in
-// internal/cli/scan.go: scanResult is built field by field from
-// store.IngestStats and those two fields are never copied, so they keep their
-// zero value while the ingest they describe did the work. The audit verb, in
-// the same run, then lists the features that supposedly were not created.
+// `atlas scan --json` reports features_materialized, feature_symbols_linked
+// AND orphan_annotations_skipped as 0 on every run, including runs where the
+// ingest it describes produced all three. The cause is in
+// internal/cli/scan.go: scanResult embeds initResult but is built field by
+// field from store.IngestStats, and those three fields are never copied, so
+// they keep their zero value. `atlas init` copies all three from the same
+// stats struct, which is what makes the divergence provable rather than
+// merely suspected.
 //
-// It is pinned rather than fixed because internal/cli is outside this change's
-// ownership (see the batch brief). Pinned rather than left silent because the
-// envelope is a published contract: a CI gate written against
+// All THREE are named here on purpose. An earlier version of this test named
+// only the first two, which meant a change that wired those up and left the
+// orphan count behind would have gone green with the defect still in the
+// envelope.
+//
+// It is pinned rather than fixed because internal/cli is outside this
+// change's ownership (see the batch brief). Pinned rather than left silent
+// because the envelope is a published contract: a CI gate written against
 // features_materialized > 0 fails forever and looks like a repo problem.
 //
-// When someone copies the two fields across, this test fails. That failure is
-// the fix landing, and the right response is to delete this test.
-func TestAcceptance_CLI_ScanOmitsTheFeatureCounts(t *testing.T) {
-	db := filepath.Join(t.TempDir(), "atlas.db")
-	scan := runAtlas(t, "scan", "--root", fixtureDir, "--db-path", db)
+// When someone copies the three fields across, this test fails. That failure
+// is the fix landing, and the right response is to delete this test.
+func TestAcceptance_CLI_ScanOmitsTheIngestFeatureCounts(t *testing.T) {
+	// A purpose-built tree rather than shopfixture: the shared fixture holds
+	// no orphan annotation, so orphan_annotations_skipped is 0 there for both
+	// verbs and the third field could not be told apart from the other two.
+	// The dangling annotation at the end of app.go is the orphan -- there is
+	// no declaration after it for the ingest to attach it to.
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/omitfx\n\ngo 1.25\n")
+	writeFile(t, filepath.Join(root, "app", "app.go"), `package app
 
-	var scanRes struct {
-		FeaturesMaterialized int `json:"features_materialized"`
-		FeatureSymbolsLinked int `json:"feature_symbols_linked"`
-	}
-	decodeResult(t, scan, &scanRes)
+// Greet says hello.
+//
+// @atlas:feature greet.hello
+func Greet() string {
+	return "hi"
+}
 
-	audit := runAtlas(t, "audit", "--db-path", db)
-	var auditRes struct {
-		Features []struct {
-			FeatureID string `json:"feature_id"`
-		} `json:"features"`
-	}
-	decodeResult(t, audit, &auditRes)
+// @atlas:feature orphan.dangling
+`)
 
-	if len(auditRes.Features) == 0 {
-		t.Fatal("no features were materialised at all; this test can say nothing about the reporting defect")
+	type counts struct {
+		FeaturesMaterialized     int `json:"features_materialized"`
+		FeatureSymbolsLinked     int `json:"feature_symbols_linked"`
+		OrphanAnnotationsSkipped int `json:"orphan_annotations_skipped"`
 	}
-	if scanRes.FeaturesMaterialized != 0 || scanRes.FeatureSymbolsLinked != 0 {
-		t.Fatalf("scan now reports features_materialized=%d feature_symbols_linked=%d "+
-			"(it used to report 0/0 while materialising %d features). The defect in "+
-			"internal/cli/scan.go looks fixed - delete this test.",
-			scanRes.FeaturesMaterialized, scanRes.FeatureSymbolsLinked, len(auditRes.Features))
+
+	var fromInit, fromScan counts
+	decodeResult(t, runAtlas(t, "init", "--root", root,
+		"--db-path", filepath.Join(t.TempDir(), "init.db")), &fromInit)
+	decodeResult(t, runAtlas(t, "scan", "--root", root,
+		"--db-path", filepath.Join(t.TempDir(), "scan.db")), &fromScan)
+
+	// The fixture has to exercise all three counters, or this test would pass
+	// by measuring nothing.
+	if fromInit.FeaturesMaterialized == 0 || fromInit.FeatureSymbolsLinked == 0 ||
+		fromInit.OrphanAnnotationsSkipped == 0 {
+		t.Fatalf("the fixture no longer produces all three counts (init reported %+v); "+
+			"this test can say nothing about the reporting defect", fromInit)
+	}
+
+	for _, f := range []struct {
+		name string
+		got  int
+	}{
+		{"features_materialized", fromScan.FeaturesMaterialized},
+		{"feature_symbols_linked", fromScan.FeatureSymbolsLinked},
+		{"orphan_annotations_skipped", fromScan.OrphanAnnotationsSkipped},
+	} {
+		if f.got != 0 {
+			t.Errorf("scan now reports %s=%d over a tree where init reports %+v. "+
+				"The defect in internal/cli/scan.go looks fixed - delete this test.",
+				f.name, f.got, fromInit)
+		}
+	}
+}
+
+// writeFile writes content at path, creating parent directories.
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }
 

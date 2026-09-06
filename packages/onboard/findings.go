@@ -63,13 +63,16 @@ func untestedRoutes(in Input, res Result) *Finding {
 	var ev []Evidence
 	n := 0
 	for _, c := range res.Capabilities {
-		if c.Source != SourceRoute || c.TestEvidence != TestEvidenceNone {
+		if c.Source != SourceRoute || !c.TestEvidence.Untested() {
 			continue
 		}
 		n++
 		if len(ev) < maxFindingExamples {
+			// The grade travels with the citation: a measured
+			// non-execution and an absence of any signal are both on this
+			// list, and they are not the same claim.
 			ev = append(ev, Evidence{
-				Kind: SourceRoute, Detail: c.Ref(),
+				Kind: SourceRoute, Detail: c.Ref() + " (" + string(c.TestEvidence) + ")",
 				File: firstOr(c.Files, ""), Symbol: firstOr(c.SymbolNames, ""),
 			})
 		}
@@ -81,9 +84,10 @@ func untestedRoutes(in Input, res Result) *Finding {
 		Code: "untested-routes", Severity: SeverityHigh, Provisional: true,
 		Title: fmt.Sprintf("%s no test reaching the handler",
 			plural(n, "HTTP endpoint has", "HTTP endpoints have")),
-		Detail: "Nothing atlas can see -- no ingested coverage run, no test file " +
-			"beside the handler -- exercises these endpoints. They are the part of " +
-			"the system other teams call directly.",
+		Detail: "Either an ingested coverage run measured these handlers and recorded " +
+			"none of them executing, or atlas can see nothing exercising them at all -- " +
+			"no coverage run, no test file beside the handler. Each citation says which. " +
+			"They are the part of the system other teams call directly.",
 		Count: n, Evidence: ev,
 		Next: coverageCommand(in),
 	}
@@ -187,7 +191,7 @@ func hotAndUntested(res Result) *Finding {
 	}
 	var hits []hot
 	for _, c := range res.Capabilities {
-		if !c.Churn.Known() || c.Churn.Score < hotChurnScore || c.TestEvidence != TestEvidenceNone {
+		if !c.Churn.Known() || c.Churn.Score < hotChurnScore || !c.TestEvidence.Untested() {
 			continue
 		}
 		hits = append(hits, hot{c, c.Churn.Score})
@@ -208,8 +212,8 @@ func hotAndUntested(res Result) *Finding {
 		}
 		ev = append(ev, Evidence{
 			Kind: SourceChurn,
-			Detail: fmt.Sprintf("%s: churn %.0f, %d commits, last touched %s, no test evidence",
-				h.cap.Ref(), h.score, h.cap.Churn.Commits, h.cap.Churn.LastCommit),
+			Detail: fmt.Sprintf("%s: churn %.0f, %d commits, last touched %s, test evidence %s",
+				h.cap.Ref(), h.score, h.cap.Churn.Commits, h.cap.Churn.LastCommit, h.cap.TestEvidence),
 			File: h.cap.Churn.HotFile,
 		})
 	}

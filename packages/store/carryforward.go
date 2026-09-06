@@ -164,9 +164,41 @@ type CarriedResult struct {
 	MeasuredAt time.Time `json:"measured_at"`
 
 	// BuildsBack is how many grouped frontiers separate that build from this
-	// one; 0 means the source build is further back than the window looked.
+	// one. 1 is the immediately preceding build. CarryBuildsBackBeyondWindow
+	// means the source sits further back than the window looked -- a distinct
+	// value, because "0 builds back" would say the current build measured it,
+	// which is the one thing a carry can never mean.
 	BuildsBack int `json:"builds_back"`
 }
+
+// CarryBuildsBackBeyondWindow is CarriedResult.BuildsBack when the ordinal
+// scan did not reach the source build at all.
+//
+// The scan reads only MaxBuilds+1 frontiers, so anything older comes back with
+// no ordinal. Reporting that as 0 conflated it with "this build", which is
+// both wrong and unrenderable: `cov status` printed the sentinel as
+// "0 build(s) back". A negative value cannot be mistaken for a distance.
+const CarryBuildsBackBeyondWindow = -1
+
+// CarrySkipReason says why Resolve did not look for anything to carry. It is
+// the difference between "nothing needed carrying" and "the question was never
+// asked", which are the same empty carry list and very different facts.
+type CarrySkipReason string
+
+const (
+	// CarryRan: the carry policy ran. Carried may still be empty, and that is
+	// then a measurement rather than an unknown.
+	CarryRan CarrySkipReason = ""
+	// CarrySkippedDisabled: switched off by the caller (--carry=false).
+	CarrySkippedDisabled CarrySkipReason = "disabled"
+	// CarrySkippedNoFrontier: no coverage runs at all, so there is no hole to
+	// fill and no build to fill it from.
+	CarrySkippedNoFrontier CarrySkipReason = "no-frontier"
+	// CarrySkippedUngrouped: the frontier carries no run group. Without one
+	// "the previous build" is undefined, so carryforward cannot run -- this is
+	// the default for any store that does not pass `cov sync --run-group`.
+	CarrySkippedUngrouped CarrySkipReason = "ungrouped-frontier"
+)
 
 // ResolvedCoverage is a frontier's reading: what this build measured, plus
 // what it did not and had to inherit.
@@ -179,6 +211,39 @@ type ResolvedCoverage struct {
 	// rather than assumed: a tunable whose value is invisible is a tunable
 	// nobody can reason about when the number looks wrong.
 	Window CarryOptions `json:"-"`
+
+	// SkipReason is empty (CarryRan) when the carry policy actually ran, and
+	// otherwise names why it did not. An empty Carried list means two
+	// different things depending on this field, and a reader told only "0
+	// carried" cannot tell them apart.
+	SkipReason CarrySkipReason `json:"skip_reason,omitempty"`
+}
+
+// Ran reports whether the carry policy looked for anything to carry. When it
+// is false, Carried is empty because the question was not asked.
+func (r ResolvedCoverage) Ran() bool { return r.SkipReason == CarryRan }
+
+// CarrySourceRunIDs returns the distinct runs the carries were read from, in
+// ascending order.
+//
+// Those runs are part of the reading, so anything deriving a symbol SET from
+// the frontier's evidence -- the audit's dynamic surface (#104) is the one
+// that matters -- has to be able to see them. A surface derived from the
+// frontier alone shrinks exactly when a job dies, which filters the carried
+// results straight back out and makes carryforward a no-op in the only case
+// it exists for.
+func (r ResolvedCoverage) CarrySourceRunIDs() []int64 {
+	seen := make(map[int64]bool, len(r.Carried))
+	out := make([]int64, 0, len(r.Carried))
+	for _, c := range r.Carried {
+		if c.FromRunID == 0 || seen[c.FromRunID] {
+			continue
+		}
+		seen[c.FromRunID] = true
+		out = append(out, c.FromRunID)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // Pool returns observed and carried results as the single slice the scoring
@@ -237,7 +302,8 @@ func (c *carryStore) Resolve(ctx context.Context, f CoverageFrontier, opts Carry
 		return ResolvedCoverage{}, err
 	}
 	out := ResolvedCoverage{Frontier: f, Observed: observed, Window: opts}
-	if opts.Disabled || f.Empty() || f.Group == nil || *f.Group == "" {
+	if skip, ok := carrySkipReason(f, opts); ok {
+		out.SkipReason = skip
 		return out, nil
 	}
 
@@ -289,6 +355,22 @@ func (c *carryStore) Resolve(ctx context.Context, f CoverageFrontier, opts Carry
 		return *out.Carried[i].SymbolID < *out.Carried[j].SymbolID
 	})
 	return out, nil
+}
+
+// carrySkipReason reports the reason Resolve must not carry, and whether
+// there is one. Kept beside Resolve so the three conditions and the three
+// reasons cannot drift apart.
+func carrySkipReason(f CoverageFrontier, opts CarryOptions) (CarrySkipReason, bool) {
+	switch {
+	case opts.Disabled:
+		return CarrySkippedDisabled, true
+	case f.Empty():
+		return CarrySkippedNoFrontier, true
+	case f.Group == nil || *f.Group == "":
+		return CarrySkippedUngrouped, true
+	default:
+		return CarryRan, false
+	}
 }
 
 // carryWindow is the (group, time-range) triple every carry query shares.
@@ -369,21 +451,28 @@ func sameEndLine(a, b *int64) bool {
 	}
 }
 
-// carryTotal is one (run, symbol) statement rollup.
+// carryTotal is one (build, symbol) statement rollup.
 type carryTotal struct {
 	covered int
 	total   int
 	status  CoverageStatus
 }
 
-func (c *carryStore) carryTotals(ctx context.Context, w carryWindow) (map[[2]int64]carryTotal, error) {
+// carryTotalKey addresses that rollup the same way carrySources identifies a
+// source: by the BUILD it came from, not by one run inside it.
+type carryTotalKey struct {
+	group    string
+	symbolID int64
+}
+
+func (c *carryStore) carryTotals(ctx context.Context, w carryWindow) (map[carryTotalKey]carryTotal, error) {
 	rows, err := c.db.queries().ListCarrySymbolTotals(ctx, listCarryTotalsArgs(w))
 	if err != nil {
 		return nil, fmt.Errorf("coverage carryforward: list totals: %w", err)
 	}
-	out := make(map[[2]int64]carryTotal, len(rows))
+	out := make(map[carryTotalKey]carryTotal, len(rows))
 	for _, r := range rows {
-		if r.SymbolID == nil {
+		if r.SymbolID == nil || r.RunGroup == nil {
 			continue
 		}
 		// The status rollup mirrors classifyCoverageResults: any pass wins,
@@ -396,7 +485,7 @@ func (c *carryStore) carryTotals(ctx context.Context, w carryWindow) (map[[2]int
 		case r.AnySkip == 1:
 			status = StatusSkip
 		}
-		out[[2]int64{r.RunID, *r.SymbolID}] = carryTotal{
+		out[carryTotalKey{group: *r.RunGroup, symbolID: *r.SymbolID}] = carryTotal{
 			covered: int(r.CoveredStmts),
 			total:   int(r.TotalStmts),
 			status:  status,
@@ -449,18 +538,21 @@ func (c *carryStore) runFinishedAt(ctx context.Context, sources []carrySource) (
 // span-verified is evidence, anything else holds the denominator only.
 func buildCarry(
 	src carrySource,
-	totals map[[2]int64]carryTotal,
+	totals map[carryTotalKey]carryTotal,
 	ordinals map[string]int,
 	runTimes map[int64]time.Time,
 	opts CarryOptions,
 	now time.Time,
 ) (CarriedResult, bool) {
-	tot, ok := totals[[2]int64{src.runID, src.symbolID}]
+	tot, ok := totals[carryTotalKey{group: src.group, symbolID: src.symbolID}]
 	if !ok {
 		return CarriedResult{}, false
 	}
 	measuredAt := runTimes[src.runID]
-	back := ordinals[src.group]
+	back, seen := ordinals[src.group]
+	if !seen {
+		back = CarryBuildsBackBeyondWindow
+	}
 
 	reason := carryReasonFor(src, back, measuredAt, opts, now)
 	sid := src.symbolID
@@ -502,7 +594,7 @@ func carryReasonFor(src carrySource, back int, measuredAt time.Time, opts CarryO
 	if !src.spanMatches {
 		return CarrySpanChanged
 	}
-	if back == 0 || back > opts.MaxBuilds {
+	if back < 1 || back > opts.MaxBuilds {
 		return CarryStale
 	}
 	if age := now.Sub(measuredAt); age > opts.MaxAge {

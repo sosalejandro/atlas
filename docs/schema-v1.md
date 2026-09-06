@@ -1176,6 +1176,24 @@ in for this build's reading) only when the snapshot matches the symbol's current
 becomes `fail`, so the symbol counts in the denominator and not in the
 numerator. Nothing older than a 30-day lookback horizon is read at all.
 
+**The unit of a carry is a BUILD.** `ListCarrySources` names the newest RUN that
+measured each unmeasured symbol, and its span snapshot is the one checked; but
+the statement rollup (`ListCarrySymbolTotals`) groups by
+`(coverage_runs.run_group, symbol_id)`, so the inherited covered/total is the
+whole source build's, summed the way a live frontier sums the runs of the
+current build. A build that measures one symbol from two runs — a unit job and
+an integration job over the same package — would otherwise contribute only
+whichever run finished last.
+
+**Carryforward does not run at all on an ungrouped frontier**, which is the
+default for any store that does not pass `cov sync --run-group`. That is
+reported (`store.ResolvedCoverage.SkipReason`, surfaced as `carry.ran` /
+`carry.skip_reason` in `atlas cov status --json`) rather than rendered as an
+empty carry, because "nothing needed carrying" and "the question was never
+asked" are the same empty list and different facts. For the same reason a
+source build older than the ordinal scan reached reports
+`builds_back = store.CarryBuildsBackBeyondWindow` (-1), never 0.
+
 **Not durable state.** Like the rest of this database it is a re-derivable
 cache — but re-deriving it means re-ingesting the coverage reports, because
 nothing else records what a span used to be.

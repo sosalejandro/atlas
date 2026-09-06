@@ -22,7 +22,7 @@
 //	pipeline_test.go   the library pipeline, pinned to go tool cover
 //	cli_test.go        the same repo through the real binary and --json
 //	dogfood_test.go    atlas run against atlas (build tag: dogfood)
-//	run.sh             the runner CI calls for the dogfood layer
+//	run.sh             the runner ci.yml calls for the dogfood layer
 //
 // # Cost
 //

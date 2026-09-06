@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -18,7 +19,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/sosalejandro/atlas/packages/redact"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/atlas/packages/shared"
 )
 
 // newSecurityCmd implements `atlas security`.
@@ -143,33 +144,58 @@ type securityRedactResult struct {
 	Sweep  redact.SweepReport `json:"sweep"`
 }
 
-// openStateDB migrates the state database (via the store, so the schema is
-// exactly the one every other verb uses) and then hands back a raw handle.
+// stateDBAccess is how much of the state database a security verb needs.
+type stateDBAccess int
+
+const (
+	// accessReadOnly opens the file with SQLite's own read-only mode and
+	// query_only on top of it. Used by `atlas security` and by
+	// `atlas security redact --dry-run`.
+	accessReadOnly stateDBAccess = iota
+
+	// accessReadWrite is `atlas security redact` doing the one thing in this
+	// command tree that is supposed to write.
+	accessReadWrite
+)
+
+// openStateDB opens the state database WITHOUT migrating it.
 //
-// Raw SQL rather than the store's typed ports is the point of this command,
-// not a shortcut around it. The ports expose the tables atlas reads for its
-// own features; a security inventory has to enumerate what is THERE,
-// including a table nobody wrote a port for yet, or it will keep reporting
-// completeness it does not have.
+// Not migrating is the point, and it used to be the bug. This function
+// called store.Open, which opens WAL and runs every pending migration
+// before the command reads a single row -- so inspecting a database to find
+// out what it holds could silently upgrade it. For a security review that is
+// exactly the wrong surprise: the artifact you were auditing is not the
+// artifact you now have, and on a copy taken for evidence that matters.
 //
-// Opening an absent database creates and migrates an empty one, matching
-// `atlas mcp`. Answering "this store is empty" is more useful than refusing
-// to answer.
-func openStateDB(ctx context.Context) (*sql.DB, string, error) {
+// So `atlas security` opens read-only (SQLite's mode=ro plus query_only, so
+// a stray write is an error rather than a silent change) and reports the
+// schema version it finds, whatever it is. A database older than this binary
+// is a fact worth reporting, not a thing to fix behind the operator's back.
+//
+// Raw SQL rather than the store's typed ports is likewise deliberate. The
+// ports expose the tables atlas reads for its own features; a security
+// inventory has to enumerate what is THERE, including a table nobody wrote a
+// port for yet, or it will keep reporting completeness it does not have.
+//
+// An absent database is now an error rather than a freshly created empty
+// one: creating a store as a side effect of asking what a store contains is
+// the same class of surprise as migrating one.
+func openStateDB(ctx context.Context, access stateDBAccess) (*sql.DB, string, error) {
 	dbPath, err := resolveDBPath(loaded, flags.DBPath)
 	if err != nil {
 		return nil, "", err
 	}
-	s, err := store.Open(ctx, dbPath)
-	if err != nil {
-		return nil, "", fmt.Errorf("security: open store %s: %w", dbPath, err)
+	if _, statErr := os.Stat(dbPath); statErr != nil {
+		return nil, "", fmt.Errorf(
+			"security: no state database at %s (run `atlas init` first): %w", dbPath, statErr)
 	}
-	if err := s.Close(); err != nil {
-		return nil, "", fmt.Errorf("security: close store %s: %w", dbPath, err)
+	// No journal_mode pragma in either DSN: setting it on a database this
+	// command did not migrate would rewrite the header of the file being
+	// inspected, which is the behaviour this function exists to stop.
+	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)", shared.EscapeSQLitePath(dbPath))
+	if access == accessReadWrite {
+		dsn = fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", shared.EscapeSQLitePath(dbPath))
 	}
-	dsn := fmt.Sprintf(
-		"file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)",
-		dbPath)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, "", fmt.Errorf("security: open %s: %w", dbPath, err)
@@ -187,7 +213,7 @@ func runSecurity(cmd *cobra.Command, exportVerb string) error {
 	if err != nil {
 		return err
 	}
-	db, dbPath, err := openStateDB(ctx)
+	db, dbPath, err := openStateDB(ctx, accessReadOnly)
 	if err != nil {
 		return err
 	}
@@ -256,6 +282,12 @@ func securityWarnings(res securityResult) []string {
 				"The inventory above is incomplete.",
 			n, strings.Join(res.Store.Unclassified, ", ")))
 	}
+	if n := len(res.Secrets.ColumnsNotSwept); n > 0 {
+		out = append(out, fmt.Sprintf(
+			"the secrets sweep did not read %d TEXT column(s) this binary's registry "+
+				"does not know about: %s. A clean result says nothing about them.",
+			n, strings.Join(res.Secrets.ColumnsNotSwept, ", ")))
+	}
 	if n := len(res.Secrets.Hits); n > 0 {
 		out = append(out, fmt.Sprintf(
 			"%d credential(s) are stored in this database; run `atlas security redact`, "+
@@ -266,7 +298,13 @@ func securityWarnings(res securityResult) []string {
 
 func runSecurityRedact(cmd *cobra.Command, dryRun bool) error {
 	ctx := cmdContext(cmd)
-	db, dbPath, err := openStateDB(ctx)
+	// --dry-run opens read-only, so "this did not write" is enforced by the
+	// connection rather than by a branch further down that could be wrong.
+	access := accessReadWrite
+	if dryRun {
+		access = accessReadOnly
+	}
+	db, dbPath, err := openStateDB(ctx, access)
 	if err != nil {
 		return err
 	}
@@ -360,9 +398,9 @@ func printSecurityEgress(w io.Writer, e egressStatement, exports []redact.Export
 
 func printSecuritySecrets(w io.Writer, s redact.SweepReport) {
 	fmt.Fprintf(w, "SECRETS\n")
-	fmt.Fprintf(w, "  swept %d column(s) over %d value(s)\n", s.ColumnsRead, s.RowsRead)
+	printSweptScope(w, s)
 	if s.Clean() {
-		fmt.Fprintf(w, "  none detected.\n")
+		fmt.Fprintf(w, "  none detected in what was swept.\n")
 		return
 	}
 	fmt.Fprintf(w, "  %d finding(s):\n\n", len(s.Hits))
@@ -384,14 +422,33 @@ func printSecuritySecrets(w io.Writer, s redact.SweepReport) {
 	fmt.Fprintf(w, "  Redaction does not remove anything from your repository. Rotate them.\n")
 }
 
+// printSweptScope states what the sweep actually read, before it says what
+// it found.
+//
+// The scope line is not padding. The sweep iterates the compiled-in column
+// registry, so "none detected" is a claim about the registered columns and
+// nothing else -- and it prints identically whether the database is clean or
+// the binary is too old to know about half of it. Naming the columns that
+// went unread is what keeps the second case from reading as the first.
+func printSweptScope(w io.Writer, s redact.SweepReport) {
+	fmt.Fprintf(w, "  swept %d registered TEXT column(s) over %d value(s)\n",
+		s.ColumnsRead, s.RowsRead)
+	if len(s.ColumnsNotSwept) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  NOT SWEPT: %s\n"+
+		"  These TEXT columns exist in this database and not in this binary's\n"+
+		"  registry, so nothing read them. Findings below say nothing about them.\n",
+		strings.Join(s.ColumnsNotSwept, ", "))
+}
+
 func printSecurityRedact(w io.Writer, res securityRedactResult) {
-	mode := "redacted"
+	mode, summary := "redacted", "were replaced"
 	if res.DryRun {
-		mode = "would redact"
+		mode, summary = "would redact", "would be replaced"
 	}
 	fmt.Fprintf(w, "atlas security redact  %s\n", res.Path)
-	fmt.Fprintf(w, "  swept %d column(s) over %d value(s)\n",
-		res.Sweep.ColumnsRead, res.Sweep.RowsRead)
+	printSweptScope(w, res.Sweep)
 	if res.Sweep.Clean() {
 		fmt.Fprintf(w, "  nothing to redact.\n")
 		return
@@ -404,8 +461,15 @@ func printSecurityRedact(w io.Writer, res securityRedactResult) {
 		fmt.Fprintf(w, "  %-12s %s.%s row %s  %s digest %s\n",
 			verb, h.Table, h.Column, h.Row, h.Kind, h.Digest)
 	}
+	// ValuesRewritten is computed in both modes, so a dry run reports what it
+	// WOULD change rather than the 0 it used to print over a store full of
+	// secrets. It counts distinct values, not rows: one credential in nine
+	// queries is one leak to rotate.
 	fmt.Fprintf(w, "  %d distinct value(s) %s; %d finding(s) in columns atlas will not rewrite.\n",
-		res.Sweep.ValuesRewritten, mode, res.Sweep.Unredactable)
+		res.Sweep.ValuesRewritten, summary, res.Sweep.Unredactable)
+	if res.DryRun {
+		fmt.Fprintf(w, "  Nothing was written: --dry-run opens the database read-only.\n")
+	}
 	fmt.Fprintf(w, "  This did not touch your repository. Rotate the credentials.\n")
 }
 

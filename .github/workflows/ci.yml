@@ -76,13 +76,26 @@ jobs:
       - name: go build
         run: go build ./...
 
-      - name: go test (race)
+      - name: go test (race + coverprofile, Linux)
         # The race detector needs cgo and a C toolchain. That is fine on
         # Linux and macOS; on Windows it would mean shipping a gcc
         # dependency into a project whose whole point is that it needs no C
         # compiler. Windows therefore runs the same suite without -race,
         # and the race coverage comes from the other two platforms.
-        if: runner.os != 'Windows'
+        #
+        # Linux additionally writes a coverprofile, because the dogfood job
+        # below needs one for THIS repo and generating it there would mean
+        # running the whole suite a second time to measure the same code.
+        # -coverpkg is what makes the profile cover the packages under test
+        # rather than only the ones each test binary happens to link.
+        if: runner.os == 'Linux'
+        run: |
+          go test ./... -race -timeout 20m \
+            -coverprofile=cover.coverprofile \
+            -coverpkg=./packages/...,./internal/...
+
+      - name: go test (race, macOS)
+        if: runner.os == 'macOS'
         run: go test ./... -race -timeout 10m
 
       - name: go test (no race, Windows)
@@ -95,6 +108,19 @@ jobs:
         # (which requires the nutrition-v2-go checkout) is excluded.
         if: runner.os == 'Linux'
         run: go test -tags=integration ./packages/coverage/... -race -timeout 5m
+
+      - name: Upload the coverprofile for the dogfood gate
+        # Named for its one consumer. if-no-files-found: error rather than the
+        # default warning: a silently missing profile would make the dogfood
+        # job either skip or regenerate, and a gate that quietly stops
+        # measuring is the failure this whole layer exists to prevent.
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: repo-coverprofile
+          path: cover.coverprofile
+          if-no-files-found: error
+          retention-days: 1
 
       - name: golangci-lint
         if: runner.os == 'Linux'
@@ -164,6 +190,55 @@ jobs:
       # would report determinism nobody re-measured.
       - name: Determinism suite
         run: go test ./packages/codeindex/... ./packages/store/... -run Determinism -count=1 -v -timeout 10m
+
+  dogfood:
+    name: atlas gates atlas (blocking)
+    # Issue #122's acceptance criterion is that CI goes red when the dogfood
+    # numbers regress, so this job blocks. Before it existed the suite behind
+    # test/acceptance/run.sh ran in no pipeline at all: it is behind the
+    # `dogfood` build tag, which `go test ./...` does not set, so the headline
+    # deliverable of the test-strategy work was executing nowhere.
+    #
+    # Separate job rather than a step in build-and-test because "atlas
+    # reported the wrong thing about atlas" is a different failure from "a
+    # test broke", and a reviewer looking at a red X should be able to tell
+    # which without opening a log. It needs build-and-test only for that
+    # job's coverprofile.
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # `atlas cov diff` compares against a base ref. The default
+          # single-commit checkout has neither origin/main nor HEAD~1, and
+          # run.sh would then hand the suite an empty base — which it reports
+          # as not-applicable rather than failing, i.e. a green gate that
+          # measured one assertion fewer than it looks like it did.
+          fetch-depth: 0
+
+      - name: Read the pinned Go toolchain
+        id: toolchain
+        run: echo "version=$(tr -d '[:space:]' < .github/scripts/toolchain.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+          cache: true
+
+      - name: Download the coverprofile from the test job
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: repo-coverprofile
+
+      - name: atlas gates atlas
+        # run.sh generates a profile when ATLAS_DOGFOOD_PROFILE is unset,
+        # which costs a second full `go test`. Passing the one build-and-test
+        # already produced is the whole reason for the artifact above.
+        env:
+          ATLAS_DOGFOOD_PROFILE: ${{ github.workspace }}/cover.coverprofile
+        run: ./test/acceptance/run.sh
 
   version-consistency:
     name: version / manifest / changelog agree (ADVISORY — known failing, see docs/releasing.md)

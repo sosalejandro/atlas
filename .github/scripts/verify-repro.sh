@@ -16,6 +16,14 @@
 #     checkout at another absolute path) — this is the -trimpath check, and
 #     it is the one a same-directory rebuild silently passes
 #
+# What it does NOT vary, and therefore does not establish: both builds run on
+# the same machine, under the same OS, filesystem and Go toolchain. So a
+# green result here means "the output does not depend on those four things",
+# not "any machine anywhere produces these bytes". The cross-machine claim is
+# only ever established by someone else rebuilding the tag with the pinned
+# toolchain and comparing against SHA256SUMS — the recipe in docs/install.md.
+# Saying so is the difference between a check and a slogan.
+#
 # Inputs: VERSION, SOURCE_DATE_EPOCH (as build.sh), TARGETS (default: host).
 #
 # Note SOURCE_DATE_EPOCH is resolved once and shared. That is not cheating:
@@ -81,6 +89,8 @@ build_into "$work/build2" "$work/tmp2" 4 "$mirror"
 printf '\ncomparing digests\n' >&2
 if atlas_compare_trees "$work/build1" "$work/build2"; then
 	printf '\nreproducible: %s at %s, targets [%s]\n' "$VERSION" "$COMMIT" "$TARGETS"
+	printf '  (two builds, one machine, one toolchain: %s — varying output dir,\n' "$(go env GOVERSION)"
+	printf '   TMPDIR, GOMAXPROCS and source path. Not a cross-machine result.)\n'
 	exit 0
 fi
 

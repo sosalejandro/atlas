@@ -30,7 +30,7 @@ import (
 
 // Baselines. Every number here was MEASURED, and the comment says how.
 //
-// Measurement run: this worktree at integrate/m3-batch (7e9ccc2), Go 1.26.4,
+// Measurement run: branch fix/test-strategy (base 189e713), Go 1.26.4,
 // linux/amd64, using a coverprofile from
 //
 //	go test ./packages/... ./internal/... -coverprofile=... \
@@ -40,30 +40,45 @@ import (
 // prints every observed value next to its baseline.
 const (
 	// minAttributedFraction is the share of executed statements the ingest
-	// charges to a symbol. Observed 22396 of 23165 = 0.9668.
+	// charges to a symbol. Observed 24118 of 24934 = 0.9673.
 	//
 	// The floor is set below the observation rather than at it because the
 	// figure moves with the code: a new generated file, or a package whose
 	// symbols the scanner cannot yet name, lowers it without anything being
-	// broken. What must never happen is a quiet slide — the remaining ~3.4%
+	// broken. What must never happen is a quiet slide — the remaining ~3.3%
 	// is dominated by packages/store/sqlc, which is generated and excluded
 	// from the index by design.
 	minAttributedFraction = 0.95
 
 	// minSQLResolvedFraction is the share of SQL operations `atlas sql`
-	// resolves to a known table set. Observed 128 of 129 = 0.9922.
+	// resolves to a known table set. Observed 134 of 138 = 0.9710.
 	//
 	// This one is gated close to the observation because it is a property of
 	// queries this repo authors: an unresolvable operation is a query atlas
 	// cannot advise on, and adding one should be a deliberate act.
+	//
+	// Read that margin before you add a query: it is ONE operation wide.
+	// 133 of 138 is 0.9638 and fails. When it was set the observation was
+	// 0.9922 (128 of 129); four operations have become unresolvable since,
+	// and this constant has not moved. Whoever trips it should decide
+	// whether to resolve the four or restate the floor — not lower it to
+	// whatever today's number happens to be.
 	minSQLResolvedFraction = 0.97
 
 	// minSymbols / minEdges are floor checks on the scan itself. They are
-	// deliberately far below the observation (4,565 symbols and 10,433 edges
-	// at the time of writing) because their job is to catch a scan that indexed
-	// almost nothing — the failure where every downstream number is
+	// deliberately far below the observation (4,895 symbols and 9,281 edges
+	// on the measurement run above) because their job is to catch a scan that
+	// indexed almost nothing — the failure where every downstream number is
 	// technically correct about an empty repo. A tight bound here would fail
 	// on every ordinary week.
+	//
+	// The edge figure is LOWER than the 10,433 recorded before, and that is a
+	// correction rather than a regression: upsertEdgeTx used to decide
+	// "inserted" from LastInsertId after an INSERT OR IGNORE, which SQLite
+	// does not update when it skips a row, so duplicate edges were counted as
+	// insertions. Measured on this tree, the same scan into an empty database
+	// reported 11,185 before the fix and 9,281 after, and the edges table
+	// holds 9,281 rows either way.
 	minSymbols = 2000
 	minEdges   = 2000
 )

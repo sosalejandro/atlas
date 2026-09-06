@@ -136,9 +136,15 @@ type Querier interface {
 	// can own several result rows in one run, and picking one of them would
 	// under-count. ListCarrySymbolTotals sums them.
 	ListCarrySources(ctx context.Context, arg ListCarrySourcesParams) ([]ListCarrySourcesRow, error)
-	// Per (run, symbol) statement totals and status rollup over the same window.
+	// Per (BUILD, symbol) statement totals and status rollup over the same window.
 	// Summing is what classifyCoverageResults does when it pools a live frontier,
-	// so a carried reading is assembled the same way the observed one is.
+	// so a carried reading is assembled the same way the observed one is -- and a
+	// frontier pools the whole BUILD, not one run of it. Grouping per run instead
+	// would key the rollup on something ListCarrySources does not identify a
+	// source by: it names the newest run that measured the symbol, while a build
+	// routinely measures one symbol from two runs (a unit job and an integration
+	// job over the same package). Rolling up per run then reads whichever of them
+	// finished last and silently discards the rest.
 	ListCarrySymbolTotals(ctx context.Context, arg ListCarrySymbolTotalsParams) ([]ListCarrySymbolTotalsRow, error)
 	ListConfig(ctx context.Context) ([]Config, error)
 	ListCoverageResults(ctx context.Context, runID int64) ([]ListCoverageResultsRow, error)

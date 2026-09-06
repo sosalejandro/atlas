@@ -265,7 +265,22 @@ is downgraded to denominator-only.
 
 **Only grouped frontiers carry.** A run group is the declaration that a set of
 syncs is one build; without it "the previous build" has no meaning, so an
-ungrouped frontier reads exactly as it did before this feature existed.
+ungrouped frontier reads exactly as it did before this feature existed — and
+`cov status` says that carryforward *did not run*, rather than that nothing
+needed carrying. Those are the same empty carry list and very different facts,
+and run groups are opt-in, so the second one is what most stores are looking at.
+`--json` carries the same distinction as `carry.ran` plus `carry.skip_reason`.
+
+**The carried reading is a BUILD's, not a run's.** A build routinely measures
+one symbol from two runs — a unit job and an integration job over the same
+package. The carry sums every result the source build recorded for the symbol,
+which is exactly how a live frontier pools the runs of the current build; taking
+only the run that finished last would understate the inherited denominator.
+
+**A source beyond the window has no distance.** The build-ordinal scan reads
+`--carry-builds` + 1 frontiers, so a source older than that gets no ordinal at
+all. It renders as `beyond the carry window`, and `builds_back` is `-1` in the
+JSON — not `0`, which would read as "the current build measured it".
 
 **The flags tune `cov status`, not `atlas audit`.** The audit carries on the
 package defaults (3 builds / 72h); `--carry-builds` and `--carry-max-age` exist
@@ -334,7 +349,7 @@ $ atlas cov status
 Coverage frontier "build-2" (1 runs, newest 3)
   <unassigned>                              pass=1 fail=0 skip=0  (100%)
 carryforward: 1 result(s) carried (1 as evidence, 0 holding the denominator only), window 3 builds / 72h0m0s
-  1 from build "build-1" (1 build(s) back)
+  1 from build "build-1" (1 build back)
   pass/fail/skip above are OBSERVED counts - a CI gate should read those, not the carried ones
 ```
 
@@ -346,6 +361,7 @@ carryforward: 1 result(s) carried (1 as evidence, 0 holding the denominator only
   "enabled": true,
   "max_builds": 3,
   "max_age": "72h0m0s",
+  "ran": true,
   "results": 1,
   "evidence": 1,
   "denominator_only": 0,
@@ -377,6 +393,24 @@ Coverage frontier "build-2" (1 runs, newest 3)
   <unassigned>                              pass=1 fail=0 skip=0  (100%)
 carryforward: off (--carry=false); symbols this build did not measure are simply absent
 ```
+
+#### Example: a store that never tagged its syncs
+
+Without `--run-group` there is no previous build to inherit from, so the carry
+never runs. Saying "nothing carried" here would report an unknown as a
+measurement, so it says what actually happened and what to do about it:
+
+```
+# Run from: a repo whose CI syncs without --run-group
+$ atlas cov status
+Coverage run 1 (ungrouped)
+  <unassigned>                              pass=1 fail=0 skip=0  (100%)
+carryforward: did not run - this frontier has no run group, so "the previous build" is undefined; tag the syncs of one build with 'atlas cov sync --run-group <id>' to enable it
+```
+
+In `--json` that is `carry.ran: false` with `carry.skip_reason:
+"ungrouped-frontier"`. The other two reasons are `"disabled"` (`--carry=false`)
+and `"no-frontier"` (no coverage runs at all).
 
 #### Example: the attribution gap of the latest run
 

@@ -40,11 +40,17 @@ WHERE r.symbol_id IS NOT NULL
 GROUP BY r.symbol_id;
 
 -- name: ListCarrySymbolTotals :many
--- Per (run, symbol) statement totals and status rollup over the same window.
+-- Per (BUILD, symbol) statement totals and status rollup over the same window.
 -- Summing is what classifyCoverageResults does when it pools a live frontier,
--- so a carried reading is assembled the same way the observed one is.
+-- so a carried reading is assembled the same way the observed one is -- and a
+-- frontier pools the whole BUILD, not one run of it. Grouping per run instead
+-- would key the rollup on something ListCarrySources does not identify a
+-- source by: it names the newest run that measured the symbol, while a build
+-- routinely measures one symbol from two runs (a unit job and an integration
+-- job over the same package). Rolling up per run then reads whichever of them
+-- finished last and silently discards the rest.
 SELECT
-  r.run_id                                          AS run_id,
+  g.run_group                                       AS run_group,
   r.symbol_id                                       AS symbol_id,
   CAST(SUM(r.covered_stmts) AS INTEGER)             AS covered_stmts,
   CAST(SUM(r.total_stmts) AS INTEGER)               AS total_stmts,
@@ -57,7 +63,7 @@ WHERE r.symbol_id IS NOT NULL
   AND g.run_group <> sqlc.arg(current_group)
   AND g.finished_at <= sqlc.arg(frontier_at)
   AND g.finished_at >= sqlc.arg(horizon_at)
-GROUP BY r.run_id, r.symbol_id;
+GROUP BY g.run_group, r.symbol_id;
 
 -- name: ListRecentRunGroups :many
 -- The most recent grouped frontiers, newest first, so a carry can be measured

@@ -387,6 +387,56 @@ func TestProperty_Ingest_ReScanNeverRenumbersAnExistingSymbol(t *testing.T) {
 	})
 }
 
+// TestProperty_Ingest_EdgesInsertedCountsOnlyNewRows states the #97 bug class
+// for the EDGE path, which the symbol path's RowsAffected fix originally left
+// behind.
+//
+// `edges` is written with INSERT OR IGNORE, and SQLite leaves
+// last_insert_rowid untouched when that statement skips a conflicting row. So
+// `id, _ := res.LastInsertId(); return id != 0` does not report "this insert
+// created a row" — it reports "some insert on this connection created a row",
+// which on a re-ingest is whatever the symbol loop touched a moment earlier.
+// The observable consequence is stats.EdgesInserted: a re-scan of an unchanged
+// tree claims to have inserted every edge again, so `atlas scan`'s headline
+// counts describe work that did not happen, and nothing downstream that reads
+// them can tell an incremental scan from a first one.
+//
+// The property is stated as a conservation law rather than a fixed number:
+// re-ingesting an unchanged index inserts nothing, and the count the FIRST
+// ingest reported is the number of rows the table actually holds.
+func TestProperty_Ingest_EdgesInsertedCountsOnlyNewRows(t *testing.T) {
+	t.Parallel()
+	atlastest.ForEachSeed(t, 8, func(t *testing.T, r *atlastest.Rand) {
+		ctx := context.Background()
+		root := t.TempDir()
+		atlastest.WriteProject(t, root, atlastest.GenGoProject(r, atlastest.GoProjectOptions{}))
+
+		idx := indexTree(t, root)
+		s := openTestStore(t)
+		first, err := s.Ingest(ctx, idx)
+		if err != nil {
+			t.Fatalf("seed %d: first Ingest: %v", r.Seed(), err)
+		}
+		second, err := s.Ingest(ctx, idx)
+		if err != nil {
+			t.Fatalf("seed %d: second Ingest: %v", r.Seed(), err)
+		}
+		if second.EdgesInserted != 0 {
+			t.Fatalf("seed %d: re-ingesting an unchanged index reported %d edges inserted; INSERT OR IGNORE inserted none",
+				r.Seed(), second.EdgesInserted)
+		}
+
+		var held int
+		if err := s.sqlDB().QueryRowContext(ctx, `SELECT COUNT(*) FROM edges`).Scan(&held); err != nil {
+			t.Fatalf("seed %d: count edges: %v", r.Seed(), err)
+		}
+		if first.EdgesInserted != held {
+			t.Fatalf("seed %d: first Ingest reported %d edges inserted but the table holds %d",
+				r.Seed(), first.EdgesInserted, held)
+		}
+	})
+}
+
 // assertEdgesMatchGraph anchors the persisted edge set to the SCANNED one:
 // every row in `edges`, read back through the qualified names of both
 // endpoints, must be an edge the scanner actually produced.

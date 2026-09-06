@@ -1,4 +1,15 @@
-package redact
+package redact_test
+
+// This file is an EXTERNAL test package (redact_test, not redact) for one
+// reason: it needs a real migrated store, so it imports packages/store --
+// and packages/store now imports packages/redact, because redaction happens
+// at ingest rather than only in a later sweep (#131). An internal test would
+// close that loop into an import cycle.
+//
+// The dot-import keeps the assertions reading against the package's own
+// names; it is the stdlib's own answer to a test-only cycle. Nothing
+// unexported is used here, and nothing should be: the registry checks below
+// are checks on the PUBLIC statement this package makes.
 
 import (
 	"context"
@@ -9,6 +20,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	. "github.com/sosalejandro/atlas/packages/redact"
 
 	"github.com/sosalejandro/atlas/packages/store"
 )

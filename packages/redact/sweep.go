@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -50,40 +51,75 @@ type SweepReport struct {
 
 	// ValuesRewritten counts DISTINCT values replaced, not rows: one
 	// credential hardcoded in nine queries is one value and nine rows.
+	//
+	// It is computed in BOTH modes. Without SweepOptions.Apply it is what
+	// the sweep WOULD replace -- which is the only number a dry run is for.
+	// Leaving it at zero there made `--dry-run` report "would change
+	// nothing" over a store full of secrets, which is the one answer a dry
+	// run must never give. Use Hit.Applied, not this figure, to tell
+	// whether the database was actually written.
 	ValuesRewritten int `json:"values_rewritten"`
 
 	// Unredactable counts hits in columns atlas will not rewrite. These are
 	// the ones that need a source change, and they are the ones a report
 	// that only counted successful redactions would hide.
 	Unredactable int `json:"unredactable"`
+
+	// ColumnsNotSwept names the TEXT columns the live schema has and the
+	// compiled-in registry does not. Nothing read them, so no claim about
+	// them was made or can be made.
+	//
+	// It exists because "no secrets found" and "nothing was looked at" print
+	// identically otherwise. In a released build this list is empty --
+	// schema_test.go compares the registry against a freshly migrated store
+	// and fails the build on drift -- so a non-empty list means the binary
+	// is older than the database in front of it, which is precisely when the
+	// report needs to say so out loud.
+	ColumnsNotSwept []string `json:"columns_not_swept,omitempty"`
 }
 
 // Clean reports whether the sweep found nothing.
 func (r SweepReport) Clean() bool { return len(r.Hits) == 0 }
 
-// Sweep reads every TEXT column atlas stores, looking for secrets, and --
-// with SweepOptions.Apply -- replaces the ones it is allowed to rewrite.
+// Sweep reads every REGISTERED TEXT column the live schema also has,
+// looking for secrets, and -- with SweepOptions.Apply -- replaces the ones
+// it is allowed to rewrite.
 //
-// Every TEXT column is read, not only the ones expected to carry source
-// text. A credential in a file path or a symbol name is a real disclosure
-// even though it is not one atlas can fix, and a sweep that only looked
-// where it expected to find something would let the schema decide what the
-// report is allowed to say.
+// Registered, not "every TEXT column in the file": the loop below iterates
+// the compiled-in registry, so a column the schema has and the registry
+// does not is never read. In a released build that set is empty, because
+// schema_test.go compares the registry against a freshly migrated store and
+// fails the build on drift -- but the guarantee is a build-time one, and
+// this function is also run by binaries older than the database in front of
+// them. Whatever it did not read is named in SweepReport.ColumnsNotSwept
+// rather than left to be inferred from a clean hit list.
+//
+// Within that set every registered column is read, not only the ones
+// expected to carry source text. A credential in a file path or a symbol
+// name is a real disclosure even though it is not one atlas can fix.
 func Sweep(ctx context.Context, db *sql.DB, opts SweepOptions) (SweepReport, error) {
 	live, err := liveSchema(ctx, db)
 	if err != nil {
 		return SweepReport{}, err
 	}
+	registered := map[string]bool{}
+	for _, c := range columns {
+		registered[c.Table+"."+c.Name] = true
+	}
 	keysByTable := map[string][]string{}
 	present := map[string]bool{}
+
+	var rep SweepReport
 	for _, t := range live {
 		keysByTable[t.name] = t.keyColumns
 		for _, c := range t.textColumns {
 			present[t.name+"."+c] = true
+			if !registered[t.name+"."+c] {
+				rep.ColumnsNotSwept = append(rep.ColumnsNotSwept, t.name+"."+c)
+			}
 		}
 	}
-
-	var rep SweepReport
+	sort.Strings(rep.ColumnsNotSwept)
 	pending := map[rewrite]string{}
 	for _, col := range columns {
 		// A registered column the live schema does not have is not an
@@ -105,13 +141,16 @@ func Sweep(ctx context.Context, db *sql.DB, opts SweepOptions) (SweepReport, err
 			rep.Unredactable++
 		}
 	}
+	// Counted before the apply branch, not inside it: the dry run's whole
+	// job is to report this number, and a number only the writing path
+	// computes is a number the dry run gets wrong.
+	rep.ValuesRewritten = len(pending)
 	if !opts.Apply || len(pending) == 0 {
 		return rep, nil
 	}
 	if err := applyRewrites(ctx, db, pending); err != nil {
 		return SweepReport{}, err
 	}
-	rep.ValuesRewritten = len(pending)
 	for i := range rep.Hits {
 		rep.Hits[i].Applied = rep.Hits[i].Redactable
 	}

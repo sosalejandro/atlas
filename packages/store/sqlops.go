@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
 
@@ -172,7 +173,7 @@ func (o *sqlOpsStore) Replace(ctx context.Context, ops []SQLOperationRecord) err
 		return fmt.Errorf("sql operations replace: clear: %w", err)
 	}
 	for _, op := range ops {
-		if err := insertOperation(ctx, qtx, op); err != nil {
+		if err := insertOperation(ctx, o.db.logger, qtx, op); err != nil {
 			return err
 		}
 	}
@@ -182,11 +183,34 @@ func (o *sqlOpsStore) Replace(ctx context.Context, ops []SQLOperationRecord) err
 	return nil
 }
 
-func insertOperation(ctx context.Context, qtx *sqlc.Queries, op SQLOperationRecord) error {
+// insertOperation writes one operation, redacting the free-text columns on
+// the way in.
+//
+// sql_operations.sql_text is THE case issue #131 names: a hardcoded
+// connection string inside a query is stored verbatim, so a query built
+// against a DSN literal put a live credential in the state database every
+// time anyone ran `atlas sql`. It is replaced here rather than only being
+// reported later by `atlas security`, because a report about a database
+// that already holds the credential is a report, not a control.
+//
+// Redacting is not free of consequence and it is not hidden: the placeholder
+// names the rule and a digest, `atlas sql` analyses the rewritten text, and
+// every replacement is logged with the operation ref so the operator can go
+// and rotate the credential at the source, which atlas cannot do for them.
+func insertOperation(
+	ctx context.Context, logger shared.Logger, qtx *sqlc.Queries, op SQLOperationRecord,
+) error {
 	symbolID, err := resolveSymbolLink(ctx, qtx, op.SymbolName)
 	if err != nil {
 		return err
 	}
+	sqlText, _ := redactForStore(ctx, logger, "sql_operations", "sql_text", op.Ref, op.SQLText)
+	interpolation, _ := redactForStore(ctx, logger,
+		"sql_operations", "interpolation", op.Ref, op.Interpolation)
+	unresolved, _ := redactForStore(ctx, logger,
+		"sql_operations", "unresolved_reason", op.Ref, op.UnresolvedReason)
+	suppressions, _ := redactForStore(ctx, logger,
+		"sql_operations", "suppressions", op.Ref, strings.Join(op.Suppressions, ","))
 	id, err := qtx.InsertSQLOperation(ctx, sqlc.InsertSQLOperationParams{
 		Ref:              op.Ref,
 		Source:           op.Source,
@@ -197,11 +221,11 @@ func insertOperation(ctx context.Context, qtx *sqlc.Queries, op SQLOperationReco
 		SymbolName:       op.SymbolName,
 		Kind:             defaultTo(op.Kind, "unknown"),
 		Resolved:         boolToInt(op.Resolved),
-		UnresolvedReason: op.UnresolvedReason,
-		SqlText:          op.SQLText,
+		UnresolvedReason: unresolved,
+		SqlText:          sqlText,
 		RowScan:          defaultTo(op.RowScan, "unknown"),
 		ParamCount:       int64(op.ParamCount),
-		Interpolation:    op.Interpolation,
+		Interpolation:    interpolation,
 		CallerData:       boolToInt(op.CallerData),
 		HasLimit:         boolToInt(op.HasLimit),
 		HasOffset:        boolToInt(op.HasOffset),
@@ -209,7 +233,7 @@ func insertOperation(ctx context.Context, qtx *sqlc.Queries, op SQLOperationReco
 		Keyset:           boolToInt(op.Keyset),
 		SelectStar:       boolToInt(op.SelectStar),
 		OffsetBound:      defaultTo(op.OffsetBound, "none"),
-		Suppressions:     strings.Join(op.Suppressions, ","),
+		Suppressions:     suppressions,
 	})
 	if err != nil {
 		return fmt.Errorf("insert sql operation %s: %w", op.Ref, err)
@@ -275,10 +299,14 @@ func (o *sqlOpsStore) ReplaceSchema(ctx context.Context, tables []SQLTableRow, i
 		}
 	}
 	for _, ix := range indexes {
+		// The partial-index WHERE clause is the one free-text column here:
+		// it is DDL copied verbatim, so it can carry a literal.
+		predicate, _ := redactForStore(ctx, o.db.logger, "sql_indexes", "predicate",
+			ix.Table+"."+ix.Name, ix.Predicate)
 		if err := qtx.InsertSQLIndex(ctx, sqlc.InsertSQLIndexParams{
 			TableName: ix.Table, Name: ix.Name,
 			Columns:  strings.Join(ix.Columns, ","),
-			IsUnique: boolToInt(ix.Unique), Predicate: ix.Predicate,
+			IsUnique: boolToInt(ix.Unique), Predicate: predicate,
 			Origin: ix.Origin, FilePath: ix.FilePath, Line: int64(ix.Line),
 		}); err != nil {
 			return fmt.Errorf("insert sql index %s.%s: %w", ix.Table, ix.Name, err)

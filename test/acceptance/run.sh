@@ -8,14 +8,11 @@
 # contact with a reader who does not trust the test suite, because the subject
 # and the instrument are the same artefact.
 #
-# It is a script rather than a workflow file because CI is owned elsewhere in
-# this batch. Wiring is one step:
-#
-#   - name: atlas gates atlas
-#     run: ./test/acceptance/run.sh
-#
-# placed AFTER the existing `go test` step, and passing that step's
-# coverprofile through ATLAS_DOGFOOD_PROFILE so the suite is not run twice.
+# It is a script rather than inline workflow YAML so the same gate runs
+# identically on a laptop and in CI. .github/workflows/ci.yml calls it from
+# the `atlas gates atlas (blocking)` job, which takes the coverprofile the
+# build-and-test job already wrote and passes it in through
+# ATLAS_DOGFOOD_PROFILE, so the suite is not run a second time.
 #
 # Environment:
 #   ATLAS_DOGFOOD_PROFILE  a coverprofile for this repo. Generated here when

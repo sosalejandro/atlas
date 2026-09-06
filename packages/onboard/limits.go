@@ -1,6 +1,9 @@
 package onboard
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // limits states what atlas could not see on this run.
 //
@@ -128,18 +131,37 @@ func churnLimit(in Input, res Result) *Limit {
 	}
 }
 
+// scanLimit reports the two things the scan can tell you about its own
+// completeness, and is careful not to conflate them.
+//
+// The exclusion ledger is a count of files that were deliberately not
+// indexed, so their symbols really are absent from every capability above.
+// A scanner warning is a different kind of thing: a name collision resolved
+// by qualifying the id, a router shape the TS scanner did not recognise, a
+// file that would not parse. Some of those cost atlas a symbol and some do
+// not, and nothing here classifies them -- so the warning count is reported
+// as a warning count. Presenting it as "files atlas could not read" would be
+// a number this run does not have.
 func scanLimit(in Input) *Limit {
 	if in.FilesExcluded == 0 && len(in.ScannerWarnings) == 0 {
 		return nil
 	}
-	detail := fmt.Sprintf("The scan raised %d warnings", len(in.ScannerWarnings))
+	var parts []string
 	if in.FilesExcluded > 0 {
-		detail = fmt.Sprintf("The scan excluded %d files (generated code and ignored packages) and raised %d warnings",
-			in.FilesExcluded, len(in.ScannerWarnings))
+		parts = append(parts, fmt.Sprintf(
+			"The scan deliberately excluded %d files (generated code and ignored packages); "+
+				"their symbols are absent from every capability above.", in.FilesExcluded))
+	}
+	if n := len(in.ScannerWarnings); n > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"The scan raised %s. A warning is a diagnostic, not a count of files atlas "+
+				"could not read: some cost it a symbol and some do not, and it does not "+
+				"tell them apart -- so read them rather than the number.",
+			plural(n, "scanner warning", "scanner warnings")))
 	}
 	return &Limit{
 		Code:   "scan-incomplete",
-		Detail: detail + ". Symbols atlas could not read are absent from every capability above.",
+		Detail: strings.Join(parts, " "),
 		Fix:    "atlas doctor",
 	}
 }

@@ -153,6 +153,65 @@ func TestOnboard_ReportHasFindingsLimitsAndCISnippet(t *testing.T) {
 	}
 }
 
+// With --skip-sql the SQL pass never runs, so there is no operation count
+// and no unresolved count. Printing "0 operations, 0 unresolved   0.0s" put
+// an unknown on the header wearing a measurement's clothes -- complete with
+// the time it supposedly took to find it out -- and a reader has no way to
+// tell that line from a project that genuinely has no queries.
+func TestOnboard_SkipSQLReportsSkippedRatherThanAMeasuredZero(t *testing.T) {
+	fix := newOnboardFixture(t)
+	stdout, stderr, err := execOnboard(t, fix, "--skip-sql")
+	if err != nil {
+		t.Fatalf("onboard --skip-sql: %v\nstderr:\n%s", err, stderr)
+	}
+	sqlLine := ""
+	for _, line := range strings.Split(stdout, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "sql ") {
+			sqlLine = line
+			break
+		}
+	}
+	if sqlLine == "" {
+		t.Fatalf("no sql line in the header:\n%s", stdout)
+	}
+	if !strings.Contains(sqlLine, "skipped") {
+		t.Errorf("sql line does not say the pass was skipped: %q", sqlLine)
+	}
+	for _, unwanted := range []string{"0 operations", "0 unresolved", "0.0s"} {
+		if strings.Contains(sqlLine, unwanted) {
+			t.Errorf("sql line prints %q for a pass that never ran: %q", unwanted, sqlLine)
+		}
+	}
+
+	// The same distinction has to survive into the JSON, where a consumer
+	// reading stats.sql_operations otherwise cannot tell "no queries" from
+	// "nobody looked".
+	jsonOut, stderr, err := execOnboard(t, fix, "--skip-sql", "--json")
+	if err != nil {
+		t.Fatalf("onboard --skip-sql --json: %v\nstderr:\n%s", err, stderr)
+	}
+	var env struct {
+		Result struct {
+			SQLScanned bool `json:"sql_scanned"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(jsonOut), &env); err != nil {
+		t.Fatalf("decode envelope: %v\n%s", err, jsonOut)
+	}
+	if env.Result.SQLScanned {
+		t.Error("JSON reports sql_scanned=true for a run that skipped the SQL pass")
+	}
+
+	// And a run that DID scan still prints its counts.
+	scanned, stderr, err := execOnboard(t, fix)
+	if err != nil {
+		t.Fatalf("onboard: %v\nstderr:\n%s", err, stderr)
+	}
+	if !strings.Contains(scanned, "operations,") {
+		t.Errorf("a run that scanned SQL printed no operation count:\n%s", scanned)
+	}
+}
+
 func TestOnboard_JSONEnvelopeIsLabelled(t *testing.T) {
 	fix := newOnboardFixture(t)
 	stdout, stderr, err := execOnboard(t, fix, "--json")
@@ -265,6 +324,88 @@ func TestOnboardPromote_DryRunByDefaultThenApplies(t *testing.T) {
 	}
 	if len(feats) == 0 {
 		t.Fatal("promoted annotations did not materialise any feature on re-scan")
+	}
+}
+
+// `promote --all` regularly lands two annotations in one file, and that is
+// where this used to corrupt the user's source: each insertion shifts every
+// line below it, and the second annotation was written against line numbers
+// computed before the first edit. One line off is enough to detach an
+// annotation from its declaration -- the scanner then reads nothing, and
+// the user is left with a stray comment in a file they did not expect to be
+// edited at all.
+func TestOnboardPromote_TwoAnnotationsInOneFileBothLandOnTheirDeclaration(t *testing.T) {
+	fix := newOnboardFixture(t)
+	// Two capabilities anchored in one file: a test-name cluster claims
+	// Ship, and the directory fallback claims Quote beside it. No doc
+	// comments and single blank lines between declarations, so a one-line
+	// slip is unambiguous rather than merely untidy.
+	shipping := filepath.Join(fix.root, "internal", "shipping")
+	if err := os.MkdirAll(shipping, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(shipping, "ship.go")
+	if err := os.WriteFile(src, []byte(`package shipping
+
+func Ship(id string) error {
+	return nil
+}
+
+func Quote(id string) (int, error) {
+	return 0, nil
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shipping, "ship_test.go"), []byte(`package shipping
+
+import "testing"
+
+func TestShipOnce(t *testing.T)  { _ = Ship }
+func TestShipTwice(t *testing.T) { _ = Ship }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, stderr, err := execOnboard(t, fix); err != nil {
+		t.Fatalf("onboard: %v\n%s", err, stderr)
+	}
+	rootCmd := NewRootCmd()
+	loaded = Config{repoRoot: fix.root, DBPath: fix.dbPath}
+	flags = globalFlags{DBPath: fix.dbPath}
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	rootCmd.SetArgs([]string{
+		"onboard", "promote", "--root", fix.root, "--db-path", fix.dbPath, "--all", "--apply",
+	})
+	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("promote --all --apply: %v\n%s", err, out.String())
+	}
+
+	body, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(body), "\n")
+	annotated := 0
+	for i, line := range lines {
+		if !strings.Contains(line, "@atlas:feature") {
+			continue
+		}
+		annotated++
+		if i+1 >= len(lines) || !strings.HasPrefix(lines[i+1], "func ") {
+			next := "<end of file>"
+			if i+1 < len(lines) {
+				next = lines[i+1]
+			}
+			t.Errorf("annotation %q is not attached to a declaration; the next line is %q\nfile:\n%s",
+				strings.TrimSpace(line), next, body)
+		}
+	}
+	if annotated != 2 {
+		t.Errorf("ship.go carries %d annotations, want 2 (one per capability anchored in it)\nfile:\n%s",
+			annotated, body)
 	}
 }
 

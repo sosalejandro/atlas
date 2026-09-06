@@ -410,6 +410,45 @@ else
 	pass
 fi
 
+# GitHub does not start workflow runs from events raised with the default
+# GITHUB_TOKEN, so the tag release-please pushes does NOT fire release.yml's
+# `on: push: tags` trigger. Without an explicit hand-off no release is ever
+# built and the whole pipeline is decoration. workflow_dispatch is one of
+# the two documented exceptions to that rule, which is why the bridge uses
+# it. This is a static check because the only dynamic one is "tag a release
+# and see whether anything happens".
+it "release-please hands the new tag to release.yml explicitly"
+if grep -q 'gh workflow run release\.yml' "$REPO_ROOT/.github/workflows/release-please.yml"; then
+	pass
+else
+	fail "release-please.yml never dispatches release.yml; a GITHUB_TOKEN tag push triggers nothing"
+fi
+
+it "release.yml accepts the dispatched tag as an input"
+if grep -q 'workflow_dispatch:' "$REPO_ROOT/.github/workflows/release.yml" &&
+	grep -qE '^ *tag:' "$REPO_ROOT/.github/workflows/release.yml"; then
+	pass
+else
+	fail "release.yml has no workflow_dispatch 'tag' input for the bridge to target"
+fi
+
+it "the edge workflow publishes the fixed edge asset names"
+if grep -qE '^ *run: \.github/scripts/edge-assets\.sh' "$REPO_ROOT/.github/workflows/edge.yml"; then
+	pass
+else
+	fail "edge.yml never runs edge-assets.sh; it would publish describe-stamped names that every documented edge install 404s on"
+fi
+
+# docs/install.md's channels table promises edge the same provenance as
+# stable, and the consumer action defaults verify-provenance to true on
+# every channel. Both were false while edge.yml had no attestation step.
+it "the edge workflow attests provenance, as the channels table promises"
+if grep -qE '^ *uses: actions/attest-build-provenance@' "$REPO_ROOT/.github/workflows/edge.yml"; then
+	pass
+else
+	fail "edge.yml has no attestation step, but edge is advertised as attested"
+fi
+
 # ---------------------------------------------------------------------------
 # The consumer action's installer.
 #
@@ -458,6 +497,136 @@ fi
 it "the action's installer accepts the edge channel"
 assert_eq "$(bash "$ACTION_INSTALL" --print-asset-name --version edge --os Linux --arch X64)" \
 	"atlas_edge_linux_amd64"
+
+# ---------------------------------------------------------------------------
+# The edge channel's asset names.
+#
+# The installer asks for `atlas_edge_<goos>_<goarch>`, but an edge build is
+# stamped with `git describe`, so build.sh writes
+# `atlas_v0.13.0-7-gabc1234_linux_amd64`. Nothing reconciled the two, so the
+# advertised edge install 404'd on every platform. edge-assets.sh closes
+# that, and these cases check the two ends AGAINST EACH OTHER rather than
+# each against a literal — a literal in both places is how they drifted
+# apart in the first place.
+# ---------------------------------------------------------------------------
+
+EDGE_ASSETS="$SCRIPT_DIR/edge-assets.sh"
+EDGE_DESCRIBE="v0.13.0-7-gabc1234"
+
+edge_fixture() {
+	local dir="$1" f
+	rm -rf "$dir"
+	mkdir -p "$dir"
+	for f in linux_amd64 linux_arm64 darwin_arm64 windows_amd64.exe; do
+		printf 'binary\n' >"$dir/atlas_${EDGE_DESCRIBE}_${f}"
+	done
+	printf '{}\n' >"$dir/atlas_${EDGE_DESCRIBE}_sbom.spdx.json"
+}
+
+it "edge-assets.sh produces exactly the asset name the installer downloads"
+edgedist="$WORK/edge-dist"
+edge_fixture "$edgedist"
+if bash "$EDGE_ASSETS" --dist "$edgedist" --version "$EDGE_DESCRIBE" >/dev/null 2>&1; then
+	want="$(bash "$ACTION_INSTALL" --print-asset-name --version edge --os Linux --arch X64)"
+	if [ -f "$edgedist/$want" ]; then
+		pass
+	else
+		fail "installer asks for [$want]; publish produced: $(ls "$edgedist" | tr '\n' ' ')"
+	fi
+else
+	fail "edge-assets.sh failed on a normal edge dist"
+fi
+
+it "edge-assets.sh renames the windows asset, .exe suffix intact"
+want="$(bash "$ACTION_INSTALL" --print-asset-name --version edge --os Windows --arch X64)"
+if [ -f "$edgedist/$want" ]; then pass; else fail "missing [$want]"; fi
+
+it "edge-assets.sh renames the SBOM alongside the binaries"
+if [ -f "$edgedist/atlas_edge_sbom.spdx.json" ]; then
+	pass
+else
+	fail "SBOM keeps a describe-stamped name: $(ls "$edgedist" | tr '\n' ' ')"
+fi
+
+it "edge-assets.sh leaves nothing behind under the describe-stamped name"
+leftover="$(find "$edgedist" -name "atlas_${EDGE_DESCRIBE}_*" | wc -l | tr -d ' ')"
+assert_eq "$leftover" "0"
+
+# A publish that produced no edge-named asset would upload a release nobody
+# can install from and report success. Empty must be an error, not a skip.
+it "edge-assets.sh fails rather than publish a release with no reachable names"
+emptydist="$WORK/edge-empty"
+mkdir -p "$emptydist"
+printf 'x\n' >"$emptydist/atlas_v9.9.9_linux_amd64"
+bash "$EDGE_ASSETS" --dist "$emptydist" --version "$EDGE_DESCRIBE" >/dev/null 2>&1
+assert_not_ok $?
+
+it "edge-assets.sh is a no-op when the assets already carry the edge names"
+donedist="$WORK/edge-done"
+mkdir -p "$donedist"
+printf 'x\n' >"$donedist/atlas_edge_linux_amd64"
+bash "$EDGE_ASSETS" --dist "$donedist" --version edge >/dev/null 2>&1
+assert_ok $?
+
+# ---------------------------------------------------------------------------
+# The Homebrew formula.
+#
+# `brew install` is an acceptance criterion of issue #121. The formula is
+# generated from the release's signed SHA256SUMS, so the digest a user's
+# brew checks and the digest the release published cannot disagree — and a
+# platform missing from the manifest has to be a failure here, because
+# otherwise it is a failure in whoever's `brew install` runs first.
+# ---------------------------------------------------------------------------
+
+BREW_FORMULA="$SCRIPT_DIR/brew-formula.sh"
+
+brew_fixture() {
+	local dir="$1" version="$2" t
+	rm -rf "$dir"
+	mkdir -p "$dir"
+	for t in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+		printf '%s\n' "$t" >"$dir/atlas_${version}_${t}"
+	done
+	bash "$SCRIPT_DIR/checksums.sh" "$dir" >/dev/null 2>&1
+}
+
+it "brew-formula.sh copies each digest out of the release manifest"
+brewdist="$WORK/brew-dist"
+brew_fixture "$brewdist" v1.2.3
+formula="$(bash "$BREW_FORMULA" --version v1.2.3 --dist "$brewdist" --repo acme/atlas 2>&1)"
+rc=$?
+if [ $rc -ne 0 ]; then
+	fail "brew-formula.sh failed: $formula"
+else
+	want="$(grep ' atlas_v1.2.3_darwin_arm64$' "$brewdist/SHA256SUMS" | awk '{print $1}')"
+	assert_contains "$formula" "sha256 \"$want\""
+fi
+
+it "brew-formula.sh names the bare semver as the Homebrew version"
+assert_contains "$formula" 'version "1.2.3"'
+
+it "brew-formula.sh points at the release download URLs"
+assert_contains "$formula" 'https://github.com/acme/atlas/releases/download/v1.2.3/atlas_v1.2.3_linux_arm64'
+
+# A formula that silently omits a platform installs nothing on that
+# platform, and the person who finds out is a user, not the pipeline.
+it "brew-formula.sh fails when a platform is missing from the manifest"
+partial="$WORK/brew-partial"
+brew_fixture "$partial" v1.2.3
+grep -v ' atlas_v1.2.3_darwin_amd64$' "$partial/SHA256SUMS" >"$partial/SHA256SUMS.tmp"
+mv "$partial/SHA256SUMS.tmp" "$partial/SHA256SUMS"
+bash "$BREW_FORMULA" --version v1.2.3 --dist "$partial" >/dev/null 2>&1
+assert_not_ok $?
+
+it "brew-formula.sh refuses a version that is not a release tag"
+bash "$BREW_FORMULA" --version edge --dist "$brewdist" >/dev/null 2>&1
+assert_not_ok $?
+
+it "brew-formula.sh refuses to invent digests with no manifest present"
+nosums="$WORK/brew-nosums"
+mkdir -p "$nosums"
+bash "$BREW_FORMULA" --version v1.2.3 --dist "$nosums" >/dev/null 2>&1
+assert_not_ok $?
 
 # ---------------------------------------------------------------------------
 # build.sh — the real thing, against this checkout

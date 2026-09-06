@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -42,6 +43,10 @@ var annotationMarkers = []string{"@atlas:feature", "@atlas:contract", "@testreg"
 //
 // apply=false is a dry run: the result carries the exact line that would be
 // written and the file is not touched.
+//
+// Promoting SEVERAL capabilities goes through PromoteAll, not through a loop
+// over this: Promote resolves its target by line number against the file as
+// it stands, and one insertion moves every line below it.
 func Promote(root string, c Capability, apply bool) (PromoteResult, error) {
 	if c.Anchor == nil {
 		return PromoteResult{}, fmt.Errorf(
@@ -97,6 +102,57 @@ func Promote(root string, c Capability, apply bool) (PromoteResult, error) {
 	}
 	res.Applied = true
 	return res, nil
+}
+
+// PromoteAll promotes a set of capabilities, ordering the writes so that
+// several annotations landing in one file cannot displace each other.
+//
+// This ordering is the whole reason the function exists. Promote addresses
+// its target by the anchor's line number, resolved against the file as it
+// stands; inserting one annotation above line N shifts every line from N
+// downwards by one. A caller that looped over Promote in map order would
+// therefore write its second annotation into that file one line off its
+// declaration, its third two lines off, and so on -- silently, into the
+// user's source. Applying each file's promotions in DESCENDING line order
+// means every insertion happens strictly below every target still to come,
+// so no anchor a later call needs has moved.
+//
+// Results come back in the order the capabilities were given, whatever
+// order they were applied in, so the caller's report still reads as the
+// caller's list.
+func PromoteAll(root string, caps []Capability, apply bool) ([]PromoteResult, error) {
+	order := make([]int, len(caps))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		af, al := anchorKey(caps[order[a]])
+		bf, bl := anchorKey(caps[order[b]])
+		if af != bf {
+			return af < bf
+		}
+		return al > bl
+	})
+
+	out := make([]PromoteResult, len(caps))
+	for _, i := range order {
+		res, err := Promote(root, caps[i], apply)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = res
+	}
+	return out, nil
+}
+
+// anchorKey is the (file, line) a capability would be written at. An
+// unanchored capability sorts first so that the error Promote raises for it
+// surfaces before any file has been edited.
+func anchorKey(c Capability) (string, int) {
+	if c.Anchor == nil {
+		return "", 0
+	}
+	return c.Anchor.FilePath, c.Anchor.Line
 }
 
 // existingAnnotation walks the contiguous comment block immediately above
