@@ -1,0 +1,19 @@
+mode: set
+github.com/example/attribution/billing/order.go:11.29,13.2 1 1
+github.com/example/attribution/billing/order.go:17.23,19.2 1 0
+github.com/example/attribution/billing/order.go:23.31,24.15 1 1
+github.com/example/attribution/billing/order.go:24.15,26.3 1 0
+github.com/example/attribution/billing/order.go:27.2,27.14 1 1
+github.com/example/attribution/shipping/order.go:9.29,11.2 1 0
+github.com/example/attribution/shipping/order.go:14.27,15.17 1 0
+github.com/example/attribution/shipping/order.go:15.17,17.3 1 0
+github.com/example/attribution/shipping/order.go:18.2,18.15 1 0
+github.com/example/attribution/billing/order.go:11.29,13.2 1 0
+github.com/example/attribution/billing/order.go:17.23,19.2 1 0
+github.com/example/attribution/billing/order.go:23.31,24.15 1 0
+github.com/example/attribution/billing/order.go:24.15,26.3 1 0
+github.com/example/attribution/billing/order.go:27.2,27.14 1 0
+github.com/example/attribution/shipping/order.go:9.29,11.2 1 1
+github.com/example/attribution/shipping/order.go:14.27,15.17 1 1
+github.com/example/attribution/shipping/order.go:15.17,17.3 1 1
+github.com/example/attribution/shipping/order.go:18.2,18.15 1 0

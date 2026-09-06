@@ -16,6 +16,10 @@ testreg
 # Output of the go coverage tool
 *.out
 coverage.html
+# ...except checked-in coverage fixtures, which are test data, not build
+# output: packages/coverage/testdata/**/cover.out is the verbatim profile the
+# attribution acceptance test asserts against.
+!packages/coverage/testdata/**/*.out
 
 # Go workspace file
 go.work
