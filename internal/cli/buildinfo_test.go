@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -207,5 +211,212 @@ func TestResolveBuildInfo_StampedReleaseAllThreeBaked(t *testing.T) {
 	}
 	if strings.Contains(root.Version, "dev") {
 		t.Fatalf("rendered version must not contain 'dev' once stamped: %q", root.Version)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Build-provenance reporting (issue #121).
+//
+// The release pipeline builds with `-trimpath` and CGO_ENABLED=0. Those two
+// flags are the difference between "a binary" and "a binary a third party
+// can rebuild byte-for-byte", and CGO_ENABLED=0 is separately the property
+// that keeps the cross-compile matrix working at all (the store is
+// modernc.org/sqlite precisely so no C toolchain is needed).
+//
+// Someone holding a downloaded binary cannot see the build command that
+// produced it. These tests pin the projection that lets `atlas version
+// --json` tell them.
+// ---------------------------------------------------------------------------
+
+// TestResolveBuildSettings_ReleaseBuildFlagsAreReported is the happy path:
+// a binary produced by the release pipeline reports trimpath on, cgo off,
+// and therefore satisfies the necessary conditions for reproducibility.
+func TestResolveBuildSettings_ReleaseBuildFlagsAreReported(t *testing.T) {
+	bi := &debug.BuildInfo{
+		GoVersion: "go1.25.14",
+		Settings: []debug.BuildSetting{
+			{Key: "-trimpath", Value: "true"},
+			{Key: "CGO_ENABLED", Value: "0"},
+			{Key: "GOOS", Value: "darwin"},
+			{Key: "GOARCH", Value: "arm64"},
+		},
+	}
+	got := resolveBuildSettings(bi, true)
+	if got.GoVersion != "go1.25.14" {
+		t.Errorf("go version: got %q want %q", got.GoVersion, "go1.25.14")
+	}
+	if got.OS != "darwin" || got.Arch != "arm64" {
+		t.Errorf("platform: got %s/%s want darwin/arm64", got.OS, got.Arch)
+	}
+	if !got.Trimpath {
+		t.Error("trimpath: got false, want true (release builds pass -trimpath)")
+	}
+	if got.CGOEnabled {
+		t.Error("cgo: got enabled, want disabled (modernc.org/sqlite is cgo-free)")
+	}
+	if !got.ReproducibleFlags {
+		t.Error("ReproducibleFlags: want true when trimpath is on and cgo is off")
+	}
+}
+
+// TestResolveBuildSettings_CGOBuildIsNotFlaggedReproducible guards the
+// property the cross-compile matrix depends on. A cgo build links against
+// the host's libc, so it is neither reproducible off-host nor
+// cross-compilable without a C toolchain. Losing CGO_ENABLED=0 silently is
+// a named risk of this work; this is the assertion that makes it loud.
+func TestResolveBuildSettings_CGOBuildIsNotFlaggedReproducible(t *testing.T) {
+	bi := &debug.BuildInfo{
+		GoVersion: "go1.25.14",
+		Settings: []debug.BuildSetting{
+			{Key: "-trimpath", Value: "true"},
+			{Key: "CGO_ENABLED", Value: "1"},
+		},
+	}
+	got := resolveBuildSettings(bi, true)
+	if !got.CGOEnabled {
+		t.Fatal("CGO_ENABLED=1 must be reported as enabled")
+	}
+	if got.ReproducibleFlags {
+		t.Error("a cgo build must never be reported as satisfying the reproducible-build flags")
+	}
+}
+
+// TestResolveBuildSettings_NoTrimpathIsNotReproducible: without -trimpath
+// the binary embeds absolute source paths, so two checkouts in different
+// directories produce different bytes. Reporting such a build as
+// reproducible would be exactly the unearned claim this work exists to
+// stop.
+func TestResolveBuildSettings_NoTrimpathIsNotReproducible(t *testing.T) {
+	bi := &debug.BuildInfo{
+		GoVersion: "go1.25.14",
+		Settings:  []debug.BuildSetting{{Key: "CGO_ENABLED", Value: "0"}},
+	}
+	got := resolveBuildSettings(bi, true)
+	if got.Trimpath {
+		t.Error("absent -trimpath setting must report false")
+	}
+	if got.ReproducibleFlags {
+		t.Error("a build without -trimpath must not be reported as reproducible")
+	}
+}
+
+// TestResolveBuildSettings_UnreadableBuildInfoFallsBackToRuntime covers the
+// stripped-binary case (ReadBuildInfo ok=false). We still know the platform
+// we are executing on from the runtime constants, so report those rather
+// than empty strings — but claim nothing about the build flags.
+func TestResolveBuildSettings_UnreadableBuildInfoFallsBackToRuntime(t *testing.T) {
+	got := resolveBuildSettings(nil, false)
+	if got.OS != runtime.GOOS || got.Arch != runtime.GOARCH {
+		t.Errorf("platform fallback: got %s/%s want %s/%s",
+			got.OS, got.Arch, runtime.GOOS, runtime.GOARCH)
+	}
+	if got.GoVersion != runtime.Version() {
+		t.Errorf("go version fallback: got %q want %q", got.GoVersion, runtime.Version())
+	}
+	if got.Trimpath || got.ReproducibleFlags {
+		t.Error("nothing is known about flags when build info is unreadable; must not claim reproducible")
+	}
+}
+
+// TestResolveBuildSettings_MissingPlatformSettingsFallBackToRuntime: the
+// GOOS/GOARCH build settings are present in practice but are not part of
+// the runtime/debug contract. Fall back rather than render an empty
+// platform.
+func TestResolveBuildSettings_MissingPlatformSettingsFallBackToRuntime(t *testing.T) {
+	got := resolveBuildSettings(&debug.BuildInfo{GoVersion: "go1.25.14"}, true)
+	if got.OS != runtime.GOOS || got.Arch != runtime.GOARCH {
+		t.Errorf("platform: got %s/%s want runtime %s/%s",
+			got.OS, got.Arch, runtime.GOOS, runtime.GOARCH)
+	}
+}
+
+// TestVersionCmd_RegisteredOnRoot — a command not wired to root is not
+// delivered.
+func TestVersionCmd_RegisteredOnRoot(t *testing.T) {
+	var found bool
+	for _, c := range NewRootCmd().Commands() {
+		if c.Name() == "version" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("atlas version is not registered on the root command")
+	}
+}
+
+// runVersionCmd drives the real command tree so these tests cover the cobra
+// wiring, not just the helper underneath it.
+func runVersionCmd(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	root := NewRootCmd()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs(append([]string{"version"}, args...))
+	err := root.ExecuteContext(context.Background())
+	return stdout.String(), err
+}
+
+// TestVersionCmd_JSONEnvelopeCarriesProvenanceFields pins the machine-
+// readable contract. A CI job asking "is the binary I just downloaded the
+// reproducible one?" reads these fields; renaming one breaks that job.
+func TestVersionCmd_JSONEnvelopeCarriesProvenanceFields(t *testing.T) {
+	withLdflagsVars(t, "v1.4.0", "0badc0d", "2026-06-01T00:00:00Z")
+	out, err := runVersionCmd(t, "--json")
+	if err != nil {
+		t.Fatalf("atlas version --json: %v", err)
+	}
+	var env struct {
+		Command string `json:"command"`
+		Result  struct {
+			Version           string `json:"version"`
+			Commit            string `json:"commit"`
+			BuildDate         string `json:"build_date"`
+			GoVersion         string `json:"go_version"`
+			OS                string `json:"os"`
+			Arch              string `json:"arch"`
+			Trimpath          bool   `json:"trimpath"`
+			CGOEnabled        bool   `json:"cgo_enabled"`
+			ReproducibleFlags bool   `json:"reproducible_flags"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("decode envelope: %v\nraw:\n%s", err, out)
+	}
+	if env.Command != "version" {
+		t.Errorf("envelope command: got %q want %q", env.Command, "version")
+	}
+	if env.Result.Version != "v1.4.0" || env.Result.Commit != "0badc0d" {
+		t.Errorf("stamps not surfaced: got %+v", env.Result)
+	}
+	if env.Result.BuildDate != "2026-06-01T00:00:00Z" {
+		t.Errorf("build_date: got %q", env.Result.BuildDate)
+	}
+	if env.Result.OS != runtime.GOOS || env.Result.Arch != runtime.GOARCH {
+		t.Errorf("platform: got %s/%s want %s/%s",
+			env.Result.OS, env.Result.Arch, runtime.GOOS, runtime.GOARCH)
+	}
+	if env.Result.GoVersion == "" {
+		t.Error("go_version must never be empty")
+	}
+}
+
+// TestVersionCmd_HumanOutputIsHonestAboutUnverifiedReproducibility: the
+// flag check is a necessary-conditions check, not proof. The only proof is
+// rebuilding and comparing digests. The human output must not let a reader
+// mistake one for the other, so it points at the recipe that does prove it.
+func TestVersionCmd_HumanOutputIsHonestAboutUnverifiedReproducibility(t *testing.T) {
+	withLdflagsVars(t, "v1.4.0", "0badc0d", "2026-06-01T00:00:00Z")
+	out, err := runVersionCmd(t)
+	if err != nil {
+		t.Fatalf("atlas version: %v", err)
+	}
+	for _, want := range []string{"v1.4.0", "0badc0d", "2026-06-01T00:00:00Z", runtime.GOOS} {
+		if !strings.Contains(out, want) {
+			t.Errorf("human output missing %q; got:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "docs/install.md") {
+		t.Errorf("human output should point at the verification recipe; got:\n%s", out)
 	}
 }

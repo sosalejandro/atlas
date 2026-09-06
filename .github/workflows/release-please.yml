@@ -45,7 +45,12 @@ jobs:
     steps:
       - name: release-please-action
         id: release-please-action
-        uses: googleapis/release-please-action@v4
+        # Pinned to a commit, not to @v4: a floating major tag means
+        # whoever can move that tag can change what runs with
+        # contents:write on this repository. Bumping it is a deliberate
+        # edit here, with the version in the comment so a reader can tell
+        # what the SHA is.
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
           # All package + section config lives in .release-please-config.json
           # at the repo root. Current state lives in
@@ -134,7 +139,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: checkout release-please branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ steps.meta.outputs.branch }}
           # Need full history so a `git push` from this checkout is not

@@ -1,5 +1,15 @@
 name: CI
 
+# Every job name says whether it blocks the merge. A green check that gates
+# nothing teaches contributors that the check does not matter, and then the
+# one that does matter gets ignored too — so "(blocking)" and "(advisory)"
+# are part of the name rather than something you learn by reading branch
+# protection settings.
+#
+# Step logic lives in .github/scripts/*.sh, which
+# .github/scripts/scripts_test.sh exercises locally. A step written inline
+# here can only be tested by pushing.
+
 on:
   push:
     branches: [main, 'phase-*/*']
@@ -9,24 +19,44 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
-    name: build + test + lint
-    runs-on: ubuntu-latest
+    name: build + test + lint — ${{ matrix.os }} (blocking)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Read the pinned Go toolchain
+        id: toolchain
+        shell: bash
+        # One source of truth for the Go version: .github/scripts/toolchain.txt.
+        # go.mod's `go 1.25.0` is a language-version floor, not a toolchain
+        # pin, and a floor is not enough for reproducible output — two patch
+        # releases of Go do not produce the same bytes.
+        run: echo "version=$(tr -d '[:space:]' < .github/scripts/toolchain.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version-file: go.mod
+          go-version: ${{ steps.toolchain.outputs.version }}
           cache: true
 
       - name: Download modules
         run: go mod download
 
       - name: Install sqlc
+        # Linux only: sqlc's generated output is platform-independent, so
+        # checking it three times costs three installs and proves nothing
+        # the first one did not.
+        if: runner.os == 'Linux'
         # Pin to the version used to generate packages/store/sqlc/ —
         # bumping requires running `sqlc generate` and reviewing the diff.
         run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
@@ -36,6 +66,7 @@ jobs:
         # generated code in packages/store/sqlc/ wasn't regenerated. Run
         # `cd packages/store && sqlc generate` locally and commit the
         # output to fix.
+        if: runner.os == 'Linux'
         working-directory: packages/store
         run: sqlc diff
 
@@ -45,17 +76,29 @@ jobs:
       - name: go build
         run: go build ./...
 
-      - name: go test
-        run: go test ./... -race -timeout 5m
+      - name: go test (race)
+        # The race detector needs cgo and a C toolchain. That is fine on
+        # Linux and macOS; on Windows it would mean shipping a gcc
+        # dependency into a project whose whole point is that it needs no C
+        # compiler. Windows therefore runs the same suite without -race,
+        # and the race coverage comes from the other two platforms.
+        if: runner.os != 'Windows'
+        run: go test ./... -race -timeout 10m
+
+      - name: go test (no race, Windows)
+        if: runner.os == 'Windows'
+        run: go test ./... -timeout 10m
 
       - name: go test (integration tag)
         # Runs the framework-parser integration tests added in W2-E.
         # Scoped to packages/coverage/... so TestIngest_NutritionDogfood
         # (which requires the nutrition-v2-go checkout) is excluded.
+        if: runner.os == 'Linux'
         run: go test -tags=integration ./packages/coverage/... -race -timeout 5m
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        if: runner.os == 'Linux'
+        uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7.0.1
         with:
           # golangci-lint v2.12.x is built with Go 1.26 and supports go.mod
           # targeting >= 1.25 (our current target). Earlier v2.0.x was built
@@ -64,3 +107,78 @@ jobs:
           # Go toolchain we build the binary with.
           version: v2.12.2
           args: --timeout=5m
+
+  supply-chain:
+    name: reproducible build + cross-compile + release scripts (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # verify-repro.sh derives SOURCE_DATE_EPOCH from HEAD's committer
+          # date and the version from `git describe`, so it needs history
+          # and tags rather than the default single-commit checkout.
+          fetch-depth: 0
+
+      - name: Read the pinned Go toolchain
+        id: toolchain
+        run: echo "version=$(tr -d '[:space:]' < .github/scripts/toolchain.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+          cache: true
+
+      # This single command covers: the helper unit tests, the six-target
+      # cross-compile with its cgo-free assertion, the build-twice digest
+      # comparison, workflow YAML parsing, and the "every action is pinned
+      # to a SHA" check. All of it runs identically via `make
+      # test-scripts-full` on a laptop.
+      - name: Release scripts + reproducibility + cross-compile
+        run: make test-scripts-full
+
+  determinism:
+    name: scan determinism (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Read the pinned Go toolchain
+        id: toolchain
+        run: echo "version=$(tr -d '[:space:]' < .github/scripts/toolchain.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+          cache: true
+
+      # The determinism suite from #120 (docs/testing/determinism.md) also
+      # runs inside `go test ./...` above. It gets its own job because
+      # "atlas produced a different answer for the same input" is a
+      # different kind of failure from "a test broke", and a reviewer
+      # looking at a red X should be able to tell which happened without
+      # opening the log. -count=1 defeats the test cache: a cached pass
+      # would report determinism nobody re-measured.
+      - name: Determinism suite
+        run: go test ./packages/codeindex/... ./packages/store/... -run Determinism -count=1 -v -timeout 10m
+
+  version-consistency:
+    name: version / manifest / changelog agree (ADVISORY — known failing, see docs/releasing.md)
+    runs-on: ubuntu-latest
+    # Advisory on purpose, and named so nobody has to guess. As of this
+    # workflow landing, internal/cli.Version, .release-please-manifest.json
+    # and CHANGELOG.md disagree — that predates this job and is exactly what
+    # issue #121 asks to be made visible. Making it blocking now would red-X
+    # every PR for a defect none of them introduced. docs/releasing.md says
+    # what the one-time fix is; once it lands, delete continue-on-error and
+    # drop ADVISORY from the name.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Check version sources agree
+        run: .github/scripts/check-version-consistency.sh

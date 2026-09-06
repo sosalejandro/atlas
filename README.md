@@ -46,7 +46,36 @@ docs/                     # architecture / annotations / schema-v1 / migration /
 
 ### Getting started
 
-- [Quickstart](./docs/quickstart.md) — first 5 minutes with atlas
+One command, on a repository with no annotations in it:
+
+```bash
+go install github.com/sosalejandro/atlas/cmd/atlas@latest
+cd your-project
+atlas onboard
+```
+
+`atlas onboard` scans the project, builds the SQL inventory, reads the HTTP
+route registrations and mines git history, then derives a **provisional
+capability map** from all of it — no `@atlas:feature` annotations required.
+It reports what that map made visible (endpoints nothing tests, tables
+written from more than one capability, code under active change with no test
+reaching it, SQL advisories, dead-code candidates), states plainly what it
+could **not** see, and prints the CI snippet that turns the whole thing into
+a gate.
+
+Measured cold-start wall time on one laptop: **5.9 s** on this repository
+(581 indexed files, 4,385 symbols, Go + TypeScript + Python) and **2.2 s** on
+a synthetic 3,000-file Go tree.
+
+**Inferred is not declared.** Everything `onboard` proposes is namespaced
+under `provisional:`, written to `.atlas/provisional/capabilities.json`, and
+absent from the features table — atlas's registry is worth something only
+because a human wrote every row in it. The single path in is
+`atlas onboard promote`, which writes an `@atlas:feature` annotation into
+your source (dry run by default) and lets the ordinary scan pick it up.
+Annotations you already have are adopted as-is and never re-proposed.
+
+- [Quickstart](./docs/quickstart.md) — the whole first run, with real output
 - [Languages](./docs/languages/) — per-language usage guides
   ([Go](./docs/languages/go.md) /
   [TypeScript](./docs/languages/ts.md) /
@@ -55,18 +84,61 @@ docs/                     # architecture / annotations / schema-v1 / migration /
 ### Reference
 
 - [Commands](./docs/commands/) — per-subcommand reference
-  (`atlas init`, `scan`, `trace`, `audit`, `codebase`, `cov`, `diff`,
-  `snapshot`, `sprint`, `diagnose`, `contract`, `migrate-annotations`)
+  (`atlas onboard`, `init`, `scan`, `trace`, `audit`, `codebase`, `cov`,
+  `diff`, `snapshot`, `sprint`, `diagnose`, `contract`, `sql`, `hotspots`,
+  `migrate-annotations`)
 - [Architecture](./docs/architecture.md) — package boundaries + dependency direction
 - [Annotations](./docs/annotations.md) — `@atlas:<kind> <id>` grammar
 - [Schema v1](./docs/schema-v1.md) — SQLite schema reference
 - [Migration from testreg](./docs/migration-from-testreg.md) — cutover guide for testreg users
 
+### Build and release
+
+- [Install](./docs/install.md) — channels, verifying a download, reproducing a release build
+- [Releasing](./docs/releasing.md) — maintainer guide: how a release is cut, what CI blocks on
+
 ## Install
+
+Full instructions, including how to verify a download, live in
+[docs/install.md](./docs/install.md).
+
+**In GitHub Actions** — installs a verified release, puts it on `PATH`, runs it:
+
+```yaml
+- uses: sosalejandro/atlas/.github/actions/atlas@v0.14.0
+  with:
+    args: audit --json
+```
+
+**As a Go developer:**
 
 ```
 go install github.com/sosalejandro/atlas/cmd/atlas@latest
 ```
+
+Swap `@latest` for a specific tag (e.g. `@v0.1.2`) to pin. See
+[Releases](https://github.com/sosalejandro/atlas/releases) for the version
+history — releases are cut by
+[release-please](https://github.com/googleapis/release-please) from
+conventional-commit messages on `main`.
+
+**As a downloaded binary,** from a
+[release](https://github.com/sosalejandro/atlas/releases): a single static
+binary per platform, plus `SHA256SUMS`, a keyless Sigstore signature over
+it, an SPDX SBOM and SLSA provenance.
+
+Releases are reproducible: the same commit and the pinned Go toolchain
+produce byte-identical binaries, so you can rebuild a release yourself and
+compare digests rather than taking anyone's word for it. CI proves it on
+every push by building twice and comparing.
+
+```bash
+git checkout v0.14.0 && make build VERSION=v0.14.0
+sha256sum dist/atlas_v0.14.0_linux_amd64   # compare against the release's SHA256SUMS
+```
+
+Verify with `atlas version`, which reports the stamps and the build flags. A
+version of `dev` means you installed from a non-tag ref.
 
 ### Optional runtime dependencies
 
@@ -80,16 +152,6 @@ scanning the languages it can:
 | Go         | (none)   | —           | (always on)                       |
 | TypeScript | `node`   | 18+         | `.atlas.yaml` `scan.skip_ts: true`|
 | Python     | `python3`| 3.8+        | `codeindex.Options.SkipPY = true` |
-
-For a specific tagged release, swap `@latest` for the version you want
-(e.g. `@v0.1.2`). See [Releases](https://github.com/sosalejandro/atlas/releases)
-for the full version history and changelog — releases are cut automatically
-by [release-please](https://github.com/googleapis/release-please) from
-conventional-commit messages on `main`.
-
-After install, verify with `atlas --version`. If the version reports `dev`
-instead of a semver, you installed from a non-tag ref (commit hash or
-branch) — for reproducible pinning use a tagged release.
 
 ## License
 

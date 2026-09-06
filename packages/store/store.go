@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	// The modernc.org/sqlite driver is registered as a side-effect of
@@ -60,6 +61,30 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return OpenWithLogger(ctx, path, shared.NopLogger{})
 }
 
+// escapeDBPath percent-encodes the characters SQLite's URI parser claims,
+// so the DSN names the file the caller asked for.
+//
+// The DSN is a `file:` URI, and SQLite parses it as one: an unescaped '?'
+// starts the query string and an unescaped '#' starts a fragment, both of
+// which are DISCARDED from the filename. A checkout under a directory
+// containing either character therefore opened a different database, created
+// it on demand, and reported success -- every command answering confidently
+// from an empty store, or worse, from a store shared with every other path
+// that truncates to the same prefix.
+//
+// Found by FuzzSymbols_RoundTrip: Go names a fuzz seed's temp directory
+// ".../<Target>seed#<n>...", so all three seeds silently opened one file and
+// read each other's rows. Nothing about that looked like a path bug from the
+// inside -- the symptom was a symbol coming back as a different symbol.
+//
+// Order matters: '%' has to be encoded first or it would re-encode the
+// escapes introduced for the other two. See https://sqlite.org/uri.html.
+func escapeDBPath(path string) string {
+	path = strings.ReplaceAll(path, "%", "%25")
+	path = strings.ReplaceAll(path, "?", "%3f")
+	return strings.ReplaceAll(path, "#", "%23")
+}
+
 // OpenWithLogger is Open with a caller-supplied Logger. Production code
 // uses shared.NewSlogLogger; tests use shared.NopLogger (the default in
 // the Open shorthand).
@@ -72,7 +97,7 @@ func OpenWithLogger(ctx context.Context, path string, logger shared.Logger) (*St
 	}
 	dsn := fmt.Sprintf(
 		"file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)",
-		path,
+		escapeDBPath(path),
 	)
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {

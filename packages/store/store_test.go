@@ -43,8 +43,11 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	// 11 by issue #100 (coverage_runs attribution counters + coverage_run_gaps),
 	// and 12 by issue #86 (coverage_runs.run_group for named coverage frontiers),
 	// and 13 by issue #92 (coverage_history + coverage_history_features: the
-	// per-commit measurement series behind `atlas trend`).
-	const expected = 16
+	// per-commit measurement series behind `atlas trend`), and
+	// 17 by issue #136 (coverage_symbol_spans + its AFTER INSERT trigger: the
+	// span each coverage result was measured against, which is what lets a
+	// carried result be invalidated when the symbol moves).
+	const expected = 17
 	if v != expected {
 		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}

@@ -1,0 +1,567 @@
+#!/usr/bin/env bash
+# Tests for the release/CI scripts in this directory.
+#
+# Why this file exists: every step of the release and CI workflows delegates
+# to a script here, and a workflow whose logic lives in YAML is untestable by
+# construction — the only way to find out whether it works is to tag a
+# release and watch. These tests are what makes the build pipeline something
+# the repo can exercise on a laptop.
+#
+# Run:   bash .github/scripts/scripts_test.sh
+#        make test-scripts
+#
+# The cross-compile matrix case builds six binaries and is gated behind
+# ATLAS_SCRIPT_TESTS_SLOW=1 so the default run stays quick; CI sets it.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# ---------------------------------------------------------------------------
+# Minimal test harness. Deliberately tiny: a dependency on bats or shunit2
+# would mean the build pipeline's own tests cannot run in the same places the
+# build runs.
+# ---------------------------------------------------------------------------
+
+TESTS_RUN=0
+TESTS_FAILED=0
+CURRENT_TEST=""
+
+it() {
+	CURRENT_TEST="$1"
+	TESTS_RUN=$((TESTS_RUN + 1))
+}
+
+fail() {
+	TESTS_FAILED=$((TESTS_FAILED + 1))
+	printf 'FAIL  %s\n      %s\n' "$CURRENT_TEST" "$1" >&2
+}
+
+pass() { printf 'ok    %s\n' "$CURRENT_TEST"; }
+
+assert_eq() {
+	if [ "$1" = "$2" ]; then
+		pass
+	else
+		fail "got [$1] want [$2]"
+	fi
+}
+
+assert_contains() {
+	case "$1" in
+	*"$2"*) pass ;;
+	*) fail "output does not contain [$2]; got: $1" ;;
+	esac
+}
+
+assert_ok() {
+	if [ "$1" -eq 0 ]; then pass; else fail "expected exit 0, got $1"; fi
+}
+
+assert_not_ok() {
+	if [ "$1" -ne 0 ]; then pass; else fail "expected non-zero exit, got 0"; fi
+}
+
+# skip records a test that could not run here and says why, instead of
+# silently reporting green. A test that quietly does nothing is worse than no
+# test at all.
+skip() {
+	printf 'skip  %s\n      %s\n' "$CURRENT_TEST" "$1"
+}
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+# git_fixture_repo makes a throwaway repo with one commit at a known
+# committer date, so the epoch/version helpers can be tested against a value
+# this file controls rather than against whatever the real repo happens to
+# have at HEAD.
+FIXTURE_EPOCH=1000000000
+git_fixture_repo() {
+	local dir="$1"
+	mkdir -p "$dir"
+	git -C "$dir" init -q -b main
+	git -C "$dir" config user.email test@example.com
+	git -C "$dir" config user.name "Test"
+	echo hello >"$dir/file.txt"
+	git -C "$dir" add file.txt
+	GIT_AUTHOR_DATE="$FIXTURE_EPOCH +0000" GIT_COMMITTER_DATE="$FIXTURE_EPOCH +0000" \
+		git -C "$dir" commit -q -m "seed"
+}
+
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/lib.sh" 2>/dev/null || {
+	printf 'FATAL: .github/scripts/lib.sh not found or not sourceable\n' >&2
+	exit 1
+}
+
+# ---------------------------------------------------------------------------
+# lib.sh: date handling
+#
+# The epoch -> ISO conversion is the single most portability-sensitive line
+# in the pipeline: GNU date spells it `-d @N`, BSD/macOS date spells it
+# `-r N`, and BSD's `-d` flag means something else entirely (daylight
+# saving), so a naive `date -d` on macOS can silently print the CURRENT time.
+# That would produce a build date that changes every run — precisely the
+# thing that makes builds unreproducible — while looking perfectly fine.
+# Hence a probe against a known answer rather than a flag-support check.
+# ---------------------------------------------------------------------------
+
+it "atlas_date_flavor detects a usable date(1)"
+flavor="$(atlas_date_flavor)"
+if [ "$flavor" = "gnu" ] || [ "$flavor" = "bsd" ]; then
+	pass
+else
+	fail "no usable date(1) found (flavor=$flavor)"
+fi
+
+it "atlas_epoch_to_iso converts the probe epoch"
+assert_eq "$(atlas_epoch_to_iso 1000000000)" "2001-09-09T01:46:40Z"
+
+it "atlas_epoch_to_iso converts epoch 0"
+assert_eq "$(atlas_epoch_to_iso 0)" "1970-01-01T00:00:00Z"
+
+it "atlas_epoch_to_iso rejects a non-decimal epoch"
+atlas_epoch_to_iso "not-a-number" >/dev/null 2>&1
+assert_not_ok $?
+
+it "atlas_epoch_to_iso rejects an empty epoch"
+atlas_epoch_to_iso "" >/dev/null 2>&1
+assert_not_ok $?
+
+# The BSD branch cannot be reached on a GNU host, so shim a date(1) that
+# behaves like BSD's: rejects -d, accepts -r. Without this the fallback
+# would be dead code that nobody discovers is broken until a macOS
+# contributor tries to reproduce a release.
+it "atlas_epoch_to_iso falls back to the BSD date spelling"
+shimdir="$WORK/bsdshim"
+mkdir -p "$shimdir"
+cat >"$shimdir/date" <<'SHIM'
+#!/usr/bin/env bash
+# Stand-in for BSD date: -r <epoch> works, -d is rejected.
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+	if [ "${args[$i]}" = "-d" ]; then
+		echo "date: illegal option -- d" >&2
+		exit 1
+	fi
+	if [ "${args[$i]}" = "-r" ]; then
+		epoch="${args[$((i + 1))]}"
+		fmt="${args[$((${#args[@]} - 1))]}"
+		exec /usr/bin/env -u PATH_SHIM /bin/date -u -d "@$epoch" "$fmt"
+	fi
+done
+exec /bin/date "$@"
+SHIM
+chmod +x "$shimdir/date"
+(
+	PATH="$shimdir:$PATH"
+	# Re-source so the flavor probe re-runs against the shimmed date.
+	# shellcheck source=/dev/null
+	. "$SCRIPT_DIR/lib.sh"
+	unset ATLAS_DATE_FLAVOR
+	[ "$(atlas_date_flavor)" = "bsd" ] || {
+		echo "flavor probe did not pick bsd" >&2
+		exit 1
+	}
+	[ "$(atlas_epoch_to_iso 1000000000)" = "2001-09-09T01:46:40Z" ] || {
+		echo "bsd conversion wrong" >&2
+		exit 1
+	}
+)
+assert_ok $?
+
+# ---------------------------------------------------------------------------
+# lib.sh: SOURCE_DATE_EPOCH
+#
+# The build date must be a function of the commit, not of the wall clock.
+# Defaulting it to HEAD's committer date is what makes "build the same
+# commit twice, get the same bytes" true without the two builders having to
+# agree on anything out of band.
+# ---------------------------------------------------------------------------
+
+it "atlas_source_date_epoch honours an explicit SOURCE_DATE_EPOCH"
+out="$(SOURCE_DATE_EPOCH=1234567890 atlas_source_date_epoch "$REPO_ROOT")"
+assert_eq "$out" "1234567890"
+
+it "atlas_source_date_epoch defaults to HEAD's committer date"
+fixture="$WORK/repo"
+git_fixture_repo "$fixture"
+out="$(unset SOURCE_DATE_EPOCH; atlas_source_date_epoch "$fixture")"
+assert_eq "$out" "$FIXTURE_EPOCH"
+
+it "atlas_source_date_epoch rejects a non-decimal SOURCE_DATE_EPOCH"
+SOURCE_DATE_EPOCH="yesterday" atlas_source_date_epoch "$REPO_ROOT" >/dev/null 2>&1
+assert_not_ok $?
+
+# ---------------------------------------------------------------------------
+# lib.sh: version + artifact naming
+# ---------------------------------------------------------------------------
+
+it "atlas_resolve_version prefers an explicit VERSION"
+assert_eq "$(VERSION=v9.9.9 atlas_resolve_version "$REPO_ROOT")" "v9.9.9"
+
+it "atlas_resolve_version uses an exact tag when HEAD is tagged"
+tagged="$WORK/tagged"
+git_fixture_repo "$tagged"
+git -C "$tagged" tag v1.2.3
+assert_eq "$(unset VERSION; atlas_resolve_version "$tagged")" "v1.2.3"
+
+it "atlas_resolve_version describes an untagged commit against the last tag"
+git -C "$tagged" commit -q --allow-empty -m "after the tag"
+out="$(unset VERSION; atlas_resolve_version "$tagged")"
+assert_contains "$out" "v1.2.3-1-g"
+
+it "atlas_resolve_version falls back to dev with no tags at all"
+assert_eq "$(unset VERSION; atlas_resolve_version "$fixture")" "dev"
+
+it "atlas_artifact_name suffixes .exe on windows only"
+assert_eq "$(atlas_artifact_name v1.0.0 windows amd64)" "atlas_v1.0.0_windows_amd64.exe"
+
+it "atlas_artifact_name leaves unix targets unsuffixed"
+assert_eq "$(atlas_artifact_name v1.0.0 darwin arm64)" "atlas_v1.0.0_darwin_arm64"
+
+# ---------------------------------------------------------------------------
+# lib.sh: tree comparison
+#
+# This is the assertion the whole reproducibility claim rests on, so it is
+# tested for both verdicts. A comparison that can only say "same" proves
+# nothing.
+# ---------------------------------------------------------------------------
+
+it "atlas_compare_trees accepts two byte-identical trees"
+mkdir -p "$WORK/a" "$WORK/b"
+printf 'aaa' >"$WORK/a/x"
+printf 'aaa' >"$WORK/b/x"
+atlas_compare_trees "$WORK/a" "$WORK/b" >/dev/null 2>&1
+assert_ok $?
+
+it "atlas_compare_trees rejects a one-byte difference"
+printf 'aab' >"$WORK/b/x"
+atlas_compare_trees "$WORK/a" "$WORK/b" >/dev/null 2>&1
+assert_not_ok $?
+
+it "atlas_compare_trees rejects a missing artifact"
+printf 'aaa' >"$WORK/b/x"
+printf 'zzz' >"$WORK/a/y"
+atlas_compare_trees "$WORK/a" "$WORK/b" >/dev/null 2>&1
+assert_not_ok $?
+rm -f "$WORK/a/y"
+
+# ---------------------------------------------------------------------------
+# checksums.sh
+# ---------------------------------------------------------------------------
+
+it "checksums.sh emits sha256 lines keyed by basename"
+sums="$WORK/sums"
+mkdir -p "$sums"
+printf 'one' >"$sums/atlas_v1_linux_amd64"
+printf 'two' >"$sums/atlas_v1_darwin_arm64"
+out="$(bash "$SCRIPT_DIR/checksums.sh" "$sums" 2>&1)"
+rc=$?
+if [ $rc -ne 0 ]; then
+	fail "checksums.sh exited $rc: $out"
+else
+	assert_contains "$(cat "$sums/SHA256SUMS")" "atlas_v1_linux_amd64"
+fi
+
+it "checksums.sh output carries no directory components"
+if grep -q '/' "$sums/SHA256SUMS"; then
+	fail "SHA256SUMS contains a path separator; sha256sum -c would fail elsewhere"
+else
+	pass
+fi
+
+it "checksums.sh is byte-identical across runs regardless of readdir order"
+first="$(cat "$sums/SHA256SUMS")"
+rm -f "$sums/SHA256SUMS"
+bash "$SCRIPT_DIR/checksums.sh" "$sums" >/dev/null 2>&1
+assert_eq "$(cat "$sums/SHA256SUMS")" "$first"
+
+it "checksums.sh never digests its own output file"
+if grep -q 'SHA256SUMS' "$sums/SHA256SUMS"; then
+	fail "SHA256SUMS lists itself; the file cannot contain its own digest"
+else
+	pass
+fi
+
+it "checksums.sh fails on an empty directory rather than writing an empty manifest"
+mkdir -p "$WORK/emptydist"
+bash "$SCRIPT_DIR/checksums.sh" "$WORK/emptydist" >/dev/null 2>&1
+assert_not_ok $?
+
+# ---------------------------------------------------------------------------
+# check-version-consistency.sh
+#
+# Issue #121 calls out that the version in the binary, the release-please
+# manifest and the changelog have drifted apart. A script that can only
+# report agreement would be useless, so the disagreement verdict is tested
+# against a fixture rather than against the live tree.
+# ---------------------------------------------------------------------------
+
+make_version_fixture() {
+	local dir="$1" rootver="$2" manifestver="$3" changelogver="$4"
+	mkdir -p "$dir/internal/cli"
+	{
+		printf 'package cli\n\nvar (\n'
+		printf '\tVersion   = "%s"\n' "$rootver"
+		printf '\tCommit    = "abc1234"\n'
+		printf '\tBuildDate = "2026-01-01T00:00:00Z"\n'
+		printf ')\n'
+	} >"$dir/internal/cli/root.go"
+	printf '{\n  ".": "%s"\n}\n' "$manifestver" >"$dir/.release-please-manifest.json"
+	printf '# Changelog\n\n## [%s](https://example.com) (2026-01-01)\n' "$changelogver" >"$dir/CHANGELOG.md"
+}
+
+it "check-version-consistency.sh passes when all three sources agree"
+ok_fix="$WORK/vok"
+make_version_fixture "$ok_fix" "v1.2.3" "1.2.3" "1.2.3"
+bash "$SCRIPT_DIR/check-version-consistency.sh" --root "$ok_fix" >/dev/null 2>&1
+assert_ok $?
+
+it "check-version-consistency.sh fails when the binary version leads the manifest"
+bad_fix="$WORK/vbad"
+make_version_fixture "$bad_fix" "v1.9.0" "1.2.3" "1.2.3"
+out="$(bash "$SCRIPT_DIR/check-version-consistency.sh" --root "$bad_fix" 2>&1)"
+rc=$?
+if [ $rc -eq 0 ]; then
+	fail "mismatched versions reported as consistent"
+else
+	assert_contains "$out" "1.9.0"
+fi
+
+it "check-version-consistency.sh fails when the changelog lags"
+lag_fix="$WORK/vlag"
+make_version_fixture "$lag_fix" "v1.2.3" "1.2.3" "1.1.0"
+bash "$SCRIPT_DIR/check-version-consistency.sh" --root "$lag_fix" >/dev/null 2>&1
+assert_not_ok $?
+
+it "check-version-consistency.sh compares a supplied tag too"
+bash "$SCRIPT_DIR/check-version-consistency.sh" --root "$ok_fix" --tag v1.2.3 >/dev/null 2>&1
+assert_ok $?
+
+it "check-version-consistency.sh rejects a tag that disagrees with the tree"
+bash "$SCRIPT_DIR/check-version-consistency.sh" --root "$ok_fix" --tag v2.0.0 >/dev/null 2>&1
+assert_not_ok $?
+
+# ---------------------------------------------------------------------------
+# Workflow YAML
+#
+# The workflows cannot be executed here, so the two properties that can be
+# checked statically are checked statically: they parse, and every action
+# they call is pinned to an immutable commit. A supply-chain tool that
+# resolves `@v1` at run time hands whoever controls that tag the ability to
+# change what runs in this repo's release job.
+# ---------------------------------------------------------------------------
+
+it "every workflow and action file is parseable YAML"
+if ! command -v python3 >/dev/null 2>&1; then
+	skip "python3 not available to parse YAML"
+else
+	out="$(python3 "$SCRIPT_DIR/yamlcheck.py" "$REPO_ROOT" 2>&1)"
+	rc=$?
+	if [ $rc -ne 0 ]; then fail "$out"; else pass; fi
+fi
+
+it "every third-party action is pinned to a 40-character commit SHA"
+unpinned=""
+while IFS= read -r line; do
+	ref="${line#*uses:}"
+	ref="$(printf '%s' "$ref" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]].*$//')"
+	case "$ref" in
+	./* | "") continue ;;
+	esac
+	sha="${ref#*@}"
+	if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+		unpinned="$unpinned $ref"
+	fi
+done < <(grep -rhE '^[[:space:]]*(-[[:space:]]+)?uses:' \
+	"$REPO_ROOT/.github/workflows" "$REPO_ROOT/.github/actions" 2>/dev/null)
+if [ -n "$unpinned" ]; then
+	fail "unpinned action reference(s):$unpinned"
+else
+	pass
+fi
+
+it "every pinned action carries a human-readable version comment"
+missing=""
+while IFS= read -r line; do
+	case "$line" in
+	*uses:*@*) ;;
+	*) continue ;;
+	esac
+	case "$line" in
+	*./*) continue ;;
+	esac
+	case "$line" in
+	*"# v"*) ;;
+	*) missing="$missing|$line" ;;
+	esac
+done < <(grep -rhE '^[[:space:]]*(-[[:space:]]+)?uses:' \
+	"$REPO_ROOT/.github/workflows" "$REPO_ROOT/.github/actions" 2>/dev/null)
+if [ -n "$missing" ]; then
+	fail "pinned action with no '# vX.Y.Z' comment (nobody can tell what the SHA is):$missing"
+else
+	pass
+fi
+
+# ---------------------------------------------------------------------------
+# The consumer action's installer.
+#
+# The download itself needs the network and a published release, so what is
+# tested here is the part that is wrong most often and silently: mapping
+# GitHub's runner labels onto GOOS/GOARCH. runner.arch says X64 where Go
+# says amd64 and runner.os says macOS where Go says darwin, so a plausible
+# guess produces a 404 in somebody else's CI.
+# ---------------------------------------------------------------------------
+
+ACTION_INSTALL="$REPO_ROOT/.github/actions/atlas/install.sh"
+
+it "the action's installer maps Linux/X64 to the linux amd64 asset"
+assert_eq "$(bash "$ACTION_INSTALL" --print-asset-name --version v1.0.0 --os Linux --arch X64)" \
+	"atlas_v1.0.0_linux_amd64"
+
+it "the action's installer maps macOS/ARM64 to the darwin arm64 asset"
+assert_eq "$(bash "$ACTION_INSTALL" --print-asset-name --version v1.0.0 --os macOS --arch ARM64)" \
+	"atlas_v1.0.0_darwin_arm64"
+
+it "the action's installer maps Windows/X64 to the .exe asset"
+assert_eq "$(bash "$ACTION_INSTALL" --print-asset-name --version v1.0.0 --os Windows --arch X64)" \
+	"atlas_v1.0.0_windows_amd64.exe"
+
+it "the action's installer rejects an unknown runner OS"
+bash "$ACTION_INSTALL" --print-asset-name --version v1.0.0 --os Solaris --arch X64 >/dev/null 2>&1
+assert_not_ok $?
+
+it "the action's installer rejects an unknown runner architecture"
+bash "$ACTION_INSTALL" --print-asset-name --version v1.0.0 --os Linux --arch riscv64 >/dev/null 2>&1
+assert_not_ok $?
+
+# Pinning the action by commit SHA leaves github.action_ref holding a SHA,
+# which names no release. Failing with an explanation beats a 404 on a URL
+# built out of a commit hash.
+it "the action's installer explains itself when handed a commit SHA as a version"
+out="$(bash "$ACTION_INSTALL" --print-asset-name --version 0123456789abcdef0123456789abcdef01234567 \
+	--os Linux --arch X64 2>&1)"
+rc=$?
+if [ $rc -eq 0 ]; then
+	fail "a commit SHA was accepted as a release version"
+else
+	assert_contains "$out" "not a release version"
+fi
+
+it "the action's installer accepts the edge channel"
+assert_eq "$(bash "$ACTION_INSTALL" --print-asset-name --version edge --os Linux --arch X64)" \
+	"atlas_edge_linux_amd64"
+
+# ---------------------------------------------------------------------------
+# build.sh — the real thing, against this checkout
+# ---------------------------------------------------------------------------
+
+if ! command -v go >/dev/null 2>&1; then
+	it "build.sh produces a stamped binary"
+	skip "go toolchain not on PATH"
+else
+	# The toolchain pin is a hard failure by default, so every build case
+	# below sets ATLAS_SKIP_TOOLCHAIN_CHECK=1: these tests are about the
+	# script's behaviour, and must pass on a contributor's machine whatever
+	# Go they happen to have. The pin itself gets its own two cases.
+	export ATLAS_SKIP_TOOLCHAIN_CHECK=1
+
+	it "build.sh refuses to build against an unpinned toolchain"
+	env -u ATLAS_SKIP_TOOLCHAIN_CHECK \
+		VERSION=v9.8.7 ATLAS_TOOLCHAIN_PIN=0.0.1 DIST="$WORK/dist-pin" \
+		bash "$SCRIPT_DIR/build.sh" >/dev/null 2>&1
+	assert_not_ok $?
+
+	it "build.sh downgrades the toolchain pin to a warning when asked"
+	out="$(VERSION=v9.8.7 ATLAS_TOOLCHAIN_PIN=0.0.1 DIST="$WORK/dist-pin2" \
+		bash "$SCRIPT_DIR/build.sh" 2>&1)"
+	rc=$?
+	if [ $rc -ne 0 ]; then
+		fail "build.sh exited $rc with the override set: $out"
+	else
+		assert_contains "$out" "toolchain mismatch"
+	fi
+
+	it "build.sh produces a binary carrying the requested stamps"
+	dist="$WORK/dist1"
+	buildlog="$WORK/build1.log"
+	if VERSION=v9.8.7 SOURCE_DATE_EPOCH=1000000000 DIST="$dist" \
+		bash "$SCRIPT_DIR/build.sh" >"$buildlog" 2>&1; then
+		bin="$dist/$(atlas_artifact_name v9.8.7 "$(go env GOOS)" "$(go env GOARCH)")"
+		if [ ! -x "$bin" ]; then
+			fail "expected binary at $bin; dist contains: $(ls "$dist" 2>&1)"
+		else
+			ver="$("$bin" version --json 2>&1)"
+			case "$ver" in
+			*'"version": "v9.8.7"'*) pass ;;
+			*) fail "version stamp missing from: $ver" ;;
+			esac
+		fi
+	else
+		fail "build.sh failed: $(cat "$buildlog")"
+	fi
+
+	it "build.sh stamps the build date from SOURCE_DATE_EPOCH, not the wall clock"
+	bin="$dist/$(atlas_artifact_name v9.8.7 "$(go env GOOS)" "$(go env GOARCH)")"
+	if [ -x "$bin" ]; then
+		assert_contains "$("$bin" version --json 2>&1)" '"build_date": "2001-09-09T01:46:40Z"'
+	else
+		fail "no binary to inspect"
+	fi
+
+	it "build.sh output is trimpath'd and cgo-free"
+	if [ -x "$bin" ]; then
+		settings="$(go version -m "$bin" 2>&1)"
+		if printf '%s' "$settings" | grep -q -- '-trimpath=true' &&
+			printf '%s' "$settings" | grep -q 'CGO_ENABLED=0'; then
+			pass
+		else
+			fail "build settings missing -trimpath/CGO_ENABLED=0: $settings"
+		fi
+	else
+		fail "no binary to inspect"
+	fi
+
+	it "build.sh refuses a target it does not ship"
+	VERSION=v9.8.7 GOOS=plan9 GOARCH=amd64 DIST="$WORK/dist-bad" \
+		bash "$SCRIPT_DIR/build.sh" >/dev/null 2>&1
+	assert_not_ok $?
+
+	# The headline acceptance criterion of issue #121. Not a proxy for it —
+	# the actual two-builds-one-digest comparison, run here so the claim is
+	# measured rather than asserted.
+	it "verify-repro.sh proves two builds of this commit are byte-identical"
+	reprolog="$WORK/repro.log"
+	if VERSION=v9.8.7 bash "$SCRIPT_DIR/verify-repro.sh" >"$reprolog" 2>&1; then
+		pass
+	else
+		fail "verify-repro.sh failed: $(cat "$reprolog")"
+	fi
+
+	if [ "${ATLAS_SCRIPT_TESTS_SLOW:-0}" = "1" ]; then
+		it "build-matrix.sh builds every shipped target cgo-free"
+		mlog="$WORK/matrix.log"
+		if VERSION=v9.8.7 DIST="$WORK/distmatrix" \
+			bash "$SCRIPT_DIR/build-matrix.sh" >"$mlog" 2>&1; then
+			count="$(find "$WORK/distmatrix" -type f | wc -l | tr -d ' ')"
+			assert_eq "$count" "6"
+		else
+			fail "build-matrix.sh failed: $(cat "$mlog")"
+		fi
+	else
+		it "build-matrix.sh builds every shipped target cgo-free"
+		skip "set ATLAS_SCRIPT_TESTS_SLOW=1 to run the six-target cross-compile"
+	fi
+fi
+
+# ---------------------------------------------------------------------------
+
+printf '\n%d test(s), %d failure(s)\n' "$TESTS_RUN" "$TESTS_FAILED"
+[ "$TESTS_FAILED" -eq 0 ]

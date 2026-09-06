@@ -1099,6 +1099,87 @@ was indexed, which this table has no way to know.
 **Not durable state.** Like the rest of this database it is a re-derivable
 cache: the next scan rebuilds it.
 
+### 5.18 `coverage_symbol_spans` — the span a result was measured against (migration 0017)
+
+```sql
+CREATE TABLE coverage_symbol_spans (
+  run_id    INTEGER NOT NULL REFERENCES coverage_runs(id) ON DELETE CASCADE,
+  symbol_id INTEGER NOT NULL REFERENCES symbols(id)       ON DELETE CASCADE,
+  file_path TEXT    NOT NULL,
+  line      INTEGER NOT NULL,
+  end_line  INTEGER,
+  PRIMARY KEY (run_id, symbol_id)
+);
+
+CREATE TRIGGER coverage_results_span_snapshot
+AFTER INSERT ON coverage_results
+WHEN NEW.symbol_id IS NOT NULL
+BEGIN
+  INSERT OR IGNORE INTO coverage_symbol_spans (run_id, symbol_id, file_path, line, end_line)
+  SELECT NEW.run_id, NEW.symbol_id, s.file_path, s.line, s.end_line
+  FROM symbols s
+  WHERE s.id = NEW.symbol_id;
+END;
+```
+
+Written by the trigger, never by Go code. Read by
+`packages/store/carryforward.go` (issue #136).
+
+**Why it exists.** A run group unions the runs of one build (§5.8,
+`coverage_runs.run_group`). A symbol that NO run in the group measured — the Go
+job crashed, the e2e job timed out — is simply absent from the frontier's
+results, and the line-weighted score sums only symbols that HAVE results. The
+denominator shrinks to whatever the surviving job touched and coverage goes UP
+because testing went DOWN. Carryforward fills the hole from the last build that
+measured the symbol, which is only defensible if the inherited measurement can
+be INVALIDATED when the symbol is no longer the symbol that was measured.
+
+**Why a table and not a column on `symbols`.** The check needs the symbol's span
+*as of the run that measured it*. `symbols` holds only the current span — a
+rescan updates the row in place, keeping the surrogate id (§5.4) — so by the
+time a carry is considered the measured span is already gone.
+
+**Why a trigger and not Go code.** The snapshot has to hold for every path that
+writes a coverage result: the sqlc-generated insert, the raw-SQL insert that
+carries the migration-0009 statement columns, and any ingester added later.
+Making it an invariant of the table removes the possibility of an ingest path
+that forgets — which would turn every carry back into an article of faith. The
+cost is one primary-key lookup and one `INSERT OR IGNORE` per result row, inside
+the ingest's existing transaction.
+
+| Column      | Type       | Notes                                                                                                                        |
+| ----------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `run_id`    | INTEGER    | FK → `coverage_runs(id)`, `ON DELETE CASCADE`. The snapshot cannot outlive the run it describes.                              |
+| `symbol_id` | INTEGER    | FK → `symbols(id)`, `ON DELETE CASCADE`. A pruned symbol takes its snapshots with it, as it does its results.                 |
+| `file_path` | TEXT       | The symbol's file at measurement time.                                                                                       |
+| `line`      | INTEGER    | Its opening line at measurement time.                                                                                        |
+| `end_line`  | INTEGER    | Its closing line at measurement time; NULL when the scanner could not pin one. Pinned for Go by issue #120.                   |
+
+**Why `(run_id, symbol_id)` and `INSERT OR IGNORE`.** A symbol can produce
+several result rows in one run — one per coverprofile block — and they all
+describe the same declaration. The first row records the span; a plain `INSERT`
+would abort the ingest transaction on the second block of any multi-block
+function.
+
+**Not backfilled.** Filling this table from the current `symbols` rows would
+assert that today's span was the measured span, which is exactly the claim the
+table exists to verify. Results ingested before migration 0017 therefore carry
+no snapshot, and the carry layer treats a missing snapshot as *unverifiable*:
+the symbol still holds its place in the denominator, but nothing is credited to
+it. Refusing the carry outright is the direction that reproduces the bug.
+
+**The validity rule.** A carry is EVIDENCE (its covered/total statements stand
+in for this build's reading) only when the snapshot matches the symbol's current
+`(file_path, line, end_line)` AND the measurement is inside the staleness window
+(`store.DefaultCarryBuilds` = 3 grouped frontiers, `store.DefaultCarryMaxAge` =
+72h). Otherwise it is DENOMINATOR-ONLY: `covered_stmts` is zeroed and the status
+becomes `fail`, so the symbol counts in the denominator and not in the
+numerator. Nothing older than a 30-day lookback horizon is read at all.
+
+**Not durable state.** Like the rest of this database it is a re-derivable
+cache — but re-deriving it means re-ingesting the coverage reports, because
+nothing else records what a span used to be.
+
 ## 6. Partial Unique Indices and Invariants
 
 | Invariant                                                                | Where enforced                                                          |

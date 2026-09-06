@@ -1,0 +1,172 @@
+name: release (stable channel)
+
+# Cuts the stable channel: a signed, attested, reproducible release for
+# every vX.Y.Z tag.
+#
+# What a consumer gets, and why each piece is here:
+#
+#   six binaries      cross-compiled from this one Linux runner, because
+#                     modernc.org/sqlite is pure Go and CGO_ENABLED=0
+#   SHA256SUMS        one manifest, so one signature covers all six
+#   .cosign.bundle    a keyless Sigstore signature over that manifest. No
+#                     private key exists anywhere: the signing identity IS
+#                     this workflow file at this tag, asserted by GitHub's
+#                     OIDC token and recorded in the public transparency
+#                     log. There is no key-management story to get wrong
+#                     because there is no key.
+#   SBOM              SPDX, so a consumer can answer "does atlas ship the
+#                     thing that was just CVE'd" without unpacking it
+#   provenance        SLSA attestation binding each artifact to this
+#                     workflow, this commit and this run
+#
+# docs/install.md carries the verification commands. Publishing signatures
+# nobody is told how to check is theatre.
+
+on:
+  push:
+    tags: ['v*']
+  # Lets a maintainer re-run the pipeline for an existing tag without
+  # deleting and re-pushing it — for instance after a transient failure in
+  # the signing step. The build is reproducible, so a re-run produces the
+  # same bytes.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)build and publish, e.g. v0.14.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: build, sign and publish (blocking)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub Release and upload assets
+      id-token: write # OIDC token for cosign keyless signing + provenance
+      attestations: write # store the SLSA provenance attestation
+    steps:
+      - name: Resolve the tag being released
+        id: tag
+        env:
+          # Route the ref through env rather than interpolating it into the
+          # shell. github.ref_name is repository-controlled here (only a
+          # tag push or a maintainer's workflow_dispatch reaches this job),
+          # but the standing rule in this repo is that no
+          # Actions-context string is expanded by a shell, and the shape
+          # check below is what makes the rest of the job safe to build on.
+          PUSHED_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-$PUSHED_TAG}"
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$'; then
+            echo "not a release tag: $TAG" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          # Full history: the build derives SOURCE_DATE_EPOCH from the
+          # tagged commit's committer date, which is what makes a third
+          # party's rebuild land on the same bytes.
+          fetch-depth: 0
+
+      - name: Read the pinned Go toolchain
+        id: toolchain
+        run: echo "version=$(tr -d '[:space:]' < .github/scripts/toolchain.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+          cache: true
+
+      - name: Version, manifest, changelog and tag must agree
+        # Blocking here, unlike in CI. A release whose binary reports a
+        # different version from its tag is unusable evidence: nobody can
+        # map a bug report back to a commit. This is the point where the
+        # numbers stop being cosmetic.
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: .github/scripts/check-version-consistency.sh --tag "$TAG"
+
+      - name: Cross-compile every shipped target
+        env:
+          VERSION: ${{ steps.tag.outputs.tag }}
+        run: .github/scripts/build-matrix.sh
+
+      - name: Prove the build is reproducible
+        # Building twice and comparing digests, on the release commit, at
+        # release time. A reproducibility claim published without a
+        # comparison is the thing issue #121 exists to stop, and the
+        # cheapest place for it to be true is right where the bytes are
+        # made.
+        env:
+          VERSION: ${{ steps.tag.outputs.tag }}
+          TARGETS: linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
+        run: .github/scripts/verify-repro.sh
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/atlas_${{ steps.tag.outputs.tag }}_sbom.spdx.json
+          # The SBOM is published as a release asset covered by SHA256SUMS,
+          # not as a workflow artifact and not uploaded independently — a
+          # second upload path would produce a copy no signature covers.
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Write SHA256SUMS
+        # After the SBOM, so the manifest covers it: one signature over one
+        # manifest is what makes the user-facing verification two commands
+        # instead of fourteen.
+        run: .github/scripts/checksums.sh dist
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # Pinned so the verification commands printed in docs/install.md
+          # correspond to a known cosign version rather than to whatever
+          # the installer's default happens to be on the day.
+          cosign-release: v3.1.3
+
+      - name: Sign SHA256SUMS (keyless)
+        # Keyless: the certificate is issued to this workflow's OIDC
+        # identity for the duration of the run and thrown away. Nothing to
+        # rotate, nothing to leak, and the binding a verifier checks is
+        # "this file was signed by release.yml at this tag in this repo".
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --bundle dist/SHA256SUMS.cosign.bundle \
+            dist/SHA256SUMS
+
+      - name: Attest build provenance (SLSA)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'dist/atlas_*'
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # --clobber so a re-run of an existing tag replaces the assets
+          # rather than failing halfway. Safe precisely because the build
+          # is reproducible: the replacement bytes are the same bytes.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "$TAG" \
+              --generate-notes
+          fi
