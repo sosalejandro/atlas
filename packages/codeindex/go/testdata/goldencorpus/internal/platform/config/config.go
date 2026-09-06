@@ -39,9 +39,10 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// isBlank is an unexported plain function: the scanner drops these, so it
-// never appears in the golden snapshot even though Load and Validate both
-// call it.
+// isBlank is an unexported plain function. The scanner indexes it by default
+// so that statement coverage has a symbol to charge its lines to; only an
+// explicit SkipUnexportedFuncs drops it. The golden snapshot pins the default
+// -- isBlank present, with call edges from both Load and Validate.
 func isBlank(s string) bool {
 	return strings.TrimSpace(s) == ""
 }

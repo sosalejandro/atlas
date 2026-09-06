@@ -231,6 +231,11 @@ func symbolLine(s shared.Symbol) string {
 		s.Position.Path,
 		strconv.Itoa(s.Position.Line),
 		strconv.Itoa(s.Position.Col),
+		// The end line is pinned because coverage attribution charges
+		// statements to a symbol by its [line, end_line] span: a scanner
+		// change that silently zeroes it degrades every per-symbol coverage
+		// fraction without failing any test that only reads start lines.
+		strconv.Itoa(s.EndLine),
 		s.Package,
 		strconv.Quote(s.Signature),
 		strconv.Quote(s.Doc),

@@ -13,8 +13,10 @@ import (
 )
 
 // UpsertOrder is generated code sitting alongside hand-written code. The
-// scanner has no "generated" header heuristic, so these symbols DO land in
-// the index — the golden snapshot pins that.
+// file carries the conventional "Code generated ... DO NOT EDIT." header, so
+// the scanner skips it (issue #96) and these symbols do NOT land in the index
+// — the golden snapshot pins that, and pins that hand-written siblings in the
+// same package still do.
 func UpsertOrder(_ context.Context, _ *sql.DB, _ string, _ string) error {
 	return nil
 }
