@@ -39,6 +39,7 @@ func newCovSyncCmd() *cobra.Command {
 	var (
 		framework string
 		input     string
+		perTest   string
 	)
 	cmd := &cobra.Command{
 		Use:   "sync",
@@ -61,6 +62,9 @@ shape. Failing detection is fatal — pass --framework explicitly.
 Input source: --input <path> (a file) or "-" / unset for stdin.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if perTest != "" {
+				return runCovSyncPerTest(cmd, framework, perTest)
+			}
 			return runCovSync(cmd, framework, input)
 		},
 	}
@@ -68,7 +72,101 @@ Input source: --input <path> (a file) or "-" / unset for stdin.`,
 		"framework tag (go-test|go-cover|playwright|vitest|jest|maestro|istanbul); auto-detected when omitted")
 	cmd.Flags().StringVar(&input, "input", "-",
 		"report file path, or '-' for stdin")
+	cmd.Flags().StringVar(&perTest, "per-test", "",
+		"directory of per-test coverprofiles named <TestSymbol>.out; records which symbols each test executed (go-cover only)")
 	return cmd
+}
+
+// runCovSyncPerTest ingests a directory of per-test coverprofiles.
+//
+// Convention: one file per test, named `<qualified test symbol>.out` — e.g.
+// `billing.TestCheckout.out`. That is what a collection shim writes when it
+// clears and dumps coverage counters around each test
+// (`runtime/coverage.ClearCounters` + `WriteCountersDir`, Go 1.20+), and it
+// keeps the ingest a pure function of the filesystem rather than of any one
+// test framework's reporting format.
+//
+// The result is both the ordinary union run AND per-test evidence, so a store
+// ingested this way is a strict superset of one ingested whole-run.
+func runCovSyncPerTest(cmd *cobra.Command, framework, dir string) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if framework != "" && framework != "go-cover" {
+		return fmt.Errorf("cov sync: --per-test is only supported for --framework go-cover (got %q)", framework)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("cov sync (per-test): read %s: %w", dir, err)
+	}
+
+	profiles := make([]coverage.PerTestProfile, 0, len(entries))
+	closers := make([]io.Closer, 0, len(entries))
+	defer func() {
+		for _, c := range closers {
+			_ = c.Close()
+		}
+	}()
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".out") {
+			continue
+		}
+		f, err := os.Open(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return fmt.Errorf("cov sync (per-test): open %s: %w", e.Name(), err)
+		}
+		closers = append(closers, f)
+		profiles = append(profiles, coverage.PerTestProfile{
+			Test:    shared.SymbolID(strings.TrimSuffix(e.Name(), ".out")),
+			Profile: f,
+		})
+	}
+	if len(profiles) == 0 {
+		return fmt.Errorf("cov sync (per-test): no *.out profiles in %s", dir)
+	}
+
+	dbPath, err := resolveDBPath(loaded, flags.DBPath)
+	if err != nil {
+		return err
+	}
+	s, err := store.Open(ctx, dbPath)
+	if err != nil {
+		return fmt.Errorf("cov sync (per-test): open store %s: %w", dbPath, err)
+	}
+	defer func() { _ = s.Close() }()
+
+	stats, err := coverage.IngestGoProfilePerTest(ctx, s, store.FrameworkGoTest, profiles)
+	if err != nil {
+		return fmt.Errorf("cov sync (per-test): %w", err)
+	}
+
+	res := covSyncResult{RunID: stats.RunID, Framework: "go-cover", Input: dir}
+	if flags.JSON {
+		return emitJSON(stdoutOrJSON(cmd), "cov.sync",
+			map[string]any{"framework": "go-cover", "per_test": dir}, res, nil)
+	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out,
+		"per-test ingest complete  run_id=%d tests=%d rows=%d symbols_executed=%d\n",
+		stats.RunID, stats.TestsIngested, stats.Rows, stats.SymbolsExecuted)
+	if n := len(stats.TestsUnresolved); n > 0 {
+		fmt.Fprintf(out, "  %d test name(s) matched no indexed symbol\n", n)
+		if flags.Verbose {
+			for i, name := range stats.TestsUnresolved {
+				if i == maxGapLines {
+					fmt.Fprintf(out, "    ... +%d more\n", n-maxGapLines)
+					break
+				}
+				fmt.Fprintf(out, "    %s\n", name)
+			}
+		}
+	}
+	renderAttributionGaps(cmd, covAttribution{
+		StmtsUnattributed: stats.StmtsUnattributed,
+		Gaps:              stats.Gaps,
+	})
+	return nil
 }
 
 // covSyncResult is the JSON payload for `atlas cov sync`.

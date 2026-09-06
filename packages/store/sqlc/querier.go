@@ -10,6 +10,7 @@ import (
 )
 
 type Querier interface {
+	CountTestsInRun(ctx context.Context, runID int64) (int64, error)
 	DeleteAnnotationsByFile(ctx context.Context, filePath string) error
 	DeleteConfig(ctx context.Context, key string) error
 	DeleteEdgesByFile(ctx context.Context, filePath string) error
@@ -43,6 +44,9 @@ type Querier interface {
 	InsertEdge(ctx context.Context, arg InsertEdgeParams) (sql.Result, error)
 	InsertSnapshot(ctx context.Context, arg InsertSnapshotParams) (sql.Result, error)
 	InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql.Result, error)
+	// One row per (run, test, executed symbol). REPLACE so a re-ingest of the
+	// same run is idempotent rather than a constraint violation.
+	InsertTestCoverage(ctx context.Context, arg InsertTestCoverageParams) error
 	LatestAuditSnapshotRun(ctx context.Context) (AuditSnapshotRun, error)
 	LinkFeatureSymbol(ctx context.Context, arg LinkFeatureSymbolParams) error
 	ListAllCoverageRuns(ctx context.Context) ([]CoverageRun, error)
@@ -83,6 +87,11 @@ type Querier interface {
 	// (see normalizeKind) so the equality match never silently misses an
 	// audit-layer value that would have collapsed at insert time.
 	ListSymbols(ctx context.Context, arg ListSymbolsParams) ([]Symbol, error)
+	// The production symbols one test ran. Union these over a feature's annotated
+	// tests to get its implementation surface without walking the call graph.
+	ListSymbolsExecutedByTest(ctx context.Context, arg ListSymbolsExecutedByTestParams) ([]ListSymbolsExecutedByTestRow, error)
+	// The inverse: which tests ran a symbol. This is affected-test selection.
+	ListTestsExecutingSymbol(ctx context.Context, arg ListTestsExecutingSymbolParams) ([]ListTestsExecutingSymbolRow, error)
 	// Resolves an annotation at file:line to the symbol it attaches to. Atlas
 	// annotations sit in the comment block immediately above their target
 	// (Go: doc comment above the func decl). The "nearest symbol at or after
@@ -98,6 +107,10 @@ type Querier interface {
 	SetConfig(ctx context.Context, arg SetConfigParams) error
 	SetSymbolPatternMatches(ctx context.Context, arg SetSymbolPatternMatchesParams) error
 	SetSymbolPatternMatchesByQualifiedName(ctx context.Context, arg SetSymbolPatternMatchesByQualifiedNameParams) error
+	// symbol_id -> how many distinct tests executed it. A symbol executed by most
+	// of the suite is framework, logging or DI plumbing, not feature code; the
+	// ubiquity cutoff uses this to keep shared runtime out of every surface.
+	SymbolTestFanIn(ctx context.Context, runID int64) ([]SymbolTestFanInRow, error)
 	UnlinkFeatureSymbol(ctx context.Context, arg UnlinkFeatureSymbolParams) (int64, error)
 	UpsertAnnotation(ctx context.Context, arg UpsertAnnotationParams) error
 	UpsertFeature(ctx context.Context, arg UpsertFeatureParams) error

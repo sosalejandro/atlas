@@ -34,6 +34,7 @@ func (a *auditImpl) scoreFromFeature(
 	}
 
 	set := newSignalSet()
+	a.lastSurfaceSource = ""
 
 	if hasCov && len(links) > 0 {
 		cov, ok, err := a.coverageSignal(ctx, feat.ID, links, latestRun)
@@ -94,11 +95,12 @@ func (a *auditImpl) scoreFromFeature(
 	}
 
 	return FeatureHealth{
-		FeatureID:  feat.ID,
-		Score:      score,
-		Components: components,
-		Reasons:    topReasons(notes, 3),
-		SampledAt:  now,
+		FeatureID:     feat.ID,
+		Score:         score,
+		Components:    components,
+		Reasons:       topReasons(notes, 3),
+		SampledAt:     now,
+		SurfaceSource: a.lastSurfaceSource,
 	}, nil
 }
 
@@ -201,7 +203,8 @@ func (a *auditImpl) coverageSignal(
 	runID int64,
 ) (signalResult, bool, error) {
 	testSyms := testSymbolIDs(links)
-	wanted, useSurface, err := a.resolveWantedSet(ctx, links)
+	wanted, useSurface, source, err := a.resolveWantedSet(ctx, links, runID)
+	a.lastSurfaceSource = source
 	if err != nil {
 		return signalResult{}, false, err
 	}
@@ -224,6 +227,7 @@ func (a *auditImpl) coverageSignal(
 			return signalResult{}, false, err
 		}
 		if ok {
+			a.lastSurfaceSource = SurfacePackageAnchor
 			return anchored, true, nil
 		}
 	}
@@ -315,26 +319,124 @@ func (s *signalSet) add(name, what string, res signalResult, ok bool, err error)
 	return nil
 }
 
-// resolveWantedSet picks the symbol set a feature's coverage is scored over.
+// Surface derivations, reported per feature so a coverage number always says
+// where its denominator came from.
+const (
+	// SurfaceDynamic: the union of what the feature's own tests executed,
+	// minus shared runtime. Evidence, not inference.
+	SurfaceDynamic = "dynamic"
+	// SurfaceStatic: a call-edge walk from the annotated test symbols.
+	SurfaceStatic = "static"
+	// SurfacePackageAnchor: production symbols co-located with the feature's
+	// test package (issue #84's tier 2).
+	SurfacePackageAnchor = "package-anchor"
+	// SurfaceDirectLinks: the annotated symbols themselves, with the gotest
+	// pass/fail model on top (issue #82).
+	SurfaceDirectLinks = "direct-links"
+)
+
+// resolveWantedSet picks the symbol set a feature's coverage is scored over,
+// in descending order of evidential strength.
 //
-// Tier 1 is the call-graph-derived impl surface: real production execution from
-// a coverprofile run is attributed to those symbols, and when it is non-empty
-// the executed fraction is scored directly (no blanket test-pass credit).
-// When it is empty — an e2e-only feature, or a gotest pass/fail run with no
-// profile — the caller falls back to the direct-link + test-pass model (#82),
-// which `useSurface=false` signals.
+// Tier 0 — dynamic. If the run carries per-test evidence (schema 0010), the
+// surface is the union of the symbols the feature's OWN tests executed, minus
+// symbols nearly every test executes. This is the dynamic feature-location
+// technique, and it is the only tier that cannot be fooled by interface
+// dispatch, DI containers, reflection or string-routed handlers (issue #104).
+//
+// Tier 1 — static. A call-edge walk from the annotated test symbols. Only
+// reaches what the scanner resolved, which is why an e2e-rooted annotation can
+// miss the domain code its feature was thoroughly unit-testing (issue #84).
+//
+// Fallback. With neither, the caller uses the direct-link + test-pass model
+// (issue #82), which `useSurface=false` signals.
 func (a *auditImpl) resolveWantedSet(
 	ctx context.Context,
 	links []store.FeatureSymbolLink,
-) (map[int64]bool, bool, error) {
+	runID int64,
+) (map[int64]bool, bool, string, error) {
+	dynamic, err := a.dynamicImplSurface(ctx, links, runID)
+	if err != nil {
+		return nil, false, "", fmt.Errorf("dynamic impl surface: %w", err)
+	}
+	if len(dynamic) > 0 {
+		return dynamic, true, SurfaceDynamic, nil
+	}
 	surface, err := a.featureImplSurface(ctx, links)
 	if err != nil {
-		return nil, false, fmt.Errorf("impl surface: %w", err)
+		return nil, false, "", fmt.Errorf("impl surface: %w", err)
 	}
 	if len(surface) > 0 {
-		return surface, true, nil
+		return surface, true, SurfaceStatic, nil
 	}
-	return wantedSymbolIDs(links), false, nil
+	return wantedSymbolIDs(links), false, SurfaceDirectLinks, nil
+}
+
+// dynamicImplSurface derives a feature's implementation from execution
+// evidence: every symbol the feature's annotated tests ran, minus the symbols
+// that nearly the whole suite runs.
+//
+// The subtraction is what makes it usable. Without it every surface would
+// include the logger, the DI container, config loading and the middleware
+// chain — code that runs under every test and belongs to no feature.
+// UbiquityCutoff is the fraction of the suite above which a symbol counts as
+// shared runtime; it is a tunable with real failure modes in both directions,
+// so the value in force is reported rather than hidden.
+//
+// Returns an empty set (not an error) when the run carries no per-test
+// evidence, so a store ingested the old way behaves exactly as before.
+func (a *auditImpl) dynamicImplSurface(
+	ctx context.Context,
+	links []store.FeatureSymbolLink,
+	runID int64,
+) (map[int64]bool, error) {
+	if runID == 0 {
+		return nil, nil
+	}
+	tests := testSymbolIDs(links)
+	if len(tests) == 0 {
+		return nil, nil
+	}
+	totalTests, err := a.store.TestCoverage().CountTests(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	if totalTests == 0 {
+		return nil, nil
+	}
+	fanIn, err := a.store.TestCoverage().FanIn(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	cutoff := a.opts.UbiquityCutoff
+	if cutoff <= 0 || cutoff > 1 {
+		cutoff = defaultUbiquityCutoff
+	}
+	// A suite too small for the ratio to mean anything: with three tests, a
+	// symbol shared by two is not shared runtime, it is a domain service two
+	// features legitimately use.
+	maxFanIn := totalTests
+	if totalTests >= minTestsForUbiquityCutoff {
+		maxFanIn = int(float64(totalTests) * cutoff)
+		if maxFanIn < 1 {
+			maxFanIn = 1
+		}
+	}
+
+	surface := map[int64]bool{}
+	for testID := range tests {
+		rows, err := a.store.TestCoverage().SymbolsExecutedBy(ctx, runID, testID)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			if fanIn[r.SymbolID] > maxFanIn {
+				continue
+			}
+			surface[r.SymbolID] = true
+		}
+	}
+	return surface, nil
 }
 
 // scoreCoverage turns a classified result set into the signal.
