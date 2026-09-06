@@ -178,7 +178,11 @@ func IndexProject(ctx context.Context, rootDir string, opts Options) (*Index, er
 	// recognisers walk a different shape (struct embeds, closures) than
 	// the call-graph builder.
 	if !opts.SkipPatternRecognizers {
-		patMatches, patWarnings := runPatternRecognizers(ctx, abs, opts)
+		excluded := make(map[string]bool, len(idx.SkippedFiles))
+		for _, sf := range idx.SkippedFiles {
+			excluded[sf.Path] = true
+		}
+		patMatches, patWarnings := runPatternRecognizers(ctx, abs, opts, excluded)
 		for sym, ms := range patMatches {
 			idx.PatternMatches[sym] = ms
 		}
@@ -572,12 +576,17 @@ func hashFile(absPath, relPath string) (FileHash, error) {
 // (struct embeds, closures) than the call-graph builder. The double parse
 // is the price of keeping the two concerns separate; benchmarks on the
 // 1500-file nutrition tree clock the recogniser pass at < 200ms total.
-func runPatternRecognizers(ctx context.Context, rootAbs string, opts Options) (map[shared.SymbolID][]patterns.Match, []string) {
+func runPatternRecognizers(
+	ctx context.Context,
+	rootAbs string,
+	opts Options,
+	excluded map[string]bool,
+) (map[shared.SymbolID][]patterns.Match, []string) {
 	matchesBySym := make(map[shared.SymbolID][]patterns.Match)
 	var warnings []string
 
 	skip := map[string]bool{
-		"vendor": true, "node_modules": true, "generated": true,
+		"vendor": true, "node_modules": true,
 	}
 	for _, d := range opts.SkipDirs {
 		skip[d] = true
@@ -603,7 +612,11 @@ func runPatternRecognizers(ctx context.Context, rootAbs string, opts Options) (m
 		}
 		relPath, _ := filepath.Rel(rootAbs, path)
 		relPath = filepath.ToSlash(relPath)
-		if strings.Contains(relPath, "/generated/") {
+		// Exclusion is the Go scanner's decision, not a second opinion. It
+		// already classified every file by header, glob and directory and
+		// recorded why; re-deriving the rule here is how the two passes end
+		// up disagreeing about what the codebase contains.
+		if excluded[relPath] {
 			return nil
 		}
 		fset := token.NewFileSet()

@@ -398,21 +398,29 @@ func (c *scanContext) recordIgnoredPackage(dirAbs string) {
 }
 
 // generatedReason classifies one file against the three generated-code
-// rules, cheapest first: the directory rule is a string split, the globs
-// are a handful of path.Match calls, and only the header rule touches the
-// disk. The reason is part of the contract, so the order is fixed rather
-// than incidental.
+// rules, STRONGEST SIGNAL FIRST — header, then glob, then directory.
+//
+// Order matters because the reason is the product here: it is what the
+// ledger reports and what `atlas doctor` explains a denominator with. A
+// sqlc file inside a generated/ directory should be reported as
+// generated-header — the rule that holds wherever the tool put its output —
+// rather than as generated-dir, which only says where someone filed it.
+// Ordering by cost instead would make the cheapest rule the loudest, and
+// the explanation the least informative one available.
+//
+// The header check reads the first few kilobytes; every other rule is
+// string work. That read is the price of a truthful reason.
 func (c *scanContext) generatedReason(absPath, relPath string) (SkipReason, bool) {
-	if hasPathSegment(relPath, "generated") {
-		return SkipGeneratedDir, true
+	if c.hasGeneratedHeader(absPath, relPath) {
+		return SkipGeneratedHeader, true
 	}
 	for _, glob := range c.generatedGlobs {
 		if matchGeneratedGlob(glob, relPath) {
 			return SkipGeneratedGlob, true
 		}
 	}
-	if c.hasGeneratedHeader(absPath, relPath) {
-		return SkipGeneratedHeader, true
+	if hasPathSegment(relPath, "generated") {
+		return SkipGeneratedDir, true
 	}
 	return "", false
 }

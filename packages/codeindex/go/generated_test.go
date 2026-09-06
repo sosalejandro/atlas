@@ -30,10 +30,15 @@ func TestScan_GeneratedExclusions(t *testing.T) {
 			opts: Options{},
 			wantPresent: append(handWritten,
 				"api.MarshalSchema", "gen.WireBuild", "docs.DocSample"),
-			wantAbsent: []shared.SymbolID{"db.GetUserByID", "generated.LegacyGenerated"},
+			wantAbsent: []shared.SymbolID{
+				"db.GetUserByID", "generated.LegacyGenerated", "generated.QueryRow",
+			},
 			wantSkipped: []SkippedFile{
 				{Path: "db/queries.sql.go", Reason: SkipGeneratedHeader},
 				{Path: "generated/legacy.go", Reason: SkipGeneratedDir},
+				// Both the directory and the header rule match this one; the
+				// header wins because it is the signal that survives a move.
+				{Path: "generated/with_header.go", Reason: SkipGeneratedHeader},
 			},
 		},
 		{
@@ -43,13 +48,14 @@ func TestScan_GeneratedExclusions(t *testing.T) {
 				"docs.DocSample"),
 			wantAbsent: []shared.SymbolID{
 				"api.MarshalSchema", "db.GetUserByID",
-				"gen.WireBuild", "generated.LegacyGenerated",
+				"gen.WireBuild", "generated.LegacyGenerated", "generated.QueryRow",
 			},
 			wantSkipped: []SkippedFile{
 				{Path: "api/schema.pb.go", Reason: SkipGeneratedGlob},
 				{Path: "db/queries.sql.go", Reason: SkipGeneratedHeader},
 				{Path: "gen/wire.go", Reason: SkipGeneratedGlob},
 				{Path: "generated/legacy.go", Reason: SkipGeneratedDir},
+				{Path: "generated/with_header.go", Reason: SkipGeneratedHeader},
 			},
 		},
 		{
@@ -58,12 +64,14 @@ func TestScan_GeneratedExclusions(t *testing.T) {
 			wantPresent: append(handWritten,
 				"api.MarshalSchema", "gen.WireBuild"),
 			wantAbsent: []shared.SymbolID{
-				"db.GetUserByID", "docs.DocSample", "generated.LegacyGenerated",
+				"db.GetUserByID", "docs.DocSample",
+				"generated.LegacyGenerated", "generated.QueryRow",
 			},
 			wantSkipped: []SkippedFile{
 				{Path: "db/queries.sql.go", Reason: SkipGeneratedHeader},
 				{Path: "docs/samples.go", Reason: SkipIgnoredPackage},
 				{Path: "generated/legacy.go", Reason: SkipGeneratedDir},
+				{Path: "generated/with_header.go", Reason: SkipGeneratedHeader},
 			},
 		},
 		{
@@ -73,8 +81,8 @@ func TestScan_GeneratedExclusions(t *testing.T) {
 				GeneratedGlobs:   []string{"*.pb.go", "gen/"},
 			},
 			wantPresent: append(handWritten,
-				"api.MarshalSchema", "db.GetUserByID",
-				"gen.WireBuild", "generated.LegacyGenerated", "docs.DocSample"),
+				"api.MarshalSchema", "db.GetUserByID", "gen.WireBuild",
+				"generated.LegacyGenerated", "generated.QueryRow", "docs.DocSample"),
 			wantSkipped: nil,
 		},
 	}
@@ -125,8 +133,8 @@ func TestScan_SkippedFilesAreDeterministic(t *testing.T) {
 		t.Fatalf("skip list differs between runs:\n%+v\n%+v",
 			first.SkippedFiles, second.SkippedFiles)
 	}
-	if len(first.SkippedFiles) != 5 {
-		t.Fatalf("expected 5 skipped files, got %d: %+v",
+	if len(first.SkippedFiles) != 6 {
+		t.Fatalf("expected 6 skipped files, got %d: %+v",
 			len(first.SkippedFiles), first.SkippedFiles)
 	}
 }
@@ -180,5 +188,42 @@ func TestMatchGeneratedGlob(t *testing.T) {
 					tc.pattern, tc.relPath, got, tc.want)
 			}
 		})
+	}
+}
+
+// The reason reported for a skipped file is the product, not a byproduct:
+// `atlas doctor` uses it to explain a coverage denominator. When several
+// rules match one file, the STRONGEST signal must win — the header holds
+// wherever the tool wrote its output, the directory only says where someone
+// filed it.
+func TestGeneratedReason_StrongestSignalWins(t *testing.T) {
+	t.Parallel()
+
+	res, err := Scan(context.Background(), "testdata/generatedproject", Options{
+		GeneratedGlobs: []string{"*.pb.go"},
+	})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	got := map[string]SkipReason{}
+	for _, sf := range res.SkippedFiles {
+		got[sf.Path] = sf.Reason
+	}
+
+	// with_header.go sits in generated/ AND carries the header. Both rules
+	// match; the header is the one that would still be true if the file moved.
+	if r := got["generated/with_header.go"]; r != SkipGeneratedHeader {
+		t.Errorf("generated/with_header.go reason = %q, want %q — the directory rule won over a real header",
+			r, SkipGeneratedHeader)
+	}
+	// legacy.go carries no header, so the directory is the only signal there
+	// is, and reporting it is correct rather than a fallback.
+	if r := got["generated/legacy.go"]; r != SkipGeneratedDir {
+		t.Errorf("generated/legacy.go reason = %q, want %q", r, SkipGeneratedDir)
+	}
+	// schema.pb.go matches the glob and has no header: glob is then the
+	// strongest signal available.
+	if r := got["api/schema.pb.go"]; r != SkipGeneratedGlob && r != SkipGeneratedHeader {
+		t.Errorf("api/schema.pb.go reason = %q, want glob or header", r)
 	}
 }
