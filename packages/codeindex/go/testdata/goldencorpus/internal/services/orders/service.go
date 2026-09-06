@@ -1,27 +1,25 @@
 package orders
 
-import (
-	"context"
-
-	"example.com/orderd/internal/persistence"
-)
+import "context"
 
 // OrderService is the application service for the order aggregate.
 type OrderService struct {
-	repo persistence.OrderRepository
+	repo OrderRepository
 }
 
 // NewOrderService returns a service backed by repo.
-func NewOrderService(repo persistence.OrderRepository) *OrderService {
+func NewOrderService(repo OrderRepository) *OrderService {
 	return &OrderService{repo: repo}
 }
 
 // Create validates the order and hands it to the repository.
 //
 // The repo field is interface-typed and the interface has two
-// implementations in the same package, so the scanner cannot pick a
-// concrete callee. It does not fall back to an ambiguous edge either: the
-// call is dropped, and the golden snapshot pins that absence.
+// implementations, so s.repo.Save has no single concrete callee. This is
+// the payoff case for issue #87: the AST resolver dropped the call
+// entirely (nothing in the source names a receiver type), while the
+// typed resolver reports BOTH implementations, marked ambiguous because
+// class-hierarchy analysis genuinely cannot tell which one runs.
 func (s *OrderService) Create(ctx context.Context, o *Order) error {
 	if err := s.validate(o); err != nil {
 		return err

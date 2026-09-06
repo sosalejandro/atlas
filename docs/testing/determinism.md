@@ -40,6 +40,7 @@ moment #109 parallelises the scan, the whole class comes back silently.
 | `TestDeterminism_GoScanner_ScanIsReproducible` | `packages/codeindex/go` | Repeated scans of the corpus under varying `GOMAXPROCS`, across four option sets (plain, pre-resolved routes, `SkipTests`, `EntryPoints`), render byte-identical. |
 | `TestDeterminism_GoScanner_IsRootRelative` | `packages/codeindex/go` | The corpus copied into two differently-named temp directories scans identically, and no absolute path leaks into the output. |
 | `TestGoldenCorpus_SymbolsAndEdgesMatchSnapshot` | `packages/codeindex/go` | The corpus scan matches the snapshot checked in beside it. |
+| `TestGoldenCorpus_LineEndingsDoNotMoveTheSnapshot` | `packages/codeindex/go` | Scanning the corpus from CRLF sources produces the same canonical document as scanning it from LF sources. |
 | `TestDeterminism_Ingest_TwoStoresAgree` | `packages/store` | Two independent scan-and-ingest runs of the same tree produce identical `symbols`, `edges`, `annotations`, `features` and `feature_symbols` rows. |
 | `TestDeterminism_Ingest_SurrogateIDsFollowQualifiedNames` | `packages/store` | Every persisted edge resolves, through surrogate ids, back to the same pair of qualified names the scanned graph recorded. |
 
@@ -122,6 +123,47 @@ go test ./packages/codeindex/go -run TestGoldenCorpus -update
 
 Commit the regenerated file in the same commit as the change that moved it,
 and say in the commit body why each group of lines moved.
+
+### The snapshot on Windows
+
+Issue #143 asserted that the golden snapshot "bakes in path separators", and
+a normaliser was written into `symbolLine` to fix it. That normaliser was a
+no-op and has been dropped. This section records what was actually measured,
+so nobody writes it again.
+
+**Separators are not the problem.** Every `Position.Path` the Go scanner
+emits goes through `filepath.ToSlash` at construction — see the `relOrSelf`
+call sites in `scanner.go` — as do the package directory in a qualified
+`SymbolID` and the two file paths in the collision warning. A second
+normalisation at the rendering layer cannot change a byte of any real scan
+on any platform. `TestDeterminism_GoScanner_IsRootRelative` already pins the
+"no host path leaks into the document" half of this.
+
+**Line endings are.** Git for Windows installs with `core.autocrlf=true`, so
+without intervention a Windows checkout rewrites every text file to CRLF.
+Two things could break, and only one of them does:
+
+- *The snapshot file.* `canonicalize` renders `\n`; `os.ReadFile` returns
+  whatever is on disk. On a CRLF checkout all 109 lines differ, and the diff
+  blames the scanner for the checkout. This is real, and it is pinned two
+  ways: `.gitattributes` at the repo root holds the corpus at `eol=lf` in the
+  working tree, and `TestGoldenCorpus_SymbolsAndEdgesMatchSnapshot` checks
+  for CRLF before comparing so the failure names the cause instead of
+  printing a phantom diff.
+- *The corpus sources.* Measured, and they do **not** move the snapshot:
+  `TestGoldenCorpus_LineEndingsDoNotMoveTheSnapshot` scans the same corpus
+  from LF and from CRLF and asserts the two documents are byte-identical.
+  Go's tokeniser strips CR from comment literals, signatures are rendered
+  from the AST rather than from source bytes, and the generated-header probe
+  reads through a `bufio.Scanner` (whose `ScanLines` drops the CR). That last
+  one is the fragile link — rewriting the probe to `strings.Split(s, "\n")`
+  makes `generatedHeaderRe`'s `$` anchor miss, `queries_gen.go` stops being
+  recognised as generated, and two symbols and two edges appear. That mutant
+  passes the rest of the determinism suite and fails only this test, which is
+  the reason the test exists.
+
+Neither of these was the whole reason the Windows CI leg is red; see
+`.github/workflows/ci.yml` for what is still outstanding.
 
 ### Adding to the corpus
 

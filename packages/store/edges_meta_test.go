@@ -1,6 +1,10 @@
 package store
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/sosalejandro/atlas/packages/graph"
+)
 
 // TestIsValidEdgeMeta locks in the kind-scoped vocabulary for the
 // edge_meta column added in migration 0008 (issue #16). Only Python
@@ -109,6 +113,7 @@ func TestEdgesInsert_PersistsAndNormalisesMeta(t *testing.T) {
 
 	// Valid: import edge with a real scope tag.
 	if _, err := s.Edges().Insert(ctx, EdgeRow{
+		Tier:     graph.TierNameResolved,
 		FromID:   from,
 		ToID:     to,
 		Kind:     EdgeKindImport,
@@ -123,6 +128,7 @@ func TestEdgesInsert_PersistsAndNormalisesMeta(t *testing.T) {
 	// NULL rather than rejected, so a scanner sending a stray Meta
 	// can't break ingest.
 	if _, err := s.Edges().Insert(ctx, EdgeRow{
+		Tier:     graph.TierNameResolved,
 		FromID:   from,
 		ToID:     to,
 		Kind:     EdgeKindCall,

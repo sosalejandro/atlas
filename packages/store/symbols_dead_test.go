@@ -4,6 +4,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 )
 
@@ -143,7 +144,7 @@ func seedDeadFixture(t *testing.T, s *Store) map[string]shared.SymbolID {
 
 	// Live edge: pkg.main → pkg.used.fn (module scope).
 	if _, err := s.Edges().Insert(ctx, EdgeRow{
-		FromID: mainID, ToID: usedID, Kind: EdgeKindImport,
+		Tier: graph.TierNameResolved, FromID: mainID, ToID: usedID, Kind: EdgeKindImport,
 		FilePath: "pkg/main.py", Line: 1,
 		Meta: EdgeMetaImportScopeModule,
 	}); err != nil {
@@ -152,7 +153,7 @@ func seedDeadFixture(t *testing.T, s *Store) map[string]shared.SymbolID {
 
 	// Test-only edge: tests/test_x.py → pkg.test_only.fn (module scope).
 	if _, err := s.Edges().Insert(ctx, EdgeRow{
-		FromID: testFileID, ToID: testOnlyID, Kind: EdgeKindImport,
+		Tier: graph.TierNameResolved, FromID: testFileID, ToID: testOnlyID, Kind: EdgeKindImport,
 		FilePath: "tests/test_x.py", Line: 1,
 		Meta: EdgeMetaImportScopeModule,
 	}); err != nil {
@@ -161,7 +162,7 @@ func seedDeadFixture(t *testing.T, s *Store) map[string]shared.SymbolID {
 
 	// Deferred edge: pkg.main → pkg.deferred.fn (function scope).
 	if _, err := s.Edges().Insert(ctx, EdgeRow{
-		FromID: mainID, ToID: deferredID, Kind: EdgeKindImport,
+		Tier: graph.TierNameResolved, FromID: mainID, ToID: deferredID, Kind: EdgeKindImport,
 		FilePath: "pkg/main.py", Line: 5,
 		Meta: EdgeMetaImportScopeFunction,
 	}); err != nil {
@@ -356,7 +357,7 @@ func TestFindDead_KindAll(t *testing.T) {
 		t.Fatalf("seed callee: %v", err)
 	}
 	if _, err := s.Edges().Insert(ctx, EdgeRow{
-		FromID: from, ToID: to, Kind: EdgeKindCall,
+		Tier: graph.TierNameResolved, FromID: from, ToID: to, Kind: EdgeKindCall,
 		FilePath: "pkg/caller.py", Line: 1,
 	}); err != nil {
 		t.Fatalf("seed call edge: %v", err)

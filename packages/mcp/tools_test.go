@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/audit"
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -86,7 +87,7 @@ func (r *repo) link(t *testing.T, f shared.FeatureID, qn string, role store.Feat
 func (r *repo) edge(t *testing.T, from, to, file string, line int) {
 	t.Helper()
 	_, err := r.s.Edges().Insert(context.Background(), store.EdgeRow{
-		FromID: r.ids[from], ToID: r.ids[to], Kind: store.EdgeKindCall, FilePath: file, Line: line,
+		Tier: graph.TierNameResolved, FromID: r.ids[from], ToID: r.ids[to], Kind: store.EdgeKindCall, FilePath: file, Line: line,
 	})
 	if err != nil {
 		t.Fatalf("insert edge %s -> %s: %v", from, to, err)

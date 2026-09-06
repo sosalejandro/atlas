@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -146,25 +147,39 @@ func extractPlaywrightResults(suite playwrightSuite) []ports.TestResult {
 	return results
 }
 
-// inferFeatureFromPath attempts to extract a feature ID from the test file path.
-// For example, "e2e/auth.spec.ts" -> "auth", "e2e/meals/log.spec.ts" -> "meals.log"
+// inferFeatureFromPath derives a feature ID from a test file path:
+// "e2e/auth.spec.ts" -> "auth", "e2e/meals/log.spec.ts" -> "meals.log".
+//
+// The path arrives inside a Playwright JSON report, so it is treated as a
+// slash-separated string (normalised by slashPath) rather than handed to
+// the filepath package. filepath is host-relative and that is precisely
+// wrong here: on Linux filepath.Dir leaves a Windows-produced
+// `e2e\meals\log.spec.ts` as one opaque segment, and on Windows
+// filepath.Dir rewrites a POSIX report's separators to `\` so the split on
+// "/" finds nothing. Either way the feature ID would depend on which
+// runner wrote the report rather than on the path itself — issue #143.
 func inferFeatureFromPath(filePath string) string {
-	// Normalize to forward slashes
-	normalized := filepath.ToSlash(filePath)
+	normalized := slashPath(filePath)
 
-	// Get the base name without extension
-	base := filepath.Base(normalized)
+	// Base name without the spec extension.
+	base := path.Base(normalized)
 	base = strings.TrimSuffix(base, ".spec.ts")
 	base = strings.TrimSuffix(base, ".spec.js")
 
-	// Try to include parent directory for domain context
-	dir := filepath.Dir(normalized)
-	parts := strings.Split(dir, "/")
+	// Walk the directory segments innermost-outwards and take the first
+	// that names a domain rather than a test-layout convention:
+	// "e2e/meals/log.spec.ts" is the meals feature, while "e2e/auth.spec.ts"
+	// has no domain directory and falls through to the base name alone.
+	parts := strings.Split(path.Dir(normalized), "/")
 	for i := len(parts) - 1; i >= 0; i-- {
 		lower := strings.ToLower(parts[i])
-		if lower != "e2e" && lower != "tests" && lower != "test" && lower != "specs" {
-			return lower + "." + strings.ToLower(base)
+		switch lower {
+		// "." and "" are what path.Dir yields for a bare filename and for a
+		// leading separator; neither is a directory the caller named.
+		case "", ".", "e2e", "tests", "test", "specs":
+			continue
 		}
+		return lower + "." + strings.ToLower(base)
 	}
 
 	return strings.ToLower(base)

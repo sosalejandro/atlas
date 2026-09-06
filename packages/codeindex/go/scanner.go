@@ -16,6 +16,7 @@ import (
 
 	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
 	"github.com/sosalejandro/atlas/packages/graph"
+	"github.com/sosalejandro/atlas/packages/resolver"
 	"github.com/sosalejandro/atlas/packages/shared"
 )
 
@@ -37,6 +38,13 @@ type Result struct {
 	Symbols      []shared.Symbol `json:"symbols"`
 	SkippedFiles []SkippedFile   `json:"skipped_files,omitempty"`
 	Warnings     []string        `json:"warnings,omitempty"`
+
+	// Resolution is what the type-checked resolver achieved (issue #87):
+	// how many packages type-checked, which ones did not and why, and
+	// what the load cost. Nil when Options.SkipTypedResolution was set —
+	// no resolver ran, so there is nothing to report, as opposed to a
+	// report saying nothing was resolved.
+	Resolution *ResolutionReport `json:"resolution,omitempty"`
 }
 
 // SkipReason names the rule that excluded a file from the index.
@@ -97,6 +105,13 @@ func Scan(ctx context.Context, rootDir string, opts Options) (*Result, error) {
 
 	ctx2 := newScanContext(abs, backendAbs, opts)
 
+	// Phase 0: Type-checked resolution (issue #87). Runs before the walk
+	// because the walk adopts the resolver's syntax trees: types.Info is
+	// keyed by ast.Node pointers, so a file parsed twice resolves once.
+	// Every failure here degrades to the AST path and is reported on
+	// Result.Resolution rather than returned.
+	ctx2.initTypedResolution(ctx)
+
 	// Phase 1: Route discovery (uses pre-supplied routes; no parsing here).
 	if err := ctx2.discoverRoutes(); err != nil {
 		opts.Logger.Warn(ctx, "route discovery", "err", err)
@@ -124,6 +139,8 @@ func Scan(ctx context.Context, rootDir string, opts Options) (*Result, error) {
 			ctx2.collisions, maxCollisionWarnings))
 	}
 
+	ctx2.finishResolutionReport()
+
 	// Materialise the flat Symbol view.
 	symbols := make([]shared.Symbol, 0, len(ctx2.graph.Nodes))
 	for _, n := range ctx2.graph.Nodes {
@@ -135,6 +152,7 @@ func Scan(ctx context.Context, rootDir string, opts Options) (*Result, error) {
 		Symbols:      symbols,
 		SkippedFiles: ctx2.skippedFiles,
 		Warnings:     ctx2.warnings,
+		Resolution:   ctx2.resolution,
 	}, nil
 }
 
@@ -192,6 +210,26 @@ type scanContext struct {
 	collisions   int
 	qualifiedIDs map[shared.SymbolID]bool
 
+	// typed is the go/packages view of the tree, or nil when typed
+	// resolution was skipped or could not load. typedIDs maps a
+	// resolver.ObjectKey onto the SymbolID this scan registered the
+	// declaration under — the whole point of #87 is that call resolution
+	// goes object → id and never name → id.
+	typed    *resolver.Program
+	typedIDs map[string]shared.SymbolID
+
+	// resolution accumulates what to report about the typed pass;
+	// indexedFiles / typedIndexedFiles count what the walk actually
+	// indexed, which is the denominator a reader cares about.
+	resolution        *ResolutionReport
+	indexedFiles      int
+	typedIndexedFiles int
+
+	// pendingTypedWarnings are typed-resolution complaints held until the
+	// walk has counted the Go files this scan actually indexed. See
+	// scanContext.deferWarning.
+	pendingTypedWarnings []string
+
 	warnings []string
 }
 
@@ -205,6 +243,12 @@ type funcInfo struct {
 	file     *ast.File
 	receiver string // empty for plain functions
 	pkgDir   string // backend-relative package directory
+
+	// typed reports that this declaration's file was type-checked, so
+	// its call sites are resolved by the type checker and never by the
+	// name ladder. It is per declaration rather than per scan because a
+	// tree degrades per package (issue #87).
+	typed bool
 }
 
 func newScanContext(projectRoot, backendAbs string, opts Options) *scanContext {
@@ -295,7 +339,14 @@ func (c *scanContext) discoverRoutes() error {
 				Kind: shared.KindHandler,
 			},
 		})
-		c.graph.AddEdge(endpointID, shared.SymbolID(handlerID))
+		// The route table hands us the handler as a STRING
+		// ("h.orderHandler.Create") which normaliseHandlerRef reshapes
+		// and resolveHandlerRefs later matches against symbols by
+		// method-name suffix. No name is bound here at all, so this is
+		// tier C — and recording it as anything stronger would file
+		// the weakest edges atlas produces alongside its
+		// scope-resolved calls.
+		c.graph.AddEdgeTier(endpointID, shared.SymbolID(handlerID), graph.TierSyntactic)
 	}
 	return nil
 }
@@ -511,12 +562,34 @@ func relOrSelf(base, target string) string {
 	return rel
 }
 
-func (c *scanContext) parseFile(ctx context.Context, absPath, relPath string) error {
+// syntaxFor returns the syntax tree the scan should index for a file,
+// and whether it came from the type checker.
+//
+// A type-checked file is ADOPTED, not re-parsed. types.Info is keyed by
+// ast.Node pointers, so parsing the file again would produce a tree that
+// looks identical and resolves nothing — the single most likely way to
+// wire this up and have every typed lookup silently miss.
+func (c *scanContext) syntaxFor(absPath string) (*token.FileSet, *ast.File, bool, error) {
+	if file, ok := c.typedSyntax(absPath); ok {
+		return c.typed.Fset(), file, true, nil
+	}
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, absPath, nil, parser.ParseComments)
 	if err != nil {
+		return nil, nil, false, fmt.Errorf("go/parser: %w", err)
+	}
+	return fset, file, false, nil
+}
+
+func (c *scanContext) parseFile(ctx context.Context, absPath, relPath string) error {
+	fset, file, typed, err := c.syntaxFor(absPath)
+	if err != nil {
 		c.warnings = append(c.warnings, fmt.Sprintf("parse %s: %v", relPath, err))
 		return nil // graceful skip
+	}
+	c.indexedFiles++
+	if typed {
+		c.typedIndexedFiles++
 	}
 
 	// Per-file package directory (for layer classification).
@@ -535,7 +608,7 @@ func (c *scanContext) parseFile(ctx context.Context, absPath, relPath string) er
 		if !ok {
 			continue
 		}
-		c.registerFunction(fn, fset, file, relPath, pkgDir)
+		c.registerFunction(fn, fset, file, relPath, pkgDir, typed)
 
 		// Match each @api annotation to the next function declaration
 		// (legacy ParseAnnotatedSource semantics ported into the annotations
@@ -559,7 +632,13 @@ func (c *scanContext) parseFile(ctx context.Context, absPath, relPath string) er
 				},
 			})
 			handlerID := c.funcDeclGraphID(fn, file)
-			c.graph.AddEdge(endpointID, handlerID)
+			// The endpoint→handler association is "this @api comment
+			// sits within ten lines above that declaration". The
+			// declaration is exact, the association is a proximity
+			// rule over source text — which is tier C. An @api comment
+			// moved past a helper function silently retargets the
+			// edge, and no name resolution would notice.
+			c.graph.AddEdgeTier(endpointID, handlerID, graph.TierSyntactic)
 			c.apiAnnotatedEndpoints[endpointID] = true
 		}
 	}
@@ -573,7 +652,7 @@ func (c *scanContext) funcDeclGraphID(fn *ast.FuncDecl, file *ast.File) shared.S
 	return shared.SymbolID(file.Name.Name + "." + fn.Name.Name)
 }
 
-func (c *scanContext) registerFunction(fn *ast.FuncDecl, fset *token.FileSet, file *ast.File, relPath, pkgDir string) {
+func (c *scanContext) registerFunction(fn *ast.FuncDecl, fset *token.FileSet, file *ast.File, relPath, pkgDir string, typed bool) {
 	if fn.Name == nil {
 		return
 	}
@@ -625,9 +704,19 @@ func (c *scanContext) registerFunction(fn *ast.FuncDecl, fset *token.FileSet, fi
 		file:     file,
 		receiver: receiver,
 		pkgDir:   pkgDir,
+		typed:    typed,
 	}
 	c.idsByPkg[pkgKey(pkgDir, short)] = id
 	c.indexSymbolName(id)
+	// The object → id binding is what makes #87 work: a call resolved by
+	// the type checker arrives as a *types.Func, and this is the only
+	// place that says which SymbolID that declaration was filed under.
+	// Registering it here, beside AddNode, is deliberate — an id that
+	// exists in the graph but not in this map is a callee no typed edge
+	// can ever reach.
+	if typed {
+		c.recordTypedID(file, fn, id)
+	}
 }
 
 // indexSymbolName records a registered id in the name indexes. Slices are
@@ -750,18 +839,38 @@ func (c *scanContext) noteCollision(short shared.SymbolID, firstFile, secondFile
 	}
 }
 
+// receiverTypeName is the short name of a method's receiver type, or ""
+// for a plain function.
+//
+// The type-parameter cases are not cosmetic. `func (c *Cache[K, V]) Put`
+// has an IndexListExpr receiver, and returning "" for it filed the method
+// under the plain-function id `collections.Put` -- a method that looked
+// like a package-level function, under a name no call site would ever
+// render, so nothing could resolve to it. That is the symbol-table
+// fragmentation issue #87 names: every generic type in a repo loses its
+// methods.
 func receiverTypeName(fn *ast.FuncDecl) string {
 	if fn.Recv == nil || len(fn.Recv.List) == 0 {
 		return ""
 	}
-	t := fn.Recv.List[0].Type
-	if star, ok := t.(*ast.StarExpr); ok {
-		t = star.X
+	return receiverIdent(fn.Recv.List[0].Type)
+}
+
+func receiverIdent(t ast.Expr) string {
+	switch e := t.(type) {
+	case *ast.StarExpr:
+		return receiverIdent(e.X)
+	case *ast.IndexExpr:
+		// func (c *Cache[T]) -- one type parameter.
+		return receiverIdent(e.X)
+	case *ast.IndexListExpr:
+		// func (c *Cache[K, V]) -- two or more.
+		return receiverIdent(e.X)
+	case *ast.Ident:
+		return e.Name
+	default:
+		return ""
 	}
-	if ident, ok := t.(*ast.Ident); ok {
-		return ident.Name
-	}
-	return ""
 }
 
 func classifyNodeKind(pkgDir string, rules LayerRules) shared.SymbolKind {
@@ -809,6 +918,12 @@ func buildSignature(fn *ast.FuncDecl) string {
 		b.WriteString(") ")
 	}
 	b.WriteString(fn.Name.Name)
+	// Type parameters, when the declaration has them. Without this,
+	// `func NewCache[K comparable, V any]() *Cache[K, V]` renders as
+	// `func NewCache() *Cache[K, V]` -- a signature that names types
+	// nothing in it declares, which reads as a bug in the scanner rather
+	// than as a generic function.
+	b.WriteString(typeParamList(fn.Type.TypeParams))
 	b.WriteString("(")
 	if fn.Type.Params != nil {
 		params := make([]string, 0, len(fn.Type.Params.List))
@@ -839,6 +954,22 @@ func buildSignature(fn *ast.FuncDecl) string {
 	return b.String()
 }
 
+// typeParamList renders "[K comparable, V any]", or "" for a
+// non-generic declaration.
+func typeParamList(params *ast.FieldList) string {
+	if params == nil || len(params.List) == 0 {
+		return ""
+	}
+	entries := make([]string, 0, len(params.List))
+	for _, field := range params.List {
+		constraint := typeExprString(field.Type)
+		for _, name := range field.Names {
+			entries = append(entries, name.Name+" "+constraint)
+		}
+	}
+	return "[" + strings.Join(entries, ", ") + "]"
+}
+
 func typeExprString(expr ast.Expr) string {
 	switch e := expr.(type) {
 	case *ast.Ident:
@@ -859,6 +990,19 @@ func typeExprString(expr ast.Expr) string {
 		return "..." + typeExprString(e.Elt)
 	case *ast.ChanType:
 		return "chan " + typeExprString(e.Value)
+	case *ast.IndexExpr:
+		// An instantiated generic with one type argument: Cache[string].
+		return typeExprString(e.X) + "[" + typeExprString(e.Index) + "]"
+	case *ast.IndexListExpr:
+		// ... and with more than one. Rendered rather than reduced to the
+		// bare name so a signature says which instantiation a field holds;
+		// the AST call ladder keys on the string and matches nothing
+		// either way, so nothing downstream binds to it by accident.
+		args := make([]string, 0, len(e.Indices))
+		for _, idx := range e.Indices {
+			args = append(args, typeExprString(idx))
+		}
+		return typeExprString(e.X) + "[" + strings.Join(args, ", ") + "]"
 	default:
 		return "?"
 	}
@@ -1122,51 +1266,137 @@ func (c *scanContext) walkBody(info *funcInfo) []shared.SymbolID {
 		if !ok {
 			return true
 		}
-		calleeID, ambiguous := c.resolveCall(info, call)
-		if calleeID == "" {
-			return true
-		}
-		if c.shouldIgnore(calleeID) {
-			return true
-		}
-		// SQLC: callee method maps to a generated query.
-		if sqlcMap, ok := c.sqlcMethods[extractMethodName(string(calleeID))]; ok {
-			queryID := shared.SymbolID("sql:" + sqlcMap.QueryName)
-			c.graph.AddNode(&graph.Node{
-				Symbol: shared.Symbol{
-					ID:       queryID,
-					Kind:     shared.KindQuery,
-					Position: shared.FilePosition{Path: sqlcMap.SQLFile, Line: sqlcMap.SQLLine},
-					Doc:      fmt.Sprintf("SQLC query: %s (:%s)", sqlcMap.QueryName, sqlcMap.QueryType),
-				},
-			})
-			if ambiguous {
-				c.graph.AddAmbiguousEdge(info.node.ID, queryID)
-			} else {
-				c.graph.AddEdge(info.node.ID, queryID)
-			}
-			callees = append(callees, queryID)
-			return true
-		}
-		if _, exists := c.funcLookup[calleeID]; exists {
-			if ambiguous {
-				c.graph.AddAmbiguousEdge(info.node.ID, calleeID)
-			} else {
-				c.graph.AddEdge(info.node.ID, calleeID)
-			}
-			callees = append(callees, calleeID)
-		} else if isExternalCall(string(calleeID)) {
-			c.graph.AddNode(&graph.Node{
-				Symbol: shared.Symbol{ID: calleeID, Kind: shared.KindExternal},
-			})
-			c.graph.AddEdge(info.node.ID, calleeID)
+		for _, r := range c.resolveCallSite(info, call) {
+			callees = append(callees, c.emitCallEdge(info, r)...)
 		}
 		return true
 	})
 	return callees
 }
 
-func (c *scanContext) resolveCall(caller *funcInfo, call *ast.CallExpr) (shared.SymbolID, bool) {
+// resolveCallSite is the one place the two resolvers meet.
+//
+// The typed resolver is AUTHORITATIVE for a file it type-checked: when it
+// runs, the name ladder does not, even when it returns nothing. That is
+// the rule that makes the tier histogram mean something. Falling back
+// after a typed miss would mean every call the type checker declined to
+// resolve — a conversion, a call through a func value, a call into a
+// dependency — came back as a substring guess, and the syntactic bucket
+// would grow on the very change meant to shrink it.
+func (c *scanContext) resolveCallSite(info *funcInfo, call *ast.CallExpr) []callResolution {
+	if resolutions, handled := c.resolveCallTyped(info, call); handled {
+		return resolutions
+	}
+	r := c.resolveCall(info, call)
+	if r.ID == "" {
+		return nil
+	}
+	return []callResolution{r}
+}
+
+// emitCallEdge turns one resolution into at most one edge and reports the
+// callee it reached, for the BuildFrom traversal.
+func (c *scanContext) emitCallEdge(info *funcInfo, r callResolution) []shared.SymbolID {
+	if c.shouldIgnore(r.ID) {
+		return nil
+	}
+	// SQLC: callee method maps to a generated query.
+	if sqlcMap, ok := c.sqlcMethods[extractMethodName(string(r.ID))]; ok {
+		queryID := shared.SymbolID("sql:" + sqlcMap.QueryName)
+		c.graph.AddNode(&graph.Node{
+			Symbol: shared.Symbol{
+				ID:       queryID,
+				Kind:     shared.KindQuery,
+				Position: shared.FilePosition{Path: sqlcMap.SQLFile, Line: sqlcMap.SQLLine},
+				Doc:      fmt.Sprintf("SQLC query: %s (:%s)", sqlcMap.QueryName, sqlcMap.QueryType),
+			},
+		})
+		// The redirect DOES re-resolve, and by the weakest rule atlas
+		// has: c.sqlcMethods is keyed on a bare method name, and the
+		// lookup above is the last dot-segment of whatever id the
+		// resolver produced. Nothing about the receiver, the package or
+		// the types survives that hop, so two repositories with a
+		// GetUser method both land on the same query node.
+		//
+		// The tier therefore restarts at C. Carrying the callee's tier
+		// across would let a bare-name match inherit a guarantee the
+		// type checker made about a DIFFERENT edge — the one to the Go
+		// method, which this edge replaced. Ambiguity does carry over:
+		// the redirect adds doubt and removes none.
+		c.addResolvedEdge(info.node.ID, queryID, callResolution{
+			ID:        queryID,
+			Ambiguous: r.Ambiguous,
+			Tier:      graph.TierSyntactic,
+		})
+		return []shared.SymbolID{queryID}
+	}
+	if _, exists := c.funcLookup[r.ID]; exists {
+		c.addResolvedEdge(info.node.ID, r.ID, r)
+		return []shared.SymbolID{r.ID}
+	}
+	if isExternalCall(string(r.ID)) {
+		c.graph.AddNode(&graph.Node{
+			Symbol: shared.Symbol{ID: r.ID, Kind: shared.KindExternal},
+		})
+		// An external call is a package-qualified name atlas has no
+		// declaration for: the target is a stub built from the source
+		// text, so the edge is syntactic no matter which rung produced
+		// the name. The typed path never reaches here — it only offers
+		// callees it has already matched to an indexed declaration.
+		c.graph.AddEdgeTier(info.node.ID, r.ID, graph.TierSyntactic)
+	}
+	return nil
+}
+
+// addResolvedEdge emits one call edge carrying everything the resolver
+// concluded. Both flags come from the same callResolution rather than
+// being re-derived here, so an edge cannot end up with one rung's
+// ambiguity and another rung's tier.
+func (c *scanContext) addResolvedEdge(from, to shared.SymbolID, r callResolution) {
+	if r.Ambiguous {
+		c.graph.AddAmbiguousEdgeTier(from, to, r.Tier)
+		return
+	}
+	c.graph.AddEdgeTier(from, to, r.Tier)
+}
+
+// callResolution is what the resolver managed to say about one call
+// site: which symbol it landed on, whether it had to choose between
+// candidates, and — the part issue #146 adds — by which mechanism.
+//
+// The three travel together because they are decided together, at the
+// bottom of a resolution ladder several returns deep. Handing the tier
+// back as a third bare return value beside a bool is how a later edit
+// ends up passing the ambiguity flag into the tier slot.
+type callResolution struct {
+	ID        shared.SymbolID
+	Ambiguous bool
+	Tier      graph.ResolutionTier
+}
+
+// unresolved is the "nothing to emit" answer. Its tier is deliberately
+// TierUnset: no edge is produced, so no mechanism is claimed.
+var unresolved = callResolution{}
+
+// nameResolved records a callee bound to a declaration this scan
+// actually indexed, through package scope or the global short-name
+// table (resolveInScope). No types were consulted — a call through an
+// interface-typed variable never reaches here — which is exactly what
+// tier B claims and no more.
+func nameResolved(id shared.SymbolID) callResolution {
+	return callResolution{ID: id, Tier: graph.TierNameResolved}
+}
+
+// syntactic records a callee the shape of the source suggested and
+// nothing bound: a substring match on a lowercased identifier, a DI
+// binding guessed from a name, or the "Type.Method" rendering kept
+// verbatim because no candidate matched at all. Tier C — the target may
+// not exist, and may be the wrong one of several same-named candidates.
+func syntactic(id shared.SymbolID, ambiguous bool) callResolution {
+	return callResolution{ID: id, Ambiguous: ambiguous, Tier: graph.TierSyntactic}
+}
+
+func (c *scanContext) resolveCall(caller *funcInfo, call *ast.CallExpr) callResolution {
 	switch fn := call.Fun.(type) {
 	case *ast.SelectorExpr:
 		return c.resolveSelectorCall(caller, fn)
@@ -1174,16 +1404,23 @@ func (c *scanContext) resolveCall(caller *funcInfo, call *ast.CallExpr) (shared.
 		if caller.file != nil {
 			short := shared.SymbolID(caller.file.Name.Name + "." + fn.Name)
 			if id, ok := c.resolveInScope(caller, short); ok {
-				return id, false
+				return nameResolved(id)
 			}
 		}
-		return "", false
+		return unresolved
 	default:
-		return "", false
+		return unresolved
 	}
 }
 
-func (c *scanContext) resolveSelectorCall(caller *funcInfo, sel *ast.SelectorExpr) (shared.SymbolID, bool) {
+// resolveSelectorCall walks a ladder from strongest rung to weakest,
+// and the tier each rung reports is the honest description of that
+// rung. resolveInScope binds a name to a declaration this scan indexed
+// (tier B). Everything below it — the sqlc "Queries" substring test,
+// the fuzzy interface/DI matcher, and the bare fall-through that keeps
+// the rendered "Type.Method" because nothing matched — is a guess about
+// a symbol that may not exist (tier C).
+func (c *scanContext) resolveSelectorCall(caller *funcInfo, sel *ast.SelectorExpr) callResolution {
 	method := sel.Sel.Name
 
 	// Case 1: x.field.Method() — chained selector.
@@ -1194,17 +1431,22 @@ func (c *scanContext) resolveSelectorCall(caller *funcInfo, sel *ast.SelectorExp
 			if fieldType != "" {
 				calleeID := shared.SymbolID(fieldType + "." + method)
 				if id, ok := c.resolveInScope(caller, calleeID); ok {
-					return id, false
+					return nameResolved(id)
 				}
+				// The field's declared type merely CONTAINS "Queries"
+				// and the method name appears in the sqlc table. Two
+				// name tests, no binding.
 				if strings.Contains(fieldType, "Queries") {
 					if _, ok := c.sqlcMethods[method]; ok {
-						return shared.SymbolID(fieldType + "." + method), false
+						return syntactic(shared.SymbolID(fieldType+"."+method), false)
 					}
 				}
 				if resolved := c.fuzzyResolveMethod(fieldType, method); resolved != "" {
-					return resolved, false
+					return syntactic(resolved, false)
 				}
-				return calleeID, true
+				// Nothing matched: the edge points at a rendering of
+				// the source text, which may name no symbol at all.
+				return syntactic(calleeID, true)
 			}
 		}
 	}
@@ -1215,27 +1457,27 @@ func (c *scanContext) resolveSelectorCall(caller *funcInfo, sel *ast.SelectorExp
 		if caller.receiver != "" && (varName == "r" || varName == "s" || varName == "h" || varName == "a") {
 			calleeID := shared.SymbolID(caller.receiver + "." + method)
 			if id, ok := c.resolveInScope(caller, calleeID); ok {
-				return id, false
+				return nameResolved(id)
 			}
 		}
 		fieldType := c.resolveFieldType(caller.receiver, "", varName)
 		if fieldType != "" {
 			calleeID := shared.SymbolID(fieldType + "." + method)
 			if id, ok := c.resolveInScope(caller, calleeID); ok {
-				return id, false
+				return nameResolved(id)
 			}
 			if resolved := c.fuzzyResolveMethod(fieldType, method); resolved != "" {
-				return resolved, false
+				return syntactic(resolved, false)
 			}
-			return calleeID, true
+			return syntactic(calleeID, true)
 		}
 		calleeID := shared.SymbolID(varName + "." + method)
 		if id, ok := c.resolveInScope(caller, calleeID); ok {
-			return id, false
+			return nameResolved(id)
 		}
 		return c.fuzzyResolve(varName, method)
 	}
-	return "", false
+	return unresolved
 }
 
 func (c *scanContext) resolveFieldType(receiverType, _ /* receiverVar */, fieldName string) string {
@@ -1302,7 +1544,11 @@ func (c *scanContext) fuzzyResolveMethod(fieldType, method string) shared.Symbol
 	return ""
 }
 
-func (c *scanContext) fuzzyResolve(varName, method string) (shared.SymbolID, bool) {
+// fuzzyResolve is the weakest rung on the ladder: any indexed method of
+// this name whose receiver type name merely CONTAINS the caller's
+// variable name, case-insensitively. Tier C by construction — no scope,
+// no import graph, no type, only a substring.
+func (c *scanContext) fuzzyResolve(varName, method string) callResolution {
 	lower := strings.ToLower(varName)
 	for _, id := range c.byMethod[method] {
 		parts := strings.SplitN(string(id), ".", 2)
@@ -1310,10 +1556,10 @@ func (c *scanContext) fuzzyResolve(varName, method string) (shared.SymbolID, boo
 			continue
 		}
 		if strings.Contains(strings.ToLower(parts[0]), lower) {
-			return id, true
+			return syntactic(id, true)
 		}
 	}
-	return "", false
+	return unresolved
 }
 
 func (c *scanContext) shouldIgnore(callee shared.SymbolID) bool {

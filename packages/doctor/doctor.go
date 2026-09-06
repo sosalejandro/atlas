@@ -173,6 +173,12 @@ func (r Report) TrippedBy(threshold Severity) bool {
 func DefaultChecks() []Check {
 	return []Check{
 		indexFreshness{},
+		// Provenance sits directly behind freshness because they are
+		// the same question at two depths: freshness asks whether the
+		// index still describes this repo, provenance asks what the
+		// index was ever worth. Both are upstream of every coverage
+		// and audit number below them.
+		edgeProvenance{},
 		coverageFreshness{},
 		coverageAttribution{},
 		featureLinkage{},

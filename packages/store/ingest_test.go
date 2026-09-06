@@ -44,8 +44,8 @@ func buildTestIndex(t *testing.T) *codeindex.Index {
 	g.AddNode(handler)
 	g.AddNode(service)
 	g.AddNode(repo)
-	g.AddEdge("pkg.LoginHandler", "pkg.LoginService")
-	g.AddEdge("pkg.LoginService", "pkg.UserRepo")
+	g.AddEdgeTier("pkg.LoginHandler", "pkg.LoginService", graph.TierNameResolved)
+	g.AddEdgeTier("pkg.LoginService", "pkg.UserRepo", graph.TierNameResolved)
 
 	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 

@@ -1,17 +1,15 @@
-// Package persistence holds the order repository port and its two
-// implementations.
+// Package persistence holds the two implementations of the order
+// repository port declared in internal/services/orders.
 package persistence
 
-import (
-	"context"
+import "example.com/orderd/internal/services/orders"
 
-	"example.com/orderd/internal/services/orders"
+// The port lives with its consumer (see orders.OrderRepository); these
+// assertions are what tie the two implementations to it at compile time.
+// They also give the type checker a reason to record both concrete types
+// as implementations of the interface, which is what makes the
+// interface-dispatch edges in the golden snapshot resolvable.
+var (
+	_ orders.OrderRepository = (*MemoryOrderRepository)(nil)
+	_ orders.OrderRepository = (*PostgresOrderRepository)(nil)
 )
-
-// OrderRepository is the port the order service depends on. It has two
-// implementations in this package, which is why interface-typed calls
-// through it cannot resolve to a single concrete callee.
-type OrderRepository interface {
-	Save(ctx context.Context, o *orders.Order) error
-	Find(ctx context.Context, id string) (*orders.Order, error)
-}

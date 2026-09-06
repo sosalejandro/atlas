@@ -71,6 +71,7 @@ sees only the exit code learns nothing; one that sees the report can act.
 | Name                   | Question it answers                                                                    | Fails when |
 | ---------------------- | -------------------------------------------------------------------------------------- | ---------- |
 | `index.freshness`      | Do the `file_hashes` rows still describe the files on disk?                             | any indexed file changed or disappeared |
+| `index.edge_provenance`| Which mechanism resolved each edge, per language?                                       | never (warn only) |
 | `coverage.freshness`   | How old is the coverage frontier, and did the index move under it?                      | never (warn only) |
 | `coverage.attribution` | What share of executed statements could not be charged to a symbol?                     | that share ≥ 33% |
 | `feature.linkage`      | Are there features with no symbols, or *anchored* annotations naming a feature that does not exist? | never (warn only) |
@@ -121,6 +122,68 @@ Special cases, both reported honestly rather than as `ok`:
 - Symbols in the store but **no hash rows at all** (the last scan ran
   `--hash-files=false`): `n/a` — there is nothing to compare against.
 - **Nothing at all** in the store: `fail`, remediation `atlas init`.
+
+### `index.edge_provenance`
+
+Every other check here asks whether atlas's picture is stale. This one
+asks whether it was ever solid.
+
+`atlas trace`, change-impact and the audit's impl surface are all walks
+over the `edges` table, and an edge a type checker resolved and one
+guessed from a lowercased substring are the same row in every column
+except `resolution_tier` (schema §5.5.1, issue #146). This check reports
+that column as a histogram, per language:
+
+```
+  [ok]   index.edge_provenance
+        examines: which resolution mechanism produced each edge, tallied per language
+        go: 9306 edges (typed=0 name_resolved=6542 syntactic=2764 imported=0), 2686 ambiguous; py: 269 edges (typed=0 name_resolved=5 syntactic=264 imported=0)
+```
+
+That is `atlas scan` followed by `atlas doctor` against the atlas
+repository itself, on the working tree that introduced the column —
+quoted from the run, not composed, because a fabricated histogram would
+be exactly the confident-looking number this command exists to catch.
+Re-run it and the totals will differ as the repo grows; the shape is
+what to read. `typed=0` in both languages, because nothing atlas ships
+type-checks anything yet, is the baseline the #87 resolver migration
+gets diffed against.
+
+The four tiers, strongest first:
+
+- **`typed`** — a type checker resolved it. Interface dispatch and
+  generic instantiation are exact. Nothing produces this yet.
+- **`name_resolved`** — a name was bound to a declaration atlas actually
+  indexed, by scope rules rather than types.
+- **`syntactic`** — the shape of the source said so and nothing was
+  bound across files. The target may not exist, and may be the wrong one
+  of several same-named candidates.
+- **`imported`** — somebody else's indexer said so, via SCIP. Nothing
+  produces this yet either.
+
+`ambiguous` counts the edges where the resolver had more than one
+candidate and picked. It is orthogonal to the tier and reported beside
+it: a `name_resolved` edge can be ambiguous (two packages declare the
+same short name) and a `syntactic` one can be unambiguous (one substring
+matched — still a guess).
+
+The check **warns** in exactly one situation: a language whose edges are
+*all* syntactic. That means no name in it was bound across files at all,
+so a change-impact answer over that language is a guess about targets
+that may not exist. It is the only threshold applied and deliberately
+the degenerate one — any share between 0 and 1 would be a constant
+nobody here has measured, and atlas does not ship those. It never fails,
+and it carries no `fix:` line, because the tier a language reaches is a
+property of the scanner atlas ships for it and not of anything the user
+did.
+
+Tiers with no edges print as `=0` rather than being omitted, and the
+`--json` `details.languages[].tiers` object carries all four keys for
+the same reason: a histogram whose columns come and go with the data is
+not diffable, and an absent column reads as "unchanged" precisely where
+a reader needs to see "went to nothing".
+
+`n/a` when the store holds no edges at all.
 
 ### `coverage.freshness`
 
@@ -259,6 +322,11 @@ Failure modes:
   turned into one.
 
 ## Examples
+
+The transcripts below were written before `index.edge_provenance`
+existed and do not include it; a real one is quoted in that check's own
+section above rather than being retrofitted here, because the only
+honest way to add a line to an illustrative transcript is to have run it.
 
 ### A typical run
 

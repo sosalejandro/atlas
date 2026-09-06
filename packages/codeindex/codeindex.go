@@ -432,12 +432,18 @@ func mergeTSResult(idx *Index, res *tsscan.Result) {
 		idx.SymbolLangs[sym.ID] = "ts"
 	}
 	for _, e := range res.Edges {
-		// Use AddEdgeKindLine to forward the per-edge line when the
-		// TS scanner supplies one. Today scanner.ts emits Line=0 so
-		// this is functionally identical to AddEdgeKind; staying on
-		// the line-aware overload keeps the ingest path uniform and
-		// future-proofs the TS scanner's eventual per-edge anchors.
-		idx.Graph.AddEdgeKindLine(e.From, e.To, e.Kind, e.Line)
+		// Use the line-aware overload to forward the per-edge line
+		// when the TS scanner supplies one. Today scanner.ts emits
+		// Line=0 so this is functionally identical to AddEdgeKind;
+		// staying on the line-aware overload keeps the ingest path
+		// uniform and future-proofs the TS scanner's eventual
+		// per-edge anchors.
+		//
+		// e.Tier is forwarded rather than chosen: the orchestrator has
+		// no idea how the TS scanner resolved anything, and a tier
+		// picked here would be a claim about work it did not watch
+		// (issue #146). An unset one fails at ingest, by name.
+		idx.Graph.AddEdgeKindLineTier(e.From, e.To, e.Kind, e.Line, e.Tier)
 	}
 	// Surface TS scanner warnings to the orchestrator output.
 	idx.Warnings = append(idx.Warnings, res.Warnings...)
@@ -484,7 +490,13 @@ func mergePYResult(idx *Index, res *pyscan.Result) {
 		// tag. Empty Line/Meta on the call site means "back-compat
 		// with pre-fix producers" — the graph layer treats them as
 		// the zero value.
-		idx.Graph.AddEdgeKindLineMeta(e.From, e.To, e.Kind, e.Line, e.Meta)
+		//
+		// e.Tier joins them for the same reason and with the opposite
+		// tolerance: an empty tier is NOT back-compat, it is an edge
+		// whose producer never said how it resolved the target, and
+		// the store refuses it rather than filing it beside the ones
+		// that did (issue #146).
+		idx.Graph.AddEdgeKindLineMetaTier(e.From, e.To, e.Kind, e.Line, e.Meta, e.Tier)
 	}
 	idx.Annotations = append(idx.Annotations, res.Annotations...)
 	idx.Warnings = append(idx.Warnings, res.Warnings...)

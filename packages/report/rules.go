@@ -71,9 +71,10 @@ var catalog = []Rule{
 		ID:               RuleFeatureUncovered,
 		Name:             "FeatureUncovered",
 		ShortDescription: "A feature's health score is below the configured floor",
-		FullDescription: "atlas scored this feature from its coverage, annotation freshness, pattern " +
-			"compliance and contract drift signals, and the result is below the floor the repository " +
-			"gates on. The score's components name which signal dragged it down.",
+		FullDescription: "atlas scored this feature from its statement coverage, decision coverage, " +
+			"annotation freshness, pattern compliance and contract drift signals, and the result is " +
+			"below the floor the repository gates on. The score's components name which signal " +
+			"dragged it down.",
 		HelpURI:      helpBase + "#atlasfeature-uncovered",
 		DefaultLevel: SeverityWarning,
 		Tags:         []string{"atlas", "coverage", "maintainability"},

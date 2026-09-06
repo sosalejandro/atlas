@@ -58,7 +58,7 @@
                 "text": "A feature's health score is below the configured floor"
               },
               "fullDescription": {
-                "text": "atlas scored this feature from its coverage, annotation freshness, pattern compliance and contract drift signals, and the result is below the floor the repository gates on. The score's components name which signal dragged it down."
+                "text": "atlas scored this feature from its statement coverage, decision coverage, annotation freshness, pattern compliance and contract drift signals, and the result is below the floor the repository gates on. The score's components name which signal dragged it down."
               },
               "helpUri": "https://github.com/sosalejandro/atlas/blob/main/docs/commands/report.md#atlasfeature-uncovered",
               "defaultConfiguration": {

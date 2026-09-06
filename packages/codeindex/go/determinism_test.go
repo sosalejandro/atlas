@@ -1,6 +1,7 @@
 package goscan
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -156,11 +157,183 @@ func TestGoldenCorpus_SymbolsAndEdgesMatchSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read golden (regenerate with `go test ./packages/codeindex/go -run TestGoldenCorpus -update`): %v", err)
 	}
+	// Diagnose a CRLF checkout before comparing, because the comparison
+	// cannot. canonicalize writes "\n"; a Windows clone with
+	// core.autocrlf=true (the Git for Windows installer default) hands
+	// os.ReadFile "\r\n", so every one of the snapshot's lines differs and
+	// the diff blames the scanner for the checkout. .gitattributes pins
+	// this file to LF; this check is what says so when it has been lost.
+	if bytes.Contains(raw, []byte("\r\n")) {
+		t.Fatalf("%s has CRLF line endings, but the scanner renders LF, so the byte "+
+			"comparison below would fail on every line for a reason that has nothing "+
+			"to do with the scanner.\nThis is a checkout problem, not a scanner problem: "+
+			"the repository stores this file with LF and .gitattributes pins it to LF in "+
+			"the working tree. Re-checkout with `git rm --cached -r . && git reset --hard`, "+
+			"or check that .gitattributes is present at the repo root.", goldenSnapshot)
+	}
 	if want := string(raw); got != want {
 		t.Fatalf("golden corpus snapshot is stale or the scanner regressed.\n"+
 			"Explain the diff in your PR, then regenerate with:\n"+
 			"  go test ./packages/codeindex/go -run TestGoldenCorpus -update\n\n%s",
 			diffCanonical(want, got))
+	}
+}
+
+// TestGoldenCorpus_LineEndingsDoNotMoveTheSnapshot scans the corpus twice
+// — once from LF sources, once from the same sources rewritten to CRLF —
+// and asserts the two canonical documents are byte-identical.
+//
+// This is the half of the Windows question the snapshot comparison cannot
+// answer for itself. Issue #143 claimed the golden corpus "bakes in path
+// separators", and a guard was written to route Position.Path through a
+// slash normaliser in this file. That guard was a no-op: every
+// Position.Path the scanner emits has already been through
+// filepath.ToSlash at construction (scanner.go, the relOrSelf call sites),
+// so it could not change a byte of any real scan on any platform. It has
+// been dropped rather than left standing in for a fix.
+//
+// What a Windows checkout DOES change is the bytes on disk: with
+// core.autocrlf=true every source file in the corpus arrives as CRLF. So
+// the real question is not whether the scanner emits the host separator —
+// it does not — but whether reading CRLF sources moves anything the
+// snapshot records. Three fields could plausibly carry a stray "\r":
+// Doc (ast.CommentGroup.Text), Signature (rendered from the AST, not from
+// source bytes) and the generated-header probe (a bufio.Scanner). All
+// three strip it today. This test is what keeps that true, and what lets
+// the docs say "the snapshot is platform-independent" as a measured
+// property rather than a hope.
+//
+// Together with .gitattributes — which pins the snapshot file itself, the
+// one place a CRLF checkout genuinely does break the comparison — this is
+// the whole of the golden corpus's Windows story.
+func TestGoldenCorpus_LineEndingsDoNotMoveTheSnapshot(t *testing.T) {
+	t.Parallel()
+
+	lf := filepath.Join(t.TempDir(), "lf-checkout")
+	crlf := filepath.Join(t.TempDir(), "crlf-checkout")
+	copyTree(t, goldenCorpusDir, lf)
+	copyTreeCRLF(t, goldenCorpusDir, crlf)
+
+	// Guard the fixture: if the rewrite silently did nothing, the
+	// comparison below would pass without exercising anything.
+	assertContainsCRLF(t, filepath.Join(crlf, "go.mod"))
+
+	want := canonicalScan(t, lf, Options{})
+	got := canonicalScan(t, crlf, Options{})
+	if got != want {
+		t.Fatalf("scanning CRLF sources produced a different canonical document, so the "+
+			"golden snapshot is not valid on a Windows checkout:\n%s", diffCanonical(want, got))
+	}
+}
+
+// copyTreeCRLF mirrors src into dst with every line ending rewritten to
+// CRLF — what a Windows clone with core.autocrlf=true produces.
+//
+// Normalising to LF first makes the rewrite idempotent, so a source file
+// that already had a CRLF cannot become "\r\r\n".
+func copyTreeCRLF(t *testing.T, src, dst string) {
+	t.Helper()
+	err := filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+		data = bytes.ReplaceAll(data, []byte("\n"), []byte("\r\n"))
+		return os.WriteFile(target, data, 0o600)
+	})
+	if err != nil {
+		t.Fatalf("copy %s -> %s as CRLF: %v", src, dst, err)
+	}
+}
+
+// assertContainsCRLF fails when path has no CRLF in it, which would mean
+// copyTreeCRLF produced a fixture that tests nothing.
+func assertContainsCRLF(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read CRLF fixture %s: %v", path, err)
+	}
+	if !bytes.Contains(data, []byte("\r\n")) {
+		t.Fatalf("%s has no CRLF after the rewrite; the fixture does not exercise "+
+			"the Windows checkout shape", path)
+	}
+}
+
+// TestGoldenCorpus_TierChangeFailsSnapshot proves the snapshot can see
+// a resolution-tier change.
+//
+// This is the test that makes #87 reviewable, and it is deliberately
+// about the DETECTOR rather than about any particular edge. #146 exists
+// because an edge produced by a name heuristic and the same edge
+// produced by a type checker are identical in (from, to, kind, file,
+// line) — so every count comparison and every set diff over that tuple
+// reports "unchanged" across the exact migration that changes
+// everything. If the tier ever stops being serialised, the golden file
+// silently goes back to being blind, and nothing else in the suite
+// would notice.
+//
+// It scans the real corpus, promotes one edge's tier by hand, and
+// asserts the canonical document changes and the diff names the move.
+// Nothing is written to disk.
+func TestGoldenCorpus_TierChangeFailsSnapshot(t *testing.T) {
+	t.Parallel()
+
+	res, err := Scan(context.Background(), goldenCorpusDir, Options{})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	before := canonicalize(res)
+
+	// Pick a syntactic edge and promote it to typed — the exact
+	// movement #87 is expected to produce, and the one a count-based
+	// or tuple-based check cannot see.
+	promoted := -1
+	for i, e := range res.Graph.Edges {
+		if e.Tier == graph.TierSyntactic {
+			promoted = i
+			break
+		}
+	}
+	if promoted < 0 {
+		t.Fatal("corpus has no syntactic edge to promote; the fixture no longer exercises the guess path")
+	}
+	moved := res.Graph.Edges[promoted]
+	res.Graph.Edges[promoted].Tier = graph.TierTyped
+
+	after := canonicalize(res)
+	if after == before {
+		t.Fatalf("promoting %s -> %s from %q to %q left the canonical document byte-identical; "+
+			"the snapshot cannot see a resolver migration",
+			moved.From, moved.To, graph.TierSyntactic, graph.TierTyped)
+	}
+
+	// The header counts are unchanged — same symbols, same edges. That
+	// is the point: only the tier line moved, which is precisely the
+	// failure mode #87's old acceptance criterion ("same symbol and
+	// edge counts +/- a documented delta") could not detect.
+	beforeHeader := strings.SplitN(before, "\n", 2)[0]
+	afterHeader := strings.SplitN(after, "\n", 2)[0]
+	if beforeHeader != afterHeader {
+		t.Fatalf("edge counts moved (%q vs %q); the test perturbed more than the tier",
+			beforeHeader, afterHeader)
+	}
+
+	diff := diffCanonical(before, after)
+	if !strings.Contains(diff, "tier="+string(graph.TierTyped)) {
+		t.Errorf("diff does not name the new tier, so a reviewer could not tell what moved:\n%s", diff)
 	}
 }
 
@@ -200,7 +373,15 @@ func canonicalScan(t *testing.T, root string, opts Options) string {
 	if len(res.Symbols) == 0 {
 		t.Fatalf("Scan(%s): no symbols; fixture missing?", root)
 	}
+	return canonicalize(res)
+}
 
+// canonicalize renders a scan result as the stable text document
+// canonicalScan compares. It is split out from the scan so a test can
+// perturb a result and ask what the snapshot would say about it —
+// which is how TestGoldenCorpus_TierChangeFailsSnapshot proves the
+// snapshot can see a tier move at all.
+func canonicalize(res *Result) string {
 	lines := make([]string, 0, len(res.Symbols)+len(res.Graph.Edges)+len(res.Warnings))
 	for _, sym := range res.Symbols {
 		lines = append(lines, symbolLine(sym))
@@ -252,6 +433,15 @@ func edgeLine(e graph.Edge) string {
 		"cycle=" + strconv.FormatBool(e.Cycle),
 		"ambiguous=" + strconv.FormatBool(e.Ambiguous),
 		"meta=" + e.Meta,
+		// The tier is pinned because it is the ONE field a resolver
+		// migration changes without changing anything else. #87
+		// replaces the Go call resolver with go/packages + callgraph:
+		// the same (from, to, kind, line) tuples come back out of a
+		// completely different mechanism, so a snapshot over the tuple
+		// alone reports "no change" for the largest change this
+		// scanner has ever had. See
+		// TestGoldenCorpus_TierChangeFailsSnapshot.
+		"tier=" + string(e.Tier),
 	}, "\t")
 }
 

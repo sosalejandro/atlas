@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -222,7 +223,7 @@ func TestPackageAnchor_DoesNotFireWhenCallEdgeSurfacePresent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.Edges().Insert(context.Background(), store.EdgeRow{
-		FromID: testSym, ToID: implSym, Kind: store.EdgeKindCall,
+		Tier: graph.TierNameResolved, FromID: testSym, ToID: implSym, Kind: store.EdgeKindCall,
 		FilePath: "src/contexts/billing/application/services/service_test.go", Line: 12,
 	}); err != nil {
 		t.Fatal(err)

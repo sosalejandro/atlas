@@ -6,6 +6,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 )
 
@@ -34,7 +35,7 @@ func seedImportCycle(t *testing.T, s *Store, fromQN, fromFile, toQN, toFile, sco
 		t.Fatalf("insert to: %v", err)
 	}
 	if _, err := edges.Insert(ctx, EdgeRow{
-		FromID: from, ToID: to, Kind: EdgeKindImport,
+		Tier: graph.TierNameResolved, FromID: from, ToID: to, Kind: EdgeKindImport,
 		FilePath: fromFile, Line: 1, Meta: scope,
 	}); err != nil {
 		t.Fatalf("insert edge from->to: %v", err)
@@ -51,7 +52,7 @@ func TestListImportEdges_NoFilter(t *testing.T) {
 
 	a, b := seedImportCycle(t, s, "pkg.a", "a.py", "pkg.b", "b.py", EdgeMetaImportScopeModule)
 	if _, err := s.Edges().Insert(ctx, EdgeRow{
-		FromID: b, ToID: a, Kind: EdgeKindImport,
+		Tier: graph.TierNameResolved, FromID: b, ToID: a, Kind: EdgeKindImport,
 		FilePath: "b.py", Line: 1, Meta: EdgeMetaImportScopeFunction,
 	}); err != nil {
 		t.Fatalf("insert reverse edge: %v", err)
@@ -86,7 +87,7 @@ func TestListImportEdges_ScopeFilter(t *testing.T) {
 
 	a, b := seedImportCycle(t, s, "pkg.a", "a.py", "pkg.b", "b.py", EdgeMetaImportScopeModule)
 	if _, err := s.Edges().Insert(ctx, EdgeRow{
-		FromID: b, ToID: a, Kind: EdgeKindImport,
+		Tier: graph.TierNameResolved, FromID: b, ToID: a, Kind: EdgeKindImport,
 		FilePath: "b.py", Line: 42, Meta: EdgeMetaImportScopeFunction,
 	}); err != nil {
 		t.Fatalf("insert reverse edge: %v", err)
@@ -115,7 +116,7 @@ func TestListImportEdges_OnlyImportKind(t *testing.T) {
 
 	a, b := seedImportCycle(t, s, "pkg.a", "a.py", "pkg.b", "b.py", EdgeMetaImportScopeModule)
 	if _, err := s.Edges().Insert(ctx, EdgeRow{
-		FromID: b, ToID: a, Kind: EdgeKindCall,
+		Tier: graph.TierNameResolved, FromID: b, ToID: a, Kind: EdgeKindCall,
 		FilePath: "b.py", Line: 5,
 	}); err != nil {
 		t.Fatalf("insert call edge: %v", err)

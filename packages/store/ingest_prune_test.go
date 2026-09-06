@@ -159,7 +159,7 @@ func TestIngest_RescanResolvesExistingSymbolsToOwnIDs(t *testing.T) {
 	callee := shared.Symbol{ID: "pkg.Callee", Kind: shared.KindFunc,
 		Position: shared.FilePosition{Path: "src/callee.go", Line: 5}, EndLine: 9}
 	idx := indexWithSymbols(callee, caller)
-	idx.Graph.AddEdge(caller.ID, callee.ID)
+	idx.Graph.AddEdgeTier(caller.ID, callee.ID, graph.TierNameResolved)
 	if _, err := s.Ingest(ctx, idx); err != nil {
 		t.Fatalf("second Ingest: %v", err)
 	}

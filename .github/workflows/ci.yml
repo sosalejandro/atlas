@@ -29,13 +29,10 @@ jobs:
     #
     # This matrix was added by issue #121 and Windows went red on its first
     # run. The compile break it found (syscall.Flock, which does not exist
-    # there) is fixed. What remains is a set of pre-existing test failures
-    # across internal/adapters, packages/codeindex/{go,py,ts} -- path
-    # separators baked into a golden snapshot, an absolute-path check that
-    # rejects a drive letter, a shell-metacharacter guard that rejects the
-    # backslash in every Windows temp path. None of it came from the work
-    # that added this job; it was invisible because nothing had ever built
-    # this repo on Windows.
+    # there) is fixed. What remained was a set of pre-existing test failures
+    # across internal/adapters and packages/codeindex/{go,py,ts}. None of it
+    # came from the work that added this job; it was invisible because
+    # nothing had ever built this repo on Windows.
     #
     # Making the whole matrix advisory would have thrown away the ubuntu and
     # macos signal to accommodate one platform. Making Windows blocking today
@@ -43,6 +40,36 @@ jobs:
     # reports and does not gate, and issue #143 tracks turning it back on --
     # at which point `continue-on-error` comes out and the name loses its
     # suffix.
+    #
+    # FIXED so far (#143):
+    #   - The shell-metacharacter guard that rejected the backslash in every
+    #     Windows temp path (packages/codeindex/{py,ts}: buildScannerArgs
+    #     now normalises separators before validating).
+    #   - The absolute-path check that rejected a drive letter
+    #     (validatePythonBin).
+    #   - Report-supplied paths routed through the host's filepath, which
+    #     made a Playwright feature id depend on the runner
+    #     (internal/adapters/pathnorm.go).
+    #   - The golden snapshot's line endings, which a core.autocrlf=true
+    #     checkout rewrote to CRLF: .gitattributes now pins them, and the
+    #     test says so instead of printing a phantom diff.
+    #
+    # NOT a real failure, contrary to the earlier version of this comment:
+    # "path separators baked into a golden snapshot". Every path in that
+    # snapshot has already been through filepath.ToSlash at construction.
+    # Measured, not assumed -- see docs/testing/determinism.md, "The
+    # snapshot on Windows".
+    #
+    # STILL UNVERIFIED, and why this leg is still advisory: none of the
+    # above has been observed passing ON Windows -- it was all developed and
+    # mutation-tested from Linux. One concrete suspect remains unexamined:
+    # packages/resolver keys its file lookup (Program.byPath) on absolute
+    # paths, inserting what `go list` reports and querying with what
+    # filepath.WalkDir produced. filepath.Clean does not reconcile a
+    # drive-letter case difference or an 8.3 short name (RUNNER~1) between
+    # those two sources, and a miss there is silent: every edge degrades out
+    # of `typed`, which moves the golden snapshot on Windows only. Flip this
+    # gate when a Windows run is green, not before.
     name: build + test + lint — ${{ matrix.os }} ${{ matrix.gate }}
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.advisory }}

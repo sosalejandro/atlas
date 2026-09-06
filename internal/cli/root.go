@@ -98,6 +98,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newCodebaseCmd())
 	root.AddCommand(newMigrateAnnotationsCmd())
 	root.AddCommand(newDoctorCmd())
+	root.AddCommand(newResolveCmd())
 	root.AddCommand(newAffectedCmd())
 	root.AddCommand(newReportCmd())
 	root.AddCommand(newTrendCmd())

@@ -38,7 +38,8 @@ type CollectOptions struct {
 //
 //   - What is recorded. The recorded score is the audit's COVERAGE COMPONENT,
 //     not its overall FeatureHealth.Score. The overall score is a
-//     re-normalised blend of coverage, annotation freshness, pattern
+//     re-normalised blend of statement coverage, decision coverage,
+//     annotation freshness, pattern
 //     compliance and contract drift; recording that while calling the series
 //     a coverage trend would make the gate fire on an annotation going stale,
 //     and would let a real coverage drop hide behind another component

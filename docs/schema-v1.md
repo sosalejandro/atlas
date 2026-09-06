@@ -279,37 +279,112 @@ everything to EOF. The Go scanner always emits it.
 ### 5.5 `edges` — directed call / implement / embed / construct relationships
 
 ```sql
+-- as of migration 0018
 CREATE TABLE edges (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  from_symbol_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
-  to_symbol_id   INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
-  kind           TEXT    NOT NULL,
-  file_path      TEXT    NOT NULL,
-  line           INTEGER NOT NULL,
-  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CHECK (kind IN ('call', 'implement', 'embed', 'construct'))
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_symbol_id  INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
+  to_symbol_id    INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
+  kind            TEXT    NOT NULL,
+  file_path       TEXT    NOT NULL,
+  line            INTEGER NOT NULL,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  edge_meta       TEXT,
+  resolution_tier TEXT    NOT NULL,
+  ambiguous       INTEGER NOT NULL DEFAULT 0,
+  CHECK (kind IN (
+    'call', 'implement', 'embed', 'construct',
+    'inheritance', 'decorator', 'import'
+  )),
+  CHECK (resolution_tier IN (
+    'typed', 'name_resolved', 'syntactic', 'imported'
+  )),
+  CHECK (ambiguous IN (0, 1))
 );
 
 CREATE INDEX edges_from_idx ON edges(from_symbol_id);
 CREATE INDEX edges_to_idx   ON edges(to_symbol_id);
+CREATE INDEX edges_tier_idx ON edges(resolution_tier);
 CREATE UNIQUE INDEX edges_dedupe_idx
   ON edges(from_symbol_id, to_symbol_id, kind, file_path, line);
 ```
 
-| Column           | Type    | Notes                                                                                                                  |
-| ---------------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `id`             | INTEGER | Surrogate PK.                                                                                                          |
-| `from_symbol_id` | INTEGER | The caller / implementor / embedder / constructor. FK → `symbols(id)`. `ON DELETE CASCADE` so removing a symbol's edges is automatic. |
-| `to_symbol_id`   | INTEGER | The callee / interface / embedded type / constructed type. FK → `symbols(id)`.                                          |
-| `kind`           | TEXT    | `call` (function call), `implement` (type implements interface), `embed` (struct embeds another type), `construct` (Wire/Fx provider builds this type). |
-| `file_path`      | TEXT    | Where the edge was observed. Relative path. A single from→to pair can have multiple edges if invoked from multiple sites. |
-| `line`           | INTEGER | 1-based line of the call/implement/embed/construct site.                                                                |
-| `created_at`     | TIMESTAMP | First time this exact edge was recorded.                                                                              |
+| Column            | Type    | Notes                                                                                                                  |
+| ----------------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `id`              | INTEGER | Surrogate PK.                                                                                                          |
+| `from_symbol_id`  | INTEGER | The caller / implementor / embedder / constructor. FK → `symbols(id)`. `ON DELETE CASCADE` so removing a symbol's edges is automatic. |
+| `to_symbol_id`    | INTEGER | The callee / interface / embedded type / constructed type. FK → `symbols(id)`.                                          |
+| `kind`            | TEXT    | `call` (function call), `implement` (type implements interface), `embed` (struct embeds another type), `construct` (Wire/Fx provider builds this type), plus the Python-scanner kinds `inheritance`, `decorator`, `import` (migration 0007). |
+| `file_path`       | TEXT    | Where the edge was observed. Relative path. A single from→to pair can have multiple edges if invoked from multiple sites. |
+| `line`            | INTEGER | 1-based line of the call/implement/embed/construct site.                                                                |
+| `created_at`      | TIMESTAMP | First time this exact edge was recorded.                                                                              |
+| `edge_meta`       | TEXT    | Optional kind-specific qualifier (migration 0008). Python `import` edges carry the lexical scope: `module`, `function`, `conditional`, `type_checking`, `try_guard`. NULL for every other kind. |
+| `resolution_tier` | TEXT    | Which mechanism resolved this edge (migration 0018). See below.                                                          |
+| `ambiguous`       | INTEGER | 0/1. The resolver had more than one candidate and picked one.                                                           |
 
 The composite unique index on `(from, to, kind, file, line)` lets the
 incremental scanner safely re-emit edges without producing duplicates —
 re-indexing a single file is `DELETE FROM edges WHERE file_path = ?`
-followed by `INSERT OR IGNORE`.
+followed by `INSERT OR IGNORE`. Neither `edge_meta` nor
+`resolution_tier` joins that key: two mechanisms that produce the same
+relationship at the same call site are one relationship, and storing
+both would double-count it in every walk and every histogram.
+
+#### 5.5.1 `resolution_tier` — provenance per edge (issue #146)
+
+Atlas derives the same relationship by mechanisms of wildly different
+reliability. A callee found in the caller's package scope and a callee
+guessed from a case-insensitive substring match on a variable name are
+identical in every other column of this table. Without this one, no test
+can see a resolver change: a name-heuristic edge and a type-checked edge
+are the same row, so counts and `(from, to, kind, file, line)` set diffs
+both report "unchanged" across exactly the migration that changes
+everything.
+
+The vocabulary is the A/B/C/D set defined in issue #105's tiering
+addendum. It is closed — a second taxonomy would make two scanners'
+histograms incomparable, which defeats the purpose.
+
+| Tier            | Mechanism                                   | Claims                                                        | Produced today by |
+| --------------- | ------------------------------------------- | ------------------------------------------------------------- | ----------------- |
+| `typed`         | a type checker (`go/packages` + callgraph)  | exact, including interface dispatch and generic instantiation | nothing yet — this is what #87 lands |
+| `name_resolved` | scope-aware name binding                    | the name was bound to a declaration atlas actually indexed    | the Go scanner (`resolveInScope` hits); the Python scanner (imports / base classes / decorators whose target resolved to an indexed symbol) |
+| `syntactic`     | the shape of the source, no cross-file binding | a plausible target; it may not exist, and may be the wrong one of several same-named candidates | the Go scanner (fuzzy + DI + unresolved-guess paths, route and `@api` edges, external stubs); the TypeScript scanner (all edges); the Python scanner (all calls, and any target that did not resolve) |
+| `imported`      | somebody else's indexer, via SCIP           | whatever that indexer knew                                    | nothing yet — #105 step 1 |
+
+Rules:
+
+- **The scanner that produced the edge sets the tier, explicitly.** No
+  layer between the scanner and this table may infer, upgrade or supply
+  one; only the scanner knows which mechanism ran.
+- **There is no default.** The column is `NOT NULL` with no `DEFAULT`
+  and a `CHECK` on the vocabulary, so an insert that omits it or passes
+  an empty string fails at the database. `packages/store/edges.go`
+  raises the same refusal earlier with a readable message. A default is
+  how every edge ends up claiming to be typed.
+- **There is deliberately no confidence score.** The prior art this
+  borrows from (trace-mcp, credited on #105) seeds weights of
+  1.0 / 1.0 / 0.95 / 0.7 / 0.4 from its tiers. Those are calibrated
+  against that project's corpus; nobody here has measured ours, and this
+  project does not ship numbers it has not measured.
+- **Migration 0018 backfilled every pre-existing row at `syntactic`.**
+  The tier lives in the resolver's control flow and is not recoverable
+  from a stored row, so the choice was between backfilling optimistically
+  and backfilling honestly. The weakest tier states the floor that is
+  true of every such row, and biases the first post-#87 histogram
+  against showing an improvement — the safe direction for a change
+  detector to be wrong in. Real per-row tiers come from re-running
+  `atlas scan`.
+
+`ambiguous` is `graph.Edge.Ambiguous`, computed by the resolver since
+v0.4 and, until 0018, discarded at the storage boundary. It is
+orthogonal to the tier and both are kept: a `name_resolved` edge can be
+ambiguous (two packages declare the short name) and a `syntactic` one
+can be unambiguous (one substring matched — still a guess).
+
+`atlas doctor`'s `index.edge_provenance` check reports the
+(language, tier) histogram, with the language derived from the edge's
+file extension. It warns when a language's edges are *all* syntactic —
+the only threshold applied, and deliberately the degenerate one.
 
 ### 5.6 `feature_symbols` — link table between features and symbols
 
@@ -667,7 +742,8 @@ else writes here: `atlas cov sync` and `atlas audit` do not.
 
 **What `score` holds.** The audit's **coverage component**, not
 `FeatureHealth.Score`. The overall audit score re-normalises a blend of
-coverage, annotation freshness, pattern compliance and contract drift;
+statement coverage, decision coverage (#140), annotation freshness, pattern
+compliance and contract drift;
 recording that in a table `atlas trend` gates on as a coverage regression
 would fire the gate on a stale annotation and let a real coverage drop hide
 behind another component rising.
@@ -1205,6 +1281,7 @@ nothing else records what a span used to be.
 | One annotation per (file, line, kind)                                    | `annotations_dedupe_idx` (UNIQUE)                                       |
 | One feature_symbols row per (feature, symbol, role)                      | `feature_symbols` PRIMARY KEY                                           |
 | One edge per (from, to, kind, file, line)                                | `edges_dedupe_idx` (UNIQUE) — re-scans are idempotent                  |
+| Every edge names the mechanism that resolved it                          | `edges.resolution_tier NOT NULL` with no DEFAULT + `CHECK` on the vocabulary; `store.requireTier` refuses it earlier with the from/to pair named |
 | Symbol qualified names globally unique                                   | `symbols.qualified_name UNIQUE`                                         |
 | One file_hashes row per file path                                        | `file_hashes.file_path` is the PRIMARY KEY                              |
 | Schema versions never reapplied                                          | `schema_version.version` PRIMARY KEY + idempotent runner skip-logic     |

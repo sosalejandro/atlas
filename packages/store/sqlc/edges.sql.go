@@ -8,7 +8,6 @@ package sqlc
 import (
 	"context"
 	"database/sql"
-	"time"
 )
 
 const deleteEdgesByFile = `-- name: DeleteEdgesByFile :exec
@@ -52,20 +51,24 @@ func (q *Queries) GetEdgeID(ctx context.Context, arg GetEdgeIDParams) (int64, er
 
 const insertEdge = `-- name: InsertEdge :execresult
 INSERT OR IGNORE INTO edges
-  (from_symbol_id, to_symbol_id, kind, file_path, line, edge_meta)
-VALUES (?, ?, ?, ?, ?, ?)
+  (from_symbol_id, to_symbol_id, kind, file_path, line, edge_meta, resolution_tier, ambiguous)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEdgeParams struct {
-	FromSymbolID int64   `db:"from_symbol_id" json:"from_symbol_id"`
-	ToSymbolID   int64   `db:"to_symbol_id" json:"to_symbol_id"`
-	Kind         string  `db:"kind" json:"kind"`
-	FilePath     string  `db:"file_path" json:"file_path"`
-	Line         int64   `db:"line" json:"line"`
-	EdgeMeta     *string `db:"edge_meta" json:"edge_meta"`
+	FromSymbolID   int64   `db:"from_symbol_id" json:"from_symbol_id"`
+	ToSymbolID     int64   `db:"to_symbol_id" json:"to_symbol_id"`
+	Kind           string  `db:"kind" json:"kind"`
+	FilePath       string  `db:"file_path" json:"file_path"`
+	Line           int64   `db:"line" json:"line"`
+	EdgeMeta       *string `db:"edge_meta" json:"edge_meta"`
+	ResolutionTier string  `db:"resolution_tier" json:"resolution_tier"`
+	Ambiguous      int64   `db:"ambiguous" json:"ambiguous"`
 }
 
 // edge_meta is a NULLable kind-specific qualifier. Python import edges populate it with a scope tag (module/function/conditional/type_checking/try_guard) via migration 0008 - issue #16. Non-import edges pass NULL.
+// resolution_tier is NOT NULL with no default (migration 0018 - issue #146): the caller states which mechanism resolved this edge. Passing an empty or unknown value is a CHECK violation, on purpose - an edge whose provenance nobody stated must not land looking like one that was type-checked.
+// ambiguous is the graph layer's per-edge "the resolver had more than one candidate" flag, persisted rather than recomputed.
 func (q *Queries) InsertEdge(ctx context.Context, arg InsertEdgeParams) (sql.Result, error) {
 	return q.db.ExecContext(ctx, insertEdge,
 		arg.FromSymbolID,
@@ -74,36 +77,27 @@ func (q *Queries) InsertEdge(ctx context.Context, arg InsertEdgeParams) (sql.Res
 		arg.FilePath,
 		arg.Line,
 		arg.EdgeMeta,
+		arg.ResolutionTier,
+		arg.Ambiguous,
 	)
 }
 
 const listEdgesIn = `-- name: ListEdgesIn :many
-SELECT id, from_symbol_id, to_symbol_id, kind, file_path, line, edge_meta, created_at
+SELECT id, from_symbol_id, to_symbol_id, kind, file_path, line, created_at, edge_meta, resolution_tier, ambiguous
 FROM edges
 WHERE to_symbol_id = ?
 ORDER BY file_path, line
 `
 
-type ListEdgesInRow struct {
-	ID           int64     `db:"id" json:"id"`
-	FromSymbolID int64     `db:"from_symbol_id" json:"from_symbol_id"`
-	ToSymbolID   int64     `db:"to_symbol_id" json:"to_symbol_id"`
-	Kind         string    `db:"kind" json:"kind"`
-	FilePath     string    `db:"file_path" json:"file_path"`
-	Line         int64     `db:"line" json:"line"`
-	EdgeMeta     *string   `db:"edge_meta" json:"edge_meta"`
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
-}
-
-func (q *Queries) ListEdgesIn(ctx context.Context, toSymbolID int64) ([]ListEdgesInRow, error) {
+func (q *Queries) ListEdgesIn(ctx context.Context, toSymbolID int64) ([]Edge, error) {
 	rows, err := q.db.QueryContext(ctx, listEdgesIn, toSymbolID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListEdgesInRow{}
+	items := []Edge{}
 	for rows.Next() {
-		var i ListEdgesInRow
+		var i Edge
 		if err := rows.Scan(
 			&i.ID,
 			&i.FromSymbolID,
@@ -111,8 +105,10 @@ func (q *Queries) ListEdgesIn(ctx context.Context, toSymbolID int64) ([]ListEdge
 			&i.Kind,
 			&i.FilePath,
 			&i.Line,
-			&i.EdgeMeta,
 			&i.CreatedAt,
+			&i.EdgeMeta,
+			&i.ResolutionTier,
+			&i.Ambiguous,
 		); err != nil {
 			return nil, err
 		}
@@ -128,32 +124,21 @@ func (q *Queries) ListEdgesIn(ctx context.Context, toSymbolID int64) ([]ListEdge
 }
 
 const listEdgesOut = `-- name: ListEdgesOut :many
-SELECT id, from_symbol_id, to_symbol_id, kind, file_path, line, edge_meta, created_at
+SELECT id, from_symbol_id, to_symbol_id, kind, file_path, line, created_at, edge_meta, resolution_tier, ambiguous
 FROM edges
 WHERE from_symbol_id = ?
 ORDER BY file_path, line
 `
 
-type ListEdgesOutRow struct {
-	ID           int64     `db:"id" json:"id"`
-	FromSymbolID int64     `db:"from_symbol_id" json:"from_symbol_id"`
-	ToSymbolID   int64     `db:"to_symbol_id" json:"to_symbol_id"`
-	Kind         string    `db:"kind" json:"kind"`
-	FilePath     string    `db:"file_path" json:"file_path"`
-	Line         int64     `db:"line" json:"line"`
-	EdgeMeta     *string   `db:"edge_meta" json:"edge_meta"`
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
-}
-
-func (q *Queries) ListEdgesOut(ctx context.Context, fromSymbolID int64) ([]ListEdgesOutRow, error) {
+func (q *Queries) ListEdgesOut(ctx context.Context, fromSymbolID int64) ([]Edge, error) {
 	rows, err := q.db.QueryContext(ctx, listEdgesOut, fromSymbolID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListEdgesOutRow{}
+	items := []Edge{}
 	for rows.Next() {
-		var i ListEdgesOutRow
+		var i Edge
 		if err := rows.Scan(
 			&i.ID,
 			&i.FromSymbolID,
@@ -161,8 +146,10 @@ func (q *Queries) ListEdgesOut(ctx context.Context, fromSymbolID int64) ([]ListE
 			&i.Kind,
 			&i.FilePath,
 			&i.Line,
-			&i.EdgeMeta,
 			&i.CreatedAt,
+			&i.EdgeMeta,
+			&i.ResolutionTier,
+			&i.Ambiguous,
 		); err != nil {
 			return nil, err
 		}

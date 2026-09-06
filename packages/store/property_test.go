@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/sosalejandro/atlas/packages/codeindex"
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 	atlastest "github.com/sosalejandro/atlas/packages/testing"
 )
@@ -257,7 +258,7 @@ func TestProperty_Edges_EndpointsSurvivePersistence(t *testing.T) {
 		want := map[string]bool{}
 		for _, e := range d.Edges {
 			rows = append(rows, EdgeRow{
-				FromID: idByName[e.From], ToID: idByName[e.To],
+				Tier: graph.TierNameResolved, FromID: idByName[e.From], ToID: idByName[e.To],
 				Kind: EdgeKindCall, FilePath: "pkg/f0.go", Line: e.Line,
 			})
 			want[e.From+" -> "+e.To] = true

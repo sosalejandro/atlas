@@ -231,40 +231,101 @@ func (s *Scanner) Scan(ctx context.Context, rootDir string) (*Result, error) {
 // buildScannerArgs assembles the python3 argv for the scanner.py
 // subprocess.
 //
-// Defense-in-depth: every user-influenced value (Include / Exclude
-// patterns) is run through validateScannerArg to reject shell
-// metacharacters, newlines, and leading dashes. The Python call form
-// itself is shell-free (exec.Command, not exec.Command("sh", "-c", ...))
-// so an injection vector requires both (a) bypassing this validator AND
-// (b) finding a python3 CLI flag that re-invokes the shell — neither of
-// which has a known exploit path here.
+// Defense-in-depth: every path- or glob-shaped value (the script path,
+// the project root, Include / Exclude patterns) goes through
+// sanitizeScannerPathArg, which normalises the host separator to "/" and
+// then rejects shell metacharacters, control characters and leading
+// dashes. The Python call form itself is shell-free (exec.Command, not
+// exec.Command("sh", "-c", ...)) so an injection vector requires both
+// (a) bypassing this validator AND (b) finding a python3 CLI flag that
+// re-invokes the shell — neither of which has a known exploit path here.
 func buildScannerArgs(scriptPath, projectRoot string, opts Options) ([]string, error) {
-	if err := validateScannerArg(scriptPath); err != nil {
+	return buildScannerArgsSep(scriptPath, projectRoot, opts, filepath.Separator)
+}
+
+// buildScannerArgsSep is buildScannerArgs with the host separator passed
+// in rather than read from filepath.Separator.
+//
+// sanitizeScannerPathArg already takes sep for this reason, and its godoc
+// says why: "the Windows branch is exercised from Linux". Reading the
+// separator one level up in buildScannerArgs threw that away for the
+// wiring — a test that fed the builder filepath.Join("src", "**", "*.py")
+// got forward slashes on Linux before the builder saw them, so it passed
+// identically whether or not the builder called the sanitiser at all. The
+// only platform the assertion was real on was the one CI cannot gate.
+//
+// Splitting the seam here costs one wrapper and makes
+// TestBuildScannerArgs_EmitsSlashPaths able to fail on every host.
+func buildScannerArgsSep(scriptPath, projectRoot string, opts Options, sep rune) ([]string, error) {
+	script, err := sanitizeScannerPathArg(scriptPath, sep)
+	if err != nil {
 		return nil, fmt.Errorf("scriptPath: %w", err)
 	}
-	if err := validateScannerArg(projectRoot); err != nil {
+	root, err := sanitizeScannerPathArg(projectRoot, sep)
+	if err != nil {
 		return nil, fmt.Errorf("projectRoot: %w", err)
 	}
-	args := []string{scriptPath, "--root", projectRoot}
+	args := []string{script, "--root", root}
 	for _, inc := range opts.Include {
-		if err := validateScannerArg(inc); err != nil {
+		clean, err := sanitizeScannerPathArg(inc, sep)
+		if err != nil {
 			return nil, fmt.Errorf("include[%q]: %w", inc, err)
 		}
-		args = append(args, "--include", inc)
+		args = append(args, "--include", clean)
 	}
 	for _, exc := range opts.Exclude {
-		if err := validateScannerArg(exc); err != nil {
+		clean, err := sanitizeScannerPathArg(exc, sep)
+		if err != nil {
 			return nil, fmt.Errorf("exclude[%q]: %w", exc, err)
 		}
-		args = append(args, "--exclude", exc)
+		args = append(args, "--exclude", clean)
 	}
 	return args, nil
 }
 
+// sanitizeScannerPathArg normalises a path- or glob-shaped argument to
+// forward slashes and then validates it.
+//
+// The order matters, and having no normalisation step at all is what
+// broke every Windows scan (issue #143): validateScannerArg lists '\'
+// among the shell metacharacters, so `C:\Users\RUNNER~1\...\scanner.py` —
+// exactly what os.MkdirTemp returns on a Windows runner — was rejected
+// before Python was ever spawned. Nine tests in this package failed
+// downstream of that single guard.
+//
+// Normalising first is not the same as loosening the guard:
+//
+//   - sep is the caller's separator, passed in rather than read from
+//     filepath.Separator inside, so the Windows branch is exercised from
+//     Linux. On POSIX sep is '/', ReplaceAll finds nothing, and a
+//     backslash in the argument is still a metacharacter and still
+//     rejected — the POSIX rule is unchanged, byte for byte.
+//   - On Windows '\' is the path separator and not a metacharacter of any
+//     kind: cmd.exe escapes with '^', not '\'. Rewriting it to '/', which
+//     both Win32 and CPython accept, means no backslash reaches argv on
+//     either platform, so the guard loses no coverage — it just stops
+//     mistaking a separator for an escape.
+//
+// What makes a separator harmless in the first place is that the command
+// is never assembled into a shell line (see newPythonCommand, and
+// TestNewPythonCommand_IsArgvNotShell which pins it). This function is
+// the chokepoint that keeps static analysis honest about that.
+func sanitizeScannerPathArg(s string, sep rune) (string, error) {
+	if sep != '/' {
+		s = strings.ReplaceAll(s, string(sep), "/")
+	}
+	if err := validateScannerArg(s); err != nil {
+		return "", err
+	}
+	return s, nil
+}
+
 // validateScannerArg rejects strings that contain shell metacharacters,
 // newlines, NUL bytes, or look like flag injections. The set is
-// intentionally broad — none of these belong in a file path or glob, and
-// rejecting them costs nothing.
+// intentionally broad — none of these belong in a file path or glob once
+// it has been normalised to forward slashes, and rejecting them costs
+// nothing. Callers handling paths should go through
+// sanitizeScannerPathArg rather than calling this directly.
 func validateScannerArg(s string) error {
 	if s == "" {
 		return errors.New("empty argument")
@@ -333,6 +394,40 @@ func decodeOutput(b []byte) (*rawScannerOutput, error) {
 		}
 	}
 	return &out, nil
+}
+
+// pythonEdgeTier states which mechanism produced one Python edge
+// (issue #146). Two facts decide it, and both are already computed by
+// the time it is called: the edge kind scanner.py emitted, and whether
+// pyEdgeResolver managed to bind the target to a symbol this scan
+// actually indexed.
+//
+// Calls are tier C unconditionally, even when the target binds. Python
+// dispatches attribute access at runtime; scanner.py renders `obj.m()`
+// as the text "obj.m" and the resolver then looks for something with
+// that shape. When one exists, that is a plausible coincidence and not
+// a resolution — nothing checked that `obj` is an instance of the class
+// declaring `m`, and nothing could without types. Recording those as
+// name_resolved would put the least reliable edges atlas produces in
+// the same bucket as a Go package-scope hit, which is exactly the
+// conflation the tier column exists to end.
+//
+// Imports, inheritance and decorators name their target explicitly in
+// the source. When the resolver binds one to an indexed symbol, a real
+// name resolution happened against the project's own index: tier B.
+// When it does not, the edge points at a synthetic stub built from the
+// source text — no better grounded than a call — so it stays tier C.
+//
+// Nothing here can reach tier A. scanner.py imports `ast`, not
+// `typing.get_type_hints`; it never executes or type-checks the module.
+func pythonEdgeTier(kind string, targetIsIndexed bool) graph.ResolutionTier {
+	switch kind {
+	case "import", "inheritance", "decorator":
+		if targetIsIndexed {
+			return graph.TierNameResolved
+		}
+	}
+	return graph.TierSyntactic
 }
 
 // mapToResult converts the JSON envelope into Atlas's canonical types.
@@ -412,6 +507,9 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 			// non-import edge, which keeps the wire payload
 			// back-compat with pre-#16 atlas binaries.
 			Meta: e.Scope,
+			// Tier records which mechanism produced this edge
+			// (issue #146). See pythonEdgeTier.
+			Tier: pythonEdgeTier(e.Kind, knownIDs[to]),
 		})
 	}
 	skippedKinds := map[string]int{}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -86,7 +87,7 @@ func TestCoverageSignal_ImplSurface_ProfileExecutionCredits(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := s.Edges().Insert(ctx, store.EdgeRow{
-			FromID: tsid, ToID: isid, Kind: store.EdgeKindCall,
+			Tier: graph.TierNameResolved, FromID: tsid, ToID: isid, Kind: store.EdgeKindCall,
 			FilePath: "src/contexts/billing/application/services/service_test.go", Line: 12,
 		}); err != nil {
 			t.Fatal(err)

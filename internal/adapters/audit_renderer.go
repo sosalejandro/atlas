@@ -688,12 +688,16 @@ func (r *AuditRenderer) drawHeaderRowWithPerf(w io.Writer, featureW, priorityW, 
 // ---------------------------------------------------------------------------
 
 // shortFileName returns just the filename from a path.
-func shortFileName(path string) string {
-	parts := strings.Split(path, "/")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-	return path
+//
+// Splitting on "/" alone was not enough: report rows carry whatever
+// separator the machine that produced them used, so a Windows-produced
+// `internal\adapters\x.go` rendered as the whole path in a column sized
+// for a base name. slashPath makes the split separator-independent
+// without dragging in filepath, whose answer would depend on the host
+// reading the report rather than the one that wrote it (issue #143).
+func shortFileName(p string) string {
+	parts := strings.Split(slashPath(p), "/")
+	return parts[len(parts)-1]
 }
 
 // capitalize returns a string with the first letter uppercased.

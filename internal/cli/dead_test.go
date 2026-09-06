@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -82,6 +83,7 @@ func (f *deadFixture) seedTinyOrphanGraph(t *testing.T) {
 		t.Fatalf("seed orphan: %v", err)
 	}
 	if _, err := s.Edges().Insert(ctx, store.EdgeRow{
+		Tier:     graph.TierNameResolved,
 		FromID:   mainID,
 		ToID:     usedID,
 		Kind:     store.EdgeKindImport,

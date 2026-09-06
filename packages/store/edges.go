@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sosalejandro/atlas/packages/graph"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store/sqlc"
 )
@@ -110,6 +111,14 @@ func NormalizeEdgeMeta(kind EdgeKind, raw string) string {
 // (NULL in SQLite). Callers should pass values that satisfy
 // IsValidEdgeMeta(Kind, Meta); the Insert path normalises invalid
 // values to "" rather than surfacing an error.
+//
+// Tier and Ambiguous are the provenance pair added in migration 0018
+// (issue #146). Unlike Meta they are NOT normalised away on a bad
+// value: Insert refuses the row. Meta is a nice-to-have qualifier and
+// dropping a junk one loses nothing, whereas an edge that reaches the
+// table with no stated mechanism is indistinguishable from one a type
+// checker vouched for -- which is the exact confusion the column
+// exists to end.
 type EdgeRow struct {
 	ID        int64     `json:"id"`
 	FromID    int64     `json:"from_symbol_id"`
@@ -119,6 +128,46 @@ type EdgeRow struct {
 	Line      int       `json:"line"`
 	Meta      string    `json:"edge_meta,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+
+	// Tier is which mechanism resolved this edge. Required on insert;
+	// see graph.ResolutionTier for what each value claims.
+	//
+	// It carries a JSON tag with no omitempty so anything serialising
+	// an EdgeRow states the provenance rather than dropping it when it
+	// is inconvenient. Note that packages/mcp projects edges into its
+	// own `neighbour` shape and does NOT yet forward this, so #103's
+	// consumers cannot weigh an answer by it until that projection
+	// widens — that is a change to packages/mcp, not to this field.
+	Tier graph.ResolutionTier `json:"resolution_tier"`
+
+	// Ambiguous is graph.Edge.Ambiguous, persisted rather than
+	// recomputed: the resolver saw more than one candidate and picked.
+	// It is orthogonal to Tier -- a name_resolved edge can be
+	// ambiguous (two packages declare the short name) and a syntactic
+	// one can be unambiguous (one substring matched, still a guess).
+	Ambiguous bool `json:"ambiguous,omitempty"`
+}
+
+// TierBucket is one cell of the per-language tier histogram: how many
+// edges in this language were produced by this mechanism, and how many
+// of those the resolver had to choose between candidates for.
+//
+// This is the shape #87's review reads. Issue #146 replaces "symbol and
+// edge counts are unchanged +/- a delta" with a histogram comparison
+// precisely because a total can hold steady while the composition rots
+// -- which is what a resolver migration does when it goes wrong.
+type TierBucket struct {
+	// Lang is derived from the edge's file extension, not stored. See
+	// tierHistogramSQL for why that derivation is the honest one.
+	Lang  string               `json:"lang"`
+	Tier  graph.ResolutionTier `json:"resolution_tier"`
+	Edges int                  `json:"edges"`
+
+	// Ambiguous counts the subset of Edges the resolver flagged. It is
+	// reported beside the tier rather than folded into it because the
+	// two answer different questions, and a reader watching a
+	// migration wants both.
+	Ambiguous int `json:"ambiguous"`
 }
 
 // WalkResult is one node visited by Edges.Walk — produced by the recursive
@@ -215,6 +264,17 @@ type Edges interface {
 	// consumers — and snapshot diffs — see stable output across
 	// re-runs.
 	ListImportEdges(ctx context.Context, f ImportEdgeFilter) ([]ImportEdgeRow, error)
+
+	// TierHistogram returns the (language, resolution_tier) tally over
+	// the whole edge set — the report issue #146 exists to make
+	// possible, and the one #87's acceptance criteria read instead of
+	// an edge count.
+	//
+	// Buckets with zero edges are omitted. Order is language
+	// ascending, then tier strongest-first, so two runs of the same
+	// store — or the same repo before and after a resolver change —
+	// produce line-comparable output.
+	TierHistogram(ctx context.Context) ([]TierBucket, error)
 }
 
 var _ Edges = (*edgesStore)(nil)
@@ -227,14 +287,16 @@ type edgesStore struct {
 	q  *sqlc.Queries
 }
 
-// fromSQLCEdgeOut maps a generated ListEdgesOutRow into the public
-// EdgeRow shape. The generator emits per-query row types (rather
-// than re-using sqlc.Edge) because the SELECT column list now
-// includes edge_meta and the model-vs-row split is sqlc's default
-// for any custom projection. fromSQLCEdgeIn is its sibling for the
-// In variant — the row shapes are byte-identical but distinct types
-// so they can't unify without sqlc-side gymnastics.
-func fromSQLCEdgeOut(r sqlc.ListEdgesOutRow) EdgeRow {
+// fromSQLCEdge maps a generated sqlc.Edge into the public EdgeRow
+// shape.
+//
+// Out and In share this one mapper because the ListEdges* SELECT lists
+// are now in table-declaration order. sqlc emits a per-query row type
+// for any projection whose column order differs from the table's, and
+// it used to do that here — two byte-identical structs that could not
+// unify. Keeping the SELECT in declaration order costs nothing and
+// collapses them back onto sqlc.Edge.
+func fromSQLCEdge(r sqlc.Edge) EdgeRow {
 	return EdgeRow{
 		ID:        r.ID,
 		FromID:    r.FromSymbolID,
@@ -244,19 +306,8 @@ func fromSQLCEdgeOut(r sqlc.ListEdgesOutRow) EdgeRow {
 		Line:      int(r.Line),
 		Meta:      derefString(r.EdgeMeta),
 		CreatedAt: r.CreatedAt,
-	}
-}
-
-func fromSQLCEdgeIn(r sqlc.ListEdgesInRow) EdgeRow {
-	return EdgeRow{
-		ID:        r.ID,
-		FromID:    r.FromSymbolID,
-		ToID:      r.ToSymbolID,
-		Kind:      EdgeKind(r.Kind),
-		FilePath:  r.FilePath,
-		Line:      int(r.Line),
-		Meta:      derefString(r.EdgeMeta),
-		CreatedAt: r.CreatedAt,
+		Tier:      graph.ResolutionTier(r.ResolutionTier),
+		Ambiguous: r.Ambiguous != 0,
 	}
 }
 
@@ -283,6 +334,36 @@ func metaParam(meta string) *string {
 	return &meta
 }
 
+// requireTier is the guard every edge write passes through.
+//
+// It is the whole point of issue #146 in one function: an edge with no
+// stated mechanism must not reach the table, because once it is there
+// nothing distinguishes it from one a type checker resolved. The
+// database's CHECK enforces the same rule; this exists so the failure
+// arrives with the from/to pair in it rather than as a bare
+// SQLITE_CONSTRAINT_CHECK, and so it arrives from the Go path the test
+// suite actually exercises.
+//
+// The error names the column so a caller reading a scanner's failure
+// can grep straight to the migration that explains why.
+func requireTier(fromID, toID int64, tier graph.ResolutionTier) error {
+	if graph.IsValidTier(tier) {
+		return nil
+	}
+	if tier == graph.TierUnset {
+		return fmt.Errorf(
+			"edge %d->%d: resolution_tier is required and was not set; "+
+				"the scanner that produced this edge must say which mechanism resolved it "+
+				"(one of %v) - see packages/graph/tier.go",
+			fromID, toID, graph.AllTiers())
+	}
+	return fmt.Errorf(
+		"edge %d->%d: resolution_tier %q is not one of %v; "+
+			"the tier vocabulary is closed on purpose so histograms stay comparable "+
+			"across scanners - see packages/graph/tier.go",
+		fromID, toID, tier, graph.AllTiers())
+}
+
 func (s *edgesStore) Insert(ctx context.Context, e EdgeRow) (int64, error) {
 	if e.FromID == 0 || e.ToID == 0 {
 		return 0, fmt.Errorf("edges insert: from_symbol_id and to_symbol_id required")
@@ -298,14 +379,20 @@ func (s *edgesStore) Insert(ctx context.Context, e EdgeRow) (int64, error) {
 	// column. Tests cover both the happy path (valid scope tags
 	// persisted) and the reject path (a fake "garbage" meta dropped).
 	meta := NormalizeEdgeMeta(e.Kind, e.Meta)
+	// Tier gets no such mercy — see requireTier.
+	if err := requireTier(e.FromID, e.ToID, e.Tier); err != nil {
+		return 0, fmt.Errorf("edges insert: %w", err)
+	}
 
 	res, err := s.q.InsertEdge(ctx, sqlc.InsertEdgeParams{
-		FromSymbolID: e.FromID,
-		ToSymbolID:   e.ToID,
-		Kind:         string(e.Kind),
-		FilePath:     e.FilePath,
-		Line:         int64(e.Line),
-		EdgeMeta:     metaParam(meta),
+		FromSymbolID:   e.FromID,
+		ToSymbolID:     e.ToID,
+		Kind:           string(e.Kind),
+		FilePath:       e.FilePath,
+		Line:           int64(e.Line),
+		EdgeMeta:       metaParam(meta),
+		ResolutionTier: string(e.Tier),
+		Ambiguous:      boolToInt(e.Ambiguous),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("edges insert: %w", err)
@@ -347,7 +434,7 @@ func (s *edgesStore) Out(ctx context.Context, fromID int64) ([]EdgeRow, error) {
 	}
 	out := make([]EdgeRow, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, fromSQLCEdgeOut(r))
+		out = append(out, fromSQLCEdge(r))
 	}
 	return out, nil
 }
@@ -359,7 +446,7 @@ func (s *edgesStore) In(ctx context.Context, toID int64) ([]EdgeRow, error) {
 	}
 	out := make([]EdgeRow, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, fromSQLCEdgeIn(r))
+		out = append(out, fromSQLCEdge(r))
 	}
 	return out, nil
 }
@@ -449,6 +536,79 @@ func (s *edgesStore) CallAdjacency(ctx context.Context) (map[int64][]int64, erro
 		return nil, fmt.Errorf("edges call-adjacency rows: %w", err)
 	}
 	return adj, nil
+}
+
+// tierHistogramSQL tallies edges by language and resolution tier.
+//
+// The language is derived from the edge's file extension rather than
+// read from a column, because there is no language column: `symbols`
+// and `edges` have never carried one, and adding one to serve a
+// diagnostic would mean every scanner suddenly owed a second
+// classification it does not currently make. The extension is a fact
+// about the file, produced by nobody and therefore not something a
+// scanner can get wrong — which for a check whose job is to report what
+// the scanners did is the right kind of independent.
+//
+// Files that match nothing bucket as "other" rather than being dropped.
+// A tier histogram that quietly omitted a third of the edge set would
+// be the same lie by omission the tier column exists to prevent.
+//
+// The CASE lives here rather than in queries/edges.sql because which
+// extension belongs to which scanner is a policy decision that wants
+// this comment beside it, and because a bucketing expression in the
+// GROUP BY is the shape sqlc's sqlite engine handles least gracefully —
+// same reason Walk and ListImportEdges are raw (see their notes).
+const tierHistogramSQL = `
+SELECT
+  CASE
+    WHEN file_path LIKE '%.go'  THEN 'go'
+    WHEN file_path LIKE '%.ts'  OR file_path LIKE '%.tsx'
+      OR file_path LIKE '%.js'  OR file_path LIKE '%.jsx'
+      OR file_path LIKE '%.mts' OR file_path LIKE '%.cts'
+      OR file_path LIKE '%.mjs' OR file_path LIKE '%.cjs' THEN 'ts'
+    WHEN file_path LIKE '%.py'  THEN 'py'
+    ELSE 'other'
+  END AS lang,
+  resolution_tier,
+  COUNT(*)       AS edges,
+  SUM(ambiguous) AS ambiguous
+FROM edges
+GROUP BY lang, resolution_tier
+ORDER BY lang,
+  CASE resolution_tier
+    WHEN 'typed'         THEN 0
+    WHEN 'name_resolved' THEN 1
+    WHEN 'syntactic'     THEN 2
+    WHEN 'imported'      THEN 3
+    ELSE 4
+  END`
+
+func (s *edgesStore) TierHistogram(ctx context.Context) ([]TierBucket, error) {
+	rows, err := s.db.sqlDB().QueryContext(ctx, tierHistogramSQL)
+	if err != nil {
+		return nil, fmt.Errorf("edges tier-histogram: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]TierBucket, 0, 8)
+	for rows.Next() {
+		var b TierBucket
+		var tier string
+		if err := rows.Scan(&b.Lang, &tier, &b.Edges, &b.Ambiguous); err != nil {
+			return nil, fmt.Errorf("edges tier-histogram scan: %w", err)
+		}
+		// Not validated against IsValidTier on the way out. The CHECK
+		// on the column already closed the vocabulary, and a reader
+		// that silently dropped a value it did not recognise would
+		// under-report the total — which is exactly the failure mode
+		// this histogram exists to expose.
+		b.Tier = graph.ResolutionTier(tier)
+		out = append(out, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("edges tier-histogram rows: %w", err)
+	}
+	return out, nil
 }
 
 func (s *edgesStore) DeleteByFile(ctx context.Context, filePath string) error {

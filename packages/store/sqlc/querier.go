@@ -84,6 +84,8 @@ type Querier interface {
 	// REPLACE so a retried ingest of the same run is idempotent.
 	InsertCoverageRunGap(ctx context.Context, arg InsertCoverageRunGapParams) error
 	// edge_meta is a NULLable kind-specific qualifier. Python import edges populate it with a scope tag (module/function/conditional/type_checking/try_guard) via migration 0008 - issue #16. Non-import edges pass NULL.
+	// resolution_tier is NOT NULL with no default (migration 0018 - issue #146): the caller states which mechanism resolved this edge. Passing an empty or unknown value is a CHECK violation, on purpose - an edge whose provenance nobody stated must not land looking like one that was type-checked.
+	// ambiguous is the graph layer's per-edge "the resolver had more than one candidate" flag, persisted rather than recomputed.
 	InsertEdge(ctx context.Context, arg InsertEdgeParams) (sql.Result, error)
 	InsertHistoryFeature(ctx context.Context, arg InsertHistoryFeatureParams) error
 	InsertSQLIndex(ctx context.Context, arg InsertSQLIndexParams) error
@@ -156,8 +158,8 @@ type Querier interface {
 	ListCoverageRunGaps(ctx context.Context, runID int64) ([]ListCoverageRunGapsRow, error)
 	ListCoverageRunsByFramework(ctx context.Context, framework string) ([]CoverageRun, error)
 	ListCoverageRunsByGroup(ctx context.Context, runGroup *string) ([]CoverageRun, error)
-	ListEdgesIn(ctx context.Context, toSymbolID int64) ([]ListEdgesInRow, error)
-	ListEdgesOut(ctx context.Context, fromSymbolID int64) ([]ListEdgesOutRow, error)
+	ListEdgesIn(ctx context.Context, toSymbolID int64) ([]Edge, error)
+	ListEdgesOut(ctx context.Context, fromSymbolID int64) ([]Edge, error)
 	ListFeatureSymbolsByFeature(ctx context.Context, featureID string) ([]FeatureSymbol, error)
 	ListFeatureSymbolsBySymbol(ctx context.Context, symbolID int64) ([]FeatureSymbol, error)
 	ListFeaturesByKind(ctx context.Context, kind string) ([]Feature, error)

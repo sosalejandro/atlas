@@ -19,10 +19,11 @@ import (
 // `.atlas/atlas.db`, applies migrations, and ingests the project.
 func newInitCmd() *cobra.Command {
 	var (
-		root             string
-		hashFiles        bool
-		nodeModulesPaths []string
-		includeGenerated bool
+		root                string
+		hashFiles           bool
+		nodeModulesPaths    []string
+		includeGenerated    bool
+		skipTypedResolution bool
 	)
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -52,10 +53,21 @@ constantly and would dominate any coverage or complexity reading taken
 over hand-written code; the flag is the escape hatch for "why did my
 symbol disappear?". Which files count as generated is a property of the
 codebase, so extra patterns belong under scan.generated in atlas.yaml
-rather than on the command line.`,
+rather than on the command line.
+
+--skip-typed-resolution scans Go with the AST name heuristics alone
+instead of type-checking through go/packages. Type checking is the
+default because a name is not an answer to "which declaration does this
+call bind to", and it degrades per package, so a tree that does not
+compile still scans. The flag is the escape hatch for when the LOAD
+itself is the problem: no Go toolchain on the machine, a build that
+needs credentials to resolve modules, or a latency budget that cannot
+absorb it. Expect call edges to move from the typed tier down to
+name_resolved and syntactic -- 'atlas edges' will show it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runInit(cmd, root, hashFiles, nodeModulesPaths, includeGenerated)
+			return runInit(cmd, root, hashFiles, nodeModulesPaths, includeGenerated,
+				skipTypedResolution)
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "",
@@ -67,6 +79,9 @@ rather than on the command line.`,
 			"(repeatable; auto-detected from the scan root when unset)")
 	cmd.Flags().BoolVar(&includeGenerated, "include-generated", false,
 		"index machine-written files instead of excluding them (see scan.generated in atlas.yaml)")
+	cmd.Flags().BoolVar(&skipTypedResolution, "skip-typed-resolution", false,
+		"resolve Go calls by name only, without go/packages type checking "+
+			"(escape hatch: no toolchain, or a load that cannot run here)")
 	return cmd
 }
 
@@ -87,7 +102,14 @@ type initResult struct {
 	DurationMS               int64  `json:"duration_ms"`
 }
 
-func runInit(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPaths []string, includeGenerated bool) error {
+func runInit(
+	cmd *cobra.Command,
+	rootArg string,
+	hashFiles bool,
+	nodeModulesPaths []string,
+	includeGenerated bool,
+	skipTypedResolution bool,
+) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -102,7 +124,8 @@ func runInit(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPath
 		return err
 	}
 
-	idx, warnings, err := indexProjectFromConfig(ctx, rootDir, hashFiles, nodeModulesPaths, includeGenerated)
+	idx, warnings, err := indexProjectFromConfig(ctx, rootDir, hashFiles, nodeModulesPaths,
+		includeGenerated, withSkipTypedResolution(skipTypedResolution))
 	if err != nil {
 		return err
 	}
@@ -176,6 +199,29 @@ func printInitText(cmd *cobra.Command, r initResult, warnings []string) {
 // sibling and use the first hit. Missing node_modules is not fatal — the
 // TS scanner degrades to a warning and the Go scan still completes.
 //
+// goScanOverride adjusts the Go scanner options after they have been
+// assembled from atlas.yaml.
+//
+// It is variadic rather than another positional bool because the toggles
+// are per command: `atlas onboard` offers neither, and every command
+// that calls this would otherwise have to name a flag it does not have.
+type goScanOverride func(*goscan.Options)
+
+// withSkipTypedResolution wires `--skip-typed-resolution` through to the
+// Go scanner.
+//
+// Only the true case does anything. The flag can turn type checking OFF
+// and never back on, for the same reason --include-generated is one-way:
+// it exists for the one-off "go/packages will not run here" escape, not
+// as a second place to configure the default.
+func withSkipTypedResolution(skip bool) goScanOverride {
+	return func(o *goscan.Options) {
+		if skip {
+			o.SkipTypedResolution = true
+		}
+	}
+}
+
 // Returns the index, any orchestrator warnings, and the first hard error.
 func indexProjectFromConfig(
 	ctx context.Context,
@@ -183,6 +229,7 @@ func indexProjectFromConfig(
 	hashFiles bool,
 	nodeModulesPaths []string,
 	includeGenerated bool,
+	overrides ...goScanOverride,
 ) (
 	*codeindex.Index, []string, error,
 ) {
@@ -203,6 +250,9 @@ func indexProjectFromConfig(
 			// a second place to configure the default.
 			IncludeGenerated: includeGenerated || loaded.Scan.IncludeGenerated,
 		},
+	}
+	for _, override := range overrides {
+		override(&opts.GoOptions)
 	}
 	idx, err := codeindex.IndexProject(ctx, rootDir, opts)
 	if err != nil {
