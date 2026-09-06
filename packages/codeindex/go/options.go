@@ -61,6 +61,36 @@ type Options struct {
 	// handlers). Defaults to shared.NopLogger.
 	Logger shared.Logger
 
+	// GeneratedGlobs lists extra patterns identifying machine-written
+	// files, matched against each file's rootDir-relative, slash-separated
+	// path. They complement the two built-in rules (a `generated` path
+	// segment, and Go's `// Code generated ... DO NOT EDIT.` header).
+	//
+	// Pattern semantics, chosen so the conventions teams actually use fit
+	// on one line each:
+	//
+	//   "*.pb.go"           bare filename glob — matches at any depth
+	//   "gen/"              trailing slash — the whole subtree, rooted or nested
+	//   "internal/db/*.go"  path glob — `*` does not cross a separator
+	//   "**/*.sql.go"       leading `**/` is stripped, then matched as above
+	//
+	// A malformed pattern is reported once on Result.Warnings and then
+	// ignored, so one typo in .atlas.yaml cannot silently widen or narrow
+	// the coverage denominator.
+	GeneratedGlobs []string
+
+	// IncludeGenerated indexes generated files instead of excluding them.
+	// The detection rules still run, but every hit is scanned like any
+	// other file and none is reported on Result.SkippedFiles — nothing was
+	// skipped.
+	//
+	// The case for setting it: a hand-written repository wrapper that lives
+	// next to its sqlc output, or any codegen layer a team considers
+	// production code and wants inside the coverage denominator. The case
+	// against is the default: generated statements execute constantly and
+	// nobody writes tests for them, so counting them flatters the numbers.
+	IncludeGenerated bool
+
 	// SkipTests, when true, excludes `_test.go` files from the scan. The
 	// default (zero value: false) is to INCLUDE test files because Atlas's
 	// primary use case — annotation-driven feature attribution — relies
