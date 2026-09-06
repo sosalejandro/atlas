@@ -83,11 +83,21 @@ func (f *fixture) indexFile(t *testing.T, relPath, content string) {
 
 func (f *fixture) recordHash(t *testing.T, relPath, hash string, scannedAt time.Time) {
 	t.Helper()
+	f.recordHashAt(t, relPath, hash, scannedAt, scannedAt)
+}
+
+// recordHashAt records a hash row with the file's mtime and the scan's
+// last_scanned set independently. They come apart in exactly the state
+// the coverage-freshness check has to get right: a re-scan that read
+// nothing new bumps last_scanned on every row and leaves every mtime
+// alone.
+func (f *fixture) recordHashAt(t *testing.T, relPath, hash string, modTime, lastScanned time.Time) {
+	t.Helper()
 	err := f.store.FileHashes().Upsert(context.Background(), store.FileHashRow{
 		FilePath:    relPath,
 		ContentHash: hash,
-		ModTime:     scannedAt,
-		LastScanned: scannedAt,
+		ModTime:     modTime,
+		LastScanned: lastScanned,
 	})
 	if err != nil {
 		t.Fatalf("record hash %s: %v", relPath, err)

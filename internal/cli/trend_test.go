@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
 )
 
@@ -47,6 +48,25 @@ func (f *trendFixture) record(t *testing.T, p store.HistoryPoint) {
 	defer func() { _ = s.Close() }()
 	if _, err := s.History().Record(context.Background(), p); err != nil {
 		t.Fatalf("Record %s: %v", p.CommitSHA, err)
+	}
+}
+
+// feature registers a feature id so `--feature` accepts it. `atlas trend`
+// validates the id against the features table, so a series test that wants a
+// feature scope has to declare the feature exists.
+func (f *trendFixture) feature(t *testing.T, ids ...string) {
+	t.Helper()
+	s, err := store.Open(context.Background(), f.dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	for _, id := range ids {
+		if err := s.Features().Upsert(context.Background(), store.Feature{
+			ID: shared.FeatureID(id), Title: id, Kind: store.FeatureKindFeature,
+		}); err != nil {
+			t.Fatalf("upsert feature %s: %v", id, err)
+		}
 	}
 }
 
@@ -194,6 +214,7 @@ func TestTrend_JSONEmitsTheSeries(t *testing.T) {
 
 func TestTrend_FeatureSeriesSelectsTheFeature(t *testing.T) {
 	fix := newTrendFixture(t)
+	fix.feature(t, "f.x", "f.y")
 	fix.record(t, store.HistoryPoint{
 		CommitSHA: "aaa1", MeasuredAt: trendDay(0), Score: ptr(70), Denominator: 100,
 		Features: []store.HistoryFeaturePoint{
@@ -219,7 +240,7 @@ func TestTrend_CompareToRegressionFailsTheCommand(t *testing.T) {
 	fix.record(t, store.HistoryPoint{CommitSHA: "base1111", MeasuredAt: trendDay(0), Score: ptr(80), Denominator: 100})
 	fix.record(t, store.HistoryPoint{CommitSHA: "head2222", MeasuredAt: trendDay(1), Score: ptr(60), Denominator: 100})
 
-	stdout, _, err := runTrendCmd(t, fix, "--compare-to", "base1111")
+	stdout, _, err := runTrendCmd(t, fix, "--head", "head2222", "--compare-to", "base1111")
 	if err == nil {
 		t.Fatalf("a 20-point regression did not fail the command:\n%s", stdout)
 	}
@@ -234,7 +255,7 @@ func TestTrend_CompareToAcceptsAShaPrefix(t *testing.T) {
 	fix.record(t, store.HistoryPoint{CommitSHA: "base1111", MeasuredAt: trendDay(0), Score: ptr(60), Denominator: 100})
 	fix.record(t, store.HistoryPoint{CommitSHA: "head2222", MeasuredAt: trendDay(1), Score: ptr(75), Denominator: 100})
 
-	stdout, _, err := runTrendCmd(t, fix, "--compare-to", "base1")
+	stdout, _, err := runTrendCmd(t, fix, "--head", "head2222", "--compare-to", "base1")
 	if err != nil {
 		t.Fatalf("trend --compare-to base1: %v", err)
 	}
@@ -250,6 +271,7 @@ func TestTrend_CompareToAcceptsAShaPrefix(t *testing.T) {
 // gate quietly scoped away by a display flag is worse than no gate.
 func TestTrend_FeatureFlagDoesNotNarrowTheGate(t *testing.T) {
 	fix := newTrendFixture(t)
+	fix.feature(t, "f.watched", "f.other")
 	fix.record(t, store.HistoryPoint{
 		CommitSHA: "base1111", MeasuredAt: trendDay(0), Score: ptr(80), Denominator: 200,
 		Features: []store.HistoryFeaturePoint{
@@ -265,7 +287,7 @@ func TestTrend_FeatureFlagDoesNotNarrowTheGate(t *testing.T) {
 		},
 	})
 
-	stdout, _, err := runTrendCmd(t, fix, "--feature", "f.watched", "--compare-to", "base1111")
+	stdout, _, err := runTrendCmd(t, fix, "--head", "head2222", "--feature", "f.watched", "--compare-to", "base1111")
 	if err == nil {
 		t.Fatalf("f.other fell 80 -> 40 and the gate passed:\n%s", stdout)
 	}
@@ -278,7 +300,7 @@ func TestTrend_CompareToUnknownRefIsAnError(t *testing.T) {
 	fix := newTrendFixture(t)
 	fix.record(t, store.HistoryPoint{CommitSHA: "head2222", MeasuredAt: trendDay(1), Score: ptr(75), Denominator: 100})
 
-	if _, _, err := runTrendCmd(t, fix, "--compare-to", "nothing-like-this"); err == nil {
+	if _, _, err := runTrendCmd(t, fix, "--head", "head2222", "--compare-to", "nothing-like-this"); err == nil {
 		t.Fatal("comparing against an unrecorded ref succeeded, want an error")
 	}
 }
@@ -289,10 +311,10 @@ func TestTrend_MaxRegressionIsHonoured(t *testing.T) {
 	fix.record(t, store.HistoryPoint{CommitSHA: "base1111", MeasuredAt: trendDay(0), Score: ptr(80), Denominator: 100})
 	fix.record(t, store.HistoryPoint{CommitSHA: "head2222", MeasuredAt: trendDay(1), Score: ptr(78), Denominator: 100})
 
-	if _, _, err := runTrendCmd(t, fix, "--compare-to", "base1111"); err == nil {
+	if _, _, err := runTrendCmd(t, fix, "--head", "head2222", "--compare-to", "base1111"); err == nil {
 		t.Fatal("a 2-point drop passed the default 0.5 tolerance")
 	}
-	if _, _, err := runTrendCmd(t, fix, "--compare-to", "base1111", "--max-regression", "5"); err != nil {
+	if _, _, err := runTrendCmd(t, fix, "--head", "head2222", "--compare-to", "base1111", "--max-regression", "5"); err != nil {
 		t.Fatalf("a 2-point drop failed a 5-point tolerance: %v", err)
 	}
 }
@@ -304,7 +326,7 @@ func TestTrend_DenominatorShiftIsReported(t *testing.T) {
 	fix.record(t, store.HistoryPoint{CommitSHA: "base1111", MeasuredAt: trendDay(0), Score: ptr(50), Denominator: 1000})
 	fix.record(t, store.HistoryPoint{CommitSHA: "head2222", MeasuredAt: trendDay(1), Score: ptr(70), Denominator: 400})
 
-	stdout, _, err := runTrendCmd(t, fix, "--compare-to", "base1111")
+	stdout, _, err := runTrendCmd(t, fix, "--head", "head2222", "--compare-to", "base1111")
 	if err != nil {
 		t.Fatalf("trend --compare-to: %v", err)
 	}
@@ -323,7 +345,7 @@ func TestTrend_CompareAgainstUnmeasuredBaselineDoesNotFail(t *testing.T) {
 	fix.record(t, store.HistoryPoint{CommitSHA: "base1111", MeasuredAt: trendDay(0), Score: nil, Denominator: 100})
 	fix.record(t, store.HistoryPoint{CommitSHA: "head2222", MeasuredAt: trendDay(1), Score: ptr(75), Denominator: 100})
 
-	stdout, _, err := runTrendCmd(t, fix, "--compare-to", "base1111")
+	stdout, _, err := runTrendCmd(t, fix, "--head", "head2222", "--compare-to", "base1111")
 	if err != nil {
 		t.Fatalf("comparing against an unmeasured baseline failed the build: %v", err)
 	}

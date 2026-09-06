@@ -30,7 +30,7 @@ type indexFreshness struct{}
 func (indexFreshness) Name() string { return "index.freshness" }
 
 func (indexFreshness) Examines() string {
-	return "the recorded file index against the files on disk"
+	return "the recorded file index against the files on disk, plus Go files on disk with no index entry"
 }
 
 func (c indexFreshness) Run(ctx context.Context, env *Env) (Result, error) {
@@ -64,37 +64,70 @@ func (c indexFreshness) Run(ctx context.Context, env *Env) (Result, error) {
 	if len(drift.unreadable) > 0 {
 		details["unreadable_files"] = samples(drift.unreadable)
 	}
+	return indexVerdict(len(rows), drift, unindexed, env.Root, details), nil
+}
 
-	// missing and changed are statements atlas has already made about
-	// content it can no longer see; unindexed is only content it has not
-	// seen yet. The first pair invalidates existing answers, the second
-	// merely bounds them, so only the first pair fails.
-	switch {
-	case len(drift.missing)+len(drift.changed) > 0:
+// indexVerdict turns the three drift buckets plus the unindexed sweep
+// into one severity.
+//
+// missing and changed are statements atlas has already made about content
+// it can no longer see; unindexed is only content it has not seen yet.
+// The first pair invalidates existing answers, the second merely bounds
+// them, so only the first pair fails.
+//
+// unreadable is neither, and it is the bucket that used to be silently
+// dropped. These are files atlas RECORDED, that are still on disk, and
+// whose bytes it could not re-read this run: a permission bit, an I/O
+// error, a path that is no longer a regular file. Nothing was
+// established about them in either direction, so letting them fall
+// through to "all match the working tree" reported an unknown as a check
+// that passed -- the precise substitution this package exists to
+// prevent. They warn, named, and they never fail: doctor did not prove
+// anything is wrong with them, only that it could not look.
+func indexVerdict(indexed int, drift hashDrift, unindexed []string, root string, details map[string]any) Result {
+	if len(drift.missing)+len(drift.changed) > 0 {
+		finding := fmt.Sprintf(
+			"the index is stale: of %d indexed files, %d changed on disk and %d no longer exist",
+			indexed, len(drift.changed), len(drift.missing))
+		if len(drift.unreadable) > 0 {
+			finding += fmt.Sprintf(
+				" (a further %d could not be read at all, so they were not checked)",
+				len(drift.unreadable))
+		}
 		return Result{
-			Severity: SeverityFail,
-			Finding: fmt.Sprintf(
-				"the index is stale: of %d indexed files, %d changed on disk and %d no longer exist",
-				len(rows), len(drift.changed), len(drift.missing)),
+			Severity:    SeverityFail,
+			Finding:     finding,
 			Remediation: "atlas scan",
 			Details:     details,
-		}, nil
-	case len(unindexed) > 0:
+		}
+	}
+
+	var complaints []string
+	if len(drift.unreadable) > 0 {
+		complaints = append(complaints, fmt.Sprintf(
+			"%d could not be read, so they were NOT checked against the working tree (%s)",
+			len(drift.unreadable), strings.Join(samples(drift.unreadable), ", ")))
+	}
+	if len(unindexed) > 0 {
+		complaints = append(complaints, fmt.Sprintf(
+			"%d Go source files under %s were never indexed", len(unindexed), root))
+	}
+	if len(complaints) > 0 {
 		return Result{
 			Severity: SeverityWarn,
-			Finding: fmt.Sprintf(
-				"%d indexed files all match the working tree, but %d source files under %s were never indexed",
-				len(rows), len(unindexed), env.Root),
+			Finding: fmt.Sprintf("%d of %d indexed files match the working tree; %s",
+				indexed-len(drift.unreadable), indexed, strings.Join(complaints, "; ")),
 			Remediation: "atlas scan",
 			Details:     details,
-		}, nil
-	default:
-		return Result{
-			Severity: SeverityOK,
-			Finding: fmt.Sprintf("%d indexed files all match the working tree",
-				len(rows)),
-			Details: details,
-		}, nil
+		}
+	}
+	return Result{
+		Severity: SeverityOK,
+		Finding: fmt.Sprintf(
+			"%d indexed files all match the working tree, and no unindexed Go file was "+
+				"found under %s (the unindexed sweep reads .go only -- see the docs for why)",
+			indexed, root),
+		Details: details,
 	}
 }
 

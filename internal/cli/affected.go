@@ -151,8 +151,13 @@ func runAffected(cmd *cobra.Command, args affectedArgs) error {
 		Symbols:  s.Symbols(),
 		Evidence: s.TestCoverage(),
 		Features: s.FeatureSymbols(),
-		Frontier: frontier,
-		Since:    args.since,
+		// The diff's line numbers are only comparable to the stored spans when
+		// the index was built at HEAD. This is what checks that per file;
+		// without it a shifted file resolves to the symbol that used to own
+		// those lines and the wrong tests are selected.
+		Freshness: affected.NewFreshness(s.FileHashes(), loaded.repoRoot),
+		Frontier:  frontier,
+		Since:     args.since,
 	})
 	if err != nil {
 		return fmt.Errorf("affected: %w", err)
@@ -187,15 +192,45 @@ func runAffected(cmd *cobra.Command, args affectedArgs) error {
 	return nil
 }
 
-// affectedWarnings lifts the two things a consumer most needs to notice out of
-// the result body and into the envelope's warnings array.
+// affectedWarnings lifts the things a consumer most needs to notice out of the
+// result body and into the envelope's warnings array.
 func affectedWarnings(sel affected.Selection) []string {
 	var out []string
 	if sel.RunAll() {
 		out = append(out, "atlas could not narrow this diff; run the whole suite")
 	}
+	if emptySelection(sel) {
+		// The quiet catastrophe: outcome="selected" with nothing in it. A
+		// recipe that branches only on run-all runs no tests and exits 0.
+		out = append(out, "this diff changed code but NO test was selected; an empty selection is not a passing build — run the full suite")
+	}
 	if n := len(sel.UncoveredSymbols); n > 0 {
 		out = append(out, fmt.Sprintf("%s have no test recorded executing them", plural(n, "changed symbol")))
+	}
+	if stale := staleWidenings(sel); len(stale) > 0 {
+		out = append(out, fmt.Sprintf(
+			"the symbol index is out of date for %s, so the selection was widened; run `atlas scan` to recover the reduction",
+			strings.Join(stale, ", ")))
+	}
+	return out
+}
+
+// emptySelection reports the case a CI recipe must branch on separately: the
+// diff changed code, atlas did not bail, and yet nothing is selected. Running
+// the empty pattern tests none of the change and exits 0.
+func emptySelection(sel affected.Selection) bool {
+	return sel.Outcome == affected.OutcomeSelected && len(sel.SelectedTests) == 0
+}
+
+// staleWidenings names the files whose stored spans could not be trusted. It
+// is reported separately from other widenings because the remedy is different:
+// `atlas scan` restores what a stale index cost.
+func staleWidenings(sel affected.Selection) []string {
+	var out []string
+	for _, w := range sel.Widenings {
+		if w.StaleIndex() {
+			out = append(out, w.Path)
+		}
 	}
 	return out
 }
@@ -224,6 +259,13 @@ func renderAffectedFallback(w io.Writer, r affectedResult) {
 		fmt.Fprintf(w, "      %s\n", f.Detail)
 	}
 	fmt.Fprintln(w)
+	// A stale index is worth saying even here, where the widening it caused no
+	// longer changes what runs: the reader's next `affected` will keep paying
+	// for it until they scan.
+	if stale := staleWidenings(r.Selection); len(stale) > 0 {
+		fmt.Fprintf(w, "  also: the index no longer describes %s — run `atlas scan`\n\n",
+			strings.Join(stale, ", "))
+	}
 }
 
 func renderAffectedSelection(w io.Writer, r affectedResult, kind affectedKind) {
@@ -248,7 +290,13 @@ func renderAffectedSelection(w io.Writer, r affectedResult, kind affectedKind) {
 	}
 
 	for _, wd := range r.Widenings {
-		fmt.Fprintf(w, "  widened to the %s of %s:\n    %s\n\n", wd.Scope, wd.Path, wd.Detail)
+		label := "widened"
+		if wd.StaleIndex() {
+			// Not a property of the diff but of the index: the reader's next
+			// action is `atlas scan`, so say which files forced it and why.
+			label = "WARN  widened (the index no longer describes this file)"
+		}
+		fmt.Fprintf(w, "  %s to the %s of %s [%s]:\n    %s\n\n", label, wd.Scope, wd.Path, wd.Reason, wd.Detail)
 	}
 }
 
@@ -269,8 +317,7 @@ func renderAffectedChangedSymbols(w io.Writer, r affectedResult) {
 
 func renderAffectedTests(w io.Writer, r affectedResult) {
 	if len(r.SelectedTests) == 0 {
-		fmt.Fprintln(w, "  no test in the index recorded executing any changed symbol.")
-		fmt.Fprintln(w)
+		renderAffectedEmptySelection(w)
 		return
 	}
 	fmt.Fprintln(w, "  selected tests:")
@@ -288,10 +335,23 @@ func renderAffectedTests(w io.Writer, r affectedResult) {
 	fmt.Fprintf(w, "  go test -run '%s' %s\n\n", r.RunPattern, strings.Join(goTestPackageArgs(r), " "))
 }
 
+// renderAffectedEmptySelection is the outcome="selected", zero-tests case.
+//
+// It gets a WARN block of its own because it is the one result a pipeline can
+// act on catastrophically: the run pattern is empty, `go test -run ”` matches
+// everything or nothing depending on how it is quoted, and a recipe that
+// branches only on run-all runs no tests at all and reports success.
+func renderAffectedEmptySelection(w io.Writer) {
+	fmt.Fprintln(w, "  WARN  NOTHING SELECTED — no test in the index recorded executing any")
+	fmt.Fprintln(w, "        changed symbol, and no rule forced a full run.")
+	fmt.Fprintln(w, "        This is NOT \"nothing to do\": the diff changed code that no test")
+	fmt.Fprintln(w, "        reaches. Run the full suite, and treat the gap as the finding.")
+	fmt.Fprintln(w)
+}
+
 func renderAffectedPackages(w io.Writer, r affectedResult) {
 	if len(r.Packages) == 0 {
-		fmt.Fprintln(w, "  no package holds a test that recorded executing a changed symbol.")
-		fmt.Fprintln(w)
+		renderAffectedEmptySelection(w)
 		return
 	}
 	fmt.Fprintln(w, "  packages to test:")
@@ -341,7 +401,14 @@ func renderAffectedUncovered(w io.Writer, r affectedResult) {
 	}
 	fmt.Fprintf(w, "  WARN  %s — no test covers them:\n", plural(len(r.UncoveredSymbols), "changed symbol"))
 	for _, cs := range r.UncoveredSymbols {
-		fmt.Fprintf(w, "    %-44s %s:%d\n", cs.QualifiedName, cs.FilePath, cs.Line)
+		// A widened symbol is listed because its package was swept in, not
+		// because the author edited it. Saying "changed" of it without the
+		// qualifier sends a reviewer looking for an edit that is not there.
+		suffix := ""
+		if cs.Widened {
+			suffix = "  (widened in, not edited by this diff)"
+		}
+		fmt.Fprintf(w, "    %-44s %s:%d%s\n", cs.QualifiedName, cs.FilePath, cs.Line, suffix)
 	}
 	fmt.Fprintln(w, "    Nothing was selected for these because nothing executed them in the")
 	fmt.Fprintln(w, "    measured run. That is a coverage gap, not a selection failure.")

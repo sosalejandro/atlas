@@ -181,7 +181,7 @@ func normalizePath(root, p string) (string, bool) {
 	// workflow commands are forward-slashed regardless of the runner OS.
 	p = strings.ReplaceAll(p, `\`, "/")
 
-	if strings.HasPrefix(p, "/") {
+	if isAbsolutePath(p) {
 		if root == "" {
 			return "", false
 		}
@@ -195,8 +195,30 @@ func normalizePath(root, p string) (string, bool) {
 	p = strings.TrimPrefix(filepath.ToSlash(filepath.Clean(p)), "./")
 	// A path that still escapes the root cannot be annotated on the PR —
 	// there is no such file in the checkout.
-	if p == "." || p == ".." || strings.HasPrefix(p, "../") || strings.HasPrefix(p, "/") {
+	if p == "." || p == ".." || strings.HasPrefix(p, "../") || isAbsolutePath(p) {
 		return "", false
 	}
 	return p, true
+}
+
+// isAbsolutePath reports whether an already-forward-slashed path is absolute in
+// either of the two forms that reach us.
+//
+// This is deliberately NOT filepath.IsAbs: that answers for the OS running
+// atlas, and the path in a finding was produced wherever the scan ran. A
+// Windows runner's "C:/src/repo/pkg/a.go" is repo-relative to a Linux
+// filepath.IsAbs, so it would sail through unrelativised and then vanish from
+// the Files view — the exact silent failure NormalizePaths exists to catch.
+func isAbsolutePath(p string) bool {
+	if strings.HasPrefix(p, "/") {
+		return true
+	}
+	// Drive-letter form: a single ASCII letter, a colon, and either the end
+	// of the path or a separator ("C:", "C:/src/a.go"). A bare "C:foo" is a
+	// drive-relative path, which is no more resolvable against the checkout.
+	if len(p) < 2 || p[1] != ':' {
+		return false
+	}
+	c := p[0]
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }

@@ -373,37 +373,76 @@ func (b *reportBundle) collectAudit(ctx context.Context, s *store.Store, opts *r
 		WarnBelow:  opts.warnBelow,
 	})
 	b.findings = append(b.findings, findings...)
+
+	// "Features below the floor" counts the features, NOT the findings.
+	//
+	// They are different numbers: FromAudit drops every below-floor feature
+	// with no anchor symbol, so len(findings) is the count atlas could
+	// annotate, which is smaller. Putting it under this label under-reports
+	// a compliance number on a PR comment — the one failure this command
+	// cannot be allowed to have — so the shortfall gets its own row rather
+	// than being folded silently into the headline.
+	below := belowFloor(healths, reportFloor(opts))
+	unanchored := unanchoredCount(below, anchors)
 	b.summary = append(b.summary,
 		report.SummaryRow{Label: "Features scored", Value: fmt.Sprintf("%d", len(healths))},
-		report.SummaryRow{Label: "Features below the floor", Value: fmt.Sprintf("%d", len(findings))})
-
-	// A feature scored below the floor but not reported has no linked
-	// symbol to annotate. Saying so is the difference between "atlas found
-	// nothing" and "atlas had nowhere to put it".
-	if n := unanchoredCount(healths, anchors, opts); n > 0 {
+		report.SummaryRow{Label: "Features below the floor", Value: fmt.Sprintf("%d", len(below))})
+	if unanchored > 0 {
+		b.summary = append(b.summary, report.SummaryRow{
+			Label: "…of those, not annotated",
+			Value: fmt.Sprintf("%d (no linked symbol to anchor to)", unanchored),
+		})
+		// Also as a warning: the summary table is the PR comment's, and
+		// the same fact has to reach `report sarif` and `report github`,
+		// which render no table. Saying it is the difference between
+		// "atlas found nothing" and "atlas had nowhere to put it".
 		b.warnings = append(b.warnings, fmt.Sprintf(
 			"%d low-scoring features have no linked symbol to anchor an annotation to; "+
-				"they appear in no format. Add an @atlas:feature annotation to their implementation", n))
+				"they appear in no format. Add an @atlas:feature annotation to their implementation",
+			unanchored))
 	}
 	return nil
 }
 
-func unanchoredCount(healths []audit.FeatureHealth,
-	anchors map[shared.FeatureID]report.Anchor, opts *reportOpts,
-) int {
-	// The floor is the higher of the two bands: a score under EITHER one
-	// would have been reported, so a run with --warn-below 0 still has an
-	// error band to measure "would have been reported" against.
+// reportFloor is the score below which a feature would have been reported: the
+// higher of the two bands, since a score under EITHER one produces a finding.
+// A run with --warn-below 0 still has an error band to measure against.
+//
+// Zero means both bands are disabled, and then nothing is below the floor.
+func reportFloor(opts *reportOpts) float64 {
 	floor := opts.warnBelow
 	if opts.errorBelow > floor {
 		floor = opts.errorBelow
 	}
+	return floor
+}
 
-	var n int
+// belowFloor returns the features that scored under the floor — every feature
+// the "below the floor" label claims to count, anchored or not.
+func belowFloor(healths []audit.FeatureHealth, floor float64) []audit.FeatureHealth {
+	if floor <= 0 {
+		// Both bands disabled: no feature is "below the floor", because
+		// there is no floor. Counting them all here would report every
+		// feature in the repo as failing a gate nobody enabled.
+		return nil
+	}
+	out := make([]audit.FeatureHealth, 0, len(healths))
 	for _, h := range healths {
-		if floor > 0 && h.Score >= floor {
-			continue
+		if h.Score < floor {
+			out = append(out, h)
 		}
+	}
+	return out
+}
+
+// unanchoredCount is how many of the below-floor features FromAudit had to
+// drop: a feature whose annotation links to no indexed symbol has no line to
+// hang the finding on.
+func unanchoredCount(below []audit.FeatureHealth,
+	anchors map[shared.FeatureID]report.Anchor,
+) int {
+	var n int
+	for _, h := range below {
 		if a, ok := anchors[h.FeatureID]; !ok || a.Path == "" {
 			n++
 		}
@@ -579,7 +618,7 @@ func resolveDelta(cmd *cobra.Command, base, head string) (*report.Delta, []strin
 	if err != nil {
 		return nil, []string{fmt.Sprintf("delta skipped: diff %d..%d: %v", idA, idB, err)}
 	}
-	return auditDeltaToReport(base, head, d.Audit), nil
+	return auditDeltaToReport(base, head, d.Audit)
 }
 
 func resolveHeadSnapshotID(ctx context.Context, s *store.Store, head string) (int64, []string) {
@@ -604,7 +643,14 @@ func resolveHeadSnapshotID(ctx context.Context, s *store.Store, head string) (in
 // auditDeltaToReport splits the differ's score changes into the two lists the
 // comment renders. Regressions come first and sorted worst-first: a reviewer
 // reads the top of the table and stops.
-func auditDeltaToReport(baseRef, headRef string, d diff.AuditDelta) *report.Delta {
+//
+// It also returns the warnings for what the comparison could NOT compare. The
+// differ reports that through MissingOnA / MissingOnB, and reading only
+// Changed/Added/Removed renders a delta section that looks complete and is not:
+// "no regressions" and "no audit data on the base side to find regressions in"
+// are the same table otherwise. Every other failure in this path degrades to a
+// warning; a partial comparison is no different.
+func auditDeltaToReport(baseRef, headRef string, d diff.AuditDelta) (*report.Delta, []string) {
 	out := &report.Delta{BaseRef: baseRef, HeadRef: headRef}
 	for _, c := range d.Changed {
 		row := report.ScoreChange{
@@ -633,5 +679,45 @@ func auditDeltaToReport(baseRef, headRef string, d diff.AuditDelta) *report.Delt
 	}
 	sort.Strings(out.NewFeatures)
 	sort.Strings(out.RemovedFeatures)
+	return out, missingAuditWarnings(baseRef, headRef, d)
+}
+
+// missingAuditWarnings turns the differ's MissingOnA / MissingOnB into the
+// sentences that keep the delta section honest about its own coverage.
+//
+// The two sides mean different things to a reviewer, so they are reported
+// separately: missing on the base is "this PR has nothing to be compared
+// against", missing on the head is "this PR's own run did not score them".
+func missingAuditWarnings(baseRef, headRef string, d diff.AuditDelta) []string {
+	var out []string
+	if n := len(d.MissingOnA); n > 0 {
+		out = append(out, fmt.Sprintf(
+			"the delta is partial: %s have no audit score in the base snapshot (%s), so any "+
+				"regression in them is not in the table (e.g. %s); run `atlas snapshot --audit` "+
+				"on the base ref",
+			pluralFeatures(n), refLabel(baseRef, "base"), d.MissingOnA[0]))
+	}
+	if n := len(d.MissingOnB); n > 0 {
+		out = append(out, fmt.Sprintf(
+			"the delta is partial: %s have no audit score in the head snapshot (%s), so their "+
+				"movement is not in the table (e.g. %s)",
+			pluralFeatures(n), refLabel(headRef, "newest snapshot"), d.MissingOnB[0]))
+	}
 	return out
+}
+
+// refLabel names a side of the comparison, falling back to what the flag
+// defaulted to when the caller passed no ref.
+func refLabel(ref, fallback string) string {
+	if ref == "" {
+		return fallback
+	}
+	return ref
+}
+
+func pluralFeatures(n int) string {
+	if n == 1 {
+		return "1 feature"
+	}
+	return fmt.Sprintf("%d features", n)
 }

@@ -119,7 +119,8 @@ func TestHistory_RecordIsIdempotentPerCommit(t *testing.T) {
 		t.Errorf("Record re-measured the same commit into a new row: %d then %d", first, second)
 	}
 
-	pts, err := s.History().List(ctx, HistoryFilter{})
+	page, err := s.History().List(ctx, HistoryFilter{})
+	pts := page.Points
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -152,7 +153,8 @@ func TestHistory_ListOrdersOldestFirstAndHonoursSince(t *testing.T) {
 		}
 	}
 
-	all, err := s.History().List(ctx, HistoryFilter{})
+	allPage, err := s.History().List(ctx, HistoryFilter{})
+	all := allPage.Points
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -164,7 +166,8 @@ func TestHistory_ListOrdersOldestFirstAndHonoursSince(t *testing.T) {
 		t.Errorf("List order = %q..%q, want s0..s2", all[0].CommitSHA, all[2].CommitSHA)
 	}
 
-	recent, err := s.History().List(ctx, HistoryFilter{Since: at(1)})
+	recentPage, err := s.History().List(ctx, HistoryFilter{Since: at(1)})
+	recent := recentPage.Points
 	if err != nil {
 		t.Fatalf("List(Since): %v", err)
 	}
@@ -188,7 +191,8 @@ func TestHistory_ListLimitKeepsTheNewest(t *testing.T) {
 		}
 	}
 	// A capped series must be the most RECENT window, still oldest-first.
-	got, err := s.History().List(ctx, HistoryFilter{Limit: 2})
+	gotPage, err := s.History().List(ctx, HistoryFilter{Limit: 2})
+	got := gotPage.Points
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -268,5 +272,53 @@ func TestHistory_PruneDropsOldPointsAndTheirFeatures(t *testing.T) {
 	}
 	if orphans != 0 {
 		t.Errorf("prune left %d orphaned per-feature rows", orphans)
+	}
+}
+
+// --limit 0 is documented as "no cap", but an uncapped List is served up to
+// defaultHistoryListLimit. Returning that page as if it were the whole series
+// is a lie the reader cannot detect: the points a cap discards are the
+// OLDEST, which is exactly where a long-run trend is read from.
+func TestHistory_ListReportsTruncationRatherThanHidingIt(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	for i, sha := range []string{"t0", "t1", "t2", "t3"} {
+		if _, err := s.History().Record(ctx, HistoryPoint{
+			CommitSHA: sha, MeasuredAt: at(i), Score: f64(1), Denominator: 1,
+		}); err != nil {
+			t.Fatalf("Record: %v", err)
+		}
+	}
+
+	capped, err := s.History().List(ctx, HistoryFilter{Limit: 2})
+	if err != nil {
+		t.Fatalf("List(Limit=2): %v", err)
+	}
+	if !capped.Truncated {
+		t.Error("Truncated = false for 2 of 4 points; the omitted two are invisible")
+	}
+	if capped.Cap != 2 {
+		t.Errorf("Cap = %d, want 2", capped.Cap)
+	}
+	if len(capped.Points) != 2 {
+		t.Errorf("Points = %d, want exactly the cap (the +1 probe row must not leak)", len(capped.Points))
+	}
+	// The cap keeps the RECENT window; the flag describes what it dropped.
+	if capped.Points[0].CommitSHA != "t2" || capped.Points[1].CommitSHA != "t3" {
+		t.Errorf("capped window = %q,%q; want t2,t3", capped.Points[0].CommitSHA, capped.Points[1].CommitSHA)
+	}
+
+	// A window that holds everything is not truncated, and still names the
+	// cap it was served under so a caller can see the headroom.
+	whole, err := s.History().List(ctx, HistoryFilter{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if whole.Truncated {
+		t.Error("Truncated = true for 4 points under the default cap")
+	}
+	if whole.Cap != defaultHistoryListLimit {
+		t.Errorf("Cap = %d, want the default %d", whole.Cap, defaultHistoryListLimit)
 	}
 }

@@ -19,6 +19,12 @@ var fixtureTool = report.Tool{
 
 // fixtureFindings is one finding per rule family, deliberately supplied in a
 // non-sorted order so every renderer's ordering guarantee is exercised.
+//
+// The severities are NOT all their rule's DefaultLevel. That is the point:
+// GitHub gates on the per-finding `level`, and a fixture where every finding
+// happens to sit at its rule default cannot tell "the renderer read the
+// finding" from "the renderer read the catalog". fixtureOverrides names the
+// ones that diverge so the assertions can say which half they are proving.
 func fixtureFindings() []report.Finding {
 	return []report.Finding{
 		{
@@ -30,31 +36,52 @@ func fixtureFindings() []report.Finding {
 			Message:  "118 statements executed but charged to no indexed symbol (reason: no-indexed-symbol)",
 		},
 		{
+			// atlas/feature-uncovered defaults to warning; FromAudit
+			// raises a feature under --error-below to an error. This is
+			// the real override, and it is what a `fail-on: error` gate
+			// reads.
 			RuleID:   report.RuleFeatureUncovered,
-			Severity: report.SeverityWarning,
+			Severity: report.SeverityError,
 			Path:     "internal/billing/invoice.go",
 			Line:     42,
 			EndLine:  87,
 			Identity: "feature:billing.invoice",
-			Message:  "feature billing.invoice scores 31.0/100 (coverage 12.5)",
+			Message:  "feature billing.invoice scores 12.0/100 (coverage 4.0)",
 		},
 		{
-			RuleID:   report.RuleContractDrift,
-			Severity: report.SeverityError,
-			Path:     "internal/api/routes.go",
-			Line:     15,
-			Identity: "contract:GET /v1/invoices",
-			Message:  "contract GET /v1/invoices has drifted from its handler",
-		},
-		{
+			// atlas/dead-code defaults to note; this one is pinned to
+			// warning so the divergence is exercised in both directions
+			// (a rule default above AND below the finding's level).
 			RuleID:   report.RuleDeadCode,
-			Severity: report.SeverityNote,
+			Severity: report.SeverityWarning,
 			Path:     "internal/legacy/shim.go",
 			Line:     7,
 			Identity: "symbol:internal/legacy.Shim",
 			Message:  "Shim has 0 incoming import edges (dead-code candidate)",
 		},
 	}
+}
+
+// fixtureOverrides is the subset of fixtureFindings whose Severity differs from
+// its rule's DefaultLevel, keyed by rule id. Derived rather than hard-coded, so
+// it cannot drift out of sync with the fixture or the catalog.
+func fixtureOverrides(t *testing.T) map[string]report.Severity {
+	t.Helper()
+	out := map[string]report.Severity{}
+	for _, f := range fixtureFindings() {
+		r, ok := report.LookupRule(f.RuleID)
+		if !ok {
+			t.Fatalf("fixture finding references rule %q, which is not in the catalog", f.RuleID)
+		}
+		if f.Severity != r.DefaultLevel {
+			out[f.RuleID] = f.Severity
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("no fixture finding overrides its rule default; the severity assertions below " +
+			"would pass with the renderers reading the catalog instead of the finding")
+	}
+	return out
 }
 
 // decodeSARIF renders the fixture and unmarshals it into a generic map so the
@@ -219,36 +246,78 @@ func TestSARIF_HeaderIsWellFormed(t *testing.T) {
 	}
 }
 
-// TestSARIF_SeverityMapping checks both halves of the severity encoding: the
-// SARIF `level` GitHub uses for the annotation, and the
-// properties.security-severity number it uses to sort the alert list.
+// TestSARIF_SeverityMapping checks that a result's `level` is the FINDING's
+// severity, not its rule's DefaultLevel.
+//
+// The distinction is the whole contract: `level` is what GitHub colours the
+// annotation with and what a `fail-on: error` gate reads, and the rule default
+// is only the fallback for a producer with no opinion. A fixture where every
+// finding sits at its rule default proves neither, which is why this asserts
+// against fixtureOverrides — the findings that deliberately diverge.
 func TestSARIF_SeverityMapping(t *testing.T) {
 	run := sarifRun(t, decodeSARIF(t, fixtureFindings()))
 	levels := map[string]string{}
-	sec := map[string]bool{}
 	for _, raw := range run["results"].([]any) {
 		res := raw.(map[string]any)
-		id := res["ruleId"].(string)
-		levels[id] = res["level"].(string)
-		if props, ok := res["properties"].(map[string]any); ok {
-			if v, _ := props["security-severity"].(string); v != "" {
-				sec[id] = true
-			}
+		levels[res["ruleId"].(string)] = res["level"].(string)
+	}
+
+	// Every finding's level is its own severity, override or not.
+	for _, f := range fixtureFindings() {
+		if got := levels[f.RuleID]; got != string(f.Severity) {
+			t.Errorf("%s: level = %q, want the finding's severity %q",
+				f.RuleID, got, f.Severity)
 		}
 	}
-	want := map[string]string{
-		report.RuleContractDrift:        "error",
-		report.RuleFeatureUncovered:     "warning",
-		report.RuleDeadCode:             "note",
-		report.RuleCoverageUnattributed: "note",
-	}
-	for id, lvl := range want {
-		if levels[id] != lvl {
-			t.Errorf("%s: level = %q, want %q", id, levels[id], lvl)
+
+	// And say so loudly for the overrides: this is the assertion that fails
+	// if the renderer ever falls back to the catalog's DefaultLevel.
+	for id, sev := range fixtureOverrides(t) {
+		r, _ := report.LookupRule(id)
+		if levels[id] == string(r.DefaultLevel) {
+			t.Errorf("%s: level = %q, which is the rule DEFAULT; the finding's severity is %q "+
+				"and GitHub gates on that", id, levels[id], sev)
 		}
 	}
-	if !sec[report.RuleContractDrift] {
-		t.Error("contract drift should carry properties.security-severity")
+}
+
+// TestSARIF_DefaultConfigurationStillCarriesTheRuleDefault: the rule default
+// does not disappear when a finding overrides it — it moves to where SARIF puts
+// it, tool.driver.rules[].defaultConfiguration.level, which is what a consumer
+// falls back to for a result that carries no level of its own.
+func TestSARIF_DefaultConfigurationStillCarriesTheRuleDefault(t *testing.T) {
+	run := sarifRun(t, decodeSARIF(t, fixtureFindings()))
+	driver := run["tool"].(map[string]any)["driver"].(map[string]any)
+	for _, raw := range driver["rules"].([]any) {
+		rule := raw.(map[string]any)
+		id := rule["id"].(string)
+		want, ok := report.LookupRule(id)
+		if !ok {
+			t.Errorf("declared rule %q is not in the catalog", id)
+			continue
+		}
+		cfg, _ := rule["defaultConfiguration"].(map[string]any)
+		if got, _ := cfg["level"].(string); got != string(want.DefaultLevel) {
+			t.Errorf("%s: defaultConfiguration.level = %q, want %q", id, got, want.DefaultLevel)
+		}
+	}
+}
+
+// TestSARIF_EmptySeverityFallsBackToTheRuleDefault is the other half of the
+// same contract: a producer that expresses no opinion gets the catalog's level
+// rather than an empty `level`, which GitHub rejects the result over.
+func TestSARIF_EmptySeverityFallsBackToTheRuleDefault(t *testing.T) {
+	run := sarifRun(t, decodeSARIF(t, []report.Finding{{
+		RuleID:   report.RuleDeadCode,
+		Path:     "internal/legacy/shim.go",
+		Line:     7,
+		Identity: "symbol:internal/legacy.Shim",
+		Message:  "no severity supplied",
+	}}))
+	res := run["results"].([]any)[0].(map[string]any)
+	rule, _ := report.LookupRule(report.RuleDeadCode)
+	if got := res["level"].(string); got != string(rule.DefaultLevel) {
+		t.Errorf("level = %q, want the rule default %q", got, rule.DefaultLevel)
 	}
 }
 
@@ -280,6 +349,79 @@ func TestNormalizePaths_RejectsWhatGitHubWouldSilentlyDrop(t *testing.T) {
 	}
 }
 
+// TestNormalizePaths_WindowsDriveLettersAreAbsolute covers the absolute form a
+// POSIX prefix check does not see.
+//
+// A Windows runner's scan produces `C:\src\repo\pkg\a.go`. Once the backslashes
+// are rewritten it is "C:/src/repo/pkg/a.go", which has no leading "/" — so a
+// HasPrefix(p, "/") test reads it as repo-relative and ships it as a SARIF uri
+// verbatim. GitHub then resolves it against the checkout, finds nothing, and
+// drops the finding from the Files view without a word.
+func TestNormalizePaths_WindowsDriveLettersAreAbsolute(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		root string
+		path string
+		want string // "" means the finding must be dropped
+	}{
+		{
+			// The root reaches NormalizePaths already forward-slashed
+			// (the CLI stores it that way); the finding's path does not.
+			name: "drive-letter path with a matching windows root relativises",
+			root: "C:/src/repo",
+			path: `C:\src\repo\pkg\a.go`,
+			want: "pkg/a.go",
+		},
+		{
+			name: "drive-letter path with no root is unresolvable",
+			path: `C:\src\repo\pkg\a.go`,
+		},
+		{
+			name: "already-slashed drive-letter path is still absolute",
+			path: "C:/src/repo/pkg/a.go",
+		},
+		{
+			name: "lowercase drive letter too",
+			path: "d:/src/repo/pkg/a.go",
+		},
+		{
+			name: "a different drive escapes the root",
+			root: "C:/src/repo",
+			path: `D:\elsewhere\a.go`,
+		},
+		{
+			name: "a drive-letter path under a posix root cannot be relativised",
+			root: "/home/dev/repo",
+			path: `C:\src\repo\pkg\a.go`,
+		},
+		{
+			name: "a colon that is not a drive letter is an ordinary path",
+			root: "/home/dev/repo",
+			path: "pkg/weird:name.go",
+			want: "pkg/weird:name.go",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := []report.Finding{{RuleID: report.RuleDeadCode, Path: tc.path, Line: 1}}
+			kept, dropped := report.NormalizePaths(tc.root, in)
+			if tc.want == "" {
+				if len(dropped) != 1 {
+					t.Fatalf("path %q with root %q was kept as %+v; an unresolvable "+
+						"absolute uri vanishes from the Files view instead of being reported",
+						tc.path, tc.root, kept)
+				}
+				return
+			}
+			if len(kept) != 1 {
+				t.Fatalf("path %q with root %q was dropped, want %q", tc.path, tc.root, tc.want)
+			}
+			if kept[0].Path != tc.want {
+				t.Errorf("path = %q, want %q", kept[0].Path, tc.want)
+			}
+		})
+	}
+}
+
 // TestRenderGitHub_EscapesWorkflowCommandMetacharacters is the annotation
 // footgun: an unescaped comma in a property value ends the property, and an
 // unescaped newline ends the whole command. Either one corrupts the run's log
@@ -288,9 +430,13 @@ func TestRenderGitHub_EscapesWorkflowCommandMetacharacters(t *testing.T) {
 	findings := []report.Finding{{
 		RuleID:   report.RuleDeadCode,
 		Severity: report.SeverityWarning,
-		Path:     "pkg/a,b.go",
-		Line:     3,
-		Message:  "100% of\nthe: thing, went wrong",
+		// The colon is the untested half of escapeProperty and the more
+		// dangerous one: ':' ends the property list, so an unescaped one
+		// in a path makes the runner read the rest of the path as the
+		// message and hang the annotation on a truncated file name.
+		Path:    "pkg/a,b:c.go",
+		Line:    3,
+		Message: "100% of\nthe: thing, went wrong",
 	}}
 	var buf bytes.Buffer
 	if err := report.RenderGitHub(&buf, findings); err != nil {
@@ -298,9 +444,18 @@ func TestRenderGitHub_EscapesWorkflowCommandMetacharacters(t *testing.T) {
 	}
 	got := strings.TrimRight(buf.String(), "\n")
 
-	want := "::warning file=pkg/a%2Cb.go,line=3,title=atlas/dead-code::100%25 of%0Athe: thing, went wrong"
+	// Note the asymmetry, which is the runner's and not a typo here: ':' and
+	// ',' are escaped in the property VALUE and left alone in the message,
+	// where they are ordinary text.
+	want := "::warning file=pkg/a%2Cb%3Ac.go,line=3,title=atlas/dead-code::100%25 of%0Athe: thing, went wrong"
 	if got != want {
 		t.Errorf("annotation mismatch\n got: %s\nwant: %s", got, want)
+	}
+	// The location ends at the first unescaped ':' the runner sees, so a
+	// leaked colon truncates the file name rather than failing visibly.
+	head, _, _ := strings.Cut(strings.TrimPrefix(got, "::warning "), "::")
+	if !strings.Contains(head, "file=pkg/a%2Cb%3Ac.go") {
+		t.Errorf("property list = %q; the path's ':' leaked and truncated the location", head)
 	}
 	if strings.Count(got, "\n") != 0 {
 		t.Error("annotation spans more than one line; the workflow command is truncated")

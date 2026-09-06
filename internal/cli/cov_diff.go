@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sosalejandro/atlas/packages/coverage/patch"
+	"github.com/sosalejandro/atlas/packages/indexfresh"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -43,12 +44,19 @@ point:
                        are the known fraction, and the only thing
                        --fail-under decides on.
   unknown              lines atlas cannot score: a file it has no symbol
-                       for, a line outside every indexed span, or a symbol
-                       no run carried statement counts for. This is NOT 0%
-                       covered -- gating on files atlas cannot see teaches
-                       teams to switch the gate off -- so it is reported
-                       separately and loudly, and never enters the
-                       denominator.
+                       for, a line outside every indexed span, a symbol
+                       no run carried statement counts for, or a file whose
+                       indexed spans no longer describe what is on disk.
+                       This is NOT 0% covered -- gating on files atlas
+                       cannot see teaches teams to switch the gate off --
+                       so it is reported separately and loudly, and never
+                       enters the denominator.
+
+The spans are only joinable against the diff when the index was built at
+HEAD. Every changed file is re-hashed against what the scanner recorded;
+a file that no longer matches is reported as a STALE INDEX line and its
+changed lines go to the unknown bucket rather than being charged to
+whichever symbol has since drifted into their line range.
 
 A diff that changed no indexed code has no denominator at all: the command
 reports "no measurable change" and exits 0 under any target, because 0% would
@@ -170,12 +178,48 @@ func covDiffInput(ctx context.Context, s *store.Store, changes []patch.FileChang
 	if err != nil {
 		return patch.Input{}, err
 	}
+	stale, err := covDiffStaleSpans(ctx, s, changes)
+	if err != nil {
+		return patch.Input{}, err
+	}
 	return patch.Input{
-		Changes:  changes,
-		Symbols:  syms,
-		Coverage: frontierStmtCounts(results),
-		Features: features,
+		Changes:    changes,
+		Symbols:    syms,
+		Coverage:   frontierStmtCounts(results),
+		Features:   features,
+		StaleSpans: stale,
 	}, nil
+}
+
+// covDiffStaleSpans asks indexfresh which of the diff's files still hash to
+// what the scanner recorded.
+//
+// This is the join's precondition, not a nicety. The line numbers come from
+// the working tree at HEAD; the spans come from whenever `atlas scan` last
+// ran. When they disagree the failure is silent and directional: insert
+// twenty lines near the top of a file and every span below it shifts, so a
+// changed line lands inside whichever symbol NOW occupies that range and is
+// scored as that symbol's coverage. The number that comes out is confident
+// and wrong, which is the failure mode this codebase treats as the worst one.
+func covDiffStaleSpans(
+	ctx context.Context, s *store.Store, changes []patch.FileChange,
+) (map[string]string, error) {
+	paths := make([]string, 0, len(changes))
+	for _, c := range changes {
+		paths = append(paths, c.Path)
+	}
+	rep, err := indexfresh.Classify(ctx, s.FileHashes(), loaded.repoRoot, paths)
+	if err != nil {
+		return nil, fmt.Errorf("cov diff: check index freshness: %w", err)
+	}
+	out := map[string]string{}
+	for path, state := range rep.States {
+		if state.Trustworthy() {
+			continue
+		}
+		out[path] = string(state)
+	}
+	return out, nil
 }
 
 // frontierStmtCounts pools the frontier's results into per-symbol statement
@@ -265,6 +309,7 @@ func printCovDiff(cmd *cobra.Command, res covDiffResult) {
 			res.KnownLines, math.Round(res.CoveredLines), *res.Percent)
 	}
 	printCovDiffUnknownSummary(cmd, res)
+	printCovDiffStaleIndex(cmd, res)
 	printCovDiffFeatures(cmd, res)
 	printCovDiffSpans(cmd, "uncovered changed lines", res.Uncovered, false)
 	printCovDiffSpans(cmd,
@@ -301,6 +346,29 @@ func printCovDiffUnknownSummary(cmd *cobra.Command, res covDiffResult) {
 	fmt.Fprintf(cmd.OutOrStdout(),
 		"  unknown: %5d lines   %s  (not scored, not gated)\n",
 		res.UnknownLines, strings.Join(parts, ", "))
+}
+
+// printCovDiffStaleIndex warns, above the per-symbol detail, that part of the
+// diff was excluded because the index does not describe HEAD.
+//
+// Printed loudly and with the remedy attached because the alternative to
+// noticing it is believing a percentage computed from a shrunken denominator.
+func printCovDiffStaleIndex(cmd *cobra.Command, res covDiffResult) {
+	if len(res.StaleIndexFiles) == 0 {
+		return
+	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out,
+		"\n  STALE INDEX: %d of %d changed files are not described by the current index;\n"+
+			"               their %d changed lines are unscored. Re-run 'atlas scan' at HEAD.\n",
+		len(res.StaleIndexFiles), res.ChangedFiles, res.StaleIndexLines)
+	for i, sf := range res.StaleIndexFiles {
+		if i == maxGapLines {
+			fmt.Fprintf(out, "    ... +%d more\n", len(res.StaleIndexFiles)-maxGapLines)
+			break
+		}
+		fmt.Fprintf(out, "    %-52s %-10s %4d lines\n", sf.Path, sf.State, sf.Lines)
+	}
 }
 
 func printCovDiffFeatures(cmd *cobra.Command, res covDiffResult) {

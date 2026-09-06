@@ -26,6 +26,14 @@ const (
 	// declaration with nothing to execute, or a framework that reports only
 	// pass/fail. Nothing measured it, so nothing can be concluded.
 	ReasonNoCoverageData = "no-coverage-data"
+	// ReasonIndexStale: the file IS indexed, but the spans atlas holds for it
+	// describe a version of the file that is no longer on disk (or cannot be
+	// corroborated at all). Joining post-image line numbers against them
+	// would charge the changed lines to whichever symbol has since drifted
+	// into that range -- a confident wrong number rather than a missing one.
+	// Distinct from ReasonOutsideSymbolSpans because the remedy is different:
+	// there is nothing to add to the index, only a re-scan at HEAD.
+	ReasonIndexStale = "index-stale"
 )
 
 // UnboundedSpanHorizon bounds the fallback span of a symbol the index has no
@@ -85,6 +93,17 @@ type Input struct {
 	// Features maps symbol id to the features it implements. Optional: it
 	// only drives the per-feature rollup.
 	Features map[int64][]shared.FeatureID
+	// StaleSpans names the changed files whose stored spans must NOT be
+	// joined against the diff's post-image line numbers, mapped to the state
+	// that disqualified them ("stale", "deleted", "absent", "unreadable" --
+	// see packages/indexfresh). A file listed here has its changed lines
+	// booked to ReasonIndexStale instead of being scored.
+	//
+	// The map is optional and its absence means "the caller did not check",
+	// not "everything is fresh" -- Score cannot verify freshness itself
+	// (it never sees the working tree), so the check belongs to the caller
+	// and this is where the answer arrives.
+	StaleSpans map[string]string
 }
 
 // SymbolSpan is one touched symbol and the changed lines inside it.
@@ -106,6 +125,22 @@ type UnknownSpan struct {
 	Ranges []LineRange `json:"ranges"`
 	Lines  int         `json:"lines"`
 	Reason string      `json:"reason"`
+}
+
+// StaleFile is one changed file whose stored spans were refused, and why.
+//
+// Reported as its own list rather than left to be dug out of the unknown
+// bucket: a patch-coverage percentage computed over a stale index is a
+// confident wrong number, and the reader has to be told the denominator
+// shrank before they read the percentage.
+type StaleFile struct {
+	Path string `json:"path"`
+	// State is the indexfresh classification: "stale" (the file changed
+	// since the scan), "deleted", "absent" (no hash row to compare against)
+	// or "unreadable".
+	State string `json:"state"`
+	// Lines is how many of the file's changed lines went unscored for it.
+	Lines int `json:"lines"`
 }
 
 // FileRow is the per-file rollup, at the granularity a reviewer navigates by.
@@ -149,6 +184,16 @@ type Result struct {
 	// Percent is the known patch fraction, nil when !Measurable.
 	Percent *float64 `json:"percent"`
 
+	// StaleIndexFiles are the changed files whose spans were refused, sorted
+	// by path, and StaleIndexLines the changed lines they cost the
+	// denominator. Both are always present (empty, not null) so a PR bot can
+	// branch on length without a nil check.
+	StaleIndexFiles []StaleFile `json:"stale_index_files"`
+	StaleIndexLines int         `json:"stale_index_lines"`
+
+	// Every slice below is initialised, never nil: a `null` where a consumer
+	// expects an array is a runtime error in the PR-comment bot this JSON
+	// exists for.
 	Uncovered []SymbolSpan  `json:"uncovered"`
 	Partial   []SymbolSpan  `json:"partial"`
 	Covered   []SymbolSpan  `json:"covered"`
@@ -284,6 +329,7 @@ type accumulator struct {
 
 	unknown []UnknownSpan
 	files   []FileRow
+	stale   []StaleFile
 }
 
 func newAccumulator(in Input) *accumulator {
@@ -304,9 +350,13 @@ func (a *accumulator) file(change FileChange, spans []symSpan) {
 	// collapse into one reported range instead of one entry per line.
 	unknownRanges := map[string][]LineRange{}
 
-	for _, r := range change.Ranges {
-		for line := r.Start; line <= r.End; line++ {
-			a.line(change.Path, line, spans, &row, unknownRanges)
+	if state, refused := a.refuseSpans(change.Path, spans); refused {
+		a.staleFile(change, state, lines, &row, unknownRanges)
+	} else {
+		for _, r := range change.Ranges {
+			for line := r.Start; line <= r.End; line++ {
+				a.line(change.Path, line, spans, &row, unknownRanges)
+			}
 		}
 	}
 	a.emitUnknown(change.Path, unknownRanges)
@@ -315,6 +365,33 @@ func (a *accumulator) file(change FileChange, spans []symSpan) {
 		row.Percent = &pct
 	}
 	a.files = append(a.files, row)
+}
+
+// refuseSpans reports whether this file's stored spans are disqualified, and
+// the state that disqualified them.
+//
+// A file with no spans at all is NOT refused here: it already books to
+// ReasonFileNotIndexed, which is the sharper answer. Staleness only matters
+// where a join would otherwise have happened.
+func (a *accumulator) refuseSpans(path string, spans []symSpan) (string, bool) {
+	if len(spans) == 0 {
+		return "", false
+	}
+	state, ok := a.in.StaleSpans[path]
+	return state, ok
+}
+
+// staleFile books every changed line of a file whose spans were refused,
+// without consulting those spans.
+func (a *accumulator) staleFile(
+	change FileChange, state string, lines int, row *FileRow, unknownRanges map[string][]LineRange,
+) {
+	for _, r := range change.Ranges {
+		for line := r.Start; line <= r.End; line++ {
+			a.markUnknown(ReasonIndexStale, line, row, unknownRanges)
+		}
+	}
+	a.stale = append(a.stale, StaleFile{Path: change.Path, State: state, Lines: lines})
 }
 
 // line charges a single changed line to its bucket.
@@ -396,8 +473,18 @@ func (a *accumulator) result() Result {
 		CoveredLines:   a.coveredLines,
 		UncoveredLines: float64(a.knownLines) - a.coveredLines,
 		UnknownLines:   a.unknownLines,
-		Unknown:        a.unknown,
-		Files:          a.files,
+		// Empty rather than nil: these are the wire contract, and a consumer
+		// iterating `null` is a crash, not an empty loop. classify() and
+		// featureRows() initialise the rest.
+		Unknown:         emptyIfNil(a.unknown),
+		Files:           emptyIfNil(a.files),
+		StaleIndexFiles: emptyIfNil(a.stale),
+	}
+	sort.Slice(out.StaleIndexFiles, func(i, j int) bool {
+		return out.StaleIndexFiles[i].Path < out.StaleIndexFiles[j].Path
+	})
+	for _, s := range out.StaleIndexFiles {
+		out.StaleIndexLines += s.Lines
 	}
 	if a.knownLines > 0 {
 		out.Measurable = true
@@ -417,6 +504,7 @@ func (a *accumulator) result() Result {
 // knows the ratio, not which lines it came from, and printing lines it cannot
 // vouch for is worse than printing none.
 func (a *accumulator) classify() (uncovered, partial, covered []SymbolSpan) {
+	uncovered, partial, covered = []SymbolSpan{}, []SymbolSpan{}, []SymbolSpan{}
 	for _, id := range a.order {
 		entry := *a.touched[id]
 		entry.Ranges = mergeRanges(entry.Ranges)
@@ -490,4 +578,13 @@ func (a *accumulator) featureRows() []FeatureRow {
 		return rows[i].FeatureID < rows[j].FeatureID
 	})
 	return rows
+}
+
+// emptyIfNil returns s, or an empty slice when s is nil, so a marshalled
+// Result never carries a `null` where the documented contract is an array.
+func emptyIfNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }

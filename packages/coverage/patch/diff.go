@@ -87,6 +87,14 @@ func Diff(ctx context.Context, repoRoot, base string) ([]FileChange, error) {
 		"--unified=0",   // no context lines: every reported line really changed
 		"--no-color",    // a configured color.ui=always would poison the parse
 		"--no-ext-diff", // an external difftool emits something else entirely
+		// diff.srcPrefix/diff.dstPrefix/diff.noprefix/diff.mnemonicPrefix all
+		// rewrite the "+++" operand. Any of them and every parsed path fails
+		// to match an indexed one, so the whole diff becomes
+		// file-not-indexed, Measurable goes false and --fail-under clears
+		// unconditionally: a silent green gate. Pin the prefixes the parser
+		// strips rather than trust the repo's configuration.
+		"--src-prefix=a/",
+		"--dst-prefix=b/",
 		"--find-renames",
 		base+"...HEAD",
 	)

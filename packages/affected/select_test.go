@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sosalejandro/atlas/packages/indexfresh"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -77,6 +78,34 @@ func (f *fakeEvidence) SymbolsExecutedBy(_ context.Context, _, testSymbolID int6
 
 func (f *fakeEvidence) CountTests(context.Context, int64) (int, error) { return f.count, nil }
 
+// fakeFreshness stands in for the file_hashes check. Paths absent from states
+// classify as current, so a test names only the files it wants to be stale.
+type fakeFreshness struct {
+	states map[string]indexfresh.State
+	err    error
+	asked  []string
+}
+
+func (f *fakeFreshness) Classify(_ context.Context, paths []string) (indexfresh.Report, error) {
+	f.asked = append(f.asked, paths...)
+	if f.err != nil {
+		return indexfresh.Report{}, f.err
+	}
+	rep := indexfresh.Report{States: make(map[string]indexfresh.State, len(paths))}
+	for _, p := range paths {
+		st, ok := f.states[p]
+		if !ok {
+			st = indexfresh.StateCurrent
+		}
+		rep.States[p] = st
+	}
+	return rep, nil
+}
+
+func freshnessAt(path string, state indexfresh.State) *fakeFreshness {
+	return &fakeFreshness{states: map[string]indexfresh.State{path: state}}
+}
+
 func intPtr(v int) *int { return &v }
 
 // baseSymbols is the fixture repo: one production package with two functions,
@@ -107,10 +136,30 @@ func newInputs(git *fakeGit, syms *fakeSymbols, ev *fakeEvidence) Inputs {
 		Git:      git,
 		Symbols:  syms,
 		Evidence: ev,
-		Frontier: baseFrontier(),
-		Since:    "origin/main",
-		Now:      fixedNow,
+		// The default fixture is a repo whose index was built at HEAD; the
+		// staleness tests below override this.
+		Freshness: &fakeFreshness{},
+		Frontier:  baseFrontier(),
+		Since:     "origin/main",
+		Now:       fixedNow,
 	}
+}
+
+func widenReasons(sel Selection) []string {
+	out := make([]string, 0, len(sel.Widenings))
+	for _, w := range sel.Widenings {
+		out = append(out, w.Reason)
+	}
+	return out
+}
+
+func changedNames(sel Selection) []string {
+	out := make([]string, 0, len(sel.ChangedSymbols))
+	for _, cs := range sel.ChangedSymbols {
+		out = append(out, string(cs.QualifiedName))
+	}
+	sort.Strings(out)
+	return out
 }
 
 func mustSelect(t *testing.T, in Inputs) Selection {

@@ -97,6 +97,13 @@ const (
 	// tests, and no coverage row records a test calling a helper, so the set
 	// of affected tests is unknowable from evidence.
 	ReasonUnrunnableTest = "unrunnable-test"
+
+	// ReasonUnverifiableSpans: atlas could not establish whether its stored
+	// spans still describe a changed file — the file could not be hashed, or
+	// the path escaped the repo root. Every other freshness verdict has a
+	// defined widening; this one is the absence of a verdict, so the only safe
+	// answer is to narrow nothing.
+	ReasonUnverifiableSpans = "unverifiable-spans"
 )
 
 // Fallback is one reason the selection could not be narrowed. Path is the
@@ -107,14 +114,64 @@ type Fallback struct {
 	Detail string `json:"detail"`
 }
 
+// Widening reasons. Like the fallback reasons these strings are part of the
+// --json contract, so a pipeline can alert on "we are widening because the
+// index is stale" without matching prose.
+const (
+	// WideningUnmappedLine: an edited line fell outside every indexed symbol
+	// in a file whose spans are otherwise trustworthy.
+	WideningUnmappedLine = "unmapped-line"
+
+	// WideningNoHunks: --name-only reported the path but --unified=0 produced
+	// no hunks for it (a rename or a mode change).
+	WideningNoHunks = "no-hunks"
+
+	// WideningStaleIndex: the file changed since the last `atlas scan`, so its
+	// stored spans describe a version of it that no longer exists. Joining the
+	// diff's line numbers against them would resolve to whichever symbol used
+	// to occupy those lines — the wrong tests selected AND the right ones
+	// omitted, both silently. See packages/indexfresh.
+	WideningStaleIndex = "stale-index"
+
+	// WideningUnverifiableSpans: atlas holds symbols for the file but no
+	// content hash to corroborate them with (a `scan --hash-files=false`), so
+	// their freshness cannot be established either way.
+	WideningUnverifiableSpans = "unverifiable-spans"
+
+	// WideningDeletedFile: the file is gone from the working tree but the
+	// index still holds symbols for it. Its spans describe nothing.
+	WideningDeletedFile = "deleted-file"
+)
+
 // Widening is a place the selection had to grow beyond the changed lines. It
 // is reported rather than silently applied: a run that is wider than the diff
 // suggests is a legitimate result, but a reader must be able to see why the
 // reduction is smaller than they expected.
 type Widening struct {
-	Path   string `json:"path"`
-	Scope  string `json:"scope"`
+	Path string `json:"path"`
+
+	// Scope is how far the selection grew: "file" or "package".
+	Scope string `json:"scope"`
+
+	// Reason is one of the Widening* constants — the machine-readable half of
+	// Detail.
+	Reason string `json:"reason"`
+
 	Detail string `json:"detail"`
+}
+
+// StaleIndex reports whether this widening was forced by spans that could not
+// be trusted, rather than by the shape of the diff. Callers surface the two
+// separately because the remedy differs: `atlas scan` restores the reduction a
+// stale index cost, where an edited import block genuinely does reach its
+// whole package.
+func (w Widening) StaleIndex() bool {
+	switch w.Reason {
+	case WideningStaleIndex, WideningUnverifiableSpans, WideningDeletedFile:
+		return true
+	default:
+		return false
+	}
 }
 
 // ChangedSymbol is one indexed symbol the diff landed inside.
@@ -151,9 +208,19 @@ type SelectedTest struct {
 	NoHistory bool `json:"no_history,omitempty"`
 
 	// Why lists the reasons this test was selected, in discovery order:
-	// "changed" for a test the diff edited, or "executes <qualified name>".
+	// WhyChanged for a test the diff edited, WhyWidened for one a widening
+	// swept in, or "executes <qualified name>".
 	Why []string `json:"why"`
 }
+
+// The provenance strings a selected test carries in Why. They are distinct
+// because a reader acts on them: "the diff edited this test" is a claim about
+// what the author did, and saying it of a symbol the diff never touched — one
+// a widening swept in — states something untrue about the change under review.
+const (
+	WhyChanged = "changed by this diff"
+	WhyWidened = "pulled in by a widening of its package; this diff did not edit it"
+)
 
 // Evidence describes the coverage the selection was computed FROM. It exists
 // because the evidence and the diff are from different commits: the tests were

@@ -133,17 +133,20 @@ func TestFromDiagnose_HonoursTheConfidenceFloor(t *testing.T) {
 	}
 }
 
+// producedRules is every rule id an adapter in this package can actually emit.
+// One entry per adapter; grep the adapter to check it before adding one.
+var producedRules = []string{
+	report.RuleFeatureUncovered,     // FromAudit
+	report.RuleCoverageUnattributed, // FromCoverageGaps
+	report.RuleDeadCode,             // FromDeadCode
+	report.RuleDiagnosis,            // FromDiagnose
+}
+
 // TestRules_CatalogCoversEveryAdapter keeps the catalog and the adapters from
 // drifting apart: a rule an adapter emits but the catalog omits renders a
 // SARIF file GitHub silently empties.
 func TestRules_CatalogCoversEveryAdapter(t *testing.T) {
-	for _, id := range []string{
-		report.RuleFeatureUncovered,
-		report.RuleCoverageUnattributed,
-		report.RuleDeadCode,
-		report.RuleContractDrift,
-		report.RuleDiagnosis,
-	} {
+	for _, id := range producedRules {
 		r, ok := report.LookupRule(id)
 		if !ok {
 			t.Errorf("rule %q is not in the catalog", id)
@@ -151,6 +154,24 @@ func TestRules_CatalogCoversEveryAdapter(t *testing.T) {
 		}
 		if r.Name == "" || r.ShortDescription == "" || r.FullDescription == "" {
 			t.Errorf("rule %q has empty metadata: %+v", id, r)
+		}
+	}
+}
+
+// TestRules_CatalogHasNoRuleWithoutAProducer is the other direction, and it is
+// the one that rots quietly. A catalogued-and-documented rule nothing can emit
+// invites a team to write a gate against it; the gate then passes forever,
+// which is indistinguishable from the rule never finding anything.
+func TestRules_CatalogHasNoRuleWithoutAProducer(t *testing.T) {
+	produced := make(map[string]bool, len(producedRules))
+	for _, id := range producedRules {
+		produced[id] = true
+	}
+	for _, r := range report.Rules() {
+		if !produced[r.ID] {
+			t.Errorf("catalog rule %q has no producer in this package; either add the adapter "+
+				"or drop the rule (and its docs section) — a rule that can never fire is a "+
+				"gate that can never fail", r.ID)
 		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sosalejandro/atlas/packages/diff"
 	"github.com/sosalejandro/atlas/packages/report"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
@@ -91,6 +92,70 @@ func (f *reportFixture) seed(t *testing.T) {
 	}
 	if _, err := s.CoverageGaps().Insert(ctx, runID, []store.CoverageGap{
 		{Path: "internal/worker/queue.go", Stmts: 118, Reason: "no-indexed-symbol"},
+	}); err != nil {
+		t.Fatalf("insert gaps: %v", err)
+	}
+}
+
+// seedAbsolutePaths writes the state a scanner run outside the repo-relative
+// happy path produces: a symbol recorded by its ABSOLUTE path, and a coverage
+// gap for a file outside the checkout entirely.
+//
+// Both are what NormalizePaths exists for, and both fail silently without it —
+// GitHub accepts an absolute uri, shows a green check, and displays nothing.
+func (f *reportFixture) seedAbsolutePaths(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	s, err := store.Open(ctx, f.dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	end := 87
+	symID, err := s.Symbols().Insert(ctx, store.SymbolRow{
+		QualifiedName: "internal/billing.Invoice",
+		Kind:          shared.KindFunc,
+		// Absolute, as a scanner invoked with an absolute package root
+		// records them.
+		FilePath: filepath.Join(f.root, "internal", "billing", "invoice.go"),
+		Line:     42,
+		EndLine:  &end,
+	})
+	if err != nil {
+		t.Fatalf("insert symbol: %v", err)
+	}
+	if err := s.Features().Upsert(ctx, store.Feature{
+		ID:    "billing.invoice",
+		Title: "Invoice generation",
+		Kind:  store.FeatureKindFeature,
+	}); err != nil {
+		t.Fatalf("upsert feature: %v", err)
+	}
+	if err := s.FeatureSymbols().Link(ctx, store.FeatureSymbolLink{
+		FeatureID: "billing.invoice",
+		SymbolID:  symID,
+		Role:      store.RoleImpl,
+		Source:    store.SourceAnnotation,
+	}); err != nil {
+		t.Fatalf("link feature symbol: %v", err)
+	}
+
+	runID, err := s.Coverage().InsertRun(ctx, store.CoverageRun{
+		Framework:         store.FrameworkGoTest,
+		StartedAt:         time.Unix(1_700_000_000, 0).UTC(),
+		FinishedAt:        time.Unix(1_700_000_060, 0).UTC(),
+		SummaryJSON:       "{}",
+		StmtsAttributed:   900,
+		StmtsUnattributed: 118,
+	})
+	if err != nil {
+		t.Fatalf("insert coverage run: %v", err)
+	}
+	// Absolute and outside the repo root: there is no such file in the
+	// checkout, so this one must be dropped and counted, not shipped.
+	if _, err := s.CoverageGaps().Insert(ctx, runID, []store.CoverageGap{
+		{Path: "/opt/vendor/queue.go", Stmts: 118, Reason: "no-indexed-symbol"},
 	}); err != nil {
 		t.Fatalf("insert gaps: %v", err)
 	}
@@ -368,6 +433,212 @@ func TestReport_DeadCodeIsOptIn(t *testing.T) {
 	}
 	if !strings.Contains(stdout, report.RuleDeadCode) {
 		t.Errorf("--include dead produced no dead-code findings:\n%s", stdout)
+	}
+}
+
+// TestReport_CollectionRelativisesPathsAndReportsWhatItDropped is the boundary
+// test for NormalizePaths.
+//
+// packages/report proves normalisation works; nothing proved the CLI actually
+// calls it. That gap matters more than it sounds: the absolute-uri defence
+// could be deleted from the collection pass and every test would still pass,
+// while every finding silently disappeared from the PR's Files view behind a
+// green check. So this asserts both halves at the real boundary — the surviving
+// finding is relativised, and the unrelativisable one is counted in a warning
+// rather than dropped in silence.
+func TestReport_CollectionRelativisesPathsAndReportsWhatItDropped(t *testing.T) {
+	fix := newReportFixture(t)
+	// The root command's PersistentPreRunE recomputes the config, and with
+	// it repoRoot, from the process working directory — so a repoRoot
+	// assigned by the fixture is discarded before the collection pass runs.
+	// Chdir into the fixture so the root NormalizePaths is handed is the
+	// one these findings were seeded against. (t.Chdir restores it and
+	// forbids t.Parallel, which these tests already cannot use.)
+	t.Chdir(fix.root)
+	fix.seedAbsolutePaths(t)
+
+	stdout, _, err := runReportCmd(t, fix, "sarif", "--json")
+	if err != nil {
+		t.Fatalf("report sarif --json: %v", err)
+	}
+	var env struct {
+		Warnings []string `json:"warnings"`
+		Result   struct {
+			Body string `json:"body"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("decode envelope: %v\n%s", err, stdout)
+	}
+
+	var doc struct {
+		Runs []struct {
+			Results []struct {
+				RuleID    string `json:"ruleId"`
+				Locations []struct {
+					PhysicalLocation struct {
+						ArtifactLocation struct {
+							URI string `json:"uri"`
+						} `json:"artifactLocation"`
+					} `json:"physicalLocation"`
+				} `json:"locations"`
+			} `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal([]byte(env.Result.Body), &doc); err != nil {
+		t.Fatalf("result.body is not SARIF: %v\n%s", err, env.Result.Body)
+	}
+	if len(doc.Runs) != 1 {
+		t.Fatalf("want 1 run, got %d", len(doc.Runs))
+	}
+
+	var sawFeature bool
+	for _, r := range doc.Runs[0].Results {
+		uri := r.Locations[0].PhysicalLocation.ArtifactLocation.URI
+		if strings.HasPrefix(uri, "/") || strings.HasPrefix(uri, fix.root) {
+			t.Errorf("%s: uri = %q is absolute; GitHub accepts it and shows nothing", r.RuleID, uri)
+		}
+		if r.RuleID == report.RuleFeatureUncovered {
+			sawFeature = true
+			if uri != "internal/billing/invoice.go" {
+				t.Errorf("uri = %q, want the repo-relative %q",
+					uri, "internal/billing/invoice.go")
+			}
+		}
+		if uri == "/opt/vendor/queue.go" {
+			t.Errorf("the out-of-checkout gap was emitted as %q instead of being dropped", uri)
+		}
+	}
+	if !sawFeature {
+		t.Fatalf("no %s result; the absolutely-pathed symbol should still anchor one:\n%s",
+			report.RuleFeatureUncovered, env.Result.Body)
+	}
+
+	// The drop has to be announced. A report that silently contains less
+	// than it measured is the failure this whole path is guarding against.
+	var sawWarning bool
+	for _, w := range env.Warnings {
+		if strings.Contains(w, "could not be made repo-relative") {
+			sawWarning = true
+			if !strings.Contains(w, "/opt/vendor/queue.go") {
+				t.Errorf("the warning should name an example path; got %q", w)
+			}
+		}
+	}
+	if !sawWarning {
+		t.Errorf("no warning about the dropped finding; warnings = %q", env.Warnings)
+	}
+}
+
+// TestReport_BelowTheFloorCountsFeaturesNotAnnotations: the summary row says
+// "Features below the floor", and it has to be that number.
+//
+// FromAudit drops every below-floor feature it cannot anchor, so the finding
+// count is smaller than the label promises. A compliance number in a PR comment
+// that quietly under-reports is worse than no number at all — the reviewer
+// reads "1 below the floor" and closes the tab with 2 features failing.
+func TestReport_BelowTheFloorCountsFeaturesNotAnnotations(t *testing.T) {
+	fix := newReportFixture(t)
+	fix.seed(t)
+
+	// A second below-floor feature, deliberately with no linked symbol: it
+	// counts toward the floor and can never be annotated.
+	ctx := context.Background()
+	s, err := store.Open(ctx, fix.dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := s.Features().Upsert(ctx, store.Feature{
+		ID:    "billing.ghost",
+		Title: "Unlinked feature",
+		Kind:  store.FeatureKindFeature,
+	}); err != nil {
+		t.Fatalf("upsert feature: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	stdout, _, err := runReportCmd(t, fix, "pr", "--json")
+	if err != nil {
+		t.Fatalf("report pr --json: %v", err)
+	}
+	var env struct {
+		Warnings []string `json:"warnings"`
+		Result   struct {
+			Body     string `json:"body"`
+			Findings int    `json:"finding_count"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("decode envelope: %v\n%s", err, stdout)
+	}
+
+	if !strings.Contains(env.Result.Body, "| Features below the floor | 2 |") {
+		t.Errorf("summary does not report both below-floor features as 2:\n%s", env.Result.Body)
+	}
+	// And the shortfall is named rather than left for the reader to notice
+	// that two numbers on the same page disagree.
+	if !strings.Contains(env.Result.Body, "of those, not annotated") {
+		t.Errorf("summary hides that one below-floor feature could not be annotated:\n%s",
+			env.Result.Body)
+	}
+	var sawUnanchored bool
+	for _, w := range env.Warnings {
+		if strings.Contains(w, "no linked symbol to anchor") {
+			sawUnanchored = true
+		}
+	}
+	if !sawUnanchored {
+		t.Errorf("no warning for the unanchored below-floor feature; warnings = %q", env.Warnings)
+	}
+}
+
+// TestAuditDeltaToReport_SurfacesWhatItCouldNotCompare: packages/diff reports
+// what it could not compare through MissingOnA / MissingOnB. Reading only
+// Changed/Added/Removed renders a delta section that looks complete and is not
+// — "no regressions" and "no base-side scores to find regressions in" produce
+// the same empty table.
+func TestAuditDeltaToReport_SurfacesWhatItCouldNotCompare(t *testing.T) {
+	d := diff.AuditDelta{
+		Changed: []diff.AuditScoreChange{
+			{FeatureID: "billing.invoice", Before: 58, After: 31, Delta: -27},
+		},
+		MissingOnA: []shared.FeatureID{"auth.login", "search.index"},
+		MissingOnB: []shared.FeatureID{"billing.legacy"},
+	}
+	got, warns := auditDeltaToReport("origin/main", "", d)
+
+	if len(got.Regressed) != 1 {
+		t.Fatalf("the comparable change was lost: %+v", got)
+	}
+	if len(warns) != 2 {
+		t.Fatalf("want a warning for each side that could not be compared, got %d: %q",
+			len(warns), warns)
+	}
+	joined := strings.Join(warns, "\n")
+	for _, want := range []string{"auth.login", "billing.legacy", "origin/main"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("warnings do not mention %q:\n%s", want, joined)
+		}
+	}
+	// The counts matter as much as the names: "2 features" is the size of
+	// the blind spot, and an example alone reads like the whole of it.
+	if !strings.Contains(joined, "2 features") || !strings.Contains(joined, "1 feature") {
+		t.Errorf("warnings do not report how many features each side is missing:\n%s", joined)
+	}
+}
+
+// A complete comparison must stay quiet. A warning on every clean run is a
+// warning nobody reads on the run that matters.
+func TestAuditDeltaToReport_SaysNothingWhenNothingIsMissing(t *testing.T) {
+	_, warns := auditDeltaToReport("origin/main", "HEAD", diff.AuditDelta{
+		Changed: []diff.AuditScoreChange{
+			{FeatureID: "billing.invoice", Before: 58, After: 31, Delta: -27},
+		},
+	})
+	if len(warns) != 0 {
+		t.Errorf("a complete delta should warn about nothing, got %q", warns)
 	}
 }
 

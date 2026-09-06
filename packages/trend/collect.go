@@ -36,22 +36,34 @@ type CollectOptions struct {
 //
 // Two decisions live here, and both exist to keep the series honest:
 //
-//   - Evidence. A feature counts as MEASURED only when the audit produced a
-//     coverage component for it. The audit deliberately re-normalises its
-//     weighted blend over whatever signals are available, so a feature with
-//     no coverage run still gets a respectable score out of pattern
-//     compliance and contract freshness. Recording that as a point on a
-//     coverage trend would make the line jump the day coverage first
-//     arrives, with no change to the code — the exact false signal a trend
-//     exists to avoid. Such features are recorded with a nil score.
+//   - What is recorded. The recorded score is the audit's COVERAGE COMPONENT,
+//     not its overall FeatureHealth.Score. The overall score is a
+//     re-normalised blend of coverage, annotation freshness, pattern
+//     compliance and contract drift; recording that while calling the series
+//     a coverage trend would make the gate fire on an annotation going stale,
+//     and would let a real coverage drop hide behind another component
+//     rising. A feature counts as MEASURED only when the audit produced a
+//     coverage component for it; the rest are recorded with a nil score,
+//     because the blend jumping the day coverage first arrives is the exact
+//     false signal a trend exists to avoid.
 //
-//   - Denominator. The per-feature denominator is the count of symbols
-//     linked to the feature in `feature_symbols` — the annotated surface,
-//     which is the same set `atlas trace feature:<id>` walks. It is NOT the
-//     audit's derived impl surface (dynamic / package-anchor / static),
-//     because that derivation can change between releases of Atlas itself,
-//     and a denominator that moves when the tool is upgraded would flag
-//     every comparison across an upgrade as incomparable.
+//   - Denominator. The denominator is in the SAME UNIT as the score, which
+//     for the Tier B coverage signal is STATEMENTS: the total statement count
+//     the current coverage frontier reports for the feature's linked impl
+//     symbols. A denominator counted in symbols cannot see a statement-level
+//     deletion, so the "deleting a thousand untested lines raises the number"
+//     guard would never fire — which is the whole reason the denominator is
+//     recorded. When no statement data exists anywhere for the feature (the
+//     gotest pass/fail model, playwright, maestro) the coverage signal is
+//     itself a fraction of SYMBOLS, and the denominator falls back to the
+//     count of scored (non-test-role) linked symbols so the unit still
+//     matches the score.
+//
+// The surface counted is the feature's linked impl symbols, NOT the audit's
+// derived impl surface (dynamic / package-anchor / static): that derivation
+// can change between releases of Atlas itself, and a denominator that moves
+// on a tool upgrade would flag every comparison across the upgrade as
+// incomparable.
 func Collect(ctx context.Context, s *store.Store, sc Scorer, opts CollectOptions) (store.HistoryPoint, error) {
 	if s == nil {
 		return store.HistoryPoint{}, fmt.Errorf("trend collect: store is required")
@@ -72,9 +84,17 @@ func Collect(ctx context.Context, s *store.Store, sc Scorer, opts CollectOptions
 		return store.HistoryPoint{}, fmt.Errorf("trend collect %s: score: %w", short(opts.CommitSHA), err)
 	}
 
+	// The frontier and its results are read ONCE for the whole point: the
+	// statement denominator is a per-feature slice of the same pool, and a
+	// query per feature would multiply out across a large repo.
+	surface, err := newSurfaceSizer(ctx, s)
+	if err != nil {
+		return store.HistoryPoint{}, err
+	}
+
 	measurements := make([]FeatureMeasurement, 0, len(healths))
 	for _, h := range healths {
-		denom, err := linkedSurfaceSize(ctx, s, h)
+		denom, err := surface.forFeature(ctx, h.FeatureID)
 		if err != nil {
 			return store.HistoryPoint{}, err
 		}
@@ -93,20 +113,13 @@ func Collect(ctx context.Context, s *store.Store, sc Scorer, opts CollectOptions
 	}), nil
 }
 
-// coverageScore returns the feature's score when it rests on real coverage
-// evidence, and nil otherwise. See Collect's "Evidence" note.
+// coverageScore returns the feature's COVERAGE COMPONENT when the audit
+// produced one, and nil otherwise. See Collect's "What is recorded" note: the
+// blended FeatureHealth.Score is deliberately not what lands in the series.
 func coverageScore(h audit.FeatureHealth) *float64 {
-	if _, ok := h.Components[audit.SignalCoverage]; !ok {
+	score, ok := h.Components[audit.SignalCoverage]
+	if !ok {
 		return nil
 	}
-	score := h.Score
 	return &score
-}
-
-func linkedSurfaceSize(ctx context.Context, s *store.Store, h audit.FeatureHealth) (int64, error) {
-	links, err := s.FeatureSymbols().ListByFeature(ctx, h.FeatureID)
-	if err != nil {
-		return 0, fmt.Errorf("trend collect: feature %s surface: %w", h.FeatureID, err)
-	}
-	return int64(len(links)), nil
 }

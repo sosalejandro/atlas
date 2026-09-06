@@ -41,10 +41,16 @@ func TestCoverageFreshness_NoRuns_NotApplicable(t *testing.T) {
 func TestCoverageFreshness_RecentRun_OK(t *testing.T) {
 	f := newFixture(t)
 	f.seedRun(t, f.now.Add(-2*time.Hour), 100, 0)
+	// Indexed content older than the run: the run executed everything the
+	// index holds.
+	f.recordHash(t, "pkg/a.go", "deadbeef", f.now.Add(-6*time.Hour))
 
 	res := runCheck(t, coverageFreshness{}, f.env(t))
 
 	assertSeverity(t, res, SeverityOK)
+	if got := res.Details["predates_index"]; got != predatesNo {
+		t.Errorf("predates_index = %v, want %q", got, predatesNo)
+	}
 }
 
 func TestCoverageFreshness_OldRun_Warns(t *testing.T) {
@@ -59,19 +65,65 @@ func TestCoverageFreshness_OldRun_Warns(t *testing.T) {
 	}
 }
 
-// Coverage measured before the last scan describes code atlas has since
-// re-read: the two halves of the picture disagree about which repo they
-// are about.
-func TestCoverageFreshness_RunPredatesLastScan_Warns(t *testing.T) {
+// The index holding file content NEWER than the coverage run is the real
+// signal: atlas is scoring code that run never executed, so the two
+// halves of the picture are about different repos.
+func TestCoverageFreshness_IndexHoldsContentNewerThanTheRun_Warns(t *testing.T) {
 	f := newFixture(t)
 	f.seedRun(t, f.now.Add(-2*time.Hour), 100, 0)
+	// A file modified a minute ago and indexed: content the two-hour-old
+	// coverage run cannot have executed.
 	f.recordHash(t, "pkg/a.go", "deadbeef", f.now.Add(-time.Minute))
 
 	res := runCheck(t, coverageFreshness{}, f.env(t))
 
 	assertSeverity(t, res, SeverityWarn)
-	if res.Details["predates_index"] != true {
-		t.Errorf("predates_index = %v, want true", res.Details["predates_index"])
+	if got := res.Details["predates_index"]; got != predatesYes {
+		t.Errorf("predates_index = %v, want %q", got, predatesYes)
+	}
+}
+
+// The defect this check shipped with: `atlas scan` refreshes
+// file_hashes.last_scanned for EVERY file on EVERY scan, unchanged ones
+// included (packages/store/ingest.go step 5). Keying staleness off the
+// newest last_scanned therefore fired after any scan whatsoever, whether
+// or not one byte of code had moved -- a warning that is almost always
+// wrong, which is a warning people switch off.
+//
+// Here the tree has not changed in six hours, coverage ran two hours
+// ago, and a scan one minute ago re-read the same bytes. There is
+// nothing stale about that and the check must say so.
+func TestCoverageFreshness_RescanThatReadNothingNewDoesNotWarn(t *testing.T) {
+	f := newFixture(t)
+	f.seedRun(t, f.now.Add(-2*time.Hour), 100, 0)
+	f.recordHashAt(t, "pkg/a.go", "deadbeef",
+		f.now.Add(-6*time.Hour), // mtime: untouched since long before the run
+		f.now.Add(-time.Minute)) // last_scanned: a scan a minute ago
+
+	res := runCheck(t, coverageFreshness{}, f.env(t))
+
+	assertSeverity(t, res, SeverityOK)
+	if got := res.Details["predates_index"]; got != predatesNo {
+		t.Errorf("predates_index = %v, want %q -- a re-scan of unchanged files is not drift",
+			got, predatesNo)
+	}
+}
+
+// With no file hashes at all there is no signal to date the indexed
+// content from, so the half of the check the name promises did not run.
+// n/a with the reason, never a clean "ok".
+func TestCoverageFreshness_NoIndexSignal_NotApplicable(t *testing.T) {
+	f := newFixture(t)
+	f.seedRun(t, f.now.Add(-2*time.Hour), 100, 0)
+
+	res := runCheck(t, coverageFreshness{}, f.env(t))
+
+	assertSeverity(t, res, SeverityNotApplicable)
+	if got := res.Details["predates_index"]; got != predatesUnknown {
+		t.Errorf("predates_index = %v, want %q", got, predatesUnknown)
+	}
+	if _, ok := res.Details["newest_indexed_content"]; ok {
+		t.Error("an absent signal must not be reported as a timestamp")
 	}
 }
 

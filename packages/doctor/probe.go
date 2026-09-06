@@ -38,28 +38,93 @@ type probe struct {
 	db *sql.DB
 }
 
-// openProbe attaches a read-only handle to e.DBPath. A missing file is
+// openReadOnly attaches a read-only handle to path. A missing file is
 // reported as such rather than created: sql.Open on a nonexistent SQLite
 // path would happily produce an empty database, and a doctor that
 // conjures the store it was asked to inspect is worse than no doctor.
-func (e *Env) openProbe() error {
-	if e.DBPath == "" {
-		return fmt.Errorf("doctor: no state database path given")
+func openReadOnly(path string) (*sql.DB, error) {
+	if path == "" {
+		return nil, fmt.Errorf("doctor: no state database path given")
 	}
-	if _, err := os.Stat(e.DBPath); err != nil {
-		return fmt.Errorf("doctor: state database %s: %w", e.DBPath, err)
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("doctor: state database %s: %w", path, err)
 	}
 	// mode=ro plus a busy timeout: the store's own connection may hold a
 	// WAL write lock while doctor reads, and failing the schema check on
 	// a transient SQLITE_BUSY would be a false alarm.
-	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", e.DBPath)
+	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return fmt.Errorf("doctor: open %s read-only: %w", e.DBPath, err)
+		return nil, fmt.Errorf("doctor: open %s read-only: %w", path, err)
 	}
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
-		return fmt.Errorf("doctor: ping %s read-only: %w", e.DBPath, err)
+		return nil, fmt.Errorf("doctor: ping %s read-only: %w", path, err)
+	}
+	return db, nil
+}
+
+// IsAtlasStore reports whether path holds a database atlas has already
+// migrated -- and answers WITHOUT writing to it.
+//
+// It exists because "does the file exist?" is not the same question.
+// That was the CLI's whole guard: os.Stat succeeds, so hand the path to
+// store.Open. But store.Open runs the embedded migrations, so anything
+// that happened to be sitting at the state path -- a 0-byte placeholder
+// left by an interrupted init, an unrelated SQLite file, a stray
+// download -- got an atlas schema written into it by the one command
+// whose stated contract is that a diagnostic must not conjure the state
+// it was asked to inspect.
+//
+// The test is golang-migrate's own bookkeeping table, because its
+// presence is exactly what makes a SQLite file an atlas store. A file
+// that has it is safe to open read-write: at worst store.Open applies
+// pending migrations to a store that was already ours. A file that does
+// not is reported here, so the schema check can say "this is not an
+// atlas store" instead of the migrator quietly making it into one.
+func IsAtlasStore(ctx context.Context, path string) error {
+	db, err := openReadOnly(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	present, err := hasSchemaMigrations(ctx, db)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return fmt.Errorf(
+			"doctor: %s is not an atlas state database (it carries no schema_migrations table)", path)
+	}
+	return nil
+}
+
+// hasSchemaMigrations asks whether the migration bookkeeping table
+// exists.
+//
+// Asked of sqlite_master rather than by SELECTing the table and reading
+// the failure: "no such table" reaches Go only as a driver-formatted
+// string, and matching on that would break the first time the driver
+// reworded it.
+func hasSchemaMigrations(ctx context.Context, db *sql.DB) (bool, error) {
+	var name string
+	err := db.QueryRowContext(ctx,
+		`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'`,
+	).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("doctor: read sqlite_master: %w", err)
+	}
+	return true, nil
+}
+
+func (e *Env) openProbe() error {
+	db, err := openReadOnly(e.DBPath)
+	if err != nil {
+		return err
 	}
 	e.probe = &probe{db: db}
 	return nil
@@ -74,11 +139,19 @@ func (e *Env) closeProbe() {
 
 // migrationState reads golang-migrate's bookkeeping row.
 //
-// The table holds at most one row. Its absence means no migration has
-// ever been applied, which for an atlas store means the file is not an
-// atlas store at all -- reported as version 0, which the schema check
-// turns into a fail rather than pretending it is merely behind.
+// The table holds at most one row. Neither a missing row nor a missing
+// TABLE is an error here: both mean no migration has ever been applied,
+// which for an atlas store means the file is not an atlas store at all
+// -- reported as version 0, which the schema check turns into a fail
+// rather than pretending it is merely behind.
 func (p *probe) migrationState(ctx context.Context) (version int, dirty bool, err error) {
+	present, err := hasSchemaMigrations(ctx, p.db)
+	if err != nil {
+		return 0, false, err
+	}
+	if !present {
+		return 0, false, nil
+	}
 	row := p.db.QueryRowContext(ctx,
 		`SELECT version, dirty FROM schema_migrations LIMIT 1`)
 	if err := row.Scan(&version, &dirty); err != nil {

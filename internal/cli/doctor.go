@@ -81,14 +81,24 @@ func runDoctor(cmd *cobra.Command, rootArg, failOn string) error {
 	// and migrate an empty database, and a diagnostic that conjures the
 	// state it was asked to inspect would report a repo as initialised
 	// for the sole reason that someone asked whether it was.
+	//
+	// Existence alone is not enough of a guard, though: store.Open
+	// migrates whatever it is handed, so a 0-byte placeholder, a database
+	// an interrupted `atlas init` left half-made, or an unrelated SQLite
+	// file at this path would all be turned INTO an atlas store by the
+	// command asked whether they were one. doctor.IsAtlasStore answers
+	// that from a read-only handle first; only a file that is already
+	// ours is opened read-write.
 	var (
 		s       *store.Store
 		openErr error
 	)
 	if _, statErr := os.Stat(dbPath); statErr != nil {
 		openErr = fmt.Errorf("no state database at %s: %w", dbPath, statErr)
-	} else if s, openErr = store.Open(ctx, dbPath); s != nil {
-		defer func() { _ = s.Close() }()
+	} else if openErr = doctor.IsAtlasStore(ctx, dbPath); openErr == nil {
+		if s, openErr = store.Open(ctx, dbPath); s != nil {
+			defer func() { _ = s.Close() }()
+		}
 	}
 
 	env := &doctor.Env{

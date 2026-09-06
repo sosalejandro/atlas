@@ -20,11 +20,18 @@ const (
 	// VerdictRegressed: the score fell by more than the tolerance. This is
 	// the only verdict that fails the gate.
 	VerdictRegressed Verdict = "regressed"
-	// VerdictNoEvidence: one side or both had no coverage evidence, so
-	// there is no delta to have an opinion about. Explicitly NOT a
-	// regression — failing a build because nobody ran the suite on the
-	// baseline punishes the wrong PR.
+	// VerdictNoEvidence: neither side carries a measurement this commit
+	// could have lost — the baseline was never measured, or nothing was
+	// measured on either side. Explicitly NOT a gate failure: failing a
+	// build because nobody ever ran the suite on the baseline punishes the
+	// wrong PR.
 	VerdictNoEvidence Verdict = "no_evidence"
+	// VerdictUnmeasured: the BASELINE carried a measurement and this commit
+	// does not. That is not the innocent case, and collapsing the two is how
+	// a PR that breaks measurement outright sails through the gate — delete
+	// the coverage step and every scope reports "no evidence", which used to
+	// pass. It FAILS the gate.
+	VerdictUnmeasured Verdict = "unmeasured"
 	// VerdictNew: the feature exists at head and not at base.
 	VerdictNew Verdict = "new"
 	// VerdictRemoved: the feature existed at base and not at head.
@@ -122,11 +129,22 @@ type Report struct {
 	Project  Comparison   `json:"project"`
 	Features []Comparison `json:"features"`
 
-	// Regressed is the gate. True when the project OR any single feature
-	// fell by more than the tolerance. The per-feature term is the point of
-	// the whole exercise: a PR that drops one capability from 80 to 40 must
-	// fail even while the repo-wide average stays respectable.
+	// Regressed is true when the project OR any single feature fell by more
+	// than the tolerance. The per-feature term is the point of the whole
+	// exercise: a PR that drops one capability from 80 to 40 must fail even
+	// while the repo-wide average stays respectable.
 	Regressed bool `json:"regressed"`
+
+	// Unmeasured is true when the project or any single feature was measured
+	// at the baseline and is not measured now. It is reported separately from
+	// Regressed because it is a different event with a different fix: the
+	// score did not fall, the measurement disappeared.
+	Unmeasured bool `json:"unmeasured"`
+
+	// Failed is THE GATE — Regressed or Unmeasured. Both must fail: a change
+	// that deletes the coverage step scores no worse than one that deletes
+	// the tests, and a gate that only reads Regressed passes it.
+	Failed bool `json:"failed"`
 
 	// Warnings carry the caveats a reader must see before trusting the
 	// numbers: absent evidence, and denominators that moved.
@@ -159,15 +177,26 @@ func Compare(base, head store.HistoryPoint, opts CompareOptions) Report {
 		tol, denomTol)
 	rep.Features = compareFeatures(base, head, tol, denomTol)
 
-	rep.Regressed = rep.Project.Verdict == VerdictRegressed
-	for _, f := range rep.Features {
-		if f.Verdict == VerdictRegressed {
-			rep.Regressed = true
-			break
-		}
-	}
+	rep.Regressed, rep.Unmeasured = gateVerdicts(rep.Project, rep.Features)
+	rep.Failed = rep.Regressed || rep.Unmeasured
 	rep.Warnings = collectWarnings(base, head, rep)
 	return rep
+}
+
+// gateVerdicts folds the project headline and every feature into the two
+// gate-failing conditions. Both scan every scope: the whole point of the
+// per-feature term is that one capability can fall (or stop being measured)
+// while the headline stays flat.
+func gateVerdicts(project Comparison, features []Comparison) (regressed, unmeasured bool) {
+	for _, c := range append([]Comparison{project}, features...) {
+		switch c.Verdict {
+		case VerdictRegressed:
+			regressed = true
+		case VerdictUnmeasured:
+			unmeasured = true
+		}
+	}
+	return regressed, unmeasured
 }
 
 // scopeSide is one end of a comparison. A nil *scopeSide means the scope did
@@ -207,8 +236,15 @@ func compareScope(scope string, base, head *scopeSide, tol, denomTol float64) Co
 	c.DenominatorMoved = math.Abs(c.DenominatorShift) > denomTol
 
 	if base.score == nil || head.score == nil {
-		// Absent evidence is not a zero, so there is no delta to judge.
+		// Absent evidence is not a zero, so there is no delta to judge —
+		// but WHICH side is absent decides whether this is innocent. A
+		// baseline nobody measured is not this PR's fault; a head that
+		// produced no measurement when the baseline had one is a
+		// measurement this change destroyed, and must not pass quietly.
 		c.Verdict = VerdictNoEvidence
+		if base.score != nil && head.score == nil {
+			c.Verdict = VerdictUnmeasured
+		}
 		c.Note = missingEvidenceNote(base.score == nil, head.score == nil)
 		return c
 	}
@@ -251,7 +287,7 @@ func missingEvidenceNote(baseMissing, headMissing bool) string {
 	case baseMissing:
 		return "no coverage evidence at the baseline commit"
 	default:
-		return "no coverage evidence at the compared commit"
+		return "the baseline was measured and this commit was not; the measurement was lost, not the coverage"
 	}
 }
 
@@ -312,8 +348,14 @@ func collectWarnings(base, head store.HistoryPoint, rep Report) []string {
 			"baseline %s has no coverage evidence; its score is unknown, not zero", short(base.CommitSHA)))
 	}
 	if !head.Measured() {
-		warnings = append(warnings, fmt.Sprintf(
-			"%s has no coverage evidence; its score is unknown, not zero", short(head.CommitSHA)))
+		if base.Measured() {
+			warnings = append(warnings, fmt.Sprintf(
+				"%s produced no coverage measurement while the baseline had one; the gate fails on a lost measurement, not on a lost score",
+				short(head.CommitSHA)))
+		} else {
+			warnings = append(warnings, fmt.Sprintf(
+				"%s has no coverage evidence; its score is unknown, not zero", short(head.CommitSHA)))
+		}
 	}
 	if rep.Project.DenominatorMoved {
 		warnings = append(warnings, fmt.Sprintf(

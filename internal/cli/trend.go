@@ -24,10 +24,12 @@ import (
 // the default instead. cobra's Changed() is the only honest source for that
 // distinction.
 type trendFlags struct {
-	feature   string
-	since     time.Duration
-	limit     int
-	compareTo string
+	feature    string
+	since      time.Duration
+	limit      int
+	compareTo  string
+	head       string
+	noBackfill bool
 
 	maxRegression           float64
 	maxRegressionSet        bool
@@ -62,7 +64,18 @@ Three things the output is careful about:
     about the measurement rather than about quality, and the report
     says so.
   * The gate tolerates --max-regression points of noise, and trips on
-    a single FEATURE falling even when the project average is flat.`,
+    a single FEATURE falling even when the project average is flat.
+
+--compare-to gates THIS checkout: the head side is the point recorded
+for the current HEAD sha (override with --head), never whatever point
+happened to be recorded last. A commit with no point of its own is an
+error, and a commit that lost a measurement the baseline had fails the
+gate -- deleting the coverage step must not read as "no regression".
+
+On a store that has coverage runs but no series, trend backfills the
+points it can derive from those runs before reading (--no-backfill
+turns that off). See docs/commands/trend.md for what backfill can and
+cannot recover.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			f.maxRegressionSet = cmd.Flags().Changed("max-regression")
@@ -78,7 +91,11 @@ Three things the output is careful about:
 	cmd.Flags().IntVar(&f.limit, "limit", 0,
 		"cap the series to the N most recent points (0 = no cap)")
 	cmd.Flags().StringVar(&f.compareTo, "compare-to", "",
-		"compare the newest point against this git ref or recorded commit sha")
+		"compare the current commit against this git ref or recorded commit sha")
+	cmd.Flags().StringVar(&f.head, "head", "",
+		"commit whose recorded point is the head side of --compare-to (default: current git HEAD)")
+	cmd.Flags().BoolVar(&f.noBackfill, "no-backfill", false,
+		"do not derive missing history points from coverage runs already in the store")
 	cmd.Flags().Float64Var(&f.maxRegression, "max-regression", trend.DefaultMaxRegression,
 		"score drop, in points, tolerated before --compare-to fails")
 	cmd.Flags().Float64Var(&f.denominatorTolerance, "denominator-tolerance", trend.DefaultDenominatorTolerance,
@@ -90,8 +107,9 @@ Three things the output is careful about:
 
 // trendResult is the JSON payload for `atlas trend`.
 type trendResult struct {
-	Series     trend.Series  `json:"series"`
-	Comparison *trend.Report `json:"comparison,omitempty"`
+	Series     trend.Series          `json:"series"`
+	Comparison *trend.Report         `json:"comparison,omitempty"`
+	Backfilled *trend.BackfillResult `json:"backfilled,omitempty"`
 }
 
 func runTrend(cmd *cobra.Command, f trendFlags) error {
@@ -102,72 +120,146 @@ func runTrend(cmd *cobra.Command, f trendFlags) error {
 	}
 	defer closeStore()
 
-	series, err := readTrendSeries(ctx, s, f)
-	if err != nil {
+	if err := validateTrendFeature(ctx, s, f.feature); err != nil {
 		return err
 	}
 
+	res := trendResult{}
+	var warnings []string
+	if !f.noBackfill {
+		filled, err := backfillTrendHistory(ctx, s)
+		if err != nil {
+			return err
+		}
+		if filled.Added > 0 {
+			res.Backfilled = filled
+			warnings = append(warnings, fmt.Sprintf(
+				"backfilled %d point(s) from coverage runs already in the store; these are direct-link measurements, not `atlas trend record` points",
+				filled.Added))
+		}
+	}
+
+	series, truncated, err := readTrendSeries(ctx, s, f)
+	if err != nil {
+		return err
+	}
+	res.Series = series
+	if truncated {
+		warnings = append(warnings, fmt.Sprintf(
+			"the series was truncated to the %d most recent points; older points exist and are not shown. Pass --limit to choose the window.",
+			len(series.Points)))
+	}
+
 	if f.compareTo == "" {
-		return emitTrend(cmd, f, trendResult{Series: series}, nil)
+		return emitTrend(cmd, f, res, warnings)
 	}
 
 	report, err := compareTrend(ctx, s, f)
 	if err != nil {
 		return err
 	}
-	res := trendResult{Series: series, Comparison: report}
-	if err := emitTrend(cmd, f, res, report.Warnings); err != nil {
+	res.Comparison = report
+	warnings = append(warnings, report.Warnings...)
+	if err := emitTrend(cmd, f, res, warnings); err != nil {
 		return err
 	}
-	if report.Regressed {
-		// Non-zero exit is the whole product here: this is what a CI job
-		// gates on. The message names the threshold so the log explains
-		// itself without the reader reconstructing the invocation.
+	return trendGateError(report)
+}
+
+// trendGateError turns the gate verdict into the command's exit status.
+// Non-zero exit is the whole product here: this is what a CI job gates on,
+// and the message names the threshold so the log explains itself without the
+// reader reconstructing the invocation.
+//
+// The two failing conditions are reported separately because they have
+// different fixes: a score that fell needs tests, a measurement that vanished
+// needs the coverage step back.
+func trendGateError(report *trend.Report) error {
+	switch {
+	case report.Regressed:
 		return fmt.Errorf("trend: regression gate failed: score fell by more than %.2f points against %s",
 			report.MaxRegression, report.BaseCommit)
+	case report.Unmeasured:
+		return fmt.Errorf("trend: regression gate failed: %s carries no coverage measurement where %s had one; the measurement was lost, not the coverage",
+			trendShortSHA(report.HeadCommit), trendShortSHA(report.BaseCommit))
+	default:
+		return nil
+	}
+}
+
+// validateTrendFeature refuses an id the project does not have. Without this
+// an unknown or misspelled id renders as a real series of gaps — visually
+// identical to a feature that exists and has never been measured, which is
+// the one reading a human must not be given by accident.
+func validateTrendFeature(ctx context.Context, s *store.Store, id string) error {
+	if id == "" {
+		return nil
+	}
+	_, err := s.Features().Get(ctx, shared.FeatureID(id))
+	if errors.Is(err, shared.ErrFeatureNotFound) || errors.Is(err, shared.ErrNotFound) {
+		return fmt.Errorf("trend: no feature %q in this project; `atlas features list` shows the ids that exist", id)
+	}
+	if err != nil {
+		return fmt.Errorf("trend: look up feature %q: %w", id, err)
 	}
 	return nil
 }
 
-// readTrendSeries loads the windowed series for the requested scope.
-func readTrendSeries(ctx context.Context, s *store.Store, f trendFlags) (trend.Series, error) {
+// backfillTrendHistory derives the points the series does not have from the
+// coverage runs the store already holds, so `atlas trend` says something
+// useful on a repo that has been ingesting coverage for a year and has never
+// run `atlas trend record`.
+func backfillTrendHistory(ctx context.Context, s *store.Store) (*trend.BackfillResult, error) {
+	res, err := trend.Backfill(ctx, s)
+	if err != nil {
+		return nil, fmt.Errorf("trend: backfill: %w", err)
+	}
+	return &res, nil
+}
+
+// readTrendSeries loads the windowed series for the requested scope, and
+// reports whether the read hit its cap.
+func readTrendSeries(ctx context.Context, s *store.Store, f trendFlags) (trend.Series, bool, error) {
 	filter := store.HistoryFilter{Limit: f.limit}
 	if f.since > 0 {
 		filter.Since = time.Now().UTC().Add(-f.since)
 	}
-	points, err := s.History().List(ctx, filter)
+	page, err := s.History().List(ctx, filter)
 	if err != nil {
-		return trend.Series{}, fmt.Errorf("trend: read history: %w", err)
+		return trend.Series{}, false, fmt.Errorf("trend: read history: %w", err)
 	}
+	series := trend.ProjectSeries(page.Points)
 	if f.feature != "" {
-		return trend.FeatureSeries(points, shared.FeatureID(f.feature)), nil
+		series = trend.FeatureSeries(page.Points, shared.FeatureID(f.feature))
 	}
-	return trend.ProjectSeries(points), nil
+	series.Truncated = page.Truncated
+	return series, page.Truncated, nil
 }
 
-// compareTrend builds the delta report between the newest recorded point and
-// the --compare-to baseline.
+// compareTrend builds the delta report between THIS CHECKOUT and the
+// --compare-to baseline.
 //
-// The baseline and head are read from the FULL history rather than the
-// windowed series: --since and --limit shape what a human reads, and must not
-// silently move the baseline a gate fires on.
+// Both sides are read from the FULL history rather than the windowed series:
+// --since and --limit shape what a human reads, and must not silently move
+// either end of a gate.
+//
+// The head side is the point recorded for the current HEAD sha, not the
+// newest recorded point. On a CI runner those are routinely different rows —
+// the last point written to a shared store may belong to another branch
+// entirely — and gating a PR against someone else's measurement is worse than
+// not gating at all, because it looks like it worked.
 func compareTrend(ctx context.Context, s *store.Store, f trendFlags) (*trend.Report, error) {
-	all, err := s.History().List(ctx, store.HistoryFilter{})
+	head, err := resolveTrendHead(ctx, s, f)
 	if err != nil {
-		return nil, fmt.Errorf("trend: read history: %w", err)
+		return nil, err
 	}
-	if len(all) == 0 {
-		return nil, fmt.Errorf("trend: no history recorded; run `atlas trend record` first")
-	}
-	head := all[len(all)-1]
-
 	base, err := resolveTrendBaseline(ctx, s, f.compareTo)
 	if err != nil {
 		return nil, err
 	}
 	if base.CommitSHA == head.CommitSHA {
-		return nil, fmt.Errorf("trend: --compare-to %s resolves to the newest recorded point (%s); nothing to compare",
-			f.compareTo, head.CommitSHA)
+		return nil, fmt.Errorf("trend: --compare-to %s resolves to the commit under test (%s); nothing to compare",
+			f.compareTo, trendShortSHA(head.CommitSHA))
 	}
 
 	opts := trend.CompareOptions{}
@@ -183,13 +275,54 @@ func compareTrend(ctx context.Context, s *store.Store, f trendFlags) (*trend.Rep
 	return &report, nil
 }
 
+// resolveTrendHead finds the recorded point for the commit under test.
+//
+// Failing loudly when there is none is the entire fix for "the gate compared
+// whatever was recorded last": a PR that never recorded a point must not be
+// waved through on the strength of another commit's number.
+func resolveTrendHead(ctx context.Context, s *store.Store, f trendFlags) (store.HistoryPoint, error) {
+	ref := f.head
+	if ref == "" {
+		ref = currentGitRef(loaded.repoRoot)
+	}
+	if ref == "" {
+		return store.HistoryPoint{}, fmt.Errorf(
+			"trend: cannot determine the commit under test (not a git repo?); pass --head <sha>")
+	}
+	point, err := lookupRecordedPoint(ctx, s, ref)
+	if errors.Is(err, shared.ErrNotFound) {
+		return store.HistoryPoint{}, fmt.Errorf(
+			"trend: no measurement recorded for %s, the commit under test; run `atlas trend record` on this commit before gating "+
+				"(--compare-to gates THIS checkout, never whatever point was recorded last)", trendShortSHA(ref))
+	}
+	if err != nil {
+		return store.HistoryPoint{}, err
+	}
+	return point, nil
+}
+
 // resolveTrendBaseline turns a user-supplied ref into a recorded point.
+func resolveTrendBaseline(ctx context.Context, s *store.Store, ref string) (store.HistoryPoint, error) {
+	point, err := lookupRecordedPoint(ctx, s, ref)
+	if errors.Is(err, shared.ErrNotFound) {
+		return store.HistoryPoint{}, fmt.Errorf(
+			"trend: no recorded measurement for %q; `atlas trend` lists what has been recorded", ref)
+	}
+	if err != nil {
+		return store.HistoryPoint{}, err
+	}
+	return point, nil
+}
+
+// lookupRecordedPoint resolves a ref to a recorded point, returning
+// shared.ErrNotFound when nothing matches so each caller can say what a miss
+// means on its side of the comparison.
 //
 // Three attempts, narrowest first: an exact recorded sha, whatever `git
 // rev-parse` makes of the ref (so `--compare-to main` works), and finally a
 // recorded-sha prefix (so a human can type the first seven characters). The
 // prefix attempt is last because it is the only ambiguous one.
-func resolveTrendBaseline(ctx context.Context, s *store.Store, ref string) (store.HistoryPoint, error) {
+func lookupRecordedPoint(ctx context.Context, s *store.Store, ref string) (store.HistoryPoint, error) {
 	point, err := s.History().Get(ctx, ref)
 	if err == nil {
 		return point, nil
@@ -206,8 +339,7 @@ func resolveTrendBaseline(ctx context.Context, s *store.Store, ref string) (stor
 
 	sha, err := s.History().Resolve(ctx, ref)
 	if errors.Is(err, shared.ErrNotFound) {
-		return store.HistoryPoint{}, fmt.Errorf(
-			"trend: no recorded measurement for %q; `atlas trend` lists what has been recorded", ref)
+		return store.HistoryPoint{}, shared.ErrNotFound
 	}
 	if err != nil {
 		return store.HistoryPoint{}, fmt.Errorf("trend: resolve %q: %w", ref, err)
@@ -236,10 +368,12 @@ func revParse(dir, ref string) string {
 func emitTrend(cmd *cobra.Command, f trendFlags, res trendResult, warnings []string) error {
 	if flags.JSON {
 		args := map[string]any{
-			"feature":    f.feature,
-			"since":      f.since.String(),
-			"limit":      f.limit,
-			"compare_to": f.compareTo,
+			"feature":     f.feature,
+			"since":       f.since.String(),
+			"limit":       f.limit,
+			"compare_to":  f.compareTo,
+			"head":        f.head,
+			"no_backfill": f.noBackfill,
 		}
 		return emitJSON(stdoutOrJSON(cmd), "trend", args, res, warnings)
 	}
@@ -247,6 +381,19 @@ func emitTrend(cmd *cobra.Command, f trendFlags, res trendResult, warnings []str
 	printTrendSeries(w, res.Series)
 	if res.Comparison != nil {
 		printTrendReport(w, *res.Comparison)
+	}
+	// One warnings block for the whole command: the report's caveats, the
+	// truncation notice and the backfill notice are all things a reader must
+	// see before trusting the table above, and splitting them across two
+	// sections is how one of them gets skimmed past.
+	if len(warnings) > 0 {
+		fmt.Fprintln(w, "\nwarnings:")
+		for _, warn := range warnings {
+			fmt.Fprintf(w, "  - %s\n", warn)
+		}
+	}
+	if res.Comparison != nil {
+		printTrendGate(w, *res.Comparison)
 	}
 	return nil
 }
@@ -259,7 +406,11 @@ func printTrendSeries(w io.Writer, s trend.Series) {
 		fmt.Fprintf(w, "trend: no history recorded for %s; run `atlas trend record`\n", s.Scope)
 		return
 	}
-	fmt.Fprintf(w, "trend  scope=%s  points=%d\n\n", s.Scope, len(s.Points))
+	truncated := ""
+	if s.Truncated {
+		truncated = "  (truncated: older points exist)"
+	}
+	fmt.Fprintf(w, "trend  scope=%s  points=%d%s\n\n", s.Scope, len(s.Points), truncated)
 	fmt.Fprintf(w, "%-14s  %-16s  %8s  %8s  %12s\n", "COMMIT", "MEASURED", "SCORE", "SURFACE", "DELTA")
 
 	var prev *float64
@@ -292,18 +443,19 @@ func printTrendReport(w io.Writer, r trend.Report) {
 			fmt.Fprintf(w, "  %-40s %s\n", c.Scope, formatTrendDelta(c))
 		}
 	}
-	if len(r.Warnings) > 0 {
-		fmt.Fprintln(w, "\nwarnings:")
-		for _, warn := range r.Warnings {
-			fmt.Fprintf(w, "  - %s\n", warn)
-		}
-	}
+}
 
+// printTrendGate is the last line of output, after every caveat, because it
+// is the line a reader acts on.
+func printTrendGate(w io.Writer, r trend.Report) {
 	gate := "PASS"
-	if r.Regressed {
+	if r.Failed {
 		gate = "FAIL"
 	}
 	fmt.Fprintf(w, "\ngate: %s  (max regression %.2f points)\n", gate, r.MaxRegression)
+	if r.Unmeasured {
+		fmt.Fprintln(w, "  a scope measured at the baseline has no measurement now; a lost measurement fails the gate")
+	}
 }
 
 // trendMovers keeps the feature rows worth a human's attention: anything that

@@ -26,8 +26,12 @@ type symbolIndex struct {
 	byID   map[int64]store.SymbolRow
 
 	// tests is the indexed suite: symbol id -> `go test -run` token, for every
-	// symbol that is a runnable test. Its size is the denominator of the
-	// reduction — the number of tests CI would run without atlas.
+	// symbol a plain `go test` dispatches BY NAME — TestXxx, FuzzXxx and
+	// ExampleXxx. Its size is the denominator of the reduction — the number of
+	// tests CI would run without atlas.
+	//
+	// Membership is also the gate on being selectable at all, which is why
+	// BenchmarkXxx is deliberately absent: see goTestRunPrefixes.
 	tests map[int64]string
 }
 
@@ -46,7 +50,7 @@ func buildSymbolIndex(ctx context.Context, src SymbolSource) (*symbolIndex, erro
 		idx.byFile[r.FilePath] = append(idx.byFile[r.FilePath], r)
 		idx.byDir[path.Dir(r.FilePath)] = append(idx.byDir[path.Dir(r.FilePath)], r)
 		idx.byID[r.ID] = r
-		if name, ok := runnableTestName(r); ok && strings.HasPrefix(name, "Test") {
+		if name, ok := runnableTestName(r); ok {
 			idx.tests[r.ID] = name
 		}
 	}
@@ -96,11 +100,19 @@ func spanContains(row store.SymbolRow, r LineRange) bool {
 	return r.Start <= end && r.End >= start
 }
 
-// goTestPrefixes are the four function-name prefixes `go test` dispatches on.
-// Only the Test family counts toward the suite denominator; benchmarks, fuzz
-// targets and examples are selected when touched but are not part of what a
-// plain `go test ./...` runs.
-var goTestPrefixes = []string{"Test", "Benchmark", "Fuzz", "Example"}
+// goTestRunPrefixes are the function-name prefixes a `-run` pattern can
+// dispatch: TestXxx, and the two families a plain `go test` also executes —
+// FuzzXxx (its seed corpus) and ExampleXxx (when it has an output comment).
+// All three are selectable when the diff touches them, and all three count
+// toward the suite denominator, because all three are part of what CI runs
+// today without atlas.
+//
+// BenchmarkXxx is deliberately NOT here. `go test -run '^(BenchmarkFoo)$'`
+// matches no test and runs NOTHING without -bench, so putting a benchmark in
+// the pattern would produce a green run that executed nothing — the exact
+// failure this package exists to prevent. A changed benchmark therefore falls
+// out of the index and forces run-all through ReasonUnrunnableTest instead.
+var goTestRunPrefixes = []string{"Test", "Fuzz", "Example"}
 
 // runnableTestName derives the bare `go test -run` token from a symbol, and
 // reports whether the symbol is a runnable test at all.
@@ -123,7 +135,7 @@ func runnableTestName(row store.SymbolRow) (string, bool) {
 	if name == "" || name == "TestMain" {
 		return "", false
 	}
-	for _, prefix := range goTestPrefixes {
+	for _, prefix := range goTestRunPrefixes {
 		rest, ok := strings.CutPrefix(name, prefix)
 		if !ok {
 			continue

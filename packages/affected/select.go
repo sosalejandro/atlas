@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/sosalejandro/atlas/packages/indexfresh"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -43,12 +44,19 @@ type FeatureSource interface {
 	ListBySymbol(ctx context.Context, symbolID int64) ([]store.FeatureSymbolLink, error)
 }
 
-// Inputs are everything Select needs. Git, Symbols and Evidence are required.
+// Inputs are everything Select needs. Git, Symbols, Evidence and Freshness
+// are required.
 type Inputs struct {
 	Git      GitDiff
 	Symbols  SymbolSource
 	Evidence EvidenceSource
 	Features FeatureSource
+
+	// Freshness decides which changed files may have their diff line numbers
+	// joined against stored spans at all. Required: without it the join is
+	// unchecked, and an unchecked join selects the wrong tests silently. See
+	// FreshnessSource.
+	Freshness FreshnessSource
 
 	// Frontier is the coverage the selection reads evidence from — normally
 	// store.Coverage().LatestFrontier. An empty frontier is not an error; it
@@ -113,6 +121,9 @@ func Select(ctx context.Context, in Inputs) (Selection, error) {
 	if err != nil {
 		return Selection{}, err
 	}
+	if err := s.classifyFreshness(ctx); err != nil {
+		return Selection{}, err
+	}
 	s.mapFilesToSymbols(s.sel.ChangedFiles, lines)
 
 	if err := s.selectTests(ctx); err != nil {
@@ -132,6 +143,9 @@ func (in Inputs) validate() error {
 	if in.Git == nil || in.Symbols == nil || in.Evidence == nil {
 		return fmt.Errorf("affected: Git, Symbols and Evidence inputs are all required")
 	}
+	if in.Freshness == nil {
+		return fmt.Errorf("affected: a Freshness input is required; joining diff line numbers against spans nothing corroborates selects the wrong tests silently")
+	}
 	return nil
 }
 
@@ -150,6 +164,34 @@ type selector struct {
 	// kept separately, and resolved in finish(), so the NoHistory label does
 	// not depend on the order the changed symbols happened to be visited in.
 	history map[int64]bool
+
+	// fresh maps each changed source path to how much its stored spans can be
+	// trusted. A path missing from the map is treated as untrustworthy, so a
+	// file that somehow escapes classification widens rather than resolving.
+	fresh map[string]indexfresh.State
+}
+
+// classifyFreshness asks whether each changed source file's stored spans still
+// describe the file on disk, BEFORE any line number is joined against them.
+//
+// Only source paths are hashed: an inert or build-config path never reaches a
+// span join, so re-reading it would be work with no answer attached.
+func (s *selector) classifyFreshness(ctx context.Context) error {
+	paths := make([]string, 0, len(s.sel.ChangedFiles))
+	for _, f := range s.sel.ChangedFiles {
+		if classify(f) == classSource {
+			paths = append(paths, f)
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	rep, err := s.in.Freshness.Classify(ctx, paths)
+	if err != nil {
+		return fmt.Errorf("affected: check whether the index still describes the changed files: %w", err)
+	}
+	s.fresh = rep.States
+	return nil
 }
 
 func (s *selector) bail(reason, filePath, detail string) {
@@ -223,11 +265,12 @@ func (s *selector) mapFilesToSymbols(files []string, lines map[string][]LineRang
 
 // mapSourceFile resolves one source file's changed lines to symbols.
 //
-// Three outcomes, in decreasing order of precision: every range landed inside
-// a symbol (select those); some range landed outside every symbol (widen to
-// the package, because a package-level declaration, an import or a build tag
-// can change how everything around it behaves); atlas holds no symbols for the
-// file at all (bail — there is nothing to reason with).
+// Four outcomes, in decreasing order of precision: every range landed inside a
+// symbol (select those); some range landed outside every symbol (widen to the
+// package, because a package-level declaration, an import or a build tag can
+// change how everything around it behaves); the file's spans cannot be trusted
+// at all (widen to the package WITHOUT looking at a line number); atlas holds
+// no symbols for the file (bail — there is nothing to reason with).
 func (s *selector) mapSourceFile(filePath string, ranges []LineRange) {
 	rows := s.idx.byFile[filePath]
 	if len(rows) == 0 {
@@ -235,25 +278,86 @@ func (s *selector) mapSourceFile(filePath string, ranges []LineRange) {
 			"atlas holds no symbols for this file; it may be an unscanned language, generated output, or newer than the last `atlas scan`")
 		return
 	}
+	// The freshness gate comes FIRST, ahead of every line-number read below:
+	// once the spans are known to be wrong, "which symbol contains line 42" has
+	// an answer and the answer is meaningless.
+	if state := s.fresh[filePath]; !state.Trustworthy() {
+		s.widenUnverifiable(filePath, state)
+		return
+	}
 	if len(ranges) == 0 {
 		// --name-only saw the file but --unified=0 produced no hunks: a rename
 		// or a mode change. Take the whole file rather than nothing.
 		s.recordSymbols(rows, true)
-		s.widen(filePath, "file", "the diff carries no line hunks for this path (a rename or mode change), so every symbol in it is treated as changed")
+		s.widen(filePath, "file", WideningNoHunks,
+			"the diff carries no line hunks for this path (a rename or mode change), so every symbol in it is treated as changed")
 		return
 	}
 	hits, allMatched := s.idx.spansAt(filePath, ranges)
 	s.recordSymbols(hits, false)
 	if !allMatched {
-		dir := path.Dir(filePath)
-		s.recordSymbols(s.idx.byDir[dir], true)
-		s.widen(filePath, "package",
+		s.widenPackage(filePath, WideningUnmappedLine,
 			"an edited line fell outside every indexed symbol (a package-level declaration, an import block or a build tag), so the whole package is treated as changed")
 	}
 }
 
-func (s *selector) widen(filePath, scope, detail string) {
-	s.sel.Widenings = append(s.sel.Widenings, Widening{Path: filePath, Scope: scope, Detail: detail})
+// widenUnverifiable handles a changed file whose stored spans may not be
+// joined against the diff's line numbers.
+//
+// Every branch here is on the safe side of the join: widen to the package, or
+// refuse to narrow at all. None of them resolves a line number to a symbol,
+// because the whole point is that the mapping from lines to symbols is no
+// longer known.
+func (s *selector) widenUnverifiable(filePath string, state indexfresh.State) {
+	switch state {
+	case indexfresh.StateStale:
+		s.widenPackage(filePath, WideningStaleIndex,
+			"this file changed since the last `atlas scan`, so its stored line spans describe a version that no longer exists; the diff's line numbers cannot name a symbol and the whole package is treated as changed. Re-run `atlas scan` to recover the reduction")
+	case indexfresh.StateDeleted:
+		s.widenPackage(filePath, WideningDeletedFile,
+			"this file is gone from the working tree but the index still holds symbols for it, so its spans describe nothing; the whole package is treated as changed")
+	case indexfresh.StateAbsent:
+		s.widenPackage(filePath, WideningUnverifiableSpans,
+			"atlas holds symbols for this file but no content hash to corroborate them (a `scan --hash-files=false`), so their freshness cannot be established; the whole package is treated as changed")
+	default:
+		// StateUnreadable, or a path the freshness pass never classified: the
+		// check itself could not run, which is a strictly weaker position than
+		// knowing the spans are stale. Refuse to narrow at all.
+		s.bail(ReasonUnverifiableSpans, filePath, fmt.Sprintf(
+			"atlas could not check whether its stored spans still describe this file (state %q), so no line number in it can be resolved to a symbol", state))
+	}
+}
+
+// widenPackage records every symbol in filePath's package that this widening
+// may honestly claim, and reports the widening.
+func (s *selector) widenPackage(filePath, reason, detail string) {
+	s.recordSymbols(packageWidening(s.idx.byDir[path.Dir(filePath)], filePath), true)
+	s.widen(filePath, "package", reason, detail)
+}
+
+// packageWidening filters a directory's symbols down to those a widening of
+// filePath may claim: everything outside a test file, plus the changed file's
+// own symbols.
+//
+// Tests in OTHER test files are dropped deliberately. The diff did not touch
+// them; they are already selected on their own evidence when they execute a
+// changed symbol; and sweeping them in inflates the -run pattern with tests
+// nothing links to the change while labelling them as things this diff did.
+func packageWidening(rows []store.SymbolRow, filePath string) []store.SymbolRow {
+	out := make([]store.SymbolRow, 0, len(rows))
+	for _, r := range rows {
+		if store.IsTestPath(r.FilePath) && r.FilePath != filePath {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func (s *selector) widen(filePath, scope, reason, detail string) {
+	s.sel.Widenings = append(s.sel.Widenings, Widening{
+		Path: filePath, Scope: scope, Reason: reason, Detail: detail,
+	})
 }
 
 func (s *selector) recordSymbols(rows []store.SymbolRow, widened bool) {
@@ -323,7 +427,10 @@ func (s *selector) selectChangedTest(ctx context.Context, cs ChangedSymbol) erro
 		return nil
 	}
 	t := s.ensureSelected(cs.SymbolID, name, s.idx.byID[cs.SymbolID])
-	t.Why = append(t.Why, "changed by this diff")
+	// A widened symbol reached this list because its package was swept in, not
+	// because the author edited it. Claiming otherwise tells a reader something
+	// untrue about the diff they are reviewing.
+	t.Why = append(t.Why, whySelected(cs))
 
 	if s.history[cs.SymbolID] {
 		return nil
@@ -339,6 +446,14 @@ func (s *selector) selectChangedTest(ctx context.Context, cs ChangedSymbol) erro
 		}
 	}
 	return nil
+}
+
+// whySelected is the provenance a test-file symbol carries into Why.
+func whySelected(cs ChangedSymbol) string {
+	if cs.Widened {
+		return WhyWidened
+	}
+	return WhyChanged
 }
 
 // selectTestsExecuting unions the tests that recorded executing one changed
@@ -424,17 +539,26 @@ func (s *selector) rollUpFeatures(ctx context.Context) error {
 // finish materialises the selected set and applies the closing rule: any
 // fallback at all means run everything.
 //
-// The selected tests are DISCARDED on that path rather than left in place as a
-// hint. A partial list next to outcome="run-all" is exactly the shape a
-// caller reads the wrong way — take the tests, ignore the outcome, ship the
-// regression.
+// The selection is materialised FIRST and then discarded on the run-all path,
+// rather than skipped by an early return. The two are equivalent today, but
+// only this order makes the discard a real, testable statement: an early
+// return leaves the fields empty for an incidental reason, so deleting the
+// clearing would change nothing and no test could notice. Written this way,
+// removing it puts a partial -run subset next to outcome="run-all" — exactly
+// the shape a caller reads the wrong way (take the tests, ignore the outcome,
+// ship the regression) — and the guard tests fail.
 func (s *selector) finish() {
+	s.sel.SelectedTests, s.sel.Packages = s.materialise()
 	if len(s.sel.Fallbacks) > 0 {
 		s.sel.Outcome = OutcomeRunAll
 		s.sel.SelectedTests = nil
 		s.sel.Packages = nil
-		return
 	}
+}
+
+// materialise turns the accumulated map of selected tests into the sorted
+// output slices, and resolves each one's NoHistory label.
+func (s *selector) materialise() ([]SelectedTest, []string) {
 	tests := make([]SelectedTest, 0, len(s.selected))
 	pkgs := make([]string, 0, len(s.selected))
 	for id, t := range s.selected {
@@ -448,8 +572,7 @@ func (s *selector) finish() {
 		}
 		return tests[i].QualifiedName < tests[j].QualifiedName
 	})
-	s.sel.SelectedTests = tests
-	s.sel.Packages = dedupeSorted(pkgs)
+	return tests, dedupeSorted(pkgs)
 }
 
 func dedupeSorted(in []string) []string {

@@ -129,14 +129,24 @@ simply not there:
 2. **Paths are repo-relative, forward-slashed, with no leading `./`.** An
    absolute uri makes the finding vanish from the Files view. Findings whose path
    cannot be made repo-relative are dropped and counted in the command's
-   warnings, rather than shipped as a report that says nothing.
+   warnings, rather than shipped as a report that says nothing. Both absolute
+   forms count: a Windows runner's `C:\src\repo\pkg\a.go` has no leading slash
+   once its separators are rewritten, and is relativised against the repo root or
+   dropped exactly like `/src/repo/pkg/a.go` would be.
 3. **`partialFingerprints` is derived from rule id + path + subject, never from
    the line number.** That is what lets GitHub recognise a finding across pushes.
    Fingerprinting the line would mark every finding in a file as new after any
    edit above it — which is how a code-scanning integration turns into noise.
-4. **Severity is encoded twice.** `level` (`error`/`warning`/`note`) drives the
-   annotation; `properties.security-severity` drives the alert list's ordering,
-   and an alert without one sinks below every scored alert regardless of level.
+4. **`level` is the finding's severity, not the rule's default.** The rule's
+   `defaultConfiguration.level` is only the fallback for a producer with no
+   opinion; the per-result `level` is what GitHub colours the annotation with and
+   what a `fail-on: error` gate reads. A feature scoring below `--error-below` is
+   an `error` even though `atlas/feature-uncovered` defaults to `warning`.
+   `properties.security-severity` carries the second half of the encoding — it
+   drives the alert list's ordering, and an alert without one sinks below every
+   scored alert regardless of level. No rule atlas ships today sets it: they are
+   all hygiene rules, and inventing a CVSS number for a dead-code candidate would
+   sort it above real vulnerabilities.
 
 The tool's `semanticVersion` is atlas's version with the `v` stripped — a leading
 `v` is not semver and some ingests reject the whole document over it.
@@ -147,13 +157,10 @@ Rule ids are a wire contract: GitHub keys an alert's history off the id, so
 renaming one closes every open alert and reopens it as new. Ids are added, never
 renamed.
 
-### `atlas/contract-drift`
-
-**error**, `security-severity: 5.0`
-
-A declared contract no longer matches its implementation. Drift in a published
-interface is the one atlas rule whose blast radius reaches outside the repo,
-which is why it is the one that carries a security-severity.
+This list is the whole catalog, and every rule on it has a producer. A rule
+that is documented but cannot fire is worse than an unused one: a team writes a
+policy against it, and the policy then passes forever — which looks exactly like
+the rule never finding anything.
 
 ### `atlas/feature-uncovered`
 
@@ -231,7 +238,8 @@ $ atlas report pr --base origin/main
 | Metric | Value |
 | --- | --- |
 | Features scored | 18 |
-| Features below the floor | 2 |
+| Features below the floor | 3 |
+| …of those, not annotated | 1 (no linked symbol to anchor to) |
 | Statements attributed | 4812 / 4930 (97.6%) |
 
 ### Change since `origin/main`
@@ -246,11 +254,26 @@ $ atlas report pr --base origin/main
 ...
 ```
 
+**"Features below the floor" counts features, not annotations.** A feature with
+no linked symbol has no line to hang a finding on, so it is below the floor and
+still absent from the Findings section — which is why the shortfall gets its own
+row instead of being folded into the headline. Three numbers on that page mean
+three different things: features under the floor, of those the ones atlas could
+not place, and the findings actually rendered. Reporting the last one under the
+first one's label under-states a compliance number on a PR, which is the failure
+this command exists to avoid.
+
 The delta needs a snapshot for the base ref (`atlas snapshot --audit` on the
 default branch). When there is none, the comment still renders — without the
 delta section, and with a warning on stderr. A first push on a new branch has
 nothing to compare against, and failing there would break the workflow on exactly
 the commit that introduces it.
+
+A delta can also be *partial*: when a feature has an audit score on only one
+side, `atlas diff` reports it as missing rather than as a change, and it appears
+in no row of the table. Those features are named in the warnings, because an
+empty delta table otherwise reads as "nothing regressed" when it means "there was
+nothing on the base side to compare against".
 
 ## JSON envelope
 
@@ -278,8 +301,9 @@ re-serialised a structured form would not be uploading what atlas rendered.
 
 Warnings are the honest half of the output. They report what did *not* make it
 into the rendering — findings whose path could not be relativised, low-scoring
-features with nothing to anchor to, a capped gap list, a missing base snapshot —
-so that "no findings" and "nowhere to put them" stay distinguishable.
+features with nothing to anchor to, a capped gap list, a missing base snapshot,
+features one side of the delta could not score — so that "no findings" and
+"nowhere to put them" stay distinguishable.
 
 ## See also
 

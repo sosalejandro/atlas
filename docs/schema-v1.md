@@ -643,17 +643,45 @@ CREATE TABLE coverage_history_features (
 ) WITHOUT ROWID;
 ```
 
-Written by `atlas trend record`, read by `atlas trend` and its
-`--compare-to` regression gate (issue #92). Every other table here answers
-"what is true now"; this pair answers "is it getting better or worse".
+Written by `atlas trend record` and by `atlas trend`'s backfill, read by
+`atlas trend` and its `--compare-to` regression gate (issue #92). Every other
+table here answers "what is true now"; this pair answers "is it getting
+better or worse".
+
+**Who writes rows.** `atlas trend record` writes the point for a commit,
+scored through the audit. `atlas trend` additionally **backfills** the points
+it can derive from `coverage_runs` / `coverage_results` that have no point
+yet — statement coverage over each feature's linked impl symbols, one point
+per run group, keyed by `run_group` (which CI is encouraged to set to the
+commit sha) or by `coverage-run:<id>` when there is none. Backfill never
+overwrites an existing point and is skipped under `--no-backfill`. Nothing
+else writes here: `atlas cov sync` and `atlas audit` do not.
 
 | Column        | Type      | Notes                                                                                                                                                       |
 | ------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `commit_sha`  | TEXT      | Free text like `snapshots.git_ref` -- Atlas never forks git to validate it, and CI systems legitimately record tags or synthetic ids. UNIQUE; see below.     |
 | `measured_at` | TIMESTAMP | Orders the series and tells the reader how stale a point is. Updated on a re-measurement.                                                                    |
 | `score`       | REAL      | **NULLABLE, and this is the load-bearing decision.** NULL means no coverage evidence at that commit, which is NOT the same fact as a score of zero.          |
-| `denominator` | INTEGER   | The size of the surface the score was computed over (feature-linked symbols). A delta between two different denominators is not a quality signal.            |
-| `note`        | TEXT      | Optional free-form label (a CI run id, a branch name).                                                                                                       |
+| `denominator` | INTEGER   | The size of the surface the score was computed over, **in the same unit as the score** — statements when statement coverage exists, else scored symbols. See below. |
+| `note`        | TEXT      | Optional free-form label (a CI run id, a branch name). Backfilled points carry `backfilled from coverage run <ids>` here.                                    |
+
+**What `score` holds.** The audit's **coverage component**, not
+`FeatureHealth.Score`. The overall audit score re-normalises a blend of
+coverage, annotation freshness, pattern compliance and contract drift;
+recording that in a table `atlas trend` gates on as a coverage regression
+would fire the gate on a stale annotation and let a real coverage drop hide
+behind another component rising.
+
+**What `denominator` holds, and why the unit matters.** The denominator is
+the guard against "deleting a thousand untested lines raises the number
+without a single new test", and a guard in the wrong unit is not a guard. The
+Tier B coverage score is a fraction of **statements**, so the denominator is
+the statement total the coverage frontier reports for the feature's scored
+(non-test-role) linked symbols. A denominator counted in `feature_symbols`
+rows cannot see a statement-level deletion at all. When no statement data
+exists for a feature — the gotest pass/fail model, playwright, maestro — the
+coverage signal is itself a fraction of symbols, and the denominator falls
+back to the count of scored symbols so the unit still matches the score.
 
 **Why `score` is nullable.** Coverage evidence is routinely absent for a
 commit: the docs-only PR nobody ran the suite on, the CI job that died before

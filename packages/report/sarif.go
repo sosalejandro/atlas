@@ -129,7 +129,10 @@ func RenderSARIF(w io.Writer, tool Tool, findings []Finding) error {
 
 	results := make([]sarifResult, 0, len(sorted))
 	for _, f := range sorted {
-		results = append(results, sarifResultFor(f, index[f.RuleID]))
+		// sarifRulesFor has already refused any finding whose rule is not
+		// in the catalog, so the lookup cannot miss here.
+		rule, _ := LookupRule(f.RuleID)
+		results = append(results, sarifResultFor(f, rule, index[f.RuleID]))
 	}
 
 	log := sarifLog{
@@ -219,9 +222,11 @@ func ruleProperties(r Rule) map[string]any {
 // annotation's colour and what it gates on; properties.security-severity is
 // the number it sorts the alert list by, and an alert without one sinks below
 // every scored alert regardless of its level.
-func sarifResultFor(f Finding, ruleIndex int) sarifResult {
-	rule, _ := LookupRule(f.RuleID)
-
+// `rule` is the finding's catalog entry, passed in rather than looked up again
+// so the two halves of the encoding come from one place: `level` from the
+// finding (falling back to the rule only when the producer had no opinion),
+// security-severity from the rule.
+func sarifResultFor(f Finding, rule Rule, ruleIndex int) sarifResult {
 	level := f.Severity
 	if level == "" {
 		level = rule.DefaultLevel

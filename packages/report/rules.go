@@ -13,7 +13,6 @@ const (
 	RuleFeatureUncovered     = "atlas/feature-uncovered"
 	RuleCoverageUnattributed = "atlas/coverage-unattributed"
 	RuleDeadCode             = "atlas/dead-code"
-	RuleContractDrift        = "atlas/contract-drift"
 	RuleDiagnosis            = "atlas/diagnosis"
 )
 
@@ -48,6 +47,10 @@ type Rule struct {
 	// list by, as a string because that is how SARIF carries it. Empty for
 	// rules that are hygiene rather than risk — inventing a security score
 	// for a dead-code candidate would push it above real vulnerabilities.
+	//
+	// No rule in the current catalog sets it: every rule atlas ships is
+	// hygiene. The renderers still honour it so a genuinely risk-bearing
+	// rule can be added without touching them.
 	SecuritySeverity string
 
 	// Tags land in properties.tags and drive GitHub's alert filters.
@@ -59,22 +62,11 @@ const helpBase = "https://github.com/sosalejandro/atlas/blob/main/docs/commands/
 // catalog is the closed set of rules atlas can report. RenderSARIF refuses a
 // finding whose rule is not here, which is the only defence against the
 // failure mode where GitHub accepts the upload and drops the result.
+//
+// Every entry has a producer in this package. A catalogued rule with no
+// producer is worse than dead weight: it is documented, so a team writes a gate
+// against it, and that gate then passes forever because nothing can fire it.
 var catalog = []Rule{
-	{
-		ID:               RuleContractDrift,
-		Name:             "ContractDrift",
-		ShortDescription: "A declared contract no longer matches its implementation",
-		FullDescription: "The contract recorded for this symbol (an HTTP route, a GraphQL field, " +
-			"an exported function signature) differs from what the current code exposes. " +
-			"Consumers written against the recorded shape will break at runtime, not at compile time.",
-		HelpURI:      helpBase + "#atlascontract-drift",
-		DefaultLevel: SeverityError,
-		// Drift in a published interface is the one atlas rule with a
-		// blast radius outside the repo, so it is the one that earns a
-		// place in GitHub's security-severity ordering.
-		SecuritySeverity: "5.0",
-		Tags:             []string{"atlas", "contract", "api"},
-	},
 	{
 		ID:               RuleFeatureUncovered,
 		Name:             "FeatureUncovered",

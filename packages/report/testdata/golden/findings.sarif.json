@@ -10,28 +10,6 @@
           "semanticVersion": "0.13.0",
           "rules": [
             {
-              "id": "atlas/contract-drift",
-              "name": "ContractDrift",
-              "shortDescription": {
-                "text": "A declared contract no longer matches its implementation"
-              },
-              "fullDescription": {
-                "text": "The contract recorded for this symbol (an HTTP route, a GraphQL field, an exported function signature) differs from what the current code exposes. Consumers written against the recorded shape will break at runtime, not at compile time."
-              },
-              "helpUri": "https://github.com/sosalejandro/atlas/blob/main/docs/commands/report.md#atlascontract-drift",
-              "defaultConfiguration": {
-                "level": "error"
-              },
-              "properties": {
-                "security-severity": "5.0",
-                "tags": [
-                  "atlas",
-                  "contract",
-                  "api"
-                ]
-              }
-            },
-            {
               "id": "atlas/coverage-unattributed",
               "name": "CoverageUnattributed",
               "shortDescription": {
@@ -99,37 +77,11 @@
       },
       "results": [
         {
-          "ruleId": "atlas/contract-drift",
-          "ruleIndex": 0,
+          "ruleId": "atlas/feature-uncovered",
+          "ruleIndex": 2,
           "level": "error",
           "message": {
-            "text": "contract GET /v1/invoices has drifted from its handler"
-          },
-          "locations": [
-            {
-              "physicalLocation": {
-                "artifactLocation": {
-                  "uri": "internal/api/routes.go"
-                },
-                "region": {
-                  "startLine": 15
-                }
-              }
-            }
-          ],
-          "partialFingerprints": {
-            "atlasFindingV1": "487e0fcb102c9af9"
-          },
-          "properties": {
-            "security-severity": "5.0"
-          }
-        },
-        {
-          "ruleId": "atlas/feature-uncovered",
-          "ruleIndex": 3,
-          "level": "warning",
-          "message": {
-            "text": "feature billing.invoice scores 31.0/100 (coverage 12.5)"
+            "text": "feature billing.invoice scores 12.0/100 (coverage 4.0)"
           },
           "locations": [
             {
@@ -150,8 +102,8 @@
         },
         {
           "ruleId": "atlas/dead-code",
-          "ruleIndex": 2,
-          "level": "note",
+          "ruleIndex": 1,
+          "level": "warning",
           "message": {
             "text": "Shim has 0 incoming import edges (dead-code candidate)"
           },
@@ -173,7 +125,7 @@
         },
         {
           "ruleId": "atlas/coverage-unattributed",
-          "ruleIndex": 1,
+          "ruleIndex": 0,
           "level": "note",
           "message": {
             "text": "118 statements executed but charged to no indexed symbol (reason: no-indexed-symbol)"

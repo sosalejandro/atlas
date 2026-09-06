@@ -126,20 +126,20 @@ func TestCompare_TrivialDenominatorMoveIsNotFlagged(t *testing.T) {
 	}
 }
 
-// Absent evidence is not a zero. Comparing against it must refuse, not fail
-// the build with a fabricated -80.
-func TestCompare_UnmeasuredSideIsIncomparable(t *testing.T) {
+// Absent evidence is not a zero. Comparing against a baseline nobody
+// measured must refuse, not fail the build with a fabricated -80.
+func TestCompare_UnmeasuredBaselineIsIncomparable(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		base, head store.HistoryPoint
 	}{
 		{"base unmeasured", point("base", nil, 100), point("head", f64(80), 100)},
-		{"head unmeasured", point("base", f64(80), 100), point("head", nil, 100)},
+		{"neither measured", point("base", nil, 100), point("head", nil, 100)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rep := Compare(tc.base, tc.head, CompareOptions{})
-			if rep.Regressed {
-				t.Error("Regressed = true against a point with no coverage evidence")
+			if rep.Failed {
+				t.Error("Failed = true against a baseline that was never measured")
 			}
 			if rep.Project.Verdict != VerdictNoEvidence {
 				t.Errorf("verdict = %q, want %q", rep.Project.Verdict, VerdictNoEvidence)
@@ -151,6 +151,61 @@ func TestCompare_UnmeasuredSideIsIncomparable(t *testing.T) {
 				t.Error("missing evidence produced no warning")
 			}
 		})
+	}
+}
+
+// The mirror case is NOT symmetrical. A baseline that carried a measurement
+// and a head that does not is a measurement this change destroyed — delete
+// the coverage step and every scope reports "nothing to compare". Treating it
+// as the innocent case is how a PR that breaks measurement entirely passes
+// the gate.
+func TestCompare_HeadThatLostItsMeasurementFailsTheGate(t *testing.T) {
+	rep := Compare(point("base", f64(80), 100), point("head", nil, 100), CompareOptions{})
+
+	if !rep.Failed {
+		t.Fatal("Failed = false; the head produced no measurement where the baseline had one")
+	}
+	if !rep.Unmeasured {
+		t.Error("Unmeasured = false; the gate must name WHY it failed")
+	}
+	if rep.Regressed {
+		t.Error("Regressed = true; nothing fell, the measurement vanished")
+	}
+	if rep.Project.Verdict != VerdictUnmeasured {
+		t.Errorf("verdict = %q, want %q", rep.Project.Verdict, VerdictUnmeasured)
+	}
+	if rep.Project.Delta != nil {
+		t.Errorf("delta = %v, want nil (there is nothing to subtract)", *rep.Project.Delta)
+	}
+}
+
+// The per-feature term of the gate has to see it too: one capability can stop
+// being measured while the project headline stays put.
+func TestCompare_FeatureThatLostItsMeasurementFailsTheGate(t *testing.T) {
+	base := point("base", f64(80), 200,
+		feat("f.ok", f64(80), 100),
+		feat("f.blinded", f64(80), 100),
+	)
+	head := point("head", f64(80), 200,
+		feat("f.ok", f64(80), 100),
+		feat("f.blinded", nil, 100),
+	)
+
+	rep := Compare(base, head, CompareOptions{})
+	if !rep.Failed {
+		t.Fatal("Failed = false; f.blinded stopped being measured under a flat headline")
+	}
+	if !rep.Unmeasured {
+		t.Error("Unmeasured = false for a feature that lost its measurement")
+	}
+	var got Verdict
+	for _, c := range rep.Features {
+		if c.Scope == "f.blinded" {
+			got = c.Verdict
+		}
+	}
+	if got != VerdictUnmeasured {
+		t.Errorf("f.blinded verdict = %q, want %q", got, VerdictUnmeasured)
 	}
 }
 

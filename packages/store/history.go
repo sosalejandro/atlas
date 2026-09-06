@@ -58,14 +58,18 @@ type HistoryFeaturePoint struct {
 	Denominator int64            `json:"denominator"`
 }
 
-// HistoryFilter narrows a series read. The zero value returns every point.
+// HistoryFilter narrows a series read. The zero value returns every point up
+// to defaultHistoryListLimit, flagged as truncated when the cap bites.
 type HistoryFilter struct {
 	// Since drops points measured strictly before this instant. Zero =
 	// no lower bound.
 	Since time.Time
 
 	// Limit caps the result to the N most recent points (the returned slice
-	// is still oldest-first). Zero or negative = no cap.
+	// is still oldest-first). Zero or negative asks for "everything", which
+	// this port serves up to defaultHistoryListLimit and then reports as
+	// TRUNCATED — see HistorySeries. There is no silent cap: a caller that
+	// asked for everything and got a page must be able to tell.
 	Limit int
 }
 
@@ -73,6 +77,27 @@ type HistoryFilter struct {
 // pruned rather than unbounded, but a store that has never been pruned
 // should still not fault a decade of CI points into memory to print a table.
 const defaultHistoryListLimit = 1000
+
+// HistorySeries is what a List read returns: the page of points, plus what
+// the read had to do to get it.
+//
+// Truncated exists because the alternative is a lie the reader cannot
+// detect. "points=1000" that silently means "the 1000 newest of 40000" reads
+// as a complete series, and the OLD end — the one a cap discards — is
+// precisely where a reader looks for the long-run direction.
+type HistorySeries struct {
+	// Points are oldest-first, each carrying its per-feature breakdown.
+	Points []HistoryPoint `json:"points"`
+
+	// Truncated reports that more points matched the filter than were
+	// returned. What came back is the most RECENT window; what was dropped
+	// is the oldest.
+	Truncated bool `json:"truncated"`
+
+	// Cap is the limit actually applied — the caller's Limit, or
+	// defaultHistoryListLimit when they asked for none.
+	Cap int `json:"cap"`
+}
 
 // History is the narrow port for `coverage_history` +
 // `coverage_history_features`.
@@ -95,8 +120,10 @@ type History interface {
 	Resolve(ctx context.Context, prefix string) (string, error)
 
 	// List returns the series oldest-first, each point carrying its
-	// per-feature breakdown.
-	List(ctx context.Context, f HistoryFilter) ([]HistoryPoint, error)
+	// per-feature breakdown, plus whether the read hit its cap. A caller
+	// that ignores HistorySeries.Truncated presents a window as a whole
+	// series.
+	List(ctx context.Context, f HistoryFilter) (HistorySeries, error)
 
 	// Prune deletes every point measured strictly before `before` and
 	// returns how many were removed. The per-feature rows go with them via
@@ -245,17 +272,26 @@ func (h *historyStore) Resolve(ctx context.Context, prefix string) (string, erro
 	}
 }
 
-func (h *historyStore) List(ctx context.Context, f HistoryFilter) ([]HistoryPoint, error) {
+func (h *historyStore) List(ctx context.Context, f HistoryFilter) (HistorySeries, error) {
 	limit := f.Limit
 	if limit <= 0 {
 		limit = defaultHistoryListLimit
 	}
+	// LIMIT cap+1 is the truncation probe: one surplus row is all it takes
+	// to know the cap bit, and it costs less than a second COUNT round trip.
 	rows, err := h.q.ListHistoryPoints(ctx, sqlc.ListHistoryPointsParams{
 		MeasuredAt: f.Since.UTC(),
-		Limit:      int64(limit),
+		Limit:      int64(limit) + 1,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("history list: %w", err)
+		return HistorySeries{}, fmt.Errorf("history list: %w", err)
+	}
+
+	series := HistorySeries{Cap: limit}
+	if len(rows) > limit {
+		// The query is newest-first, so the surplus sits at the OLD end.
+		series.Truncated = true
+		rows = rows[:limit]
 	}
 
 	// The query reads newest-first so a LIMIT keeps the most recent window;
@@ -265,12 +301,13 @@ func (h *historyStore) List(ctx context.Context, f HistoryFilter) ([]HistoryPoin
 		point := fromSQLCHistory(rows[i])
 		feats, err := h.features(ctx, point.ID)
 		if err != nil {
-			return nil, err
+			return HistorySeries{}, err
 		}
 		point.Features = feats
 		out = append(out, point)
 	}
-	return out, nil
+	series.Points = out
+	return series, nil
 }
 
 func (h *historyStore) Prune(ctx context.Context, before time.Time) (int64, error) {

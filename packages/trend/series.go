@@ -37,6 +37,12 @@ type Series struct {
 	// Scope is ScopeProject or a feature id.
 	Scope  string        `json:"scope"`
 	Points []Observation `json:"points"`
+
+	// Truncated reports that older points exist and are not in Points. A
+	// consumer that plots a truncated series without saying so draws a line
+	// that appears to begin where the history begins; the omitted end is the
+	// one a long-run trend is read from.
+	Truncated bool `json:"truncated"`
 }
 
 // Bounds returns the first and last MEASURED observations. Unmeasured points

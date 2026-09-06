@@ -28,9 +28,15 @@ func noCoverageIngested() Result {
 //
 // Two ways they stop doing so, and both are silent. The frontier simply
 // ages -- a percentage from six weeks ago is about six-week-old code --
-// and, more sharply, the index can move underneath it: a scan after the
-// last coverage sync means atlas has re-read files the coverage run never
-// executed, so the two halves of the picture are about different repos.
+// and, more sharply, the index can move underneath it: when the index
+// holds file content NEWER than the coverage run, atlas is scoring code
+// that run never executed, so the two halves of the picture are about
+// different repos.
+//
+// "Newer" is measured against indexed content, not against scan time.
+// A scan is not evidence that anything changed (see
+// newestIndexedContent), and a check that fired every time someone ran
+// `atlas scan` would be indistinguishable from noise.
 type coverageFreshness struct{}
 
 func (coverageFreshness) Name() string { return "coverage.freshness" }
@@ -53,31 +59,68 @@ func (c coverageFreshness) Run(ctx context.Context, env *Env) (Result, error) {
 
 	measured := frontierFinishedAt(frontier)
 	age := env.Now().Sub(measured)
-	lastScan, err := lastIndexWrite(ctx, env)
+	newestContent, err := newestIndexedContent(ctx, env)
 	if err != nil {
 		return Result{}, err
 	}
-	predatesIndex := !lastScan.IsZero() && measured.Before(lastScan)
+
+	// Three-state, never a bool. With nothing indexed there is no signal
+	// to compare the frontier against, and rendering that unknown as
+	// `false` would report a question doctor never got to ask as a
+	// question it answered "no".
+	predates := predatesUnknown
+	switch {
+	case newestContent.IsZero():
+		// No hashed file anywhere: nothing to date the index from, so
+		// the answer stays unknown.
+	case measured.Before(newestContent):
+		predates = predatesYes
+	default:
+		predates = predatesNo
+	}
 
 	details := map[string]any{
 		"run_ids":        frontier.RunIDs(),
 		"measured_at":    measured.UTC().Format(time.RFC3339),
 		"age_hours":      age.Hours(),
 		"max_age_hours":  env.CoverageMaxAge.Hours(),
-		"predates_index": predatesIndex,
+		"predates_index": predates,
 	}
-	if !lastScan.IsZero() {
-		details["last_index_write"] = lastScan.UTC().Format(time.RFC3339)
+	if !newestContent.IsZero() {
+		details["newest_indexed_content"] = newestContent.UTC().Format(time.RFC3339)
 	}
+	return coverageFreshnessVerdict(frontier, measured, age, newestContent, predates, env, details), nil
+}
 
+// The three states of the "did the index move under this frontier?"
+// half of the check. Strings rather than a bool because the third one
+// has to be representable in the JSON details.
+const (
+	predatesYes     = "yes"
+	predatesNo      = "no"
+	predatesUnknown = "unknown"
+)
+
+// coverageFreshnessVerdict scores the two independent halves: how old the
+// frontier is, and whether the indexed content moved past it.
+func coverageFreshnessVerdict(
+	frontier store.CoverageFrontier,
+	measured time.Time,
+	age time.Duration,
+	newestContent time.Time,
+	predates string,
+	env *Env,
+	details map[string]any,
+) Result {
 	// Both complaints are reported when both hold: they have different
 	// remedies in the user's head ("re-run the suite" vs "the code moved"),
 	// and collapsing them to the first would hide the sharper one.
 	var complaints []string
-	if predatesIndex {
+	if predates == predatesYes {
 		complaints = append(complaints, fmt.Sprintf(
-			"it was measured %s before the last index write, so it describes code atlas has since re-read",
-			roundDuration(lastScan.Sub(measured))))
+			"it was measured %s before the newest file content in the index, so the index "+
+				"holds code the coverage run never executed",
+			roundDuration(newestContent.Sub(measured))))
 	}
 	if age > env.CoverageMaxAge {
 		complaints = append(complaints, fmt.Sprintf("it is %s old", roundDuration(age)))
@@ -89,14 +132,31 @@ func (c coverageFreshness) Run(ctx context.Context, env *Env) (Result, error) {
 				strings.Join(complaints, "; "),
 			Remediation: "atlas cov sync --framework go-cover --input coverage.out",
 			Details:     details,
-		}, nil
+		}
+	}
+	if predates == predatesUnknown {
+		// The age half passed, but the half this check is named for could
+		// not run at all. Reporting that as "ok" would be the same lie as
+		// reporting an unread file as matching -- so it is n/a, with the
+		// half that DID run stated so the reader knows what was covered.
+		return Result{
+			Severity: SeverityNotApplicable,
+			Finding: fmt.Sprintf(
+				"the coverage frontier (%d run(s)) is %s old, but whether the index moved under "+
+					"it could not be determined: the store records no file hashes to date its "+
+					"indexed content from",
+				len(frontier.Runs), roundDuration(age)),
+			Remediation: "atlas scan --hash-files",
+			Details:     details,
+		}
 	}
 	return Result{
 		Severity: SeverityOK,
-		Finding: fmt.Sprintf("the coverage frontier (%d run(s)) is %s old and postdates the last index write",
+		Finding: fmt.Sprintf(
+			"the coverage frontier (%d run(s)) is %s old and postdates the newest file content in the index",
 			len(frontier.Runs), roundDuration(age)),
 		Details: details,
-	}, nil
+	}
 }
 
 // frontierFinishedAt is when the frontier finished measuring: the latest
@@ -113,17 +173,38 @@ func frontierFinishedAt(f store.CoverageFrontier) time.Time {
 	return newest
 }
 
-// lastIndexWrite is the most recent file_hashes.last_scanned, i.e. when
-// atlas last re-read the tree. Zero when nothing has been scanned.
-func lastIndexWrite(ctx context.Context, env *Env) (time.Time, error) {
+// newestIndexedContent is the mtime of the newest file content atlas
+// holds in its index: max(file_hashes.mtime). Zero when nothing has been
+// hashed.
+//
+// Explicitly NOT max(file_hashes.last_scanned), which is what this used
+// to be and what made the signal useless. store.Ingest refreshes
+// last_scanned for EVERY file on EVERY scan, unchanged ones included --
+// "always, even unchanged files get last_scanned refreshed so the cache
+// TTL stays warm" (packages/store/ingest.go, step 5). So the newest
+// last_scanned moved whenever anyone ran `atlas scan`, and any frontier
+// older than the last scan was accused of describing "code atlas has
+// since re-read" even when that scan re-read byte-identical files. The
+// check fired on essentially every scan, which is how a check gets muted.
+//
+// mtime is the file's own recorded modification time, so it moves only
+// when the CONTENT the index holds moved. A frontier measured after the
+// newest indexed mtime covered every file the index knows about; one
+// measured before it did not. That is the claim the finding makes.
+//
+// The bound is one-sided on purpose. A file whose bytes changed while
+// its mtime did not (a restore from an archive, a deliberate touch
+// backwards) is invisible here -- index.freshness catches that case by
+// re-hashing, and it fails rather than warns, so nothing is lost.
+func newestIndexedContent(ctx context.Context, env *Env) (time.Time, error) {
 	rows, err := env.Store.FileHashes().List(ctx)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("doctor coverage: list file hashes: %w", err)
 	}
 	var newest time.Time
 	for _, r := range rows {
-		if r.LastScanned.After(newest) {
-			newest = r.LastScanned
+		if r.ModTime.After(newest) {
+			newest = r.ModTime
 		}
 	}
 	return newest, nil

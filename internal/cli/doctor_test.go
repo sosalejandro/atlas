@@ -291,6 +291,34 @@ func TestDoctor_StoreThatWillNotOpenStillReports(t *testing.T) {
 	}
 }
 
+// The stated contract is that a diagnostic must not conjure the state it
+// was asked to inspect -- and "the file exists" is not the same thing as
+// "the file is an atlas store". A 0-byte placeholder (an interrupted
+// init, a stray `touch`) passed the old os.Stat guard, went straight to
+// store.Open, and had the embedded migrations written into it by the
+// command asked whether it was initialised.
+func TestDoctor_PlaceholderFileIsNotMigratedIntoAStore(t *testing.T) {
+	f := newDoctorFixture(t)
+	if err := os.WriteFile(f.dbPath, nil, 0o644); err != nil {
+		t.Fatalf("write placeholder: %v", err)
+	}
+
+	stdout, _, err := runDoctorCmd(t, f)
+	if err == nil {
+		t.Errorf("a placeholder that is not a store must exit non-zero; output:\n%s", stdout)
+	}
+	info, statErr := os.Stat(f.dbPath)
+	if statErr != nil {
+		t.Fatalf("stat after doctor: %v", statErr)
+	}
+	if info.Size() != 0 {
+		t.Errorf("doctor migrated the file it was asked to inspect: it is now %d bytes", info.Size())
+	}
+	if !strings.Contains(stdout, "store.schema") {
+		t.Errorf("the schema check must still report on it:\n%s", stdout)
+	}
+}
+
 // A repo that has never been scanned has no state database. doctor must
 // report that and exit non-zero -- and must NOT create the database on
 // the way, or it would report the repo as initialised for the sole

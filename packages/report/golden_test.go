@@ -30,14 +30,14 @@ func goldenComment() report.CommentInput {
 	return report.CommentInput{
 		Summary: []report.SummaryRow{
 			{Label: "Features scored", Value: "18"},
-			{Label: "Worst score", Value: "31.0  (billing.invoice)"},
+			{Label: "Worst score", Value: "12.0  (billing.invoice)"},
 			{Label: "Statements attributed", Value: "4812 / 4930 (97.6%)"},
 		},
 		Delta: &report.Delta{
 			BaseRef: "main",
 			HeadRef: "feat/invoice-pdf",
 			Regressed: []report.ScoreChange{
-				{FeatureID: "billing.invoice", Before: 58, After: 31, Delta: -27},
+				{FeatureID: "billing.invoice", Before: 58, After: 12, Delta: -46},
 			},
 			Improved: []report.ScoreChange{
 				{FeatureID: "auth.login", Before: 71, After: 80, Delta: 9},

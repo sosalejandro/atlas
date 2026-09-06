@@ -11,7 +11,7 @@ from a correct answer. `doctor` is the cheap command whose whole job is
 to tell you your inputs are wrong (issue #88), in the same family as
 `go vet`, `terraform validate` and sonar-scanner's analysis warnings.
 
-Two rules shape the output:
+Three rules shape the output:
 
 1. **Every check is reported, passing ones included.** A doctor that
    prints nothing when healthy teaches you nothing about what it looked
@@ -20,7 +20,17 @@ Two rules shape the output:
 2. **A check that cannot run says `n/a` with the reason — never `ok`.**
    No coverage ingested yet is a real and normal state; reporting healthy
    coverage hygiene for a store with no coverage in it would be exactly
-   the confident-but-empty answer `doctor` exists to catch.
+   the confident-but-empty answer `doctor` exists to catch. The same rule
+   applies to *half* of a check: a file that could not be read, or a
+   sweep whose input never opened, is reported as unexamined rather than
+   folded into a clean count.
+3. **The command never changes what it is inspecting.** `store.Open`
+   applies the embedded migrations to whatever it is handed, so doctor
+   verifies from a read-only handle that the file at the state path is
+   already an atlas store before opening it read-write. A 0-byte
+   placeholder, a database an interrupted `atlas init` left half-made, or
+   an unrelated SQLite file is reported, never migrated: a diagnostic
+   must not conjure the state it was asked to inspect.
 
 ## Usage
 
@@ -63,30 +73,41 @@ sees only the exit code learns nothing; one that sees the report can act.
 | `index.freshness`      | Do the `file_hashes` rows still describe the files on disk?                             | any indexed file changed or disappeared |
 | `coverage.freshness`   | How old is the coverage frontier, and did the index move under it?                      | never (warn only) |
 | `coverage.attribution` | What share of executed statements could not be charged to a symbol?                     | that share ≥ 33% |
-| `feature.linkage`      | Are there features with no symbols, or annotations naming a feature that does not exist? | never (warn only) |
+| `feature.linkage`      | Are there features with no symbols, or *anchored* annotations naming a feature that does not exist? | never (warn only) |
 | `store.schema`         | Applied migration version vs. this binary's, plus golang-migrate's `dirty` flag         | dirty, mismatched, or unreadable |
 
 ### `index.freshness`
 
 The load-bearing one. Re-hashes every file in `file_hashes` and compares
-against disk, reporting three counts:
+against disk, reporting four counts:
 
 - **changed** — the file is still there with different bytes. Everything
   atlas says about it is about content it has not read.
 - **missing** — the file is gone. Its symbols are still in the store,
   still scored, still ranked.
-- **unindexed** — a source file with no `file_hashes` row *and* no
-  indexed symbols.
+- **unreadable** — the file is still there and its bytes could not be
+  read (a permission bit, an I/O error, a path that is no longer a
+  regular file). Nothing was established about it in either direction.
+- **unindexed** — a **Go** file on disk with no `file_hashes` row *and*
+  no indexed symbols.
 
 `changed` and `missing` invalidate answers atlas has already given, so
 they **fail**. `unindexed` only bounds them, so it **warns**.
+`unreadable` also **warns**, and is named in the finding: doctor did not
+prove anything is wrong with those files, only that it could not look —
+but folding them into "all N indexed files match the working tree" would
+report an unknown as a check that passed, which is exactly what this
+command exists to stop other commands doing.
 
-Two deliberate limits on `unindexed`:
+Two deliberate limits on `unindexed`, both of which the finding states in
+so many words:
 
-- It counts `.go` files only. `codeindex` hashes every Go file it walks
-  but hashes a `.ts` / `.py` file only when that file carries an
-  annotation, so a perfectly well-indexed TypeScript file legitimately
-  has no hash row. Counting those would be a wall of non-problems.
+- It counts `.go` files only — the clean sentence says so too, so a
+  reader is never left assuming a `.ts` or `.py` file was examined.
+  `codeindex` hashes every Go file it walks but hashes a `.ts` / `.py`
+  file only when that file carries an annotation, so a perfectly
+  well-indexed TypeScript file legitimately has no hash row. Counting
+  those would be a wall of non-problems.
 - It re-applies the scanner's exclusion rules (a
   `// Code generated ... DO NOT EDIT.` header, a `generated` path
   segment, the `scan.generated` globs from `.atlas.yaml`, `scan.skip_dirs`,
@@ -108,9 +129,28 @@ scores — and warns on either of two independent complaints, reporting
 both when both hold:
 
 - the frontier is older than 7 days;
-- the frontier was measured **before** the newest `file_hashes.last_scanned`,
-  meaning atlas has re-read the tree since the suite ran, so the coverage
-  half and the index half of the picture are about different repos.
+- the frontier was measured **before** the newest `file_hashes.mtime`,
+  meaning the index holds file content the coverage run never executed,
+  so the coverage half and the index half of the picture are about
+  different repos.
+
+The second signal is deliberately **not** `max(file_hashes.last_scanned)`.
+`store.Ingest` refreshes `last_scanned` for every file on every scan,
+unchanged ones included, to keep the cache TTL warm — so keying
+staleness off it made the complaint fire after *any* scan whether or not
+a byte of code had moved. A warning that is almost always wrong is a
+warning people switch off. `mtime` is the file's own modification time as
+recorded at scan, so it moves only when the indexed content moved.
+
+The bound is one-sided: a file whose bytes changed while its mtime did
+not (a restore from an archive, a deliberate backwards `touch`) is
+invisible to this check. `index.freshness` catches that by re-hashing,
+and it *fails* rather than warns, so nothing is lost.
+
+With no `file_hashes` rows at all there is no signal to date the indexed
+content from. That half of the check reports `predates_index: "unknown"`,
+and if the age half is clean the whole check is `n/a` with the reason —
+never a bare `ok` for a question it did not get to ask.
 
 A frontier spanning several runs of one polyglot build is dated by its
 *youngest* member — an old Playwright run inside an otherwise-fresh group
@@ -141,20 +181,47 @@ Two silent drifts between the annotation layer and the symbol layer:
   symbol is deleted; the `features` row does not. A renamed function
   leaves an empty shell that still ranks in `atlas sprint` and still
   scores in `atlas audit` — about nothing.
-- **annotations naming a feature the store does not have.** The ingest
-  materializes a feature only when it can resolve the annotation to a
-  nearby declaration. When it cannot, the annotation row is written and
-  silently produces no feature, so the user sees an annotated function no
-  atlas command knows about.
+- **anchored annotations naming a feature the store does not have.** An
+  annotation that resolves to an indexed symbol is exactly the shape the
+  ingest materializes a feature for, so a missing `features` row means
+  the annotation layer and the feature layer were written by different
+  passes and no longer agree.
+
+**What this check does *not* report, and why.** An annotation that
+resolves to *no* symbol within `LookupAtPosition`'s 30-line window is an
+**intentional orphan**, documented as such in `packages/store/ingest.go`:
+markdown files, package-doc comments and end-of-file markers legitimately
+carry annotations that cannot be anchored, and the ingest would "rather
+have no link than a phantom one". Nothing in the store distinguishes
+those from a real break after the fact, so the check re-asks the ingest's
+own question through the same port with the same window, reports only
+annotations that *did* anchor, and counts the rest as
+`unanchored_annotations` — a number, not a complaint. Before this
+narrowing the check reported the everyday state of any annotated repo as
+a problem.
+
+The narrowing under-reports in one known place: the ingest also
+materializes a test-file annotation by falling back to the corresponding
+impl file, and that fallback lives behind unexported store helpers. Such
+an annotation counts as unanchored here. Under-reporting is the direction
+this check errs in on purpose — a false alarm costs more than a missed
+one, because it is what teaches people to ignore the output.
 
 Ids are extracted with the same rule the ingest uses
 (`annotations.IsDottedFeatureID`), so `#mocked`, `integration` and other
 tags/tiers are not mistaken for missing features. A token the rule cannot
-classify is not reported: the check under-reports rather than inventing a
-missing feature, because a false alarm here costs more than a missed one.
+classify is not reported.
 
 Warn, not fail — both findings make atlas's answers incomplete without
 making the answers it does give wrong.
+
+The annotation half needs doctor's read-only handle on the state
+database. When that handle does not open the sweep does not run, and the
+check says so: `annotation_sweep: "skipped"`, **no** `dangling_annotations`
+key at all (a `0` beside an empty list would read exactly like a sweep
+that ran and found nothing), and — if the features half is clean — a
+verdict of `n/a` rather than `ok`, pointing at the `store.schema` finding
+that carries the reason.
 
 ### `store.schema`
 
@@ -185,8 +252,11 @@ Failure modes:
   newer than the binary's, so the store opens cleanly and this binary
   then reads tables it was never built against.
 - **applied < expected** — pending migrations have not been applied.
-- **applied = 0** — the file carries no migrations; it is not an atlas
-  store.
+- **applied = 0** — the file carries no `schema_migrations` table, or an
+  empty one; it is not an atlas store. This is also the verdict for the
+  0-byte placeholder and the unrelated SQLite file the read-write open is
+  guarded against: the file is *reported* as not-a-store rather than
+  turned into one.
 
 ## Examples
 
@@ -197,12 +267,12 @@ $ atlas doctor
 atlas doctor — /home/me/repo (db: /home/me/repo/.atlas/atlas.db)
 
   [ok]   index.freshness
-        examines: the recorded file index against the files on disk
-        436 indexed files all match the working tree
+        examines: the recorded file index against the files on disk, plus Go files on disk with no index entry
+        436 indexed files all match the working tree, and no unindexed Go file was found under /home/me/repo (the unindexed sweep reads .go only -- see the docs for why)
 
   [ok]   coverage.freshness
         examines: how old the current coverage frontier is, and whether the index moved under it
-        the coverage frontier (1 run(s)) is 2h0m0s old and postdates the last index write
+        the coverage frontier (1 run(s)) is 2h0m0s old and postdates the newest file content in the index
 
   [warn] coverage.attribution
         examines: the share of executed statements the ingest could not charge to a symbol
@@ -210,8 +280,8 @@ atlas doctor — /home/me/repo (db: /home/me/repo/.atlas/atlas.db)
         fix: atlas cov status --gaps
 
   [warn] feature.linkage
-        examines: features with no linked symbols, and annotations naming a feature the store does not have
-        13 annotations name a feature the store does not have
+        examines: features with no linked symbols, and annotations that resolve to an indexed symbol yet name a feature the store does not have
+        13 annotations resolve to an indexed symbol but name a feature the store does not have
         fix: atlas scan
 
   [ok]   store.schema
@@ -232,7 +302,7 @@ Edit one indexed file without re-scanning:
 ```
 $ atlas doctor
   [fail] index.freshness
-        examines: the recorded file index against the files on disk
+        examines: the recorded file index against the files on disk, plus Go files on disk with no index entry
         the index is stale: of 436 indexed files, 1 changed on disk and 0 no longer exist
         fix: atlas scan
 ...
@@ -266,7 +336,7 @@ the same state print identically:
 ```
 $ atlas doctor -v
   [fail] index.freshness
-        examines: the recorded file index against the files on disk
+        examines: the recorded file index against the files on disk, plus Go files on disk with no index entry
         the index is stale: of 436 indexed files, 1 changed on disk and 0 no longer exist
         fix: atlas scan
         changed: 1
@@ -299,7 +369,7 @@ would only bury the number that matters.
     "checks": [
       {
         "name": "index.freshness",
-        "examines": "the recorded file index against the files on disk",
+        "examines": "the recorded file index against the files on disk, plus Go files on disk with no index entry",
         "severity": "fail",
         "finding": "the index is stale: of 436 indexed files, 1 changed on disk and 0 no longer exist",
         "remediation": "atlas scan",
@@ -348,7 +418,17 @@ Field notes for consumers:
   to do (i.e. on `ok`).
 - `details` keys are per-check. Sample path lists are always arrays,
   never `null`, and are capped at 10 entries; the count keys beside them
-  (`changed`, `missing`, `unindexed`, …) are exact.
+  (`changed`, `missing`, `unreadable`, `unindexed`, …) are exact.
+- **An absent key means "not examined", and is never substituted with a
+  zero.** `unreadable_files` appears only when something was unreadable;
+  `feature.linkage` omits `dangling_annotations` / `dangling_refs` /
+  `unanchored_annotations` entirely when `annotation_sweep` is
+  `"skipped"`; `coverage.freshness` omits `newest_indexed_content` when
+  the store records no file hashes. Consumers should treat a missing key
+  as unknown rather than defaulting it.
+- `coverage.freshness.predates_index` is the string `"yes"`, `"no"` or
+  `"unknown"`, not a boolean — the third state has to be representable,
+  or a question doctor never asked reads as one it answered "no".
 - `counts` sums to `len(checks)`; `worst` is the highest severity
   present, ranking `n/a` below `ok`.
 

@@ -75,21 +75,79 @@ func TestFeatureLinkage_FeatureWithoutSymbols_Warns(t *testing.T) {
 	}
 }
 
-// An annotation naming a feature the store does not have means its
-// symbol could not be resolved at ingest: the annotation is pointing at
-// code that moved or vanished.
-func TestFeatureLinkage_AnnotationForUnknownFeature_Warns(t *testing.T) {
+// An annotation that DOES resolve to an indexed symbol and still names a
+// feature with no row is a genuine break: the ingest materializes a
+// feature for exactly this shape, so its absence means the annotation
+// layer and the feature layer were written by different passes.
+func TestFeatureLinkage_AnchoredAnnotationForUnknownFeature_Warns(t *testing.T) {
 	f := newFixture(t)
 	id := f.insertSymbol(t, "pkg.A", "pkg/a.go", 3)
 	f.upsertFeature(t, "auth.login")
 	f.linkFeature(t, "auth.login", id)
-	f.upsertAnnotation(t, "pkg/ghost.go", 9, "auth.logout")
+	// Line 2, directly above the symbol on line 3: the doc-comment shape
+	// the ingest resolves.
+	f.upsertAnnotation(t, "pkg/a.go", 2, "auth.logout")
 
 	res := runCheck(t, featureLinkage{}, f.env(t))
 
 	assertSeverity(t, res, SeverityWarn)
 	if got := res.Details["dangling_annotations"]; got != 1 {
 		t.Errorf("dangling_annotations = %v, want 1", got)
+	}
+}
+
+// The defect this check shipped with: packages/store/ingest.go documents
+// an annotation that resolves to no symbol within the LookupAtPosition
+// window as an INTENTIONAL orphan -- markdown, package docs,
+// end-of-file markers -- that materializes no feature by design. The
+// check could not tell those from a real break, so it reported the
+// everyday state of any annotated repo as a problem.
+//
+// The narrowed check re-asks the ingest's own question and stays quiet.
+func TestFeatureLinkage_UnanchoredAnnotationIsNotReported(t *testing.T) {
+	f := newFixture(t)
+	id := f.insertSymbol(t, "pkg.A", "pkg/a.go", 3)
+	f.upsertFeature(t, "auth.login")
+	f.linkFeature(t, "auth.login", id)
+	// No symbol anywhere near this line, in a file with no symbols at
+	// all: the ingest skipped it silently and wrote no feature row.
+	f.upsertAnnotation(t, "docs/intro.md", 9, "auth.logout")
+
+	res := runCheck(t, featureLinkage{}, f.env(t))
+
+	assertSeverity(t, res, SeverityOK)
+	if got := res.Details["dangling_annotations"]; got != 0 {
+		t.Errorf("dangling_annotations = %v, want 0 -- an orphan by design is not a dangle", got)
+	}
+	if got := res.Details["unanchored_annotations"]; got != 1 {
+		t.Errorf("unanchored_annotations = %v, want 1 (counted, not complained about)", got)
+	}
+}
+
+// When the read-only probe does not open, the annotation half of this
+// check never runs. It used to return nil, which Details rendered as
+// `dangling_annotations: 0` beside an empty list -- a half that did not
+// happen, printed exactly like a half that happened and found nothing.
+func TestFeatureLinkage_SkippedSweepIsReportedAsSkippedNotZero(t *testing.T) {
+	f := newFixture(t)
+	id := f.insertSymbol(t, "pkg.A", "pkg/a.go", 3)
+	f.upsertFeature(t, "auth.login")
+	f.linkFeature(t, "auth.login", id)
+
+	env := f.env(t)
+	env.closeProbe() // the state the schema check reports separately
+
+	res := runCheck(t, featureLinkage{}, env)
+
+	assertSeverity(t, res, SeverityNotApplicable)
+	if got, ok := res.Details["dangling_annotations"]; ok {
+		t.Errorf("dangling_annotations = %v, want the key absent: the sweep never ran", got)
+	}
+	if got := res.Details["annotation_sweep"]; got != "skipped" {
+		t.Errorf("annotation_sweep = %v, want \"skipped\"", got)
+	}
+	if res.Remediation == "" {
+		t.Error("a check that could not run must still say what to do about it")
 	}
 }
 
