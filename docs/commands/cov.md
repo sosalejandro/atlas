@@ -128,6 +128,46 @@ full `gaps` list (the terminal view caps at 25 rows). Treat a large
 `no-indexed-symbol` bucket as a **scan** problem, not a test problem: the
 tests ran, atlas just doesn't know what they touched.
 
+#### Example: per-test evidence (what each test actually ran)
+
+```bash
+# One profile per test, named <qualified test symbol>.out
+$ ls .atlas/per-test/
+billing.TestCheckout_Idempotent.out   measurements.TestLogEntry.out   ...
+
+$ atlas cov sync --framework go-cover --per-test .atlas/per-test
+per-test ingest complete  run_id=6 tests=1122 rows=214883 symbols_executed=6912
+```
+
+This writes the same union run as a whole-run ingest **plus** a row per
+(test, symbol executed) pair. That evidence changes how a feature's
+implementation surface is derived: instead of walking `call` edges out of the
+annotated test and hoping the scanner resolved them, atlas takes the union of
+what the feature's own tests actually executed, minus the symbols nearly every
+test executes (the logger, the DI container, the middleware chain).
+
+That derivation is correct through interface dispatch, DI containers,
+reflection and string-routed handlers — none of which a static walk can follow.
+`atlas audit --json` reports which derivation produced each score:
+
+```json
+{ "feature_id": "measurements.log-entry", "score": 78.4, "surface_source": "dynamic" }
+```
+
+| `surface_source` | Meaning |
+| ---------------- | -------- |
+| `dynamic`        | union of what this feature's tests executed (strongest) |
+| `static`         | call-edge walk from the annotated test symbols |
+| `package-anchor` | production symbols co-located with the feature's test package |
+| `direct-links`   | the annotated symbols themselves, with the gotest pass/fail model |
+
+**Collecting per-test profiles (Go).** Go writes coverage counters at process
+exit, so per-test granularity needs the counters cleared and dumped around each
+test — `runtime/coverage.ClearCounters()` and `WriteCountersDir()` (Go 1.20+)
+from a `TestMain` shim, or a `-run` pass per test for small suites. Python's
+`coverage.py` has this natively (`dynamic_context = test_function`); for
+JS/TS the granularity is per test file.
+
 ### `status`
 
 ```

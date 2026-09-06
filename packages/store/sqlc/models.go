@@ -108,3 +108,11 @@ type Symbol struct {
 	CreatedAt      time.Time `db:"created_at" json:"created_at"`
 	PatternMatches *string   `db:"pattern_matches" json:"pattern_matches"`
 }
+
+type TestCoverage struct {
+	RunID        int64 `db:"run_id" json:"run_id"`
+	TestSymbolID int64 `db:"test_symbol_id" json:"test_symbol_id"`
+	SymbolID     int64 `db:"symbol_id" json:"symbol_id"`
+	CoveredStmts int64 `db:"covered_stmts" json:"covered_stmts"`
+	TotalStmts   int64 `db:"total_stmts" json:"total_stmts"`
+}

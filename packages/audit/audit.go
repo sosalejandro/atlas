@@ -25,6 +25,13 @@ type FeatureHealth struct {
 	Components map[string]float64 `json:"components"`
 	Reasons    []string           `json:"reasons,omitempty"`
 	SampledAt  time.Time          `json:"sampled_at"`
+
+	// SurfaceSource names how the feature's implementation surface was
+	// derived: dynamic (per-test execution evidence), static (call-edge
+	// walk), package-anchor, or direct-links. A coverage number whose
+	// provenance is invisible is how issue #84 survived three releases, so
+	// every score carries it.
+	SurfaceSource string `json:"surface_source,omitempty"`
 }
 
 // Signal names — closed enum used as keys in FeatureHealth.Components.
@@ -89,7 +96,27 @@ type Options struct {
 	//
 	// Default: 200. Set to 0 to disable the fallback entirely.
 	MaxPackageAnchorSymbols int
+
+	// UbiquityCutoff is the fraction of the test suite above which a symbol
+	// counts as shared runtime rather than any feature's implementation, used
+	// by the dynamic surface derivation (issue #104). A symbol executed by
+	// more than this share of tests is the logger, the DI container or the
+	// middleware chain - real code, but not evidence of a relationship to the
+	// feature under test.
+	//
+	// Default: 0.5. Ignored for suites smaller than a handful of tests, where
+	// the ratio carries no signal.
+	UbiquityCutoff float64
 }
+
+// defaultUbiquityCutoff and minTestsForUbiquityCutoff govern the dynamic
+// surface's shared-runtime filter. The floor exists because in a five-test
+// suite "executed by more than half the tests" describes a shared domain
+// service, not framework plumbing.
+const (
+	defaultUbiquityCutoff     = 0.5
+	minTestsForUbiquityCutoff = 8
+)
 
 // defaultWeights returns the spec-default signal weights.
 func defaultWeights() map[string]float64 {
@@ -150,6 +177,12 @@ type auditImpl struct {
 	//
 	// nil = not yet populated.
 	symbolCache map[int64]store.SymbolRow
+
+	// lastSurfaceSource records how the most recent coverage signal derived
+	// its impl surface, so scoreFromFeature can report it. Scoring is
+	// sequential per feature, which is what makes this safe; a parallel
+	// scorer would carry it through the signal result instead.
+	lastSurfaceSource string
 
 	// callAdj lazily holds the whole `call`-edge adjacency (from→[]to),
 	// loaded once for per-feature impl-surface BFS. nil = not yet loaded;
