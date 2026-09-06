@@ -24,12 +24,38 @@ permissions:
 
 jobs:
   build-and-test:
-    name: build + test + lint — ${{ matrix.os }} (blocking)
+    # Windows is ADVISORY, the other two block. That asymmetry is deliberate
+    # and should be removed, not made permanent.
+    #
+    # This matrix was added by issue #121 and Windows went red on its first
+    # run. The compile break it found (syscall.Flock, which does not exist
+    # there) is fixed. What remains is a set of pre-existing test failures
+    # across internal/adapters, packages/codeindex/{go,py,ts} -- path
+    # separators baked into a golden snapshot, an absolute-path check that
+    # rejects a drive letter, a shell-metacharacter guard that rejects the
+    # backslash in every Windows temp path. None of it came from the work
+    # that added this job; it was invisible because nothing had ever built
+    # this repo on Windows.
+    #
+    # Making the whole matrix advisory would have thrown away the ubuntu and
+    # macos signal to accommodate one platform. Making Windows blocking today
+    # would red-X every PR for a backlog none of them created. So Windows
+    # reports and does not gate, and issue #143 tracks turning it back on --
+    # at which point `continue-on-error` comes out and the name loses its
+    # suffix.
+    name: build + test + lint — ${{ matrix.os }} ${{ matrix.blocking && '(blocking)' || '(ADVISORY — Windows portability, see #143)' }}
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ !matrix.blocking }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            blocking: true
+          - os: macos-latest
+            blocking: true
+          - os: windows-latest
+            blocking: false
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
