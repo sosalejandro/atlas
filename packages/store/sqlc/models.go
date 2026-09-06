@@ -55,6 +55,7 @@ type CoverageRun struct {
 	StmtsAttributed   int64     `db:"stmts_attributed" json:"stmts_attributed"`
 	StmtsUnattributed int64     `db:"stmts_unattributed" json:"stmts_unattributed"`
 	GapsTruncated     int64     `db:"gaps_truncated" json:"gaps_truncated"`
+	RunGroup          *string   `db:"run_group" json:"run_group"`
 }
 
 type CoverageRunGap struct {

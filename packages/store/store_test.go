@@ -40,8 +40,9 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	// 8 by issue #16 (edges.edge_meta column for per-edge scope tags),
 	// 9 by Tier B (coverage_results.covered_stmts / total_stmts columns), and
 	// 10 by issue #104 (test_coverage: per-test execution evidence), and
-	// 11 by issue #100 (coverage_runs attribution counters + coverage_run_gaps).
-	const expected = 11
+	// 11 by issue #100 (coverage_runs attribution counters + coverage_run_gaps),
+	// and 12 by issue #86 (coverage_runs.run_group for named coverage frontiers).
+	const expected = 12
 	if v != expected {
 		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}

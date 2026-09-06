@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/shared"
@@ -59,6 +60,12 @@ type CoverageRun struct {
 	// written by CoverageGaps.Insert, not by the run insert, and is ignored
 	// on input.
 	GapsTruncated int `json:"gaps_truncated"`
+
+	// RunGroup ties several syncs into one logical measurement (schema 0012,
+	// issue #86). Nil is an ungrouped run, which the frontier reads as a
+	// group of one -- exactly the pre-#86 behaviour, so existing stores are
+	// unaffected.
+	RunGroup *string `json:"run_group,omitempty"`
 }
 
 // CoverageResult is one row of the `coverage_results` table (§5.9).
@@ -86,6 +93,47 @@ type CoverageResult struct {
 	TotalStmts   int `json:"total_stmts"`
 }
 
+// CoverageFrontier is the set of runs that together describe the project's
+// current coverage state — what the audit scores against.
+//
+// A polyglot repo measures itself with several tools per CI build
+// (`go test -coverprofile`, then istanbul, then Playwright), and each one
+// arrives as its own coverage_runs row. Reading only the newest row makes
+// the last sync erase the earlier ones: every Go capability scores as if the
+// Go suite never ran (issue #86). Runs sharing a RunGroup are therefore read
+// as one pool of results.
+//
+// Group is nil for the single-run frontier — either the store predates run
+// groups, or the newest run was ingested without one. That case reproduces
+// the pre-#86 behaviour exactly, which is what keeps existing stores stable.
+type CoverageFrontier struct {
+	Group *string       `json:"group,omitempty"`
+	Runs  []CoverageRun `json:"runs"`
+	// Newest is the id of the run the frontier was resolved FROM — the most
+	// recently finished run in the store. It is carried explicitly rather
+	// than recomputed from Runs because two runs of one CI build routinely
+	// share a finished_at to the second, and a caller that needs "the run
+	// that anchors this frontier" must get the same answer the resolution
+	// used, not whichever of a tie sorts first.
+	Newest int64 `json:"newest_run_id"`
+}
+
+// Empty reports whether the frontier covers no runs at all — the "no
+// coverage has ever been ingested" case.
+func (f CoverageFrontier) Empty() bool { return len(f.Runs) == 0 }
+
+// RunIDs returns the frontier's run ids in ascending order. Sorted rather
+// than in Runs order so callers that key caches or emit diagnostics off this
+// slice are not exposed to query ordering.
+func (f CoverageFrontier) RunIDs() []int64 {
+	ids := make([]int64, 0, len(f.Runs))
+	for _, r := range f.Runs {
+		ids = append(ids, r.ID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
 // Coverage is the narrow port for the `coverage_runs` + `coverage_results`
 // tables.
 //
@@ -107,6 +155,15 @@ type Coverage interface {
 	// single transaction and returns the new run's surrogate id. The
 	// `run.ID` field on input is ignored; the returned id is authoritative.
 	InsertRunWithResults(ctx context.Context, run CoverageRun, results []CoverageResult) (int64, error)
+
+	// LatestFrontier returns the runs that describe the project's current
+	// coverage state: the newest run's whole group, or that run alone when it
+	// carries no group. This is what the audit scores over, so that a second
+	// framework's sync adds to the picture instead of replacing it (#86).
+	LatestFrontier(ctx context.Context) (CoverageFrontier, error)
+
+	// ListFrontierResults reads a frontier's results as one pool.
+	ListFrontierResults(ctx context.Context, f CoverageFrontier) ([]CoverageResult, error)
 }
 
 var _ Coverage = (*coverageStore)(nil)
@@ -134,6 +191,8 @@ func fromSQLCCoverageRun(r sqlc.CoverageRun) CoverageRun {
 		StmtsAttributed:   int(r.StmtsAttributed),
 		StmtsUnattributed: int(r.StmtsUnattributed),
 		GapsTruncated:     int(r.GapsTruncated),
+
+		RunGroup: r.RunGroup,
 	}
 }
 
@@ -158,6 +217,11 @@ func insertCoverageRunQ(ctx context.Context, q *sqlc.Queries, r *CoverageRun) (i
 	if r.SummaryJSON == "" {
 		r.SummaryJSON = "{}"
 	}
+	// A blank group is no group: persisting "" would open a group that every
+	// other caller who passed a blank key silently joins.
+	if r.RunGroup != nil && *r.RunGroup == "" {
+		r.RunGroup = nil
+	}
 
 	res, err := q.InsertCoverageRun(ctx, sqlc.InsertCoverageRunParams{
 		Framework:   string(r.Framework),
@@ -171,6 +235,8 @@ func insertCoverageRunQ(ctx context.Context, q *sqlc.Queries, r *CoverageRun) (i
 		FilesUnmatched:    int64(r.FilesUnmatched),
 		StmtsAttributed:   int64(r.StmtsAttributed),
 		StmtsUnattributed: int64(r.StmtsUnattributed),
+
+		RunGroup: r.RunGroup,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("coverage InsertRun: %w", err)
@@ -366,4 +432,91 @@ func (c *coverageStore) ListResults(ctx context.Context, runID int64) ([]Coverag
 		return nil, fmt.Errorf("coverage ListResults rows: %w", err)
 	}
 	return out, nil
+}
+
+// LatestFrontier resolves the current coverage frontier from the newest run
+// outward: the newest run by finished_at decides which frontier is current,
+// and if it carries a group the frontier widens to every run in that group.
+//
+// Deciding from the newest run (rather than, say, the group with the newest
+// member) keeps mixed stores predictable: a plain ungrouped sync after a
+// grouped one is its own frontier and supersedes the group, exactly as an
+// ungrouped sync superseded the previous run before #86.
+func (c *coverageStore) LatestFrontier(ctx context.Context) (CoverageFrontier, error) {
+	newest, err := c.q.NewestCoverageRun(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CoverageFrontier{}, nil
+	}
+	if err != nil {
+		return CoverageFrontier{}, fmt.Errorf("coverage LatestFrontier: newest run: %w", err)
+	}
+
+	run := fromSQLCCoverageRun(newest)
+	if run.RunGroup == nil {
+		return CoverageFrontier{Runs: []CoverageRun{run}, Newest: run.ID}, nil
+	}
+
+	rows, err := c.q.ListCoverageRunsByGroup(ctx, run.RunGroup)
+	if err != nil {
+		return CoverageFrontier{}, fmt.Errorf("coverage LatestFrontier: group %q: %w", *run.RunGroup, err)
+	}
+	runs := make([]CoverageRun, 0, len(rows))
+	for _, r := range rows {
+		runs = append(runs, fromSQLCCoverageRun(r))
+	}
+	return CoverageFrontier{Group: run.RunGroup, Runs: runs, Newest: run.ID}, nil
+}
+
+// ListFrontierResults reads the frontier's results as one pool.
+//
+// The grouped case goes through a single join rather than a query per run:
+// the audit calls this once per feature, so an extra round trip per
+// framework would multiply out across a large repo.
+func (c *coverageStore) ListFrontierResults(ctx context.Context, f CoverageFrontier) ([]CoverageResult, error) {
+	if f.Empty() {
+		return []CoverageResult{}, nil
+	}
+	if f.Group != nil && *f.Group != "" {
+		rows, err := c.q.ListCoverageResultsByGroup(ctx, f.Group)
+		if err != nil {
+			return nil, fmt.Errorf("coverage ListFrontierResults group %q: %w", *f.Group, err)
+		}
+		out := make([]CoverageResult, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, fromSQLCCoverageResultByGroup(r))
+		}
+		return out, nil
+	}
+
+	out := []CoverageResult{}
+	for _, id := range f.RunIDs() {
+		rows, err := c.ListResults(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+	}
+	return out, nil
+}
+
+// fromSQLCCoverageResultByGroup converts a frontier row. The group query
+// projects the table's own column order, so sqlc hands back the model type
+// rather than a per-query struct.
+func fromSQLCCoverageResultByGroup(r sqlc.CoverageResult) CoverageResult {
+	var fid *shared.FeatureID
+	if r.FeatureID != nil {
+		f := shared.FeatureID(*r.FeatureID)
+		fid = &f
+	}
+	return CoverageResult{
+		ID:           r.ID,
+		RunID:        r.RunID,
+		SymbolID:     r.SymbolID,
+		FeatureID:    fid,
+		Status:       CoverageStatus(r.Status),
+		DurationMS:   r.DurationMs,
+		Message:      r.Message,
+		CoveredStmts: int(r.CoveredStmts),
+		TotalStmts:   int(r.TotalStmts),
+	}
 }
