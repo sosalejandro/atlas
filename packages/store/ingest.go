@@ -31,7 +31,24 @@ type IngestStats struct {
 	SymbolsPruned                    int           `json:"symbols_pruned"`
 	FilesScanned                     int           `json:"files_scanned"`
 	FilesSkipped                     int           `json:"files_skipped"`
+	SkippedFilesRecorded             int           `json:"skipped_files_recorded"`
 	Duration                         time.Duration `json:"duration"`
+}
+
+// IngestOptions carries the scan-time facts the index itself does not
+// record. Everything here is optional: an ingest without it writes the same
+// rows, just with less to say about them.
+type IngestOptions struct {
+	// GeneratedGlobs is `scan.generated` exactly as the scan that produced
+	// the index ran with, in configured order.
+	//
+	// It exists so the exclusion ledger can name WHICH glob claimed a file.
+	// codeindex.Index reports the rule ("generated-glob") but not the
+	// pattern, and the pattern is the actionable half — it is the line of
+	// `.atlas.yaml` an operator edits when a hand-written file disappeared
+	// from the index. Callers that leave it empty still get the rule; they
+	// just get no pattern with it.
+	GeneratedGlobs []string
 }
 
 // Ingest writes an entire codeindex.Index into the store as one transaction.
@@ -45,6 +62,10 @@ type IngestStats struct {
 //   - annotations has a UNIQUE on (file_path, line, kind); INSERT ... ON
 //     CONFLICT DO UPDATE refreshes value + parsed_at.
 //   - file_hashes is upserted on file_path.
+//   - skipped_files is REPLACED wholesale with idx.SkippedFiles. It is the
+//     one table here that is not additive, because it records the current
+//     exclusion set rather than an accumulating history: a file that no
+//     longer matches any rule has to leave it.
 //
 // Re-Ingesting the same Index produces zero net row changes for symbols
 // and edges; annotation rows get refreshed parsed_at; file_hashes get
@@ -60,9 +81,16 @@ type IngestStats struct {
 // transactional batch) — only the unchanged-file detection still reads via
 // the FileHashes port, which is fine because that read happens before the
 // tx opens.
-func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats, error) {
+// opts is variadic so the existing two-argument call sites keep compiling —
+// they lose nothing but the glob names on the exclusion ledger. Pass at most
+// one; anything past the first is a caller bug and is ignored.
+func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index, opts ...IngestOptions) (*IngestStats, error) {
 	if idx == nil {
 		return nil, fmt.Errorf("store ingest: nil index")
+	}
+	var opt IngestOptions
+	if len(opts) > 0 {
+		opt = opts[0]
 	}
 	start := time.Now()
 	stats := &IngestStats{}
@@ -428,6 +456,19 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index) (*IngestStats,
 		}
 		stats.FileHashesUpserted++
 	}
+
+	// 6. Replace the exclusion ledger with what THIS scan declined to index.
+	//
+	// Replaced, not merged: a file that stopped matching a rule has to
+	// vanish from it. Inside the same transaction as everything above, so
+	// the ledger and the index it explains commit together — a ledger that
+	// survived a failed ingest would describe a scan that never happened.
+	recorded, err := replaceSkippedLedgerTx(ctx, qtx,
+		skippedLedgerRows(idx.SkippedFiles, opt.GeneratedGlobs, start.UTC()))
+	if err != nil {
+		return nil, fmt.Errorf("store ingest skipped ledger: %w", err)
+	}
+	stats.SkippedFilesRecorded = recorded
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("store ingest: commit: %w", err)

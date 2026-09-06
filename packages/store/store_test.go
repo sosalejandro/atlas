@@ -44,7 +44,7 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	// and 12 by issue #86 (coverage_runs.run_group for named coverage frontiers),
 	// and 13 by issue #92 (coverage_history + coverage_history_features: the
 	// per-commit measurement series behind `atlas trend`).
-	const expected = 13
+	const expected = 16
 	if v != expected {
 		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}

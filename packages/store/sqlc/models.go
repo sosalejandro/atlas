@@ -24,6 +24,54 @@ type AuditSnapshotRun struct {
 	ScoreJson  string    `db:"score_json" json:"score_json"`
 }
 
+type CfgBlock struct {
+	SymbolID   int64  `db:"symbol_id" json:"symbol_id"`
+	BlockIndex int64  `db:"block_index" json:"block_index"`
+	Kind       string `db:"kind" json:"kind"`
+	StartLine  int64  `db:"start_line" json:"start_line"`
+	EndLine    int64  `db:"end_line" json:"end_line"`
+}
+
+type CfgDecisionCoverage struct {
+	SymbolID          int64     `db:"symbol_id" json:"symbol_id"`
+	OutcomesTotal     int64     `db:"outcomes_total" json:"outcomes_total"`
+	OutcomesDecidable int64     `db:"outcomes_decidable" json:"outcomes_decidable"`
+	OutcomesTaken     int64     `db:"outcomes_taken" json:"outcomes_taken"`
+	Source            string    `db:"source" json:"source"`
+	MeasuredAt        time.Time `db:"measured_at" json:"measured_at"`
+}
+
+type CfgEdge struct {
+	SymbolID  int64  `db:"symbol_id" json:"symbol_id"`
+	EdgeIndex int64  `db:"edge_index" json:"edge_index"`
+	FromBlock int64  `db:"from_block" json:"from_block"`
+	ToBlock   int64  `db:"to_block" json:"to_block"`
+	Kind      string `db:"kind" json:"kind"`
+	Condition string `db:"condition" json:"condition"`
+}
+
+type CfgFinding struct {
+	SymbolID     int64  `db:"symbol_id" json:"symbol_id"`
+	FindingIndex int64  `db:"finding_index" json:"finding_index"`
+	Kind         string `db:"kind" json:"kind"`
+	Confidence   string `db:"confidence" json:"confidence"`
+	Line         int64  `db:"line" json:"line"`
+	RelatedLine  int64  `db:"related_line" json:"related_line"`
+	Detail       string `db:"detail" json:"detail"`
+}
+
+type CfgSymbol struct {
+	SymbolID              int64     `db:"symbol_id" json:"symbol_id"`
+	Complexity            int64     `db:"complexity" json:"complexity"`
+	Decisions             int64     `db:"decisions" json:"decisions"`
+	BranchArms            int64     `db:"branch_arms" json:"branch_arms"`
+	Conditions            int64     `db:"conditions" json:"conditions"`
+	ConditionsIndependent int64     `db:"conditions_independent" json:"conditions_independent"`
+	Defers                int64     `db:"defers" json:"defers"`
+	UnreachableBlocks     int64     `db:"unreachable_blocks" json:"unreachable_blocks"`
+	BuiltAt               time.Time `db:"built_at" json:"built_at"`
+}
+
 type Config struct {
 	Key       string    `db:"key" json:"key"`
 	Value     string    `db:"value" json:"value"`
@@ -117,6 +165,13 @@ type FileHash struct {
 	LastScanned time.Time `db:"last_scanned" json:"last_scanned"`
 }
 
+type SkippedFile struct {
+	FilePath  string    `db:"file_path" json:"file_path"`
+	Rule      string    `db:"rule" json:"rule"`
+	Detail    *string   `db:"detail" json:"detail"`
+	ScannedAt time.Time `db:"scanned_at" json:"scanned_at"`
+}
+
 type Snapshot struct {
 	ID         int64     `db:"id" json:"id"`
 	GitRef     string    `db:"git_ref" json:"git_ref"`
@@ -124,6 +179,65 @@ type Snapshot struct {
 	IndexJson  string    `db:"index_json" json:"index_json"`
 	AuditJson  *string   `db:"audit_json" json:"audit_json"`
 	Notes      *string   `db:"notes" json:"notes"`
+}
+
+type SqlIndex struct {
+	TableName string `db:"table_name" json:"table_name"`
+	Name      string `db:"name" json:"name"`
+	Columns   string `db:"columns" json:"columns"`
+	IsUnique  int64  `db:"is_unique" json:"is_unique"`
+	Predicate string `db:"predicate" json:"predicate"`
+	Origin    string `db:"origin" json:"origin"`
+	FilePath  string `db:"file_path" json:"file_path"`
+	Line      int64  `db:"line" json:"line"`
+}
+
+type SqlOperation struct {
+	ID               int64     `db:"id" json:"id"`
+	Ref              string    `db:"ref" json:"ref"`
+	Source           string    `db:"source" json:"source"`
+	Name             string    `db:"name" json:"name"`
+	FilePath         string    `db:"file_path" json:"file_path"`
+	Line             int64     `db:"line" json:"line"`
+	SymbolID         *int64    `db:"symbol_id" json:"symbol_id"`
+	SymbolName       string    `db:"symbol_name" json:"symbol_name"`
+	Kind             string    `db:"kind" json:"kind"`
+	Resolved         int64     `db:"resolved" json:"resolved"`
+	UnresolvedReason string    `db:"unresolved_reason" json:"unresolved_reason"`
+	SqlText          string    `db:"sql_text" json:"sql_text"`
+	RowScan          string    `db:"row_scan" json:"row_scan"`
+	ParamCount       int64     `db:"param_count" json:"param_count"`
+	Interpolation    string    `db:"interpolation" json:"interpolation"`
+	CallerData       int64     `db:"caller_data" json:"caller_data"`
+	HasLimit         int64     `db:"has_limit" json:"has_limit"`
+	HasOffset        int64     `db:"has_offset" json:"has_offset"`
+	HasOrderBy       int64     `db:"has_order_by" json:"has_order_by"`
+	Keyset           int64     `db:"keyset" json:"keyset"`
+	SelectStar       int64     `db:"select_star" json:"select_star"`
+	OffsetBound      string    `db:"offset_bound" json:"offset_bound"`
+	Suppressions     string    `db:"suppressions" json:"suppressions"`
+	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+}
+
+type SqlOperationPredicate struct {
+	OperationID int64  `db:"operation_id" json:"operation_id"`
+	Clause      string `db:"clause" json:"clause"`
+	TableName   string `db:"table_name" json:"table_name"`
+	ColumnName  string `db:"column_name" json:"column_name"`
+	Operator    string `db:"operator" json:"operator"`
+	Bound       int64  `db:"bound" json:"bound"`
+}
+
+type SqlOperationTable struct {
+	OperationID int64  `db:"operation_id" json:"operation_id"`
+	TableName   string `db:"table_name" json:"table_name"`
+	Access      string `db:"access" json:"access"`
+}
+
+type SqlTable struct {
+	Name     string `db:"name" json:"name"`
+	FilePath string `db:"file_path" json:"file_path"`
+	Line     int64  `db:"line" json:"line"`
 }
 
 type Symbol struct {
