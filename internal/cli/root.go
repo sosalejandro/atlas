@@ -97,6 +97,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newDiagnoseCmd())
 	root.AddCommand(newCodebaseCmd())
 	root.AddCommand(newMigrateAnnotationsCmd())
+	registerCovShimCmds(root) // `cov shim` + `cov run` — see cov_shim.go.
 
 	return root
 }
