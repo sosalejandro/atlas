@@ -1,0 +1,274 @@
+name: release (stable channel)
+
+# Cuts the stable channel: a signed, attested, reproducible release for
+# every vX.Y.Z tag.
+#
+# What a consumer gets, and why each piece is here:
+#
+#   six binaries      cross-compiled from this one Linux runner, because
+#                     modernc.org/sqlite is pure Go and CGO_ENABLED=0
+#   SHA256SUMS        one manifest, so one signature covers all six
+#   .cosign.bundle    a keyless Sigstore signature over that manifest. No
+#                     private key exists anywhere: the signing identity IS
+#                     this workflow file at this tag, asserted by GitHub's
+#                     OIDC token and recorded in the public transparency
+#                     log. There is no key-management story to get wrong
+#                     because there is no key.
+#   SBOM              SPDX, so a consumer can answer "does atlas ship the
+#                     thing that was just CVE'd" without unpacking it
+#   provenance        SLSA attestation binding each artifact to this
+#                     workflow, this commit and this run
+#
+# docs/install.md carries the verification commands. Publishing signatures
+# nobody is told how to check is theatre.
+
+on:
+  push:
+    tags: ['v*']
+  # Lets a maintainer re-run the pipeline for an existing tag without
+  # deleting and re-pushing it — for instance after a transient failure in
+  # the signing step. The build is reproducible, so a re-run produces the
+  # same bytes.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)build and publish, e.g. v0.14.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: build, sign and publish (blocking)
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    permissions:
+      contents: write # create the GitHub Release and upload assets
+      id-token: write # OIDC token for cosign keyless signing + provenance
+      attestations: write # store the SLSA provenance attestation
+    steps:
+      - name: Resolve the tag being released
+        id: tag
+        env:
+          # Route the ref through env rather than interpolating it into the
+          # shell. github.ref_name is repository-controlled here (only a
+          # tag push or a maintainer's workflow_dispatch reaches this job),
+          # but the standing rule in this repo is that no
+          # Actions-context string is expanded by a shell, and the shape
+          # check below is what makes the rest of the job safe to build on.
+          PUSHED_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-$PUSHED_TAG}"
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$'; then
+            echo "not a release tag: $TAG" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          # Full history: the build derives SOURCE_DATE_EPOCH from the
+          # tagged commit's committer date, which is what makes a third
+          # party's rebuild land on the same bytes.
+          fetch-depth: 0
+
+      - name: Read the pinned Go toolchain
+        id: toolchain
+        run: echo "version=$(tr -d '[:space:]' < .github/scripts/toolchain.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+          cache: true
+
+      - name: Version, manifest, changelog and tag must agree
+        # Blocking here, unlike in CI. A release whose binary reports a
+        # different version from its tag is unusable evidence: nobody can
+        # map a bug report back to a commit. This is the point where the
+        # numbers stop being cosmetic.
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: .github/scripts/check-version-consistency.sh --tag "$TAG"
+
+      - name: Cross-compile every shipped target
+        env:
+          VERSION: ${{ steps.tag.outputs.tag }}
+        run: .github/scripts/build-matrix.sh
+
+      - name: Prove the build is reproducible
+        # Building twice and comparing digests, on the release commit, at
+        # release time. A reproducibility claim published without a
+        # comparison is the thing issue #121 exists to stop, and the
+        # cheapest place for it to be true is right where the bytes are
+        # made.
+        env:
+          VERSION: ${{ steps.tag.outputs.tag }}
+          TARGETS: linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
+        run: .github/scripts/verify-repro.sh
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/atlas_${{ steps.tag.outputs.tag }}_sbom.spdx.json
+          # The SBOM is published as a release asset covered by SHA256SUMS,
+          # not as a workflow artifact and not uploaded independently — a
+          # second upload path would produce a copy no signature covers.
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Write SHA256SUMS
+        # After the SBOM, so the manifest covers it: one signature over one
+        # manifest is what makes the user-facing verification two commands
+        # instead of fourteen.
+        run: .github/scripts/checksums.sh dist
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # Pinned so the verification commands printed in docs/install.md
+          # correspond to a known cosign version rather than to whatever
+          # the installer's default happens to be on the day.
+          cosign-release: v3.1.3
+
+      - name: Sign SHA256SUMS (keyless)
+        # Keyless: the certificate is issued to this workflow's OIDC
+        # identity for the duration of the run and thrown away. Nothing to
+        # rotate, nothing to leak, and the binding a verifier checks is
+        # "this file was signed by release.yml at this tag in this repo".
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --bundle dist/SHA256SUMS.cosign.bundle \
+            dist/SHA256SUMS
+
+      - name: Attest build provenance (SLSA)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'dist/atlas_*'
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # --clobber so a re-run of an existing tag replaces the assets
+          # rather than failing halfway. Safe precisely because the build
+          # is reproducible: the replacement bytes are the same bytes.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "$TAG" \
+              --generate-notes
+          fi
+
+  homebrew:
+    name: publish the Homebrew formula (after publish, non-gating)
+    runs-on: ubuntu-latest
+    needs: release
+    # Non-gating by name as well as by position: it runs after the release
+    # is already public, so it cannot block anything. Calling it "blocking"
+    # would be a lie about what a red X here means.
+    permissions:
+      contents: read # read the release assets this repo just published
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ needs.release.outputs.tag }}
+
+      - name: Fetch the release's signed checksum manifest
+        # The formula's digests are copied from SHA256SUMS rather than
+        # recomputed. Recomputing would mean the formula could disagree with
+        # the manifest a user verifies against, and the disagreement would
+        # only ever be discovered by whoever ran `brew install` first.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: gh release download "$TAG" --pattern SHA256SUMS --dir dist
+
+      - name: Generate the formula
+        env:
+          TAG: ${{ needs.release.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          .github/scripts/brew-formula.sh \
+            --version "$TAG" --dist dist --repo "$REPO" \
+            --out formula/atlas.rb
+          cat formula/atlas.rb
+
+      - name: Push the formula to the configured tap
+        if: vars.HOMEBREW_TAP_REPO != ''
+        env:
+          TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            echo "HOMEBREW_TAP_REPO is set but the HOMEBREW_TAP_TOKEN secret is not." >&2
+            echo "A tap lives in a second repository, so the default GITHUB_TOKEN cannot write to it." >&2
+            exit 1
+          fi
+          # Shape check before the value reaches a URL. A repo variable is
+          # maintainer-controlled, not attacker-controlled, but the standing
+          # rule here is that nothing from the Actions context is expanded
+          # into a command without being pinned to a known shape first.
+          if ! printf '%s' "$TAP_REPO" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+            echo "HOMEBREW_TAP_REPO must be owner/name; got '$TAP_REPO'" >&2
+            exit 1
+          fi
+          git clone --depth 1 \
+            "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" "$RUNNER_TEMP/tap"
+          mkdir -p "$RUNNER_TEMP/tap/Formula"
+          cp formula/atlas.rb "$RUNNER_TEMP/tap/Formula/atlas.rb"
+          cd "$RUNNER_TEMP/tap"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          # Stage first, then compare the index: a formula the tap has never
+          # seen is an UNTRACKED file, and `git diff` on the worktree reports
+          # no change for one of those. Checking the wrong thing here would
+          # skip the very first publish and report success.
+          git add Formula/atlas.rb
+          if git diff --cached --quiet; then
+            echo "tap already carries this formula; nothing to push"
+            exit 0
+          fi
+          git commit -m "atlas ${TAG}"
+          git push
+
+      - name: Say what is missing when no tap is configured
+        if: vars.HOMEBREW_TAP_REPO == ''
+        run: |
+          set -euo pipefail
+          {
+            echo '### Homebrew formula not published'
+            echo
+            echo 'The formula was generated and checked against this release'"'"'s `SHA256SUMS`,'
+            echo 'but nothing published it: a tap is a second repository and this one has no'
+            echo 'setting pointing at it.'
+            echo
+            echo 'To turn `brew install` on, an operator sets both:'
+            echo
+            echo '- repository variable `HOMEBREW_TAP_REPO` — `<owner>/homebrew-<tap>`'
+            echo '- repository secret `HOMEBREW_TAP_TOKEN` — a token that can push to it'
+            echo
+            echo 'Until then this step reports the gap rather than pretending it is closed.'
+            echo
+            echo '```ruby'
+            cat formula/atlas.rb
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "no HOMEBREW_TAP_REPO configured; formula generated but not published" >&2

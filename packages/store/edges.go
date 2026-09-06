@@ -310,8 +310,20 @@ func (s *edgesStore) Insert(ctx context.Context, e EdgeRow) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("edges insert: %w", err)
 	}
-	id, _ := res.LastInsertId()
-	if id != 0 {
+	// RowsAffected, not LastInsertId -- see the note on symbols.Insert. A
+	// skipped INSERT OR IGNORE leaves last_insert_rowid pointing at the
+	// previous write, so the old `id != 0` guard handed back another EDGE's
+	// surrogate id every time a re-scan re-wrote an edge it already had.
+	// Found by TestProperty_Edges_EndpointsSurvivePersistence.
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("edges insert: rows affected: %w", err)
+	}
+	if affected > 0 {
+		id, err := res.LastInsertId()
+		if err != nil {
+			return 0, fmt.Errorf("edges insert: last insert id: %w", err)
+		}
 		return id, nil
 	}
 	// Composite unique index already had this edge — look up the existing id.

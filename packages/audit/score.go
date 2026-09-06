@@ -202,14 +202,24 @@ func weightedAverage(scores map[string]float64, available map[string]bool, weigh
 // Returns (result, true, nil) when at least one symbol has a usable result.
 // Returns (zero, false, nil) when every linked symbol is skip-only or
 // completely absent from the frontier.
-func (a *auditImpl) coverageSignal(
+// The result pool is resolved by the CALLER (coverageSignal, in
+// carryforward.go) rather than read here, because what the frontier measured
+// is no longer the whole reading: symbols this build did not re-measure are
+// carried from the last build that did (issue #136). Passing the pool in keeps
+// that policy in one place and keeps this function about scoring.
+func (a *auditImpl) coverageSignalPooled(
 	ctx context.Context,
 	featureID shared.FeatureID,
 	links []store.FeatureSymbolLink,
 	frontier store.CoverageFrontier,
+	pool coveragePool,
 ) (signalResult, bool, error) {
 	testSyms := testSymbolIDs(links)
-	wanted, useSurface, source, err := a.resolveWantedSet(ctx, links, frontier)
+	// The surface is resolved against the frontier PLUS the runs the carries
+	// came from (coveragePool.surfaceFrontier). Resolving it against the
+	// frontier alone makes the preferred tier shrink by exactly the symbols a
+	// dead job measured, which filters the carried results back out again.
+	wanted, useSurface, source, err := a.resolveWantedSet(ctx, links, pool.surfaceFrontier(frontier))
 	a.lastSurfaceSource = source
 	if err != nil {
 		return signalResult{}, false, err
@@ -217,13 +227,10 @@ func (a *auditImpl) coverageSignal(
 	if len(wanted) == 0 && len(testSyms) == 0 {
 		return signalResult{}, false, nil
 	}
-	results, err := a.store.Coverage().ListFrontierResults(ctx, frontier)
-	if err != nil {
-		return signalResult{}, false, fmt.Errorf("list coverage results: %w", err)
-	}
+	results := pool.results
 	pass, skipOnly, stmts, featurePassed, testSeen := classifyCoverageResults(results, wanted, testSyms, featureID)
 	if res, done := creditPassingTest(featurePassed, useSurface, wanted, pass); done {
-		return res, true, nil
+		return pool.annotate(res, wanted, testSyms), true, nil
 	}
 	denom, numer := coverageRatio(wanted, pass, skipOnly)
 
@@ -234,14 +241,14 @@ func (a *auditImpl) coverageSignal(
 		}
 		if ok {
 			a.lastSurfaceSource = SurfacePackageAnchor
-			return anchored, true, nil
+			return pool.annotate(anchored, wanted, testSyms), true, nil
 		}
 	}
 
 	if denom == 0 {
 		return emptyDenominatorResult(testSeen, useSurface)
 	}
-	return scoreCoverage(wanted, pass, skipOnly, stmts, numer, denom, ""), true, nil
+	return pool.annotate(scoreCoverage(wanted, pass, skipOnly, stmts, numer, denom, ""), wanted, testSyms), true, nil
 }
 
 // creditPassingTest applies the gotest pass/fail credit (#82): with no

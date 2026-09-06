@@ -120,6 +120,32 @@ type Querier interface {
 	// Most complex first: the order the hotspot ranking wants. Ties break by
 	// symbol_id so a paged read is stable across calls.
 	ListCFGSymbolsByComplexity(ctx context.Context, limit int64) ([]CfgSymbol, error)
+	// Carryforward reads (issue #136). All three queries share one window:
+	// grouped runs only, finished at or before the current frontier, and no older
+	// than the lookback horizon. Ungrouped runs are excluded on purpose -- a run
+	// group is the operator's declaration that a set of syncs is ONE build, and
+	// without it "the previous build" has no meaning, so an ungrouped store keeps
+	// its pre-#136 behaviour exactly.
+	// The newest prior measurement of each symbol, with the span recorded when it
+	// was taken (schema 0017) alongside the symbol's span today.
+	//
+	// SQLite defines the bare columns of a query carrying a single max() to come
+	// from the row that produced the maximum, so this resolves "which build last
+	// measured this symbol" in one grouped read rather than one query per
+	// candidate build. The per-run statement totals are NOT read here: a symbol
+	// can own several result rows in one run, and picking one of them would
+	// under-count. ListCarrySymbolTotals sums them.
+	ListCarrySources(ctx context.Context, arg ListCarrySourcesParams) ([]ListCarrySourcesRow, error)
+	// Per (BUILD, symbol) statement totals and status rollup over the same window.
+	// Summing is what classifyCoverageResults does when it pools a live frontier,
+	// so a carried reading is assembled the same way the observed one is -- and a
+	// frontier pools the whole BUILD, not one run of it. Grouping per run instead
+	// would key the rollup on something ListCarrySources does not identify a
+	// source by: it names the newest run that measured the symbol, while a build
+	// routinely measures one symbol from two runs (a unit job and an integration
+	// job over the same package). Rolling up per run then reads whichever of them
+	// finished last and silently discards the rest.
+	ListCarrySymbolTotals(ctx context.Context, arg ListCarrySymbolTotalsParams) ([]ListCarrySymbolTotalsRow, error)
 	ListConfig(ctx context.Context) ([]Config, error)
 	ListCoverageResults(ctx context.Context, runID int64) ([]ListCoverageResultsRow, error)
 	// One join rather than a query per run: the audit reads a frontier once per
@@ -140,6 +166,11 @@ type Querier interface {
 	// Newest first with a LIMIT so a cap keeps the most RECENT window; the port
 	// reverses into oldest-first, which is how a series reads.
 	ListHistoryPoints(ctx context.Context, arg ListHistoryPointsParams) ([]CoverageHistory, error)
+	// The most recent grouped frontiers, newest first, so a carry can be measured
+	// in BUILDS rather than in wall clock alone. The caller passes a limit of
+	// (window + 1) frontiers: a source group that does not appear in the answer is
+	// by construction further back than the window allows.
+	ListRecentRunGroups(ctx context.Context, arg ListRecentRunGroupsParams) ([]*string, error)
 	ListSQLIndexes(ctx context.Context) ([]SqlIndex, error)
 	ListSQLOperationPredicates(ctx context.Context) ([]SqlOperationPredicate, error)
 	// Every child row for every operation in one pass; the caller groups by

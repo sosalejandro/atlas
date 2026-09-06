@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
@@ -1016,12 +1017,39 @@ func (c *scanContext) removePlaceholder(placeholderID shared.SymbolID) {
 // ---------------------------------------------------------------------------
 
 func (c *scanContext) extractCalls() {
-	for _, info := range c.funcLookup {
+	// Walk callers in a fixed order. funcLookup is a map, so ranging it
+	// directly visits declarations differently on every Scan -- and edge
+	// INSERTION order is observable, because AddEdge decides Edge.Cycle by
+	// asking whether the edges added SO FAR already contain a path back. For
+	// a mutually recursive pair (a calls b, b calls a) that means whichever
+	// edge happens to be added second carries the flag, so two scans of one
+	// unchanged tree disagree about which edge closes the cycle.
+	//
+	// docs/testing/determinism.md states the contract this breaks ("every
+	// scan produces the same ... edges"), and PR #99 applied the same fix to
+	// the fuzzy resolvers. The golden corpus never caught it because it holds
+	// no mutual recursion; a generated tree that does caught it on the first
+	// run (TestProperty_Scan_IsReproducibleAndRootRelative).
+	//
+	// Sorting changes no edge and no flag semantics -- it only fixes WHICH
+	// member of a recursive pair is the one marked.
+	for _, id := range sortedLookupIDs(c.funcLookup) {
+		info := c.funcLookup[id]
 		if info.funcDecl.Body == nil {
 			continue
 		}
 		c.walkBody(info)
 	}
+}
+
+// sortedLookupIDs returns funcLookup's keys in lexical order.
+func sortedLookupIDs(lookup map[shared.SymbolID]*funcInfo) []shared.SymbolID {
+	ids := make([]shared.SymbolID, 0, len(lookup))
+	for id := range lookup {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
 }
 
 func (c *scanContext) extractCallsFrom(entryPoints []shared.SymbolID) {

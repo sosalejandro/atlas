@@ -129,6 +129,14 @@ type CoverageRunGap struct {
 	Reason string `db:"reason" json:"reason"`
 }
 
+type CoverageSymbolSpan struct {
+	RunID    int64  `db:"run_id" json:"run_id"`
+	SymbolID int64  `db:"symbol_id" json:"symbol_id"`
+	FilePath string `db:"file_path" json:"file_path"`
+	Line     int64  `db:"line" json:"line"`
+	EndLine  *int64 `db:"end_line" json:"end_line"`
+}
+
 type Edge struct {
 	ID           int64     `db:"id" json:"id"`
 	FromSymbolID int64     `db:"from_symbol_id" json:"from_symbol_id"`

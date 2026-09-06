@@ -184,6 +184,17 @@ type auditImpl struct {
 	// scorer would carry it through the signal result instead.
 	lastSurfaceSource string
 
+	// covPool memoises the carryforward resolution of ONE frontier
+	// (issue #136). Resolution depends on the frontier and the window, not on
+	// the feature, but it costs three grouped scans over the carry window;
+	// resolving it per feature made ScoreAll pay that N times for an identical
+	// answer. covPoolKey identifies the frontier the cached pool belongs to,
+	// and covPoolReady distinguishes "not resolved yet" from "resolved and
+	// empty" — an empty pool is a real answer for a store with no coverage.
+	covPool      coveragePool
+	covPoolKey   string
+	covPoolReady bool
+
 	// callAdj lazily holds the whole `call`-edge adjacency (from→[]to),
 	// loaded once for per-feature impl-surface BFS. nil = not yet loaded;
 	// callAdjLoaded distinguishes "not loaded" from "loaded but empty".

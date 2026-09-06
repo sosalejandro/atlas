@@ -105,6 +105,9 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newFlowCmd())
 	root.AddCommand(newHotspotsCmd())
 	root.AddCommand(newMCPCmd())
+	root.AddCommand(newOnboardCmd())
+	root.AddCommand(newSecurityCmd())
+	root.AddCommand(newVersionCmd())
 	registerCovShimCmds(root) // `cov shim` + `cov run` — see cov_shim.go.
 
 	return root

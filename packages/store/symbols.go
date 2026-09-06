@@ -293,8 +293,27 @@ func (s *symbolsStore) Insert(ctx context.Context, sym SymbolRow) (int64, error)
 	if err != nil {
 		return 0, fmt.Errorf("symbols insert %q: %w", sym.QualifiedName, err)
 	}
-	id, _ := res.LastInsertId()
-	if id != 0 {
+	// Whether a row was written must come from RowsAffected, never from
+	// LastInsertId. When INSERT OR IGNORE skips a conflicting row, SQLite
+	// leaves last_insert_rowid untouched, so LastInsertId reports whatever
+	// that CONNECTION inserted previously -- a neighbouring symbol, or (once
+	// database/sql hands out a different pooled connection) a row from an
+	// unrelated statement entirely. The old `id != 0` guard therefore
+	// returned a valid-looking id belonging to another symbol on every
+	// re-insert, and every edge, feature link and coverage result written
+	// against it pointed at the wrong row while every count stayed put.
+	// That is issue #97; ingest.go fixed its own inline copy of this loop
+	// and the port kept the bug. Found by
+	// TestProperty_Symbols_InsertIsIdempotent.
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("symbols insert %q: rows affected: %w", sym.QualifiedName, err)
+	}
+	if affected > 0 {
+		id, err := res.LastInsertId()
+		if err != nil {
+			return 0, fmt.Errorf("symbols insert %q: last insert id: %w", sym.QualifiedName, err)
+		}
 		return id, nil
 	}
 	// INSERT OR IGNORE collapsed to a no-op because the row already exists.

@@ -425,11 +425,7 @@ func sniffFramework(path string) string {
 // newCovStatusCmd implements `atlas cov status [--feature <id>]` — show
 // per-feature coverage counts from the latest coverage run.
 func newCovStatusCmd() *cobra.Command {
-	var (
-		feature string
-		gaps    bool
-		group   bool
-	)
+	var opts covStatusOpts
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Per-feature coverage view from the current coverage frontier",
@@ -450,19 +446,45 @@ same key.
 --gaps additionally reports the frontier's ATTRIBUTION accounting: how
 much of the coverage reports atlas could charge to a symbol, and which
 files it could not. That is read back from the store, so the blind spot
-is inspectable long after the ingest that measured it.`,
+is inspectable long after the ingest that measured it.
+
+CARRYFORWARD (issue #136). A symbol that NO run in the frontier measured
+-- because a CI job failed, timed out or was skipped -- would otherwise
+drop out of the picture entirely, and coverage would go UP because
+testing went DOWN. Instead the last build that did measure it stands in,
+marked as carried. pass/fail/skip stay OBSERVED counts, so a CI gate
+reading pass_rate keeps reading this build's own measurement; the carried
+counts sit beside them. --carry=false restores the pre-#136 reading.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCovStatus(cmd, feature, gaps, group)
+			return runCovStatus(cmd, opts)
 		},
 	}
-	cmd.Flags().StringVar(&feature, "feature", "",
+	cmd.Flags().StringVar(&opts.feature, "feature", "",
 		"restrict output to one feature id")
-	cmd.Flags().BoolVar(&gaps, "gaps", false,
+	cmd.Flags().BoolVar(&opts.gaps, "gaps", false,
 		"report the attribution accounting and the files whose execution could not be attributed")
-	cmd.Flags().BoolVar(&group, "group", false,
+	cmd.Flags().BoolVar(&opts.group, "group", false,
 		"break the frontier down into the runs that compose it")
+	cmd.Flags().BoolVar(&opts.carry, "carry", true,
+		"stand in for symbols this build did not measure with the last build that did; --carry=false reads the frontier alone")
+	cmd.Flags().IntVar(&opts.carryBuilds, "carry-builds", 0,
+		fmt.Sprintf("how many builds back a carried measurement may come from and still count as evidence (0 = %d)", store.DefaultCarryBuilds))
+	cmd.Flags().DurationVar(&opts.carryMaxAge, "carry-max-age", 0,
+		fmt.Sprintf("wall-clock bound on the same window, for repos that build rarely (0 = %s)", store.DefaultCarryMaxAge))
 	return cmd
+}
+
+// covStatusOpts is the flag set of `cov status`. Collected into a struct
+// because the carry window added three more of them and a six-argument
+// runCovStatus is a signature nobody can read a call to.
+type covStatusOpts struct {
+	feature     string
+	gaps        bool
+	group       bool
+	carry       bool
+	carryBuilds int
+	carryMaxAge time.Duration
 }
 
 // covStatusResult is the JSON payload for `atlas cov status`.
@@ -483,6 +505,52 @@ type covStatusResult struct {
 	// never happens — a run that recorded no accounting is reported as such
 	// rather than as a perfect 0-of-0 attribution.
 	Attribution *covStatusAttribution `json:"attribution,omitempty"`
+
+	// Carry reports what this build did not measure and had to inherit
+	// (issue #136). Always present so a consumer can tell "carryforward was
+	// off" from "carryforward found nothing to carry"; the two mean very
+	// different things when a number looks suspiciously stable.
+	Carry covStatusCarry `json:"carry"`
+}
+
+// covStatusCarry is the frontier-level carry accounting.
+//
+// The distinction between Evidence and DenominatorOnly is the answer to
+// "does a carried result count as covered?". Evidence carries are recent and
+// span-verified and stand in for this build's reading; denominator-only
+// carries are too old or belong to a symbol whose span moved, so they hold
+// the symbol's place with zero credit. Neither is an observed measurement,
+// which is why the per-feature pass/fail/skip counts stay observed-only.
+type covStatusCarry struct {
+	Enabled   bool   `json:"enabled"`
+	MaxBuilds int    `json:"max_builds"`
+	MaxAge    string `json:"max_age"`
+
+	// Ran says whether the carry policy actually looked for anything to carry,
+	// and SkipReason says why it did not. `results: 0` on its own is
+	// ambiguous: it is the same value for "this build measured everything" and
+	// for "carryforward never ran because the frontier has no run group",
+	// which is the default for any store that does not pass
+	// `cov sync --run-group`. Reporting the second as the first states an
+	// unknown as a measurement.
+	Ran        bool   `json:"ran"`
+	SkipReason string `json:"skip_reason,omitempty"`
+
+	Results         int `json:"results"`
+	Evidence        int `json:"evidence"`
+	DenominatorOnly int `json:"denominator_only"`
+
+	// Sources names the builds the carried results came from, so a reader can
+	// go and look at why those builds are still supplying this one.
+	Sources []covStatusCarrySource `json:"sources,omitempty"`
+}
+
+// covStatusCarrySource is one build that this frontier is still borrowing
+// from, and how far back it is.
+type covStatusCarrySource struct {
+	Group      string `json:"group"`
+	BuildsBack int    `json:"builds_back"`
+	Results    int    `json:"results"`
 }
 
 // covStatusAttribution is the persisted answer to "how much of what ran can
@@ -512,6 +580,14 @@ type covStatusRunRow struct {
 	Results    int       `json:"results"`
 }
 
+// covStatusFeatureRow is one feature's rollup.
+//
+// Passed/Failed/Skipped/Total/PassRate are OBSERVED counts -- this build's own
+// measurement, unchanged by carryforward. That is deliberate: a CI gate reads
+// pass_rate, and a gate exists to catch the build that stopped measuring, so a
+// carry that satisfied the gate would defeat it. Carried/CarriedEvidence sit
+// beside them and say how much of the feature's picture came from an earlier
+// build instead.
 type covStatusFeatureRow struct {
 	FeatureID *shared.FeatureID `json:"feature_id,omitempty"`
 	Passed    int               `json:"passed"`
@@ -519,9 +595,12 @@ type covStatusFeatureRow struct {
 	Skipped   int               `json:"skipped"`
 	Total     int               `json:"total"`
 	PassRate  float64           `json:"pass_rate"`
+
+	Carried         int `json:"carried,omitempty"`
+	CarriedEvidence int `json:"carried_evidence,omitempty"`
 }
 
-func runCovStatus(cmd *cobra.Command, feature string, gaps, group bool) error {
+func runCovStatus(cmd *cobra.Command, opts covStatusOpts) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -547,22 +626,32 @@ func runCovStatus(cmd *cobra.Command, feature string, gaps, group bool) error {
 		return fmt.Errorf("cov status: no coverage runs in the store yet - run 'atlas cov sync' first")
 	}
 
-	results, err := s.Coverage().ListFrontierResults(ctx, frontier)
+	// Resolve through the carry port, not ListFrontierResults, for the same
+	// reason status reads the frontier at all: it has to summarise what the
+	// audit scores. The audit carries; status that did not would disagree with
+	// it exactly on the builds where the disagreement matters.
+	resolved, err := s.CoverageCarry().Resolve(ctx, frontier, store.CarryOptions{
+		Disabled:  !opts.carry,
+		MaxBuilds: opts.carryBuilds,
+		MaxAge:    opts.carryMaxAge,
+	})
 	if err != nil {
-		return fmt.Errorf("cov status: list frontier results: %w", err)
+		return fmt.Errorf("cov status: resolve frontier results: %w", err)
 	}
 
-	rows := aggregateCovStatus(results, feature)
+	rows := aggregateCovStatus(resolved.Observed, opts.feature)
+	rows = applyCovCarryCounts(rows, resolved, opts.feature)
 	res := covStatusResult{
 		RunID:    frontier.Newest,
 		RunIDs:   frontier.RunIDs(),
 		Group:    frontier.Group,
 		Features: rows,
+		Carry:    covCarrySummary(resolved, opts.carry),
 	}
-	if group {
-		res.Runs = frontierRunRows(frontier, results)
+	if opts.group {
+		res.Runs = frontierRunRows(frontier, resolved.Observed)
 	}
-	if gaps {
+	if opts.gaps {
 		attr, err := loadCovAttribution(ctx, s, frontier)
 		if err != nil {
 			return err
@@ -570,10 +659,14 @@ func runCovStatus(cmd *cobra.Command, feature string, gaps, group bool) error {
 		res.Attribution = &attr
 	}
 	if flags.JSON {
-		return emitJSON(stdoutOrJSON(cmd), "cov.status",
-			map[string]any{"feature": feature, "gaps": gaps, "group": group}, res, nil)
+		return emitJSON(stdoutOrJSON(cmd), "cov.status", map[string]any{
+			"feature": opts.feature, "gaps": opts.gaps, "group": opts.group,
+			"carry": opts.carry, "carry_builds": opts.carryBuilds,
+			"carry_max_age": opts.carryMaxAge.String(),
+		}, res, nil)
 	}
 	printCovStatusText(cmd, frontier, rows)
+	printCovCarry(cmd, res.Carry)
 	if res.Runs != nil {
 		printCovFrontierRuns(cmd, res.Runs)
 	}
@@ -581,6 +674,150 @@ func runCovStatus(cmd *cobra.Command, feature string, gaps, group bool) error {
 		printCovAttribution(cmd, frontier, *res.Attribution)
 	}
 	return nil
+}
+
+// applyCovCarryCounts folds the carried results into the per-feature rows
+// WITHOUT touching the observed counts.
+//
+// A feature whose every symbol went unmeasured has no observed row at all, so
+// the carried results have to be able to create one; otherwise the build in
+// which a whole language's job died would show a shorter feature list rather
+// than a list of features nobody measured, and "shorter list" is not something
+// anyone reads as a problem.
+func applyCovCarryCounts(
+	rows []covStatusFeatureRow,
+	resolved store.ResolvedCoverage,
+	filter string,
+) []covStatusFeatureRow {
+	if len(resolved.Carried) == 0 {
+		return rows
+	}
+	index := make(map[shared.FeatureID]int, len(rows))
+	for i, r := range rows {
+		var fid shared.FeatureID
+		if r.FeatureID != nil {
+			fid = *r.FeatureID
+		}
+		index[fid] = i
+	}
+	for _, c := range resolved.Carried {
+		var fid shared.FeatureID
+		if c.FeatureID != nil {
+			fid = *c.FeatureID
+		}
+		if filter != "" && string(fid) != filter {
+			continue
+		}
+		i, ok := index[fid]
+		if !ok {
+			row := covStatusFeatureRow{}
+			if fid != "" {
+				id := fid
+				row.FeatureID = &id
+			}
+			rows = append(rows, row)
+			i = len(rows) - 1
+			index[fid] = i
+		}
+		rows[i].Carried++
+		if c.Mode == store.CarryEvidence {
+			rows[i].CarriedEvidence++
+		}
+	}
+	return rows
+}
+
+// covCarrySummary rolls the carries up to the frontier level, including the
+// window that produced them: a bound whose value is invisible is a bound
+// nobody can reason about when a number looks wrong.
+func covCarrySummary(resolved store.ResolvedCoverage, enabled bool) covStatusCarry {
+	out := covStatusCarry{
+		Enabled:    enabled,
+		MaxBuilds:  resolved.Window.MaxBuilds,
+		MaxAge:     resolved.Window.MaxAge.String(),
+		Ran:        resolved.Ran(),
+		SkipReason: string(resolved.SkipReason),
+		Results:    len(resolved.Carried),
+	}
+	bySource := map[string]*covStatusCarrySource{}
+	for _, c := range resolved.Carried {
+		if c.Mode == store.CarryEvidence {
+			out.Evidence++
+		} else {
+			out.DenominatorOnly++
+		}
+		src := bySource[c.FromGroup]
+		if src == nil {
+			src = &covStatusCarrySource{Group: c.FromGroup, BuildsBack: c.BuildsBack}
+			bySource[c.FromGroup] = src
+		}
+		src.Results++
+	}
+	for _, src := range bySource {
+		out.Sources = append(out.Sources, *src)
+	}
+	sort.Slice(out.Sources, func(i, j int) bool { return out.Sources[i].Group < out.Sources[j].Group })
+	return out
+}
+
+// printCovCarry states the inheritance in the terminal. It prints even when
+// nothing was carried, because "this build measured everything it was asked
+// to" is the reassuring half of the same fact -- but only when the carry
+// actually ran, because otherwise that sentence is an unknown dressed as a
+// measurement.
+func printCovCarry(cmd *cobra.Command, c covStatusCarry) {
+	out := cmd.OutOrStdout()
+	if !c.Enabled {
+		fmt.Fprintln(out, "carryforward: off (--carry=false); symbols this build did not measure are simply absent")
+		return
+	}
+	if !c.Ran {
+		fmt.Fprintf(out, "carryforward: did not run - %s\n", covCarrySkipExplanation(c.SkipReason))
+		return
+	}
+	if c.Results == 0 {
+		fmt.Fprintln(out, "carryforward: nothing carried; every symbol in the picture was measured by this build")
+		return
+	}
+	fmt.Fprintf(out,
+		"carryforward: %d result(s) carried (%d as evidence, %d holding the denominator only), window %d builds / %s\n",
+		c.Results, c.Evidence, c.DenominatorOnly, c.MaxBuilds, c.MaxAge)
+	for _, src := range c.Sources {
+		fmt.Fprintf(out, "  %d from build %q (%s)\n", src.Results, src.Group, covBuildsBackLabel(src.BuildsBack))
+	}
+	fmt.Fprintln(out,
+		"  pass/fail/skip above are OBSERVED counts - a CI gate should read those, not the carried ones")
+}
+
+// covCarrySkipExplanation turns the store's reason code into the sentence a
+// reader can act on. An unrecognised code is reported verbatim rather than
+// paraphrased into something the store did not say.
+func covCarrySkipExplanation(reason string) string {
+	switch store.CarrySkipReason(reason) {
+	case store.CarrySkippedUngrouped:
+		return "this frontier has no run group, so \"the previous build\" is undefined; " +
+			"tag the syncs of one build with 'atlas cov sync --run-group <id>' to enable it"
+	case store.CarrySkippedNoFrontier:
+		return "no coverage runs in the store"
+	case store.CarrySkippedDisabled:
+		return "switched off (--carry=false)"
+	default:
+		return fmt.Sprintf("reason %q", reason)
+	}
+}
+
+// covBuildsBackLabel renders the distance to a source build.
+// store.CarryBuildsBackBeyondWindow is not a distance and must not print as
+// one -- it used to render as "0 build(s) back", which reads as "this build".
+func covBuildsBackLabel(back int) string {
+	switch {
+	case back < 1:
+		return "beyond the carry window"
+	case back == 1:
+		return "1 build back"
+	default:
+		return fmt.Sprintf("%d builds back", back)
+	}
 }
 
 // frontierRunRows counts each run's contribution to the pooled result set, so

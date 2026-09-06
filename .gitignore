@@ -58,6 +58,12 @@ node_modules/
 .design/**/atlas-*.html
 .design/**/docs-that-fail-ci.html
 
+# `atlas onboard` writes its provisional capability map here on every run,
+# including the runs this repo's own docs are recorded from. It is a derived
+# proposal set, regenerated from scratch each time, so it is not committed
+# here — a project that wants its proposals in review can un-ignore it.
+.atlas/provisional/
+
 # Agent worktrees live inside the repo and would otherwise be committed as
 # embedded repositories — and would be matched by ./... in go test and lint.
 .claude/worktrees/
