@@ -104,13 +104,16 @@ func IngestIstanbul(ctx context.Context, s *store.Store, framework store.Framewo
 		})
 	}
 	now := time.Now().UTC()
-	runID, err := s.Coverage().InsertRunWithResults(ctx, store.CoverageRun{
+	runID, err := s.Coverage().InsertRunWithResults(ctx, rep.withAttribution(store.CoverageRun{
 		Framework: framework, StartedAt: now, FinishedAt: now,
-	}, results)
+	}), results)
 	if err != nil {
 		return stats, fmt.Errorf("coverage: persist istanbul run: %w", err)
 	}
 	stats.RunID = runID
+	if _, err := s.CoverageGaps().Insert(ctx, runID, rep.gapRows()); err != nil {
+		return stats, fmt.Errorf("coverage: persist istanbul gaps: %w", err)
+	}
 	return stats, nil
 }
 
@@ -127,11 +130,7 @@ func IngestIstanbul(ctx context.Context, s *store.Store, framework store.Framewo
 // one symbol and is never double-counted across adjacent symbols — the basis
 // for a per-feature fraction that tracks the istanbul "% Stmts" column.
 func attributeIstanbulStatements(byFileStmts map[string][]istanbul.Statement, byFile map[string][]symSpan) attributionReport {
-	rep := attributionReport{
-		counts:       map[int64]symbolCounts{},
-		lostByFile:   map[string]int{},
-		reasonByFile: map[string]string{},
-	}
+	rep := newAttributionReport()
 	// Index atlas files by basename for suffix-match reconciliation.
 	byBase := map[string][]string{}
 	for f := range byFile {
@@ -139,19 +138,16 @@ func attributeIstanbulStatements(byFileStmts map[string][]istanbul.Statement, by
 	}
 	for rf, stmts := range byFileStmts {
 		af := reconcilePath(rf, byBase)
+		rep.files[rf] = af != ""
 		if af == "" {
-			rep.filesUnmatched++
-			rep.stmtsUnattributed += len(stmts)
 			rep.lostByFile[rf] = len(stmts)
 			rep.reasonByFile[rf] = ReasonNoIndexedSymbol
 			continue
 		}
-		rep.filesMatched++
 		syms := byFile[af]
 		for _, st := range stmts {
 			sid, ok := owningSymbol(syms, st.StartLine)
 			if !ok {
-				rep.stmtsUnattributed++
 				rep.lostByFile[rf]++
 				rep.reasonByFile[rf] = ReasonOutsideSymbolSpans
 				continue
@@ -165,5 +161,6 @@ func attributeIstanbulStatements(byFileStmts map[string][]istanbul.Statement, by
 			rep.stmtsAttributed++
 		}
 	}
+	rep.finalize()
 	return rep
 }
