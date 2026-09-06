@@ -734,55 +734,56 @@ fi
 # --- secret-scan.sh --------------------------------------------------------
 #
 # The tests that matter here are the NEGATIVE ones. A secret scanner that
-# reports clean is indistinguishable from one that is not running, so each of
-# these plants something and asserts the scan notices.
+# reports clean is indistinguishable from one that is not running.
+#
+# That is not hypothetical: the first version of the planted-key test below
+# asserted only "exit code is non-zero", and it PASSED on a CI runner where
+# gitleaks was not installed -- the script exited 127 without looking at
+# anything. Every assertion here therefore checks the SPECIFIC exit code from
+# secret-scan.sh's documented contract (0 clean, 1 found, 2 bad usage,
+# 127 cannot run).
 
-it "secret-scan.sh passes on the tree as committed"
-if SCAN_MODE=tree bash "$SCRIPT_DIR/secret-scan.sh" >"$WORK/scan-tree.log" 2>&1; then
-	pass
+if ! command -v gitleaks >/dev/null 2>&1; then
+	it "secret-scan.sh behaviour"
+	skip "gitleaks not installed; run: go install github.com/zricethezav/gitleaks/v8@v8.30.0"
 else
-	fail "clean tree reported a leak: $(tail -3 "$WORK/scan-tree.log")"
-fi
+	scan_status() {
+		# Run the scanner and echo its exit code, without set -e aborting us.
+		local mode="$1"
+		set +e
+		SCAN_MODE="$mode" bash "$SCRIPT_DIR/secret-scan.sh" >"$WORK/scan.log" 2>&1
+		local rc=$?
+		set -e
+		echo "$rc"
+	}
 
-it "secret-scan.sh passes over the whole history"
-if SCAN_MODE=history bash "$SCRIPT_DIR/secret-scan.sh" >"$WORK/scan-hist.log" 2>&1; then
-	pass
-else
-	fail "history reported a leak: $(tail -3 "$WORK/scan-hist.log")"
-fi
+	it "secret-scan.sh reports the tree as committed is clean"
+	assert_eq "$(scan_status tree)" "0"
 
-it "secret-scan.sh catches a planted key outside the detector's fixtures"
-# The allowlist in .gitleaks.toml is scoped by path AND rule. If someone
-# widens it to a blanket rule, this is the test that goes red.
-planted="$REPO_ROOT/packages/store/zz_secretscan_probe.go"
-printf 'package store
+	it "secret-scan.sh reports the whole history is clean"
+	assert_eq "$(scan_status history)" "0"
 
-var probe = "%s%s"
-' "ASIA" "Y34FZKBOKMUTVV7A" >"$planted"
-if SCAN_MODE=tree bash "$SCRIPT_DIR/secret-scan.sh" >"$WORK/scan-planted.log" 2>&1; then
-	fail "a planted AWS key in packages/store was NOT detected -- the allowlist is too broad"
-else
-	pass
-fi
-rm -f "$planted"
+	it "secret-scan.sh catches a planted key outside the detector's fixtures"
+	# The allowlist in .gitleaks.toml is scoped by path AND rule. Widen it to a
+	# blanket rule and this goes red. Asserting exactly 1 -- not "non-zero" --
+	# is what makes it a test of detection rather than of the script running.
+	planted="$REPO_ROOT/packages/store/zz_secretscan_probe.go"
+	printf 'package store\n\nvar probe = "%s%s"\n' "ASIA" "Y34FZKBOKMUTVV7A" >"$planted"
+	planted_rc="$(scan_status tree)"
+	rm -f "$planted"
+	assert_eq "$planted_rc" "1"
 
-it "secret-scan.sh refuses to run without the repository config"
-# Running with gitleaks' default rules would flag every fixture in
-# packages/redact, so a missing config must be a hard stop rather than a scan
-# whose output nobody can act on.
-mv "$REPO_ROOT/.gitleaks.toml" "$WORK/gitleaks.toml.bak"
-if SCAN_MODE=tree bash "$SCRIPT_DIR/secret-scan.sh" >"$WORK/scan-noconf.log" 2>&1; then
-	fail "scanned with no config instead of refusing"
-else
-	assert_eq "$(grep -c 'no .gitleaks.toml' "$WORK/scan-noconf.log")" "1"
-fi
-mv "$WORK/gitleaks.toml.bak" "$REPO_ROOT/.gitleaks.toml"
+	it "secret-scan.sh refuses to run without the repository config"
+	# Scanning with gitleaks' default rules would flag every fixture in
+	# packages/redact, so a missing config is a hard stop rather than a scan
+	# whose output nobody can act on.
+	mv "$REPO_ROOT/.gitleaks.toml" "$WORK/gitleaks.toml.bak"
+	noconf_rc="$(scan_status tree)"
+	mv "$WORK/gitleaks.toml.bak" "$REPO_ROOT/.gitleaks.toml"
+	assert_eq "$noconf_rc" "2"
 
-it "secret-scan.sh rejects an unknown scan mode"
-if SCAN_MODE=sideways bash "$SCRIPT_DIR/secret-scan.sh" >"$WORK/scan-mode.log" 2>&1; then
-	fail "accepted an unknown SCAN_MODE"
-else
-	assert_eq "$(grep -c "SCAN_MODE must be" "$WORK/scan-mode.log")" "1"
+	it "secret-scan.sh rejects an unknown scan mode"
+	assert_eq "$(scan_status sideways)" "2"
 fi
 
 # ---------------------------------------------------------------------------

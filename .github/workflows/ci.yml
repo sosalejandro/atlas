@@ -190,6 +190,12 @@ jobs:
       # comparison, workflow YAML parsing, and the "every action is pinned
       # to a SHA" check. All of it runs identically via `make
       # test-scripts-full` on a laptop.
+      - name: Install gitleaks
+        # scripts_test.sh exercises secret-scan.sh, and those tests SKIP when
+        # gitleaks is absent rather than pass vacuously. Installing it here is
+        # what makes them run in this job instead of quietly reporting "skip".
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.0
+
       - name: Release scripts + reproducibility + cross-compile
         run: make test-scripts-full
 
@@ -259,7 +265,7 @@ jobs:
         # Installed from source at a pinned version rather than pulling a
         # third-party action: this repo already builds its own tools, and an
         # action is one more thing to pin, audit and keep pinned.
-        run: go install github.com/gitleaks/gitleaks/v8@v8.30.0
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.0
 
       - name: Scan history for committed credentials
         env:

@@ -19,6 +19,13 @@
 #
 # Inputs:
 #   GITLEAKS_VERSION  override the pinned version (for testing an upgrade)
+# Exit codes:
+#   0    nothing found
+#   1    a credential-shaped value was found
+#   2    bad usage (unknown mode, missing config)
+#   127  gitleaks is not installed -- could not look
+#
+# Inputs (continued):
 #   SCAN_MODE         "tree" (default) scans the working tree; "history" scans
 #                     every commit. CI runs history; the pre-commit path runs
 #                     tree, because scanning 220 commits on every commit is how
@@ -34,6 +41,15 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # Pinned, like the Go toolchain is pinned. A scanner that silently changes
 # version changes what it finds, and "CI went red and nobody changed anything"
 # is a bad afternoon.
+# Exit codes are part of this script's contract, because a caller must be able
+# to tell "I found a secret" from "I could not look". A test that treats any
+# non-zero exit as detection passes when the scanner is simply absent -- which
+# is exactly how the first version of the planted-key test in scripts_test.sh
+# passed on a runner with no gitleaks installed.
+readonly EXIT_LEAK_FOUND=1
+readonly EXIT_BAD_USAGE=2
+readonly EXIT_CANNOT_RUN=127
+
 GITLEAKS_VERSION="${GITLEAKS_VERSION:-8.30.0}"
 SCAN_MODE="${SCAN_MODE:-tree}"
 CONFIG="$REPO_ROOT/.gitleaks.toml"
@@ -42,7 +58,7 @@ if [ ! -f "$CONFIG" ]; then
 	atlas_err "FAIL: no .gitleaks.toml at $CONFIG"
 	atlas_err "The allowlist lives there, and running without it would flag every"
 	atlas_err "fixture in packages/redact. Refusing to scan with default rules."
-	exit 1
+	exit "$EXIT_BAD_USAGE"
 fi
 
 # Resolve the binary: an already-installed gitleaks on PATH wins, so a
@@ -53,11 +69,13 @@ else
 	atlas_err "gitleaks is not on PATH."
 	atlas_err ""
 	atlas_err "Install it with one of:"
-	atlas_err "  go install github.com/gitleaks/gitleaks/v8@v${GITLEAKS_VERSION}"
+	atlas_err "  go install github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}"
+	atlas_err "    (the module path is zricethezav/..., not gitleaks/... -- the repo"
+	atlas_err "     moved org but the go module path did not follow)"
 	atlas_err "  brew install gitleaks"
 	atlas_err ""
 	atlas_err "Or see https://github.com/gitleaks/gitleaks#installing"
-	exit 127
+	exit "$EXIT_CANNOT_RUN"
 fi
 
 have_version="$("$GITLEAKS_BIN" version 2>/dev/null || echo unknown)"
@@ -80,7 +98,7 @@ history)
 	;;
 *)
 	atlas_err "FAIL: SCAN_MODE must be 'tree' or 'history', got '$SCAN_MODE'"
-	exit 2
+	exit "$EXIT_BAD_USAGE"
 	;;
 esac
 
@@ -107,4 +125,4 @@ atlas_err "    scoped allowlist in .gitleaks.toml, by path AND rule."
 atlas_err ""
 atlas_err "Do not add a blanket allowlist. The allowlist is scoped so that a real"
 atlas_err "key committed outside the detector's fixtures still fails this scan."
-exit 1
+exit "$EXIT_LEAK_FOUND"
