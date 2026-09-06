@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/codeindex"
 	"github.com/sosalejandro/atlas/packages/diff"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -82,11 +81,13 @@ func runSnapshot(cmd *cobra.Command, rootArg, ref, note string, includeAudit boo
 		return err
 	}
 
-	idx, err := codeindex.IndexProject(ctx, rootDir, codeindex.Options{
-		SkipTS:    loaded.Scan.SkipTS,
-		SkipDirs:  loaded.Scan.SkipDirs,
-		HashFiles: true,
-	})
+	// The same options `atlas scan` walks with, deliberately. This ingest
+	// shares a database — and an exclusion ledger — with the scan, so an
+	// index built from a different set of generated-code rules would
+	// overwrite the ledger with a walk the operator never ran: a later
+	// `atlas scan --skipped` would then answer about the snapshot's
+	// configuration instead of the scan's.
+	idx, _, err := indexProjectFromConfig(ctx, rootDir, true, nil, false)
 	if err != nil {
 		return fmt.Errorf("snapshot: index %s: %w", rootDir, err)
 	}
@@ -100,7 +101,9 @@ func runSnapshot(cmd *cobra.Command, rootArg, ref, note string, includeAudit boo
 	// Ingest first so the audit/diff has fresh symbols + annotations to
 	// chew on; harmless when the caller is also running `atlas scan`
 	// separately.
-	if _, err := s.Ingest(ctx, idx); err != nil {
+	if _, err := s.Ingest(ctx, idx, store.IngestOptions{
+		GeneratedGlobs: loaded.Scan.Generated,
+	}); err != nil {
 		return fmt.Errorf("snapshot: ingest: %w", err)
 	}
 

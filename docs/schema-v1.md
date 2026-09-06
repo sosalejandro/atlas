@@ -710,6 +710,395 @@ the one table that cannot be rebuilt from the working tree: deleting
 `atlas.db` loses the series. Teams that need it durable should record it from
 CI into a committed artifact as well.
 
+### 5.15 `sql_operations` and friends — the data access layer as data (migration 0014)
+
+```sql
+CREATE TABLE sql_operations (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  ref               TEXT    NOT NULL UNIQUE,
+  source            TEXT    NOT NULL,          -- 'go' | 'sql'
+  name              TEXT    NOT NULL DEFAULT '',
+  file_path         TEXT    NOT NULL,
+  line              INTEGER NOT NULL,
+  symbol_id         INTEGER REFERENCES symbols(id) ON DELETE SET NULL,
+  symbol_name       TEXT    NOT NULL DEFAULT '',
+  kind              TEXT    NOT NULL DEFAULT 'unknown',
+  resolved          INTEGER NOT NULL DEFAULT 0,
+  unresolved_reason TEXT    NOT NULL DEFAULT '',
+  sql_text          TEXT    NOT NULL DEFAULT '',
+  row_scan          TEXT    NOT NULL DEFAULT 'unknown',
+  param_count       INTEGER NOT NULL DEFAULT 0,
+  interpolation     TEXT    NOT NULL DEFAULT '',
+  caller_data       INTEGER NOT NULL DEFAULT 0,
+  has_limit         INTEGER NOT NULL DEFAULT 0,
+  has_offset        INTEGER NOT NULL DEFAULT 0,
+  has_order_by      INTEGER NOT NULL DEFAULT 0,
+  keyset            INTEGER NOT NULL DEFAULT 0,
+  select_star       INTEGER NOT NULL DEFAULT 0,
+  offset_bound      TEXT    NOT NULL DEFAULT 'none',
+  suppressions      TEXT    NOT NULL DEFAULT '',
+  created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CHECK (source IN ('go', 'sql')),
+  CHECK (kind IN ('select', 'insert', 'update', 'delete', 'other', 'unknown')),
+  CHECK (row_scan IN ('slice', 'single', 'exec', 'unknown')),
+  CHECK (offset_bound IN ('none', 'parameter', 'literal', 'expression'))
+);
+
+CREATE INDEX sql_operations_file_idx     ON sql_operations(file_path, line);
+CREATE INDEX sql_operations_symbol_idx   ON sql_operations(symbol_id);
+CREATE INDEX sql_operations_resolved_idx ON sql_operations(resolved);
+
+CREATE TABLE sql_operation_tables (
+  operation_id INTEGER NOT NULL REFERENCES sql_operations(id) ON DELETE CASCADE,
+  table_name   TEXT    NOT NULL,
+  access       TEXT    NOT NULL,               -- 'read' | 'write'
+  PRIMARY KEY (operation_id, table_name, access),
+  CHECK (access IN ('read', 'write'))
+) WITHOUT ROWID;
+
+CREATE INDEX sql_operation_tables_table_idx ON sql_operation_tables(table_name, access);
+
+CREATE TABLE sql_operation_predicates (
+  operation_id INTEGER NOT NULL REFERENCES sql_operations(id) ON DELETE CASCADE,
+  clause       TEXT    NOT NULL,               -- 'where' | 'join'
+  table_name   TEXT    NOT NULL DEFAULT '',
+  column_name  TEXT    NOT NULL,
+  operator     TEXT    NOT NULL,
+  bound        INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (operation_id, clause, table_name, column_name, operator),
+  CHECK (clause IN ('where', 'join'))
+) WITHOUT ROWID;
+
+CREATE INDEX sql_operation_predicates_col_idx ON sql_operation_predicates(table_name, column_name);
+
+CREATE TABLE sql_tables (
+  name      TEXT    NOT NULL PRIMARY KEY,
+  file_path TEXT    NOT NULL,
+  line      INTEGER NOT NULL
+) WITHOUT ROWID;
+
+CREATE TABLE sql_indexes (
+  table_name TEXT    NOT NULL,
+  name       TEXT    NOT NULL,
+  columns    TEXT    NOT NULL,                 -- comma-separated, declaration order
+  is_unique  INTEGER NOT NULL DEFAULT 0,
+  predicate  TEXT    NOT NULL DEFAULT '',      -- partial-index WHERE, verbatim
+  origin     TEXT    NOT NULL,                 -- 'create-index' | 'primary-key' | 'unique-constraint'
+  file_path  TEXT    NOT NULL,
+  line       INTEGER NOT NULL,
+  PRIMARY KEY (table_name, name),
+  CHECK (origin IN ('create-index', 'primary-key', 'unique-constraint'))
+) WITHOUT ROWID;
+```
+
+Written by `atlas sql scan`, read by `atlas sql list` and `atlas sql advise`
+(issue #126). Every other table here describes code; these describe what the
+code *asks the database to do* — the statement kind, the tables read and
+written, the columns filtered on, and whether the read is bounded.
+
+**Who writes rows.** Only `atlas sql scan`, and it **replaces** both sets
+wholesale: `sql_operations` in one transaction, `sql_tables` + `sql_indexes`
+in another. An incremental upsert would leave rows behind for queries that
+were deleted, and an advisory pointing at a line that no longer exists costs
+more trust than the merge saves work. `atlas scan` and `atlas init` do not
+write here.
+
+**`resolved` is the load-bearing column.** A query Atlas could not statically
+resolve — assembled by a builder, spliced across functions, read from config —
+is stored with `resolved = 0` and an `unresolved_reason`, **not dropped**.
+Every consumer must filter on it before reading the shape columns, because an
+unresolved row's shape columns are all zero and a zero shape is
+indistinguishable from "a `SELECT` with no `LIMIT`". Storing the unanalysable
+half is what lets a report say "90% of the data layer was analysed" instead of
+implying it saw all of it, and `sql_operations_resolved_idx` exists because
+that count is the number every report leads with.
+
+| Column | Notes |
+| --- | --- |
+| `ref` | Fingerprint: source, file, line, name, and — where one line holds more than one operation — a `#n` ordinal. Re-scanning an unchanged repository rewrites the same rows rather than accumulating duplicates. UNIQUE, which is why the ordinal is not optional: two `database/sql` calls written on one line fingerprint identically without it, and the second write silently replaces the first, shrinking both the inventory and the denominator of the resolved fraction. |
+| `symbol_id` | **Nullable, `ON DELETE SET NULL`.** An operation outlives the symbol it was linked to (a rename, a scan that skipped a generated file); CASCADE would silently shrink the inventory. Resolved from `symbol_name` at write time. |
+| `symbol_name` | Kept alongside the link so a row stays readable with no `symbol_id`. sqlc queries use the `sql:<QueryName>` id the Go scanner already anchors them under. |
+| `kind` | `unknown` for an unresolved operation — the CHECK constraint would otherwise take an empty string. |
+| `has_limit` / `has_offset` | Bounds on **this** statement. A `LIMIT` inside a subquery, a CTE body or an `IN (...)` list bounds that inner result set and is not written here: crediting it to the outer statement suppresses the unbounded-read advisory on the query that needs it most. |
+| `keyset` | Cursor pagination: `has_limit`, plus a caller-bound range predicate on the column the statement orders by FIRST. Distinguished from `has_offset` because conflating the two gives opposite advice on identical-looking SQL. All three parts are required — a bound range predicate with an ORDER BY and no page size is a time window or a depth guard, not a cursor walk, and it returns every row past the cursor. |
+| `offset_bound` | Where the OFFSET's value comes from. `parameter` is the one that degrades with depth. |
+| `row_scan` | What the call site does with the rows. `slice` vs `single` is the difference between a LIMIT-less read that loads a table into memory and one that reads a row by primary key. |
+| `interpolation` / `caller_data` | How the query text was built, and whether the spliced value traces to a parameter of the enclosing function. The injection advisory grades its confidence on the second. |
+| `suppressions` | Comma-packed advisory codes from an `atlas:sql-ignore` directive at the call site. |
+
+**Why predicates and table accesses are child tables** rather than JSON
+columns: the questions they answer are set questions — "which capabilities
+write to this table", "which columns does anything filter on" — and those want
+an index, not a `LIKE`. `sql_operation_tables_table_idx` serves the reverse
+lookup that is the data footprint of a feature, which is what a privacy or
+migration review actually needs.
+
+**The capability rollup** is that reverse lookup spelled out:
+`feature_symbols → sql_operations → sql_operation_tables`, grouped by
+`feature_id`, exposed as `SQLOps.CapabilityTables` and printed by
+`atlas sql capabilities`. Two facts travel with every row and neither is
+optional. Operations are counted `DISTINCT` on `sql_operations.id`, because a
+symbol linked to a feature under two roles reaches it through two
+`feature_symbols` rows and one query must not count as two. And the unresolved
+count rides along, because a capability with unresolved queries has a table
+set that is a **lower bound** — a table only those queries touch is missing
+from it, and a review that reads the set as complete is being misled
+confidently. A capability whose queries all failed to resolve keeps its row
+with an empty set: "nothing readable" and "touches no data" are different
+answers.
+
+**Why `columns` and `suppressions` *are* comma-packed.** Both hold short
+identifier lists that cannot contain a comma, and neither is ever queried by
+element. Anything richer would want a child table.
+
+**`sql_tables` and `sql_indexes` are what Atlas READ**, not a mirror of a live
+database. `sql_indexes` includes the indexes implied by `PRIMARY KEY` and
+`UNIQUE` declarations (`origin` says which), because without them every
+lookup by primary key would report as unindexed. An index check consults
+`sql_tables` first and reports "did not run" for a table that is absent:
+claiming an index is missing from a schema Atlas never read is the one wrong
+answer that looks authoritative.
+
+They hold the schema **as of the last migration**, not the union of every
+declaration ever made. `*.down.sql` files are skipped — a rollback undoes its
+`up` sibling, and reading both leaves a table that was created once and
+dropped once in the inventory. Within the files that are read, `DROP TABLE`,
+`DROP INDEX` and `ALTER TABLE … RENAME TO` are applied in order: a dropped
+table leaves and takes its indexes with it, a renamed one carries them across.
+Column-level `ALTER`s are not applied, so the *columns* of an index row remain
+additive; rewriting an index definition from a rename Atlas never re-read
+would be a guess dressed as a fact.
+
+### 5.16 control flow inside a symbol -- `cfg_*` (migration 0015)
+
+Added by issue #127. Until this migration a symbol was an opaque box with a
+line range: whether its body was a straight line, a five-way switch, or a loop
+containing a database call was invisible. That blind spot is why atlas could
+report 90% statement coverage on a function whose every error path was
+unexercised -- statement coverage says the line ran, never that the branch was
+taken both ways.
+
+Five tables, every one of them keyed by `symbol_id` so that every result joins
+the graph. An analysis nobody can join is an analysis nobody uses.
+
+```sql
+CREATE TABLE cfg_blocks (
+  symbol_id   INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
+  block_index INTEGER NOT NULL,
+  kind        TEXT    NOT NULL,   -- entry|body|branch|loop|exit
+  start_line  INTEGER NOT NULL DEFAULT 0,
+  end_line    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (symbol_id, block_index)
+) WITHOUT ROWID;
+
+CREATE TABLE cfg_edges (
+  symbol_id  INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
+  edge_index INTEGER NOT NULL,
+  from_block INTEGER NOT NULL,
+  to_block   INTEGER NOT NULL,
+  kind       TEXT    NOT NULL,   -- seq|true|false|loop-back|fallthrough
+  condition  TEXT    NOT NULL DEFAULT '',
+  PRIMARY KEY (symbol_id, edge_index)
+) WITHOUT ROWID;
+
+CREATE TABLE cfg_symbols (
+  symbol_id              INTEGER PRIMARY KEY REFERENCES symbols(id) ON DELETE CASCADE,
+  complexity             INTEGER NOT NULL DEFAULT 1,
+  decisions              INTEGER NOT NULL DEFAULT 0,
+  branch_arms            INTEGER NOT NULL DEFAULT 0,
+  conditions             INTEGER NOT NULL DEFAULT 0,
+  conditions_independent INTEGER NOT NULL DEFAULT 0,
+  defers                 INTEGER NOT NULL DEFAULT 0,
+  unreachable_blocks     INTEGER NOT NULL DEFAULT 0,
+  built_at               TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE cfg_decision_coverage (
+  symbol_id          INTEGER PRIMARY KEY REFERENCES symbols(id) ON DELETE CASCADE,
+  outcomes_total     INTEGER NOT NULL DEFAULT 0,
+  outcomes_decidable INTEGER NOT NULL DEFAULT 0,
+  outcomes_taken     INTEGER NOT NULL DEFAULT 0,
+  source             TEXT    NOT NULL DEFAULT '',
+  measured_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE cfg_findings (
+  symbol_id     INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
+  finding_index INTEGER NOT NULL,
+  kind          TEXT    NOT NULL,   -- flow.query-in-loop|flow.unreachable|flow.untested-branch
+  confidence    TEXT    NOT NULL,   -- high|medium|low
+  line          INTEGER NOT NULL DEFAULT 0,
+  related_line  INTEGER NOT NULL DEFAULT 0,
+  detail        TEXT    NOT NULL DEFAULT '',
+  PRIMARY KEY (symbol_id, finding_index)
+) WITHOUT ROWID;
+```
+
+Indices: `cfg_edges_target_idx (symbol_id, to_block)` for "every edge into this
+block"; `cfg_symbols_complexity_idx (complexity DESC)` for the hotspot ranking
+(#93); `cfg_findings_kind_idx (kind, confidence)` for the diagnostics list.
+
+**Block 0 is always the entry and block 1 always the exit.** Fixing them makes
+a flowchart renderable without loading the whole function first, and gives
+`E - N + 2` a single-entry/single-exit graph to be meaningful over.
+
+**Why `cfg_edges` is keyed by `edge_index` and not by `(from, to, kind)`.**
+The index is the edge's position in the built graph, so the write order is
+reproducible AND two structurally identical edges cannot collapse into one
+row. An edge count that quietly drops is a cyclomatic complexity that quietly
+drops with it.
+
+**Why `seq` is in the edge-kind set.** Most edges in a real function are
+unconditional continuations. Labelling them `true` would make every straight
+line look like a taken branch to anything counting branch arms.
+
+**The three counters in `cfg_decision_coverage` are the whole point of the
+table.** `outcomes_total` is every branch outcome the source has;
+`outcomes_decidable` is how many of those a statement-coverage profile can
+judge *at all*; `outcomes_taken` is how many of the decidable ones were taken.
+Decision coverage is `taken / decidable` -- **never** `taken / total`, which
+would charge a symbol for outcomes no instrumentation could have observed. A
+row with `outcomes_decidable = 0` means "no judgement was possible", which is
+a different fact from 0% and must not be rendered as one.
+
+**UNDETERMINED is the third verdict, and it is stored, not implied.** Every
+outcome is `taken`, `not-taken`, or `undetermined`; the undetermined ones are
+exactly `outcomes_total - outcomes_decidable`, which the store exposes as
+`DecisionCoverage.Undetermined()`. There is no fourth column because the
+subtraction is exact, but there is also no reading of this table in which an
+undetermined outcome may be counted as untaken: it never enters the
+denominator and it never becomes a `flow.untested-branch` finding. The
+outcomes that land there are the ones no arithmetic over statement counts can
+recover -- a `&&` operand, a branch inside a loop, an `if` whose then-arm
+reaches the successor on some paths and leaves the function on others, and
+anything at all in a function containing a `goto` (see below).
+
+**An absent row means "never measured", which is different again -- and it is
+per FILE, not per run.** Supplying `--profile` is not the same as that profile
+covering a given file: profiling one package, an integration-test profile, or
+a package with no tests all produce a profile that names other files. The
+symbols in those files get **no row**. Writing a zero-valued row for them
+would record "measured, no branch taken" -- a claim about the tests that the
+run cannot support, and one indistinguishable from a genuinely untested
+function.
+
+**There is deliberately no MC/DC column.** MC/DC is not derivable from Go's
+statement coverage: the operands of `a && b` share one counter, so no profile
+can show a condition independently affecting the outcome. What is recorded, in
+`cfg_symbols`, is how many conditions exist and how many could in principle be
+varied independently -- a property of the SOURCE, not a coverage verdict. A
+column called `mcdc_percent` here would be read as the thing it is not, by
+exactly the regulated-industry reader who can least afford to.
+
+**Confidence is mandatory on every finding.** A query inside a loop is a smell
+and not a proof -- one behind a cache is fine -- and a finding that does not
+say how sure it is gets muted wholesale the first time it is wrong.
+
+**`cfg_symbols.unreachable_blocks` is 0 for any function containing a `goto`,
+and that 0 means "nothing claimed".** The builder does not draw goto edges, so
+in such a function a label reached only by that goto has no predecessor in the
+graph and a reachability walk would report live code as dead -- at confidence
+`high`, which is the worst possible way to be wrong. `flow build` therefore
+computes nothing for those functions: no `flow.unreachable` rows, a zero
+count, and a note on the run saying how many functions were skipped and naming
+some of them. The same omission makes every successor-difference inference in
+that function `undetermined`.
+
+**Cascade.** All five follow `symbols`: a re-scan that drops a symbol drops its
+flow with it, so the store cannot accumulate orphan graphs no query can reach.
+
+### 5.17 `skipped_files` — the exclusion ledger (migration 0016)
+
+```sql
+CREATE TABLE skipped_files (
+  file_path  TEXT PRIMARY KEY,
+  rule       TEXT NOT NULL,
+  detail     TEXT,
+  scanned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX skipped_files_rule_idx ON skipped_files(rule);
+```
+
+Written by `atlas scan` / `atlas init` inside the ingest transaction, read by
+`atlas scan --skipped` (issue #137). It sits next to `file_hashes` because
+both describe what the WALK did — one records the files that were indexed,
+the other the files that were not.
+
+**Why it exists.** Exclusion is silent by design: a file the scanner declined
+to index does not appear as uncovered, unlinked or missing, it appears as
+nothing at all. Without this table the only record of the decision is the
+terminal output of the scan that made it, so an over-broad glob removes real
+code from every coverage and audit number with no trace.
+
+| Column       | Type      | Notes                                                                                                                                                     |
+| ------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `file_path`  | TEXT PK   | Project-relative, slash-separated — the same key space as `file_hashes.file_path` and `symbols.file_path`.                                                 |
+| `rule`       | TEXT      | The scanner's `goscan.SkipReason` verbatim: `generated-header`, `generated-glob`, `generated-dir`, `ignored-package`. Not CHECKed; see below.              |
+| `detail`     | TEXT      | The rule's parameter when it has one: the glob that matched for `generated-glob`, the directory segment for `generated-dir`. NULL otherwise.               |
+| `scanned_at` | TIMESTAMP | When the scan that made the call ran. Tells the reader how stale the answer is.                                                                            |
+
+**Why the rule, not a category.** "generated" tells an operator what happened
+but not what to change. `generated-glob` + `**/*.pb.go` names the line of
+`.atlas.yaml` that swallowed the file; `generated-header` says the file
+declares itself generated and no config edit will help.
+
+**Why `file_path` alone is the key.** The generated-code rules are applied
+strongest-signal-first and exactly one of them claims a file, so a
+`(file_path, rule)` key would let the same file sit under two rules at once —
+destroying the only evidence that the ordering held. A file that matches the
+header rule AND a glob is recorded once, under the header.
+
+**Why the rule set is not CHECKed.** The column mirrors an enum owned by the
+scanner. A CHECK here would mean every new detection rule needs a migration
+before its exclusions can be audited, which is exactly backwards: the ledger
+is descriptive, and a rule it cannot spell is a rule whose effects would go
+unrecorded.
+
+**Replaced, never appended.** Each ingest DELETEs the table and re-inserts the
+current set, in the same transaction as the symbols. A file that stops being
+skipped therefore leaves the ledger — otherwise it accumulates into a record
+of every rule ever tried, and answers "why is this file not indexed?" with
+files that are. Sharing the transaction is what keeps the ledger and the index
+it explains describing the same scan.
+
+**Every ingest owns it, so every ingest must walk the same way.** Because the
+write is a replace and it rides `Store.Ingest`, ANY command that ingests
+rewrites the ledger — `atlas init`, `atlas scan` and `atlas snapshot` all do.
+That is only safe while they build their index with the same scan options: an
+ingest from a differently-configured walk would leave `--skipped` answering
+about a configuration the operator never ran. `atlas snapshot` therefore goes
+through the same option-derivation path as `atlas scan` rather than assembling
+its own `codeindex.Options`, and both pass `IngestOptions.GeneratedGlobs` so
+`detail` names a real config line. An ingest given no globs still records the
+rule; it just has no pattern to name.
+
+**The `scan.skipped_ledger_written_at` marker.** Zero rows in this table has
+two causes that mean opposite things: the last scan excluded nothing, or no
+scan has ever written a ledger here (a fresh database, or one built before
+migration 0016). The table cannot tell them apart — both are empty — so each
+ledger write also stamps a `config` row:
+
+| Key                              | Value                                                          |
+| -------------------------------- | -------------------------------------------------------------- |
+| `scan.skipped_ledger_written_at` | RFC 3339 (nanosecond) UTC instant of the most recent ledger write |
+
+It is written through the ingest's transaction handle like the rows, so a
+rolled-back ingest leaves neither behind, and it is the one `config` key not
+written by `atlas config set`. `atlas scan --skipped` reads it before the
+rows and reports "no exclusion ledger has been recorded" instead of "the last
+scan excluded no files" when it is absent — an absence is not a measurement.
+`--json` exposes the distinction as `ledger_present`.
+
+**Key spelling.** `file_path` is project-relative and slash-separated, so a
+lookup has to normalise an operator's input into that key space before
+matching (`./api/x.pb.go` and an absolute path are neither). A key the ledger
+does not contain means the last scan did not exclude it — NOT that the file
+was indexed, which this table has no way to know.
+
+**Not durable state.** Like the rest of this database it is a re-derivable
+cache: the next scan rebuilds it.
+
 ## 6. Partial Unique Indices and Invariants
 
 | Invariant                                                                | Where enforced                                                          |
@@ -843,6 +1232,7 @@ API which is responsible for the SQL.
 | `coverage`       | `coverage_runs`, `coverage_results`                       | `atlas cov sync` after a framework-specific ingest.                                           |
 | `audit`          | `audit_snapshot_runs`                                     | `atlas audit` — one whole-project JSON blob per run (§5.10 for why the per-feature table went). |
 | `trend`          | `coverage_history`, `coverage_history_features`           | `atlas trend record` — one point per commit, upserted so a CI retry corrects rather than appends. |
+| `cfg`            | `cfg_blocks`, `cfg_edges`, `cfg_symbols`, `cfg_decision_coverage`, `cfg_findings` | `atlas flow build` -- one whole-symbol rewrite per function, so a rebuild that finds fewer blocks shrinks the stored graph rather than interleaving two generations. |
 | `cli/config`     | `config`                                                  | `atlas config set <key> <value>`. Read-only for everyone else.                                |
 | `cli/init`       | `config`, `features`                                      | Bootstraps the DB; for YAML imports, also seeds `features` + `feature_symbols`.               |
 | `migrate-annotations` | `annotations` (status flip from `testreg` → `atlas`) | `atlas migrate-annotations --apply`. Idempotent.                                              |

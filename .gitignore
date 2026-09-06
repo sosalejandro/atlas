@@ -17,9 +17,16 @@ testreg
 *.out
 coverage.html
 # ...except checked-in coverage fixtures, which are test data, not build
-# output: packages/coverage/testdata/**/cover.out is the verbatim profile the
-# attribution acceptance test asserts against.
-!packages/coverage/testdata/**/*.out
+# output. A coverprofile committed under a testdata/ directory is an input a
+# test asserts against, and `*.out` swallowing one is a failure that only shows
+# up in CI: the file is present on the machine that generated it, so the local
+# suite passes and the pushed branch does not. It has cost this repo two
+# debugging sessions (the attribution fixture, then the control-flow one).
+#
+# Anything under a testdata/ directory is therefore un-ignored, whatever its
+# extension. New fixtures should also prefer a .coverprofile suffix, which no
+# build-output rule claims in the first place.
+!**/testdata/**
 
 # Go workspace file
 go.work

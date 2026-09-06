@@ -11,8 +11,32 @@ import (
 )
 
 type Querier interface {
+	// The honesty counter, straight out of the store: how much of the data layer
+	// atlas could actually read.
+	CountSQLOperationsByResolution(ctx context.Context) ([]CountSQLOperationsByResolutionRow, error)
 	CountTestsInRun(ctx context.Context, runID int64) (int64, error)
+	DeleteAllSQLIndexes(ctx context.Context) error
+	// The operation inventory is replaced wholesale on every scan. An incremental
+	// upsert would leave rows behind for queries that were deleted, and a stale
+	// advisory pointing at a line that no longer exists is worse than no advisory.
+	DeleteAllSQLOperations(ctx context.Context) error
+	DeleteAllSQLTables(ctx context.Context) error
+	DeleteAllSkippedFiles(ctx context.Context) error
 	DeleteAnnotationsByFile(ctx context.Context, filePath string) error
+	// Control-flow queries (migration 0015, issue #127).
+	//
+	// Every statement here is per-symbol by design: a flow result that does not
+	// carry the symbol it belongs to cannot be joined back to the graph, and an
+	// analysis nobody can join is an analysis nobody uses.
+	//
+	// Writes are all INSERT OR REPLACE and the port clears a symbol's rows before
+	// rewriting them, so re-running the builder over an unchanged file is a no-op
+	// and re-running it over a changed one cannot leave two generations of blocks
+	// interleaved.
+	DeleteCFGBlocks(ctx context.Context, symbolID int64) error
+	DeleteCFGDecisionCoverage(ctx context.Context, symbolID int64) error
+	DeleteCFGEdges(ctx context.Context, symbolID int64) error
+	DeleteCFGFindings(ctx context.Context, symbolID int64) error
 	DeleteConfig(ctx context.Context, key string) error
 	// Clears a run's list before rewriting it, so a re-ingest cannot leave two
 	// generations of rows interleaved.
@@ -33,6 +57,8 @@ type Querier interface {
 	// explicit UpsertFeature path when callers genuinely want to overwrite.
 	EnsureFeature(ctx context.Context, arg EnsureFeatureParams) error
 	GetAuditSnapshotRun(ctx context.Context, id int64) (AuditSnapshotRun, error)
+	GetCFGDecisionCoverage(ctx context.Context, symbolID int64) (CfgDecisionCoverage, error)
+	GetCFGSymbol(ctx context.Context, symbolID int64) (CfgSymbol, error)
 	GetConfig(ctx context.Context, key string) (string, error)
 	GetCoverageRun(ctx context.Context, id int64) (CoverageRun, error)
 	GetEdgeID(ctx context.Context, arg GetEdgeIDParams) (int64, error)
@@ -42,12 +68,16 @@ type Querier interface {
 	// model type rather than inventing a per-query row type. Same for every
 	// SELECT below.
 	GetHistoryPoint(ctx context.Context, commitSha string) (CoverageHistory, error)
+	GetSkippedFile(ctx context.Context, filePath string) (SkippedFile, error)
 	GetSnapshot(ctx context.Context, id int64) (Snapshot, error)
 	GetSymbolByQualifiedName(ctx context.Context, qualifiedName string) (Symbol, error)
 	GetSymbolIDByQualifiedName(ctx context.Context, qualifiedName string) (int64, error)
 	HistoryPointIDByCommit(ctx context.Context, commitSha string) (int64, error)
 	InsertAuditSnapshotRun(ctx context.Context, scoreJson string) (sql.Result, error)
 	InsertAuditSnapshotRunWithTime(ctx context.Context, arg InsertAuditSnapshotRunWithTimeParams) (sql.Result, error)
+	InsertCFGBlock(ctx context.Context, arg InsertCFGBlockParams) error
+	InsertCFGEdge(ctx context.Context, arg InsertCFGEdgeParams) error
+	InsertCFGFinding(ctx context.Context, arg InsertCFGFindingParams) error
 	InsertCoverageResult(ctx context.Context, arg InsertCoverageResultParams) error
 	InsertCoverageRun(ctx context.Context, arg InsertCoverageRunParams) (sql.Result, error)
 	// One row per file whose execution could not be charged to a symbol.
@@ -56,6 +86,18 @@ type Querier interface {
 	// edge_meta is a NULLable kind-specific qualifier. Python import edges populate it with a scope tag (module/function/conditional/type_checking/try_guard) via migration 0008 - issue #16. Non-import edges pass NULL.
 	InsertEdge(ctx context.Context, arg InsertEdgeParams) (sql.Result, error)
 	InsertHistoryFeature(ctx context.Context, arg InsertHistoryFeatureParams) error
+	InsertSQLIndex(ctx context.Context, arg InsertSQLIndexParams) error
+	// Column order matches the table declaration so sqlc reuses the model type
+	// instead of inventing a per-query row struct.
+	InsertSQLOperation(ctx context.Context, arg InsertSQLOperationParams) (int64, error)
+	InsertSQLOperationPredicate(ctx context.Context, arg InsertSQLOperationPredicateParams) error
+	InsertSQLOperationTable(ctx context.Context, arg InsertSQLOperationTableParams) error
+	InsertSQLTable(ctx context.Context, arg InsertSQLTableParams) error
+	// DO NOTHING rather than DO UPDATE: within one scan a file is claimed by
+	// exactly one rule, so a second row for the same path can only come from a
+	// caller merging two scans. Keeping the first entry keeps the scanner's own
+	// decision instead of letting the merge order rewrite it.
+	InsertSkippedFile(ctx context.Context, arg InsertSkippedFileParams) error
 	InsertSnapshot(ctx context.Context, arg InsertSnapshotParams) (sql.Result, error)
 	InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql.Result, error)
 	// One row per (run, test, executed symbol). REPLACE so a re-ingest of the
@@ -63,11 +105,21 @@ type Querier interface {
 	InsertTestCoverage(ctx context.Context, arg InsertTestCoverageParams) error
 	LatestAuditSnapshotRun(ctx context.Context) (AuditSnapshotRun, error)
 	LinkFeatureSymbol(ctx context.Context, arg LinkFeatureSymbolParams) error
+	ListAllCFGFindings(ctx context.Context) ([]CfgFinding, error)
 	ListAllCoverageRuns(ctx context.Context) ([]CoverageRun, error)
 	ListAllFeatures(ctx context.Context) ([]Feature, error)
 	ListAllSnapshots(ctx context.Context) ([]Snapshot, error)
 	ListAnnotationsByFile(ctx context.Context, filePath string) ([]Annotation, error)
 	ListAuditSnapshotRuns(ctx context.Context, limit int64) ([]AuditSnapshotRun, error)
+	ListCFGBlocks(ctx context.Context, symbolID int64) ([]CfgBlock, error)
+	ListCFGEdges(ctx context.Context, symbolID int64) ([]CfgEdge, error)
+	// Highest confidence first so a consumer reading only the head of the list
+	// sees the findings most likely to be real.
+	ListCFGFindingsByKind(ctx context.Context, kind string) ([]CfgFinding, error)
+	ListCFGFindingsBySymbol(ctx context.Context, symbolID int64) ([]CfgFinding, error)
+	// Most complex first: the order the hotspot ranking wants. Ties break by
+	// symbol_id so a paged read is stable across calls.
+	ListCFGSymbolsByComplexity(ctx context.Context, limit int64) ([]CfgSymbol, error)
 	ListConfig(ctx context.Context) ([]Config, error)
 	ListCoverageResults(ctx context.Context, runID int64) ([]ListCoverageResultsRow, error)
 	// One join rather than a query per run: the audit reads a frontier once per
@@ -88,6 +140,16 @@ type Querier interface {
 	// Newest first with a LIMIT so a cap keeps the most RECENT window; the port
 	// reverses into oldest-first, which is how a series reads.
 	ListHistoryPoints(ctx context.Context, arg ListHistoryPointsParams) ([]CoverageHistory, error)
+	ListSQLIndexes(ctx context.Context) ([]SqlIndex, error)
+	ListSQLOperationPredicates(ctx context.Context) ([]SqlOperationPredicate, error)
+	// Every child row for every operation in one pass; the caller groups by
+	// operation_id. Fetching per operation would be an N+1 against the very
+	// pattern this feature exists to find.
+	ListSQLOperationTables(ctx context.Context) ([]SqlOperationTable, error)
+	// Ordered by position so successive runs diff cleanly.
+	ListSQLOperations(ctx context.Context) ([]SqlOperation, error)
+	ListSQLTables(ctx context.Context) ([]SqlTable, error)
+	ListSkippedFiles(ctx context.Context) ([]SkippedFile, error)
 	ListSnapshotsByGitRef(ctx context.Context, gitRef string) ([]Snapshot, error)
 	// Note: FindByPattern still uses raw SQL in symbols.go because sqlc's
 	// sqlite engine handles JSON-substring matchers poorly.
@@ -115,6 +177,8 @@ type Querier interface {
 	// The production symbols one test ran. Union these over a feature's annotated
 	// tests to get its implementation surface without walking the call graph.
 	ListSymbolsExecutedByTest(ctx context.Context, arg ListSymbolsExecutedByTestParams) ([]ListSymbolsExecutedByTestRow, error)
+	// The data footprint of one symbol: the tables its queries read and write.
+	ListTableAccessBySymbol(ctx context.Context, symbolID *int64) ([]ListTableAccessBySymbolRow, error)
 	// The inverse: which tests ran a symbol. This is affected-test selection.
 	ListTestsExecutingSymbol(ctx context.Context, arg ListTestsExecutingSymbolParams) ([]ListTestsExecutingSymbolRow, error)
 	// Resolves an annotation at file:line to the symbol it attaches to. Atlas
@@ -148,6 +212,12 @@ type Querier interface {
 	SymbolTestFanIn(ctx context.Context, runID int64) ([]SymbolTestFanInRow, error)
 	UnlinkFeatureSymbol(ctx context.Context, arg UnlinkFeatureSymbolParams) (int64, error)
 	UpsertAnnotation(ctx context.Context, arg UpsertAnnotationParams) error
+	// outcomes_decidable is the denominator; outcomes_total is NOT. The gap
+	// between them is the part of the branching no statement-coverage profile can
+	// judge, and it is stored so a reader can report it instead of dividing it
+	// away.
+	UpsertCFGDecisionCoverage(ctx context.Context, arg UpsertCFGDecisionCoverageParams) error
+	UpsertCFGSymbol(ctx context.Context, arg UpsertCFGSymbolParams) error
 	UpsertFeature(ctx context.Context, arg UpsertFeatureParams) error
 	UpsertFileHash(ctx context.Context, arg UpsertFileHashParams) error
 	// coverage_history is the measurement series behind `atlas trend` (#92).
