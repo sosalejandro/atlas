@@ -65,6 +65,14 @@ test: ## go test with the race detector
 lint: ## golangci-lint over the Go source
 	@golangci-lint run ./packages/... ./internal/...
 
+.PHONY: secret-scan
+secret-scan: ## Scan the working tree for committed credentials (same check CI runs)
+	@./.github/scripts/secret-scan.sh
+
+.PHONY: secret-scan-history
+secret-scan-history: ## Scan all history for committed credentials
+	@SCAN_MODE=history ./.github/scripts/secret-scan.sh
+
 .PHONY: test-scripts
 test-scripts: ## Test the release/CI scripts (fast subset)
 	@bash $(SCRIPTS)/scripts_test.sh
@@ -78,4 +86,4 @@ version-check: ## Check the binary version, release manifest and changelog agree
 	@$(SCRIPTS)/check-version-consistency.sh
 
 .PHONY: ci
-ci: vet test lint test-scripts-full ## Everything CI runs, minus the OS matrix
+ci: vet test lint secret-scan-history test-scripts-full ## Everything CI runs, minus the OS matrix

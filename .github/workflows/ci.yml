@@ -220,6 +220,52 @@ jobs:
       - name: Determinism suite
         run: go test ./packages/codeindex/... ./packages/store/... -run Determinism -count=1 -v -timeout 10m
 
+  secret-scan:
+    name: secret scan (blocking)
+    # Atlas ships a secret detector, so its own fixtures look like credentials.
+    # A literal AWS temporary key id in packages/redact raised a real GitHub
+    # secret-scanning alert after the M4 batch merged. Nothing leaked -- the
+    # value never was a credential -- but an alert nobody can distinguish from
+    # a real one is the whole cost, and a maintainer who learns to dismiss
+    # alerts is the actual failure.
+    #
+    # This catches that class before it reaches GitHub's scanner, where nothing
+    # is configurable. The logic is in .github/scripts/secret-scan.sh so a
+    # contributor runs the identical check locally -- same pinned version, same
+    # config, same answer.
+    #
+    # Blocking from the start. A secret-scanning gate that only warns trains
+    # exactly the habit it exists to prevent.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # History mode needs the history. Shallow would scan one commit and
+          # report clean, which is worse than not running.
+          fetch-depth: 0
+
+      - name: Read the pinned Go toolchain
+        id: toolchain
+        shell: bash
+        run: echo "version=$(tr -d '[:space:]' < .github/scripts/toolchain.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.5.0
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+
+      - name: Install gitleaks
+        # Installed from source at a pinned version rather than pulling a
+        # third-party action: this repo already builds its own tools, and an
+        # action is one more thing to pin, audit and keep pinned.
+        run: go install github.com/gitleaks/gitleaks/v8@v8.30.0
+
+      - name: Scan history for committed credentials
+        env:
+          SCAN_MODE: history
+        run: ./.github/scripts/secret-scan.sh
+
   dogfood:
     name: atlas gates atlas (blocking)
     # Issue #122's acceptance criterion is that CI goes red when the dogfood

@@ -1,0 +1,62 @@
+# gitleaks configuration for atlas.
+#
+# Atlas ships a secret DETECTOR (packages/redact, issue #131), which creates a
+# tension nothing resolves cleanly: testing a detector requires inputs that look
+# exactly like the thing it detects. Those fixtures are not credentials and
+# never were, but no scanner can tell -- and neither can a reviewer skimming a
+# diff, which is the more important half.
+#
+# The rule this file encodes, learned the expensive way:
+#
+#   1. For a VENDOR-SPECIFIC pattern that real scanners recognise with high
+#      confidence -- AWS key ids, Stripe keys -- assemble the fixture at runtime
+#      so no literal exists. Those are the ones that raise alerts on GitHub,
+#      where we cannot configure anything. `AKIAIOSFODNN7EXAMPLE` is the
+#      exception: AWS publishes it as an example and every scanner allowlists
+#      it, so prefer a vendor's documented example wherever one exists.
+#
+#   2. For GENERIC shapes -- a PEM header, a high-entropy assignment -- runtime
+#      assembly buys nothing, because the detector's job is to match the SHAPE
+#      and any shape-preserving fixture still matches. Those are allowlisted
+#      here, narrowly.
+#
+# The allowlist is scoped by path AND rule, deliberately. A real AWS key
+# committed to packages/store still fails this scan; only the detector's own
+# fixtures are excused, and only for the rules they must trip.
+
+[extend]
+useDefault = true
+
+[[rules]]
+  id = "generic-api-key"
+  [rules.allowlist]
+    description = """
+Fixtures for the secret detector's generic high-entropy heuristic. These are
+random strings chosen to LOOK like assigned credentials, because that is
+precisely the input the heuristic exists to classify. Runtime assembly would not
+help: the detector matches the shape, so any fixture that still exercises it
+still matches this rule.
+"""
+    paths = [
+      '''packages/redact/.*_test\.go''',
+      '''internal/cli/security_test\.go''',
+    ]
+
+[[rules]]
+  id = "private-key"
+  [rules.allowlist]
+    description = """
+PEM armour headers with obviously non-key bodies ("MIIEvQIBADANBg...",
+"QUJDREVGRw=="). The detector keys on the header, so the fixture must carry a
+real header; the body is deliberately too short to be a key of any kind.
+"""
+    paths = ['''packages/redact/.*_test\.go''']
+
+[allowlist]
+  description = "Paths that are not source, or are generated/vendored."
+  paths = [
+    '''\.claude/worktrees/.*''',
+    '''\.git/.*''',
+    '''dist/.*''',
+    '''packages/store/sqlc/.*\.sql\.go''',
+  ]

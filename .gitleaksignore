@@ -1,0 +1,41 @@
+# Historical findings, ignored by EXACT FINGERPRINT.
+#
+# Every line below is a fabricated test fixture for atlas's own secret detector
+# (packages/redact, issue #131), committed on 2026-09-06 in two commits during
+# the M4 batch. None was ever a credential: the AWS ids are shape-only, the
+# Stripe key is a made-up token, and all of them exist so the detector has
+# something to detect.
+#
+# The current tree assembles those shapes at runtime instead, so nothing here
+# recurs going forward. These entries exist only because git history is
+# immutable and a full-history scan would otherwise re-report the same fourteen
+# known-benign findings forever -- which is how a scanner gets ignored.
+#
+# By FINGERPRINT, deliberately, not by rule or path. A fingerprint pins commit +
+# file + rule + line, so a NEW literal in the same file still fails. A blanket
+# "ignore aws-access-token in packages/redact" would silence the next real one.
+#
+# The one that mattered was an ASIA-prefixed id (an AWS temporary/STS access
+# key shape) in packages/redact/detect_test.go. It raised GitHub secret-scanning
+# alert #1, "Amazon AWS Temporary Access Key ID", against this repository.
+# Confirmed fabricated, closed as a false positive: no rotation was needed and
+# nothing was exposed. The alert was still indistinguishable from a real one,
+# which is exactly the cost this file and .gitleaks.toml exist to stop repeating.
+#
+# Note the value itself is NOT quoted here. The first draft of this comment
+# named it, and the scanner flagged the explanation of the leak as a leak --
+# correctly. Describe the shape; never paste the value.
+189e71326bb76338d295aa2d980a7b4a1ea09e4b:packages/redact/detect_test.go:aws-access-token:49
+189e71326bb76338d295aa2d980a7b4a1ea09e4b:packages/redact/detect_test.go:aws-access-token:51
+189e71326bb76338d295aa2d980a7b4a1ea09e4b:packages/redact/detect_test.go:stripe-access-token:67
+189e71326bb76338d295aa2d980a7b4a1ea09e4b:packages/redact/detect_test.go:stripe-access-token:69
+189e71326bb76338d295aa2d980a7b4a1ea09e4b:packages/redact/detect_test.go:stripe-access-token:92
+189e71326bb76338d295aa2d980a7b4a1ea09e4b:packages/redact/detect_test.go:stripe-access-token:223
+189e71326bb76338d295aa2d980a7b4a1ea09e4b:packages/redact/detect_test.go:aws-access-token:224
+189e71326bb76338d295aa2d980a7b4a1ea09e4b:packages/redact/redact_test.go:stripe-access-token:47
+189e71326bb76338d295aa2d980a7b4a1ea09e4b:packages/redact/redact_test.go:stripe-access-token:53
+189e71326bb76338d295aa2d980a7b4a1ea09e4b:packages/redact/redact_test.go:stripe-access-token:73
+189e71326bb76338d295aa2d980a7b4a1ea09e4b:packages/redact/redact_test.go:stripe-access-token:131
+43f0d56f0eb7e4edc3a6f4cfb2d93ad4aad6f42c:packages/redact/detect_test.go:aws-access-token:67
+43f0d56f0eb7e4edc3a6f4cfb2d93ad4aad6f42c:packages/redact/detect_test.go:aws-access-token:69
+43f0d56f0eb7e4edc3a6f4cfb2d93ad4aad6f42c:packages/redact/detect_test.go:aws-access-token:242
