@@ -80,7 +80,7 @@ func (a *auditImpl) scoreFromFeature(
 	// symbol link exists (the same condition `atlas trace feature:<id>`
 	// uses) thus scores >0 but ranks at the bottom, where it belongs until a
 	// coverage run verifies it. See issues #78 / #77.
-	score := weightedAverage(components, available, a.blendWeights(available))
+	score := weightedAverage(components, available, a.blendWeights(available, decision))
 	switch {
 	case len(available) > 0:
 		// Real signals decided the score; presence adds nothing on top.

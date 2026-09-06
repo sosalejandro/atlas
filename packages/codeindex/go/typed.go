@@ -2,9 +2,11 @@ package goscan
 
 import (
 	"context"
+	"fmt"
 	"go/ast"
 	"go/types"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/sosalejandro/atlas/packages/graph"
@@ -185,8 +187,18 @@ func (c *scanContext) resolveCallTyped(caller *funcInfo, call *ast.CallExpr) ([]
 	// found more than one implementation and cannot say which runs, so
 	// every edge out of the site inherits the doubt. A single-candidate
 	// interface call is not ambiguous — there was nothing to choose
-	// between — which is why this is len(ids) > 1 and not r.ViaInterface.
-	ambiguous := len(ids) > 1
+	// between — which is why this is a candidate count and not
+	// r.ViaInterface.
+	//
+	// The count is taken BEFORE indexedTargets drops the candidates this
+	// scan has no symbol for — a generated file the ledger excluded, a
+	// declaration in a package that degraded, an implementation in a
+	// dependency. Counting after the filter inverts the meaning: an
+	// interface with four implementations, three of them unindexed,
+	// would record ambiguous=false and claim certainty about which one
+	// ran precisely where atlas can see the least. Fewer visible
+	// alternatives is less evidence, not more.
+	ambiguous := len(r.Targets) > 1
 	out := make([]callResolution, 0, len(ids))
 	for _, id := range ids {
 		out = append(out, callResolution{ID: id, Ambiguous: ambiguous, Tier: graph.TierTyped})
@@ -213,6 +225,47 @@ func (c *scanContext) indexedTargets(targets []*types.Func) []shared.SymbolID {
 	return ids
 }
 
+// maxDegradedNamedInWarning caps how many failing packages the warning
+// spells out. The report on Result.Resolution carries the rest; a
+// warnings list long enough to scroll is one nobody reads.
+const maxDegradedNamedInWarning = 3
+
+// degradationWarning describes a PARTIAL type-check failure, or returns
+// "" when there was none.
+//
+// The all-or-nothing cases already speak for themselves: a load that
+// could not run fills Unavailable, and a load that covered none of the
+// scanned files warns separately. Partial degradation is the case this
+// design exists for -- a repo mid-edit, where two packages are red and
+// the other two hundred are exactly resolvable -- and it was the one
+// case that said nothing at all. A reader then sees syntactic edges in
+// the tier histogram with no hint that a package failed to compile,
+// which reads as the scanner guessing rather than as the tree being
+// broken.
+func degradationWarning(r *ResolutionReport) string {
+	if r == nil || r.Degraded == 0 {
+		return ""
+	}
+	named := r.DegradedPackages
+	if len(named) > maxDegradedNamedInWarning {
+		named = named[:maxDegradedNamedInWarning]
+	}
+	parts := make([]string, 0, len(named))
+	for _, d := range named {
+		parts = append(parts, fmt.Sprintf("%s (%s)", d.Path, d.Error))
+	}
+	msg := fmt.Sprintf("typed resolution degraded for %d of %d Go packages; "+
+		"calls in them are name-resolved or syntactic, not typed",
+		r.Degraded, r.Packages)
+	if len(parts) > 0 {
+		msg += ": " + strings.Join(parts, "; ")
+	}
+	if r.Degraded > len(named) {
+		msg += fmt.Sprintf(" (+%d more)", r.Degraded-len(named))
+	}
+	return msg
+}
+
 // finishResolutionReport fills in the per-file counts, which are only
 // known once the walk has decided which files it indexes.
 func (c *scanContext) finishResolutionReport() {
@@ -233,6 +286,8 @@ func (c *scanContext) finishResolutionReport() {
 	if c.typed != nil && c.typedIndexedFiles == 0 {
 		c.deferWarning("typed resolution loaded no package covering the scanned files; " +
 			"every call edge is name-resolved or syntactic")
+	} else if w := degradationWarning(c.resolution); w != "" {
+		c.deferWarning(w)
 	}
 	c.warnings = append(c.warnings, c.pendingTypedWarnings...)
 	c.pendingTypedWarnings = nil

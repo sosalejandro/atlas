@@ -26,6 +26,8 @@ func newScanCmd() *cobra.Command {
 		includeGenerated bool
 		showSkipped      bool
 		skippedPath      string
+
+		skipTypedResolution bool
 	)
 	cmd := &cobra.Command{
 		Use:   "scan",
@@ -52,6 +54,16 @@ symbol disappear?". Which files count as generated is a property of the
 codebase, so extra patterns belong under scan.generated in atlas.yaml
 rather than on the command line.
 
+--skip-typed-resolution scans Go with the AST name heuristics alone
+instead of type-checking through go/packages. Type checking is the
+default because a name is not an answer to "which declaration does this
+call bind to", and it degrades per package, so a tree that does not
+compile still scans. The flag is the escape hatch for when the LOAD
+itself is the problem: no Go toolchain on the machine, a build that
+needs credentials to resolve modules, or a latency budget that cannot
+absorb it. Expect call edges to move from the typed tier down to
+name_resolved and syntactic -- 'atlas edges' will show it.
+
 --skipped does not scan. It reads back the exclusion ledger the last scan
 wrote and answers "why is this file not indexed?" from the store, naming
 the rule that claimed each file -- and, for a glob, the pattern that
@@ -67,7 +79,8 @@ answer to one file.`,
 			if showSkipped || skippedPath != "" {
 				return runScanSkipped(cmd, root, skippedPath)
 			}
-			return runScan(cmd, root, hashFiles, nodeModulesPaths, includeGenerated)
+			return runScan(cmd, root, hashFiles, nodeModulesPaths, includeGenerated,
+				skipTypedResolution)
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "",
@@ -79,6 +92,9 @@ answer to one file.`,
 			"(repeatable; auto-detected from the scan root when unset)")
 	cmd.Flags().BoolVar(&includeGenerated, "include-generated", false,
 		"index machine-written files instead of excluding them (see scan.generated in atlas.yaml)")
+	cmd.Flags().BoolVar(&skipTypedResolution, "skip-typed-resolution", false,
+		"resolve Go calls by name only, without go/packages type checking "+
+			"(escape hatch: no toolchain, or a load that cannot run here)")
 	cmd.Flags().BoolVar(&showSkipped, "skipped", false,
 		"print the last scan's exclusion ledger instead of scanning")
 	cmd.Flags().StringVar(&skippedPath, "skipped-path", "",
@@ -118,7 +134,14 @@ type scanSkippedResult struct {
 	Skipped     []store.SkippedFileRow `json:"skipped"`
 }
 
-func runScan(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPaths []string, includeGenerated bool) error {
+func runScan(
+	cmd *cobra.Command,
+	rootArg string,
+	hashFiles bool,
+	nodeModulesPaths []string,
+	includeGenerated bool,
+	skipTypedResolution bool,
+) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -133,7 +156,8 @@ func runScan(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPath
 		return err
 	}
 
-	idx, warnings, err := indexProjectFromConfig(ctx, rootDir, hashFiles, nodeModulesPaths, includeGenerated)
+	idx, warnings, err := indexProjectFromConfig(ctx, rootDir, hashFiles, nodeModulesPaths,
+		includeGenerated, withSkipTypedResolution(skipTypedResolution))
 	if err != nil {
 		return err
 	}

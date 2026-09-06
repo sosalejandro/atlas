@@ -240,7 +240,23 @@ func (s *Scanner) Scan(ctx context.Context, rootDir string) (*Result, error) {
 // (a) bypassing this validator AND (b) finding a python3 CLI flag that
 // re-invokes the shell — neither of which has a known exploit path here.
 func buildScannerArgs(scriptPath, projectRoot string, opts Options) ([]string, error) {
-	sep := filepath.Separator
+	return buildScannerArgsSep(scriptPath, projectRoot, opts, filepath.Separator)
+}
+
+// buildScannerArgsSep is buildScannerArgs with the host separator passed
+// in rather than read from filepath.Separator.
+//
+// sanitizeScannerPathArg already takes sep for this reason, and its godoc
+// says why: "the Windows branch is exercised from Linux". Reading the
+// separator one level up in buildScannerArgs threw that away for the
+// wiring — a test that fed the builder filepath.Join("src", "**", "*.py")
+// got forward slashes on Linux before the builder saw them, so it passed
+// identically whether or not the builder called the sanitiser at all. The
+// only platform the assertion was real on was the one CI cannot gate.
+//
+// Splitting the seam here costs one wrapper and makes
+// TestBuildScannerArgs_EmitsSlashPaths able to fail on every host.
+func buildScannerArgsSep(scriptPath, projectRoot string, opts Options, sep rune) ([]string, error) {
 	script, err := sanitizeScannerPathArg(scriptPath, sep)
 	if err != nil {
 		return nil, fmt.Errorf("scriptPath: %w", err)

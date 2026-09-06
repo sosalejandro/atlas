@@ -1311,10 +1311,23 @@ func (c *scanContext) emitCallEdge(info *funcInfo, r callResolution) []shared.Sy
 				Doc:      fmt.Sprintf("SQLC query: %s (:%s)", sqlcMap.QueryName, sqlcMap.QueryType),
 			},
 		})
-		// The sqlc redirect swaps the target for a generated query node
-		// but does not re-resolve anything, so the tier the resolver
-		// reported still describes this edge.
-		c.addResolvedEdge(info.node.ID, queryID, r)
+		// The redirect DOES re-resolve, and by the weakest rule atlas
+		// has: c.sqlcMethods is keyed on a bare method name, and the
+		// lookup above is the last dot-segment of whatever id the
+		// resolver produced. Nothing about the receiver, the package or
+		// the types survives that hop, so two repositories with a
+		// GetUser method both land on the same query node.
+		//
+		// The tier therefore restarts at C. Carrying the callee's tier
+		// across would let a bare-name match inherit a guarantee the
+		// type checker made about a DIFFERENT edge — the one to the Go
+		// method, which this edge replaced. Ambiguity does carry over:
+		// the redirect adds doubt and removes none.
+		c.addResolvedEdge(info.node.ID, queryID, callResolution{
+			ID:        queryID,
+			Ambiguous: r.Ambiguous,
+			Tier:      graph.TierSyntactic,
+		})
 		return []shared.SymbolID{queryID}
 	}
 	if _, exists := c.funcLookup[r.ID]; exists {

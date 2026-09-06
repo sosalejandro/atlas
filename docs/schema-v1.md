@@ -742,7 +742,8 @@ else writes here: `atlas cov sync` and `atlas audit` do not.
 
 **What `score` holds.** The audit's **coverage component**, not
 `FeatureHealth.Score`. The overall audit score re-normalises a blend of
-coverage, annotation freshness, pattern compliance and contract drift;
+statement coverage, decision coverage (#140), annotation freshness, pattern
+compliance and contract drift;
 recording that in a table `atlas trend` gates on as a coverage regression
 would fire the gate on a stale annotation and let a real coverage drop hide
 behind another component rising.

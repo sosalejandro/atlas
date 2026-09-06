@@ -86,9 +86,9 @@ vocabulary is closed:
 
 | Tier            | What it means                                                                 |
 | --------------- | ----------------------------------------------------------------------------- |
-| `typed`         | The type checker resolved it. Exact across packages, through embedding, through generic instantiation. Interface dispatch is typed too, and marked ambiguous when more than one implementation can answer. |
+| `typed`         | The type checker resolved it. Exact across packages, through embedding, through generic instantiation. Interface dispatch is typed too, and marked ambiguous when class-hierarchy analysis named more than one implementation — counted over every candidate CHA found, including the ones atlas did not index, because an alternative it cannot see is still an alternative. |
 | `name_resolved` | A name was bound to a declaration atlas indexed, using scope rules. No types were consulted. Produced only by the AST fallback. |
-| `syntactic`     | The shape of the source suggested it and nothing was bound: a substring match, a DI-binding guess, an `@api` comment sitting above a declaration. The target may not exist. |
+| `syntactic`     | The shape of the source suggested it and nothing was bound: a substring match, a DI-binding guess, an `@api` comment sitting above a declaration, a sqlc query node picked by bare method name. The target may not exist. |
 | `imported`      | Someone else's indexer said so (SCIP; not yet produced).                       |
 
 `atlas resolve` prints the histogram, and `--ast` re-runs the same scan
@@ -161,6 +161,19 @@ Both packages were scanned; both produced their call edge. One edge is
 `typed` and one is `name_resolved`, and the tiers are the only thing
 distinguishing them.
 
+Partial degradation also reaches the scan warnings, which is what `atlas
+scan` prints to stderr — so a reader who never opens the report still
+learns why syntactic edges are in the histogram:
+
+```
+  warning: typed resolution degraded for 1 of 2 Go packages; calls in them are
+  name-resolved or syntactic, not typed: example.com/broken/broken
+  (broken/broken.go:19:9: cannot use key (variable of type string) as error value ...)
+```
+
+At most three packages are named there; `Result.Resolution` carries the
+rest.
+
 Three distinct outcomes, which the report keeps apart because the fix for
 each is different:
 
@@ -218,12 +231,49 @@ best absorbed.
 
 ### Turning it off
 
-Set `codeindex/go.Options.SkipTypedResolution = true` via the library API
-to scan with the name resolver alone. Reach for it when the load itself
-is the problem — no toolchain, a build that needs credentials to resolve
-modules, or a latency budget that cannot absorb the load. The tiers then
-report `name_resolved` and `syntactic`, honestly, and nothing claims to
-be typed.
+```
+atlas scan --skip-typed-resolution
+atlas init --skip-typed-resolution
+```
+
+Both scan Go with the name resolver alone. Reach for the flag when the
+LOAD itself is the problem — no toolchain, a build that needs credentials
+to resolve modules, or a latency budget that cannot absorb the load. The
+tiers then report `name_resolved` and `syntactic`, honestly, and nothing
+claims to be typed.
+
+It only turns type checking off, never back on, for the same reason
+`--include-generated` is one-way: it is the escape hatch for a one-off
+"go/packages will not run here", not a second place to configure the
+default. Library callers set `codeindex/go.Options.SkipTypedResolution =
+true` directly.
+
+Two things change in the output besides the tiers, and both are visible
+to a caller that queries the graph:
+
+- **`ambiguous` means something different.** With types off there is no
+  CHA, so an interface call site never enumerates its implementations;
+  the flag then marks the name ladder's own guesses — a fuzzy match, a
+  rendered `Type.Method` that bound to nothing — rather than a genuine
+  choice between known candidates.
+- **`external` stub nodes come back.** See below.
+
+### `external` stubs exist only on the AST path
+
+When the name ladder renders a callee it cannot find a declaration for
+and the name starts with a known standard-library prefix
+(`sync.Mutex.Lock`, rendered from `s.mu.Lock()`), the AST path synthesises
+an `external` node for it and points a `syntactic` edge at it. The typed
+path never does: it offers only callees it has already matched to an
+indexed declaration, so a call into the standard library or into a
+dependency produces no node and no edge.
+
+That is the right answer — the stub was a guess about a symbol atlas had
+never scanned, with no span and no owner — but it is a real difference in
+what a caller can query. Turning typed resolution on removes those nodes
+from `Result.Symbols`; turning it off brings them back. Every node for a
+declaration atlas actually indexed is identical either way, which
+`TestTypedResolution_DropsOnlyExternalStubsFromTheSymbolSet` pins.
 
 ### What is still not typed
 

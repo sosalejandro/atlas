@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -123,20 +124,33 @@ func TestSanitizeScannerPathArg_BothSeparators(t *testing.T) {
 
 // TestBuildScannerArgs_EmitsSlashPaths asserts the sanitiser is actually
 // wired into the argv builder — a correct helper nobody calls fixes
-// nothing. On POSIX hosts this is a no-op assertion on the paths; the
-// value is that it fails loudly if buildScannerArgs stops normalising.
+// nothing.
+//
+// The inputs are literal backslash-bearing Windows paths and the
+// separator is passed in as '\\', for the same reason
+// TestSanitizeScannerPathArg_BothSeparators does it: an earlier version
+// of this test built its inputs with filepath.Join, which on Linux
+// already yields forward slashes. There was nothing left for the
+// sanitiser to change, so the assertion held whether or not
+// buildScannerArgs called it — on Linux, the platform CI gates hardest
+// on, the test could not detect its own unwiring. Every argument below
+// arrives with a backslash in it, so a builder that stopped normalising
+// fails here on every host.
 func TestBuildScannerArgs_EmitsSlashPaths(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	script := filepath.Join(root, "scanner.ts")
+	const (
+		root   = `C:\Users\RUNNER~1\AppData\Local\Temp\atlas-tsscan-2417`
+		script = root + `\scanner.ts`
+	)
 
-	args, err := buildScannerArgs(script, root, Options{
-		Include:      []string{filepath.Join("src", "**", "*.ts")},
-		Exclude:      []string{filepath.Join("dist", "**")},
-		TsconfigPath: filepath.Join(root, "tsconfig.json"),
-	})
+	args, err := buildScannerArgsSep(script, root, Options{
+		Include:      []string{`src\**\*.ts`},
+		Exclude:      []string{`dist\**`},
+		TsconfigPath: root + `\tsconfig.json`,
+		Routers:      []RouterKind{ReactRouter},
+	}, '\\')
 	if err != nil {
-		t.Fatalf("buildScannerArgs: %v", err)
+		t.Fatalf("buildScannerArgsSep: %v", err)
 	}
 	for i, a := range args {
 		if strings.Contains(a, `\`) {
@@ -144,8 +158,47 @@ func TestBuildScannerArgs_EmitsSlashPaths(t *testing.T) {
 				"Node and the metacharacter guard both want forward slashes", i, a)
 		}
 	}
-	if want := filepath.ToSlash(script); args[1] != want {
-		t.Errorf("args[1] = %q, want the normalised script path %q", args[1], want)
+	// Naming the values, not just "no backslashes": a builder that
+	// dropped an argument entirely would pass the loop above.
+	want := []string{
+		"--experimental-strip-types",
+		"C:/Users/RUNNER~1/AppData/Local/Temp/atlas-tsscan-2417/scanner.ts",
+		"--root", "C:/Users/RUNNER~1/AppData/Local/Temp/atlas-tsscan-2417",
+		"--include", "src/**/*.ts",
+		"--exclude", "dist/**",
+		"--router", string(ReactRouter),
+		"--tsconfig", "C:/Users/RUNNER~1/AppData/Local/Temp/atlas-tsscan-2417/tsconfig.json",
+	}
+	if len(args) != len(want) {
+		t.Fatalf("args = %q (%d), want %q (%d)", args, len(args), want, len(want))
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Errorf("args[%d] = %q, want %q", i, args[i], want[i])
+		}
+	}
+}
+
+// TestBuildScannerArgs_UsesTheHostSeparator pins the wrapper to the host,
+// so the seam TestBuildScannerArgs_EmitsSlashPaths tests through cannot
+// drift away from what production actually calls. On POSIX a backslash is
+// not a separator, so it stays a metacharacter and the builder must
+// reject it; on Windows the same input is a legitimate path.
+func TestBuildScannerArgs_UsesTheHostSeparator(t *testing.T) {
+	t.Parallel()
+	const winScript = `C:\Temp\atlas\scanner.ts`
+
+	_, err := buildScannerArgs(winScript, `C:\Temp\atlas`, Options{})
+	if runtime.GOOS == "windows" {
+		if err != nil {
+			t.Fatalf("buildScannerArgs rejected a Windows path on Windows: %v", err)
+		}
+		return
+	}
+	if err == nil {
+		t.Fatalf("buildScannerArgs accepted %q on %s; a backslash is not a path "+
+			"separator there, so it is still a shell metacharacter",
+			winScript, runtime.GOOS)
 	}
 }
 

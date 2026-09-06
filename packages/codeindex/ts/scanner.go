@@ -304,7 +304,24 @@ func (s *Scanner) Scan(ctx context.Context, rootDir string) (*Result, error) {
 // true; the validator exists to satisfy static analysis and to give a
 // single chokepoint if Node ever grows one.
 func buildScannerArgs(scriptPath, projectRoot string, opts Options) ([]string, error) {
-	sep := filepath.Separator
+	return buildScannerArgsSep(scriptPath, projectRoot, opts, filepath.Separator)
+}
+
+// buildScannerArgsSep is buildScannerArgs with the host separator passed
+// in rather than read from filepath.Separator.
+//
+// sanitizeScannerPathArg already takes sep for this reason, and its godoc
+// says why: deriving the separator from the host is what made the Windows
+// bug invisible. Reading it one level up in buildScannerArgs threw that
+// away for the wiring assertion — a test that fed the builder
+// filepath.Join("src", "**", "*.ts") got forward slashes on Linux before
+// the builder ever saw them, so it passed identically whether or not the
+// builder called the sanitiser. The only host the assertion was real on
+// was the one CI cannot gate.
+//
+// Splitting the seam here costs one wrapper and makes
+// TestBuildScannerArgs_EmitsSlashPaths able to fail on every host.
+func buildScannerArgsSep(scriptPath, projectRoot string, opts Options, sep rune) ([]string, error) {
 	script, err := sanitizeScannerPathArg(scriptPath, sep)
 	if err != nil {
 		return nil, fmt.Errorf("scriptPath: %w", err)

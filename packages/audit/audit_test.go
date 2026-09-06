@@ -458,7 +458,7 @@ func TestScoreFeature_AllSignalsAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScoreFeature: %v", err)
 	}
-	// Expect all four signals present.
+	// Expect the four non-decision signals present (this store has no cfg rows).
 	for _, k := range []string{
 		SignalCoverage, SignalAnnotationFresh,
 		SignalPatternCompliance, SignalContractDrift,

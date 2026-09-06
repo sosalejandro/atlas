@@ -1,6 +1,7 @@
 package goscan
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -156,11 +157,118 @@ func TestGoldenCorpus_SymbolsAndEdgesMatchSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read golden (regenerate with `go test ./packages/codeindex/go -run TestGoldenCorpus -update`): %v", err)
 	}
+	// Diagnose a CRLF checkout before comparing, because the comparison
+	// cannot. canonicalize writes "\n"; a Windows clone with
+	// core.autocrlf=true (the Git for Windows installer default) hands
+	// os.ReadFile "\r\n", so every one of the snapshot's lines differs and
+	// the diff blames the scanner for the checkout. .gitattributes pins
+	// this file to LF; this check is what says so when it has been lost.
+	if bytes.Contains(raw, []byte("\r\n")) {
+		t.Fatalf("%s has CRLF line endings, but the scanner renders LF, so the byte "+
+			"comparison below would fail on every line for a reason that has nothing "+
+			"to do with the scanner.\nThis is a checkout problem, not a scanner problem: "+
+			"the repository stores this file with LF and .gitattributes pins it to LF in "+
+			"the working tree. Re-checkout with `git rm --cached -r . && git reset --hard`, "+
+			"or check that .gitattributes is present at the repo root.", goldenSnapshot)
+	}
 	if want := string(raw); got != want {
 		t.Fatalf("golden corpus snapshot is stale or the scanner regressed.\n"+
 			"Explain the diff in your PR, then regenerate with:\n"+
 			"  go test ./packages/codeindex/go -run TestGoldenCorpus -update\n\n%s",
 			diffCanonical(want, got))
+	}
+}
+
+// TestGoldenCorpus_LineEndingsDoNotMoveTheSnapshot scans the corpus twice
+// — once from LF sources, once from the same sources rewritten to CRLF —
+// and asserts the two canonical documents are byte-identical.
+//
+// This is the half of the Windows question the snapshot comparison cannot
+// answer for itself. Issue #143 claimed the golden corpus "bakes in path
+// separators", and a guard was written to route Position.Path through a
+// slash normaliser in this file. That guard was a no-op: every
+// Position.Path the scanner emits has already been through
+// filepath.ToSlash at construction (scanner.go, the relOrSelf call sites),
+// so it could not change a byte of any real scan on any platform. It has
+// been dropped rather than left standing in for a fix.
+//
+// What a Windows checkout DOES change is the bytes on disk: with
+// core.autocrlf=true every source file in the corpus arrives as CRLF. So
+// the real question is not whether the scanner emits the host separator —
+// it does not — but whether reading CRLF sources moves anything the
+// snapshot records. Three fields could plausibly carry a stray "\r":
+// Doc (ast.CommentGroup.Text), Signature (rendered from the AST, not from
+// source bytes) and the generated-header probe (a bufio.Scanner). All
+// three strip it today. This test is what keeps that true, and what lets
+// the docs say "the snapshot is platform-independent" as a measured
+// property rather than a hope.
+//
+// Together with .gitattributes — which pins the snapshot file itself, the
+// one place a CRLF checkout genuinely does break the comparison — this is
+// the whole of the golden corpus's Windows story.
+func TestGoldenCorpus_LineEndingsDoNotMoveTheSnapshot(t *testing.T) {
+	t.Parallel()
+
+	lf := filepath.Join(t.TempDir(), "lf-checkout")
+	crlf := filepath.Join(t.TempDir(), "crlf-checkout")
+	copyTree(t, goldenCorpusDir, lf)
+	copyTreeCRLF(t, goldenCorpusDir, crlf)
+
+	// Guard the fixture: if the rewrite silently did nothing, the
+	// comparison below would pass without exercising anything.
+	assertContainsCRLF(t, filepath.Join(crlf, "go.mod"))
+
+	want := canonicalScan(t, lf, Options{})
+	got := canonicalScan(t, crlf, Options{})
+	if got != want {
+		t.Fatalf("scanning CRLF sources produced a different canonical document, so the "+
+			"golden snapshot is not valid on a Windows checkout:\n%s", diffCanonical(want, got))
+	}
+}
+
+// copyTreeCRLF mirrors src into dst with every line ending rewritten to
+// CRLF — what a Windows clone with core.autocrlf=true produces.
+//
+// Normalising to LF first makes the rewrite idempotent, so a source file
+// that already had a CRLF cannot become "\r\r\n".
+func copyTreeCRLF(t *testing.T, src, dst string) {
+	t.Helper()
+	err := filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+		data = bytes.ReplaceAll(data, []byte("\n"), []byte("\r\n"))
+		return os.WriteFile(target, data, 0o600)
+	})
+	if err != nil {
+		t.Fatalf("copy %s -> %s as CRLF: %v", src, dst, err)
+	}
+}
+
+// assertContainsCRLF fails when path has no CRLF in it, which would mean
+// copyTreeCRLF produced a fixture that tests nothing.
+func assertContainsCRLF(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read CRLF fixture %s: %v", path, err)
+	}
+	if !bytes.Contains(data, []byte("\r\n")) {
+		t.Fatalf("%s has no CRLF after the rewrite; the fixture does not exercise "+
+			"the Windows checkout shape", path)
 	}
 }
 

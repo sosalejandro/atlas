@@ -122,17 +122,27 @@ func TestSanitizeScannerPathArg_BothSeparators(t *testing.T) {
 
 // TestBuildScannerArgs_EmitsSlashPaths asserts the sanitiser is wired into
 // the argv builder rather than sitting unused beside it.
+//
+// The inputs are literal backslash-bearing Windows paths and the
+// separator is passed in as '\\', for the same reason
+// TestSanitizeScannerPathArg_BothSeparators does it. An earlier version
+// built its inputs with filepath.Join, which on Linux already yields
+// forward slashes — leaving the sanitiser nothing to change, so the
+// assertion held whether or not buildScannerArgs called it. On Linux, the
+// host CI gates hardest on, that test could not detect its own unwiring.
 func TestBuildScannerArgs_EmitsSlashPaths(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	script := filepath.Join(root, "scanner.py")
+	const (
+		root   = `C:\Users\RUNNER~1\AppData\Local\Temp\atlas-pyscan-9931`
+		script = root + `\scanner.py`
+	)
 
-	args, err := buildScannerArgs(script, root, Options{
-		Include: []string{filepath.Join("src", "**", "*.py")},
-		Exclude: []string{filepath.Join("build", "**")},
-	})
+	args, err := buildScannerArgsSep(script, root, Options{
+		Include: []string{`src\**\*.py`},
+		Exclude: []string{`build\**`},
+	}, '\\')
 	if err != nil {
-		t.Fatalf("buildScannerArgs: %v", err)
+		t.Fatalf("buildScannerArgsSep: %v", err)
 	}
 	for i, a := range args {
 		if strings.Contains(a, `\`) {
@@ -140,8 +150,44 @@ func TestBuildScannerArgs_EmitsSlashPaths(t *testing.T) {
 				"Python and the metacharacter guard both want forward slashes", i, a)
 		}
 	}
-	if want := filepath.ToSlash(script); args[0] != want {
-		t.Errorf("args[0] = %q, want the normalised script path %q", args[0], want)
+	// Naming the values, not just "no backslashes": a builder that
+	// dropped an argument entirely would pass the loop above.
+	want := []string{
+		"C:/Users/RUNNER~1/AppData/Local/Temp/atlas-pyscan-9931/scanner.py",
+		"--root", "C:/Users/RUNNER~1/AppData/Local/Temp/atlas-pyscan-9931",
+		"--include", "src/**/*.py",
+		"--exclude", "build/**",
+	}
+	if len(args) != len(want) {
+		t.Fatalf("args = %q (%d), want %q (%d)", args, len(args), want, len(want))
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Errorf("args[%d] = %q, want %q", i, args[i], want[i])
+		}
+	}
+}
+
+// TestBuildScannerArgs_UsesTheHostSeparator pins the wrapper to the host,
+// so the seam TestBuildScannerArgs_EmitsSlashPaths tests through cannot
+// drift away from what production actually calls. On POSIX a backslash is
+// not a separator, so it stays a metacharacter and the builder must
+// reject it; on Windows the same input is a legitimate path.
+func TestBuildScannerArgs_UsesTheHostSeparator(t *testing.T) {
+	t.Parallel()
+	const winScript = `C:\Temp\atlas\scanner.py`
+
+	_, err := buildScannerArgs(winScript, `C:\Temp\atlas`, Options{})
+	if runtime.GOOS == "windows" {
+		if err != nil {
+			t.Fatalf("buildScannerArgs rejected a Windows path on Windows: %v", err)
+		}
+		return
+	}
+	if err == nil {
+		t.Fatalf("buildScannerArgs accepted %q on %s; a backslash is not a path "+
+			"separator there, so it is still a shell metacharacter",
+			winScript, runtime.GOOS)
 	}
 }
 

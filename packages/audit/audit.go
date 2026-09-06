@@ -113,8 +113,11 @@ const (
 // windows). Override individual fields; zero/unset fields fall back to the
 // default.
 type Options struct {
-	// Weights blend the four component signals. Must sum to a positive
-	// value; the implementation re-normalises when a signal is unavailable.
+	// Weights blend the component signals. Must sum to a positive value; the
+	// implementation re-normalises when a signal is unavailable. Statement and
+	// decision coverage are the exception to one-key-per-signal: they SPLIT
+	// the single SignalCoverage weight rather than each drawing their own —
+	// see blendWeights.
 	Weights map[string]float64
 
 	// FreshnessWindow defines the cut-off for the annotation_freshness
@@ -251,8 +254,11 @@ type auditImpl struct {
 	// nil = not yet populated.
 	symbolCache map[int64]store.SymbolRow
 
-	// lastSurfaceSource records how the most recent coverage signal derived
-	// its impl surface, so scoreFromFeature can report it. Scoring is
+	// lastSurfaceSource records how the most recent signal derived its impl
+	// surface, so scoreFromFeature can report it. The statement signal sets it
+	// when it runs; the decision signal sets it when IT resolved the surface,
+	// which is the only way the documented `surface_source` field is non-empty
+	// for a store with branch verdicts and no coverage run. Scoring is
 	// sequential per feature, which is what makes this safe; a parallel
 	// scorer would carry it through the signal result instead.
 	lastSurfaceSource string

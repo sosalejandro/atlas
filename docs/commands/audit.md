@@ -163,7 +163,7 @@ operator acts differently on each:
 | State                                                                       | `components.decision_coverage` | `decision_coverage` object | Effect on the score                                                         |
 | --------------------------------------------------------------------------- | ------------------------------ | -------------------------- | --------------------------------------------------------------------------- |
 | No symbol on the surface was ever analysed                                  | absent                         | absent                     | **none** — the feature scores exactly what it scored before `atlas flow`    |
-| Analysed; some symbols measured, some not                                   | present                        | `symbols_unmeasured > 0`   | scored over the measured symbols only                                       |
+| Analysed; some symbols measured, some not                                   | present                        | `symbols_unmeasured > 0`   | scored over the measured symbols only, and weighted in proportion to them   |
 | Analysed; nothing judgeable (every outcome is a short-circuit operand)      | absent                         | `available: false`         | **none** — but the reading is still reported                                |
 | Analysed and judgeable                                                      | present                        | `available: true`          | blended                                                                     |
 
@@ -188,8 +188,8 @@ roughly 57% of a score that also has to carry pattern compliance and contract
 drift.
 
 The split favours decision coverage, 0.6 to 0.4 — **0.24 and 0.16** of the
-total — because decision coverage subsumes the statement verdict over the
-branches it can judge: an outcome cannot be taken if the statements behind it
+total on a *fully measured* surface (see the next section) — because decision
+coverage subsumes the statement verdict over the branches it can judge: an outcome cannot be taken if the statements behind it
 never ran, while a statement can run with its branch only ever taken one way.
 It stops at 1.5:1 rather than going further because decision coverage is judged
 only over the *decidable* outcomes, and everything outside that — short-circuit
@@ -205,6 +205,28 @@ The split is tunable — `audit.Options.DecisionCoverageShare`, default 0.6.
 Values outside `(0, 1)` fall back to the default, because 0 would silence the
 new signal through the weights instead of through availability, and 1 would
 silence the old one.
+
+### The share scales with how much of the surface was measured
+
+Availability keeps an unmeasured feature out of the signal entirely, but it
+says nothing about a *partially* measured one, and a partially measured feature
+is the normal case while `atlas flow` is being rolled out. Scoring the ratio
+over the measured symbols is only half the answer: applied at its full share, a
+single symbol carrying a CFG row out of a hundred would move 0.24 of the 0.40
+budget — 60% of everything the score says about testing — onto a reading whose
+own `symbols_unmeasured` admits it saw 1% of the feature.
+
+So the share is multiplied by `symbols_measured / (symbols_measured +
+symbols_unmeasured)`, and the remainder stays with statement coverage, which
+*did* see those symbols. One measured symbol in four gives decision coverage
+`0.40 × 0.6 × 0.25 = 0.06` and statement coverage `0.34`; a fully measured
+surface scales by 1 and lands on the 0.24 / 0.16 above.
+
+The factor is proportional rather than a threshold because a threshold would
+need a cutoff number nothing here can justify, and the score would jump at
+whatever value it took. When statement coverage is unavailable there is no
+other half to hand the remainder to, so it goes unspent and the weighted
+average re-normalises it away — the same treatment an absent signal gets.
 
 ## Worked example: before and after `atlas flow`
 

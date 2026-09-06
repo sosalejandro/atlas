@@ -58,11 +58,18 @@ func (a *auditImpl) decisionCoverageSignal(
 		// `atlas flow measure` reads a profile straight off disk — so resolve
 		// the surface against the empty frontier, which drops to the static
 		// call-edge walk without touching the per-test tables.
-		wanted, _, _, err := a.resolveWantedSet(ctx, links, frontier)
+		//
+		// Recording the tier is not bookkeeping: `surface_source` is a
+		// documented output field, and this is the one path where decision
+		// coverage is the ONLY signal that resolved a surface. Leaving it
+		// unset would blank the field in exactly the case a reader needs it to
+		// know what the reported number was computed over.
+		wanted, _, source, err := a.resolveWantedSet(ctx, links, frontier)
 		if err != nil {
 			return signalResult{}, nil, false, err
 		}
 		surface = wanted
+		a.lastSurfaceSource = source
 	}
 	if len(surface) == 0 {
 		return signalResult{}, nil, false, nil
@@ -191,6 +198,25 @@ func decisionCoverageNote(rep DecisionCoverageReport) signalNote {
 // the lean stops at 1.5:1 — at 3:1 or beyond a feature's score would swing on a
 // signal that goes blind on `&&`.
 //
+// WHY THE SHARE IS SCALED BY HOW MUCH OF THE SURFACE WAS MEASURED.
+//
+// The availability rule keeps an unmeasured feature out of the signal
+// entirely, but on its own it says nothing about a PARTIALLY measured one. The
+// ratio already handles that correctly — it is computed over the measured
+// symbols and reports the rest as symbols_unmeasured — and applying the full
+// share to it would not: one symbol carrying a cfg row out of a hundred would
+// move 0.24 of the 0.40 budget, 60% of everything the score says about
+// testing, onto evidence covering 1% of the feature. The score would then
+// swing on a reading whose own report admits it saw almost nothing.
+//
+// So the share is scaled by measured / (measured + unmeasured): the fraction
+// of the surface the reading actually covers. This is proportional rather than
+// a threshold on purpose — a cutoff would need a number nothing here can
+// justify, and would make the score jump at whatever value that number took.
+// The unmeasured remainder stays with statement coverage, which DID see those
+// symbols; a fully measured surface scales by 1 and blends exactly as the
+// paragraphs above describe.
+//
 // WHY THE UNAVAILABLE CASE RETURNS THE MAP UNTOUCHED.
 //
 // This is the property that decides whether the signal survives contact with a
@@ -198,7 +224,7 @@ func decisionCoverageNote(rep DecisionCoverageReport) signalNote {
 // weights it always did, so that adopting `atlas flow` cannot move the score of
 // anything it has not measured. Availability, not zero — the split only ever
 // applies to features the signal can actually see.
-func (a *auditImpl) blendWeights(available map[string]bool) map[string]float64 {
+func (a *auditImpl) blendWeights(available map[string]bool, rep *DecisionCoverageReport) map[string]float64 {
 	if !available[SignalDecisionCoverage] {
 		return a.opts.Weights
 	}
@@ -210,6 +236,7 @@ func (a *auditImpl) blendWeights(available map[string]bool) map[string]float64 {
 	if share <= 0 || share >= 1 {
 		share = defaultDecisionCoverageShare
 	}
+	share *= measuredSurfaceFraction(rep)
 
 	out := make(map[string]float64, len(a.opts.Weights)+1)
 	for k, v := range a.opts.Weights {
@@ -218,12 +245,32 @@ func (a *auditImpl) blendWeights(available map[string]bool) map[string]float64 {
 	if !available[SignalCoverage] {
 		// `atlas flow` ran against a profile `atlas cov` never ingested. The
 		// budget belongs to the question, not to either half of it, so the
-		// half that CAN answer holds all of it rather than leaving it unspent
-		// and letting freshness and drift decide a coverage-shaped score.
-		out[SignalDecisionCoverage] = budget
+		// half that CAN answer holds it — but only in proportion to the
+		// surface it actually read. There is no other half to hand the
+		// remainder to, so it goes unspent and weightedAverage re-normalises
+		// it away, which is the same treatment an absent signal gets.
+		out[SignalDecisionCoverage] = budget * measuredSurfaceFraction(rep)
 		return out
 	}
 	out[SignalCoverage] = budget * (1 - share)
 	out[SignalDecisionCoverage] = budget * share
 	return out
+}
+
+// measuredSurfaceFraction is how much of the feature's surface the decision
+// reading covers: measured symbols over measured + unmeasured. It is the
+// scaling factor blendWeights applies to the share.
+//
+// A nil report, or one whose surface is empty, returns 0 — but neither reaches
+// blendWeights with the signal available, because a signal with no measured
+// symbol is never available in the first place.
+func measuredSurfaceFraction(rep *DecisionCoverageReport) float64 {
+	if rep == nil {
+		return 0
+	}
+	total := rep.SymbolsMeasured + rep.SymbolsUnmeasured
+	if total <= 0 {
+		return 0
+	}
+	return float64(rep.SymbolsMeasured) / float64(total)
 }

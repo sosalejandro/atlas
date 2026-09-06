@@ -1,0 +1,52 @@
+# Line endings, pinned.
+#
+# Git for Windows installs with core.autocrlf=true by default, so without
+# this file a Windows checkout rewrites every text file to CRLF on the way
+# out of the object store. For source that is only ever compiled or parsed
+# that is harmless. For a fixture that is compared BYTE FOR BYTE it is not:
+# the checked-in bytes and the bytes the code produces stop being the same
+# bytes, and the test fails on every line for a reason that has nothing to
+# do with the code under test.
+#
+# The concrete case (issue #143) is
+# packages/codeindex/go/testdata/goldencorpus/.golden/symbols_edges.txt.
+# The scanner renders its canonical document with "\n"; os.ReadFile hands
+# the test whatever is on disk. On a CRLF checkout every one of its 109
+# lines differs, and the diff blames the scanner.
+#
+# eol=lf is the working-tree side of the contract; the repository has
+# always stored LF. Nothing here changes what is committed on a checkout
+# that was already LF -- it changes what Windows is handed.
+
+# Default: let Git detect text vs binary, and check text out as LF on
+# every platform. There are no .bat/.cmd/.ps1 files in this repo, which
+# are the usual reason to exempt something from this rule.
+* text=auto eol=lf
+
+# --- byte-compared fixtures -------------------------------------------
+# These are not merely "text files that happen to work"; a test reads them
+# and compares bytes, or the file is the recorded output of another tool
+# and its value is that it is untouched. Marked explicitly so the intent
+# survives any future edit to the default rule above.
+
+# The Go golden corpus: the snapshot itself, and the sources it is a
+# snapshot OF. TestGoldenCorpus_LineEndingsDoNotMoveTheSnapshot asserts
+# the scan is CRLF-insensitive, so the sources are pinned for
+# reproducibility rather than correctness; the snapshot is pinned because
+# TestGoldenCorpus_SymbolsAndEdgesMatchSnapshot compares it byte for byte.
+packages/codeindex/go/testdata/goldencorpus/**  text eol=lf
+
+# Recorded `go test -coverprofile` output. The gocover parser tolerates a
+# trailing CR (bufio.ScanLines strips it, strings.Fields splits on it),
+# so this is preventive: these files are cited in comments as the
+# untouched output of a real tool run, and a checkout that rewrites them
+# makes that claim false.
+*.coverprofile                                  text eol=lf
+packages/coverage/testdata/**                   text eol=lf
+packages/cfg/testdata/**                        text eol=lf
+test/acceptance/testdata/**                     text eol=lf
+
+# --- binary ------------------------------------------------------------
+# Stated rather than left to Git's heuristic.
+*.png                                           binary
+*.db                                            binary

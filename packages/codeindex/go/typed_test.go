@@ -249,24 +249,70 @@ func TestTypedResolution_ReportsDegradedPackagesRepoRelatively(t *testing.T) {
 	}
 }
 
-// Typed resolution must not change WHICH symbols exist. It changes which
-// declaration a call binds to; the declarations themselves come from the
-// same walk either way. A diff here would mean the typed path had started
-// indexing (or dropping) files the ledger never mentioned.
-func TestTypedResolution_LeavesTheSymbolSetAlone(t *testing.T) {
-	ids := func(res *Result) []string {
+// Typed resolution must not change which DECLARATIONS exist. It changes
+// which declaration a call binds to; the declarations themselves come
+// from the same walk either way, so a diff there would mean the typed
+// path had started indexing (or dropping) files the ledger never
+// mentioned.
+//
+// It does change one thing, and the earlier version of this test claimed
+// otherwise. `external` stub nodes are synthesised by emitCallEdge for a
+// name the AST ladder guessed at and could not find a declaration for
+// ("sync.Mutex.Lock", rendered from source text). The typed path never
+// reaches that branch: it only offers callees it has already matched to
+// an indexed declaration, so a call into the standard library produces
+// no node at all. The stubs legitimately disappear, and what disappears
+// with them is a queryable node, so it is named in docs/languages/go.md
+// beside the tier histogram rather than left for a caller to discover.
+func TestTypedResolution_DropsOnlyExternalStubsFromTheSymbolSet(t *testing.T) {
+	declared := func(res *Result) []string {
 		out := make([]string, 0, len(res.Symbols))
 		for _, s := range res.Symbols {
-			out = append(out, string(s.ID))
+			if s.Kind != shared.KindExternal {
+				out = append(out, string(s.ID))
+			}
 		}
 		sort.Strings(out)
 		return out
 	}
-	before := ids(scanOrFail(t, goldenCorpusDir, Options{SkipTypedResolution: true}))
-	after := ids(scanOrFail(t, goldenCorpusDir, Options{}))
+	stubs := func(res *Result) map[shared.SymbolID]bool {
+		out := map[shared.SymbolID]bool{}
+		for _, s := range res.Symbols {
+			if s.Kind == shared.KindExternal {
+				out[s.ID] = true
+			}
+		}
+		return out
+	}
 
-	if strings.Join(before, "\n") != strings.Join(after, "\n") {
-		t.Errorf("symbol set changed with typed resolution.\nwithout:\n%s\n\nwith:\n%s",
-			strings.Join(before, "\n"), strings.Join(after, "\n"))
+	for _, dir := range []string{goldenCorpusDir, authorityCorpusDir} {
+		before := scanOrFail(t, dir, Options{SkipTypedResolution: true})
+		after := scanOrFail(t, dir, Options{})
+
+		if b, a := declared(before), declared(after); strings.Join(b, "\n") != strings.Join(a, "\n") {
+			t.Errorf("%s: declared symbol set changed with typed resolution.\nwithout:\n%s\n\nwith:\n%s",
+				dir, strings.Join(b, "\n"), strings.Join(a, "\n"))
+		}
+		for id := range stubs(after) {
+			if !stubs(before)[id] {
+				t.Errorf("%s: typed resolution INVENTED external stub %s", dir, id)
+			}
+		}
+	}
+
+	// The authority fixture is the one that makes the paragraph above
+	// checkable: it calls sync.Mutex through a field, so the AST ladder
+	// synthesises stubs there and the typed path does not. Without this
+	// assertion the loop above would pass on a corpus with no stubs at
+	// all and prove nothing.
+	withoutTypes := stubs(scanOrFail(t, authorityCorpusDir, Options{SkipTypedResolution: true}))
+	withTypes := stubs(scanOrFail(t, authorityCorpusDir, Options{}))
+	if len(withoutTypes) == 0 {
+		t.Fatal("the AST fallback synthesised no external stubs on the authority corpus; " +
+			"the fixture no longer exercises the branch this test is about")
+	}
+	if len(withTypes) != 0 {
+		t.Errorf("typed resolution kept %d external stubs: %v; if that is now intended, "+
+			"this test and docs/languages/go.md both need updating", len(withTypes), withTypes)
 	}
 }
