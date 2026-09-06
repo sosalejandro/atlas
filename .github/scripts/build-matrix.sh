@@ -33,6 +33,26 @@ export VERSION COMMIT SOURCE_DATE_EPOCH
 
 mkdir -p "$DIST"
 
+# Cross-compile the WHOLE MODULE per OS before building the artifacts.
+#
+# build.sh builds ./cmd/atlas, which is correct -- that is what ships. But it
+# only reaches the binary's transitive imports, so a package outside that graph
+# can stop compiling on a target and every artifact still builds. That is not
+# hypothetical: internal/adapters called syscall.Flock, which does not exist on
+# Windows, and this matrix went green while `go vet ./...` on a Windows runner
+# went red. A cross-compile check that passes on code the target cannot build
+# is exactly the green-check-that-gates-nothing this pipeline exists to avoid.
+#
+# One representative arch per OS is enough: the failures this catches are
+# OS-level API differences (syscall surface, path handling), not word size.
+for goos in linux darwin windows; do
+	echo "cross-compiling ./... for $goos"
+	if ! GOOS="$goos" GOARCH=amd64 CGO_ENABLED=0 go build ./... >/dev/null; then
+		echo "FAIL: the module does not compile for $goos" >&2
+		exit 1
+	fi
+done
+
 for target in $ATLAS_TARGETS; do
 	goos="${target%%/*}"
 	goarch="${target##*/}"
