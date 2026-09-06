@@ -1,6 +1,7 @@
 package goscan
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"go/ast"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
@@ -23,10 +25,50 @@ import (
 // callers (store/, contract/) that want the symbols without walking the
 // graph. The two views are derived from the same underlying records, so a
 // round-trip through either is lossless.
+//
+// SkippedFiles is the exclusion ledger: every .go file the walk declined
+// to index, with the rule that declined it. Coverage denominators depend
+// on this set, so it is reported rather than left implicit — a repo can
+// then say "12% of executed statements are in generated code" instead of
+// "12% unattributable".
 type Result struct {
-	Graph    *graph.Graph    `json:"graph"`
-	Symbols  []shared.Symbol `json:"symbols"`
-	Warnings []string        `json:"warnings,omitempty"`
+	Graph        *graph.Graph    `json:"graph"`
+	Symbols      []shared.Symbol `json:"symbols"`
+	SkippedFiles []SkippedFile   `json:"skipped_files,omitempty"`
+	Warnings     []string        `json:"warnings,omitempty"`
+}
+
+// SkipReason names the rule that excluded a file from the index.
+type SkipReason string
+
+const (
+	// SkipGeneratedHeader is Go's own convention: a line matching
+	// `^// Code generated .* DO NOT EDIT\.$` ahead of the package clause.
+	// This is the rule that travels — it holds wherever the tool put its
+	// output.
+	SkipGeneratedHeader SkipReason = "generated-header"
+
+	// SkipGeneratedGlob is a hit on Options.GeneratedGlobs — for codegen
+	// that omits the header (protoc-gen-go plugins, some ORMs).
+	SkipGeneratedGlob SkipReason = "generated-glob"
+
+	// SkipGeneratedDir is the legacy directory rule: any path segment
+	// named "generated". Kept for repos that rely on it, but it is the
+	// weakest signal of the three — it depends on where output landed,
+	// not on what wrote it.
+	SkipGeneratedDir SkipReason = "generated-dir"
+
+	// SkipIgnoredPackage is an Options.IgnorePackages match. Not generated
+	// code, but excluded from the same denominator, so it is reported
+	// through the same ledger.
+	SkipIgnoredPackage SkipReason = "ignored-package"
+)
+
+// SkippedFile is one entry in the exclusion ledger. Path is
+// rootDir-relative and slash-separated, matching shared.FilePosition.
+type SkippedFile struct {
+	Path   string     `json:"path"`
+	Reason SkipReason `json:"reason"`
 }
 
 // Scan runs the 4-phase Go AST scan on rootDir and returns a Result.
@@ -88,9 +130,10 @@ func Scan(ctx context.Context, rootDir string, opts Options) (*Result, error) {
 	}
 
 	return &Result{
-		Graph:    ctx2.graph,
-		Symbols:  symbols,
-		Warnings: ctx2.warnings,
+		Graph:        ctx2.graph,
+		Symbols:      symbols,
+		SkippedFiles: ctx2.skippedFiles,
+		Warnings:     ctx2.warnings,
 	}, nil
 }
 
@@ -121,6 +164,11 @@ type scanContext struct {
 	// Pre-compiled ignore patterns.
 	ignorePackages  map[string]bool
 	ignoreFuncGlobs []string
+	generatedGlobs  []string
+
+	// Exclusion ledger, appended in filepath.WalkDir's lexical order so
+	// two scans of the same tree produce identical records.
+	skippedFiles []SkippedFile
 
 	// byMethod indexes declarations by the segment after the FIRST dot of
 	// their short id ("Type.Method" -> "Method"), and byLastSegment by the
@@ -171,7 +219,7 @@ func newScanContext(projectRoot, backendAbs string, opts Options) *scanContext {
 	if bindings == nil {
 		bindings = map[string]InterfaceBinding{}
 	}
-	return &scanContext{
+	c := &scanContext{
 		graph:                 graph.New(),
 		opts:                  opts,
 		projectRoot:           projectRoot,
@@ -188,6 +236,30 @@ func newScanContext(projectRoot, backendAbs string, opts Options) *scanContext {
 		ignorePackages:        ignorePkgs,
 		ignoreFuncGlobs:       opts.IgnoreFunctions,
 	}
+	c.generatedGlobs = c.validGeneratedGlobs(opts.GeneratedGlobs)
+	return c
+}
+
+// validGeneratedGlobs drops patterns path.Match cannot parse, warning once
+// each. Rejecting the whole scan would be worse: a single typo in
+// .atlas.yaml would take down every audit that reads it, whereas a warning
+// keeps the remaining rules working and still tells the operator that the
+// exclusion set is not what they wrote.
+func (c *scanContext) validGeneratedGlobs(globs []string) []string {
+	if len(globs) == 0 {
+		return nil
+	}
+	kept := make([]string, 0, len(globs))
+	for _, g := range globs {
+		probe := strings.TrimPrefix(strings.TrimSuffix(g, "/"), "**/")
+		if _, err := path.Match(probe, "probe.go"); err != nil {
+			c.warnings = append(c.warnings,
+				fmt.Sprintf("generated glob %q: %v", g, err))
+			continue
+		}
+		kept = append(kept, g)
+	}
+	return kept
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +319,7 @@ func normaliseHandlerRef(handler string) string {
 // ---------------------------------------------------------------------------
 
 func (c *scanContext) discoverFunctions(ctx context.Context) error {
-	if err := filepath.WalkDir(c.backendAbs, func(path string, d os.DirEntry, err error) error {
+	if err := filepath.WalkDir(c.backendAbs, func(abs string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip inaccessible
 		}
@@ -255,36 +327,179 @@ func (c *scanContext) discoverFunctions(ctx context.Context) error {
 			return ctx.Err()
 		}
 		if d.IsDir() {
-			name := d.Name()
-			if name == "vendor" || name == "node_modules" || strings.HasPrefix(name, ".") {
-				return filepath.SkipDir
-			}
-			relDir, _ := filepath.Rel(c.backendAbs, path)
-			relDir = filepath.ToSlash(relDir)
-			if c.ignorePackages[relDir] || c.ignorePackages[name] {
-				return filepath.SkipDir
-			}
-			return nil
+			return c.visitDir(abs, d)
 		}
-		if !strings.HasSuffix(d.Name(), ".go") {
-			return nil
-		}
-		// Test files are included by default — see Options.SkipTests godoc:
-		// Atlas's feature-attribution workflow relies on `_test.go` because
-		// that's where `@atlas:feature` / `@testreg` annotations live.
-		if c.opts.SkipTests && strings.HasSuffix(d.Name(), "_test.go") {
-			return nil
-		}
-		relPath, _ := filepath.Rel(c.projectRoot, path)
-		relPath = filepath.ToSlash(relPath)
-		if strings.Contains(relPath, "/generated/") {
-			return nil
-		}
-		return c.parseFile(ctx, path, relPath)
+		return c.visitFile(ctx, abs, d)
 	}); err != nil {
 		return fmt.Errorf("walk %s: %w", c.backendAbs, err)
 	}
 	return nil
+}
+
+// visitDir applies the directory-level prunes. vendor/, node_modules/ and
+// hidden directories are dropped without a ledger entry — they are not the
+// project's own code, so they never belonged in the denominator.
+func (c *scanContext) visitDir(abs string, d os.DirEntry) error {
+	name := d.Name()
+	if name == "vendor" || name == "node_modules" || strings.HasPrefix(name, ".") {
+		return filepath.SkipDir
+	}
+	relDir := filepath.ToSlash(relOrSelf(c.backendAbs, abs))
+	if c.ignorePackages[relDir] || c.ignorePackages[name] {
+		c.recordIgnoredPackage(abs)
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+// visitFile decides whether one .go file is indexed, and records it on the
+// ledger when it is not.
+func (c *scanContext) visitFile(ctx context.Context, abs string, d os.DirEntry) error {
+	if !strings.HasSuffix(d.Name(), ".go") {
+		return nil
+	}
+	// Test files are included by default — see Options.SkipTests godoc:
+	// Atlas's feature-attribution workflow relies on `_test.go` because
+	// that's where `@atlas:feature` / `@testreg` annotations live.
+	if c.opts.SkipTests && strings.HasSuffix(d.Name(), "_test.go") {
+		return nil
+	}
+	relPath := filepath.ToSlash(relOrSelf(c.projectRoot, abs))
+	// Under IncludeGenerated the classification cannot change the outcome,
+	// so skip it entirely rather than pay a header read per file.
+	if !c.opts.IncludeGenerated {
+		if reason, generated := c.generatedReason(abs, relPath); generated {
+			c.skippedFiles = append(c.skippedFiles,
+				SkippedFile{Path: relPath, Reason: reason})
+			return nil
+		}
+	}
+	return c.parseFile(ctx, abs, relPath)
+}
+
+// recordIgnoredPackage enumerates the .go files under a pruned directory so
+// the skip reaches the ledger as files rather than as a package name — the
+// coverage denominator is counted in files. One readdir per subtree buys
+// that; the parses being avoided cost orders of magnitude more.
+func (c *scanContext) recordIgnoredPackage(dirAbs string) {
+	_ = filepath.WalkDir(dirAbs, func(abs string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".go") {
+			return nil
+		}
+		c.skippedFiles = append(c.skippedFiles, SkippedFile{
+			Path:   filepath.ToSlash(relOrSelf(c.projectRoot, abs)),
+			Reason: SkipIgnoredPackage,
+		})
+		return nil
+	})
+}
+
+// generatedReason classifies one file against the three generated-code
+// rules, cheapest first: the directory rule is a string split, the globs
+// are a handful of path.Match calls, and only the header rule touches the
+// disk. The reason is part of the contract, so the order is fixed rather
+// than incidental.
+func (c *scanContext) generatedReason(absPath, relPath string) (SkipReason, bool) {
+	if hasPathSegment(relPath, "generated") {
+		return SkipGeneratedDir, true
+	}
+	for _, glob := range c.generatedGlobs {
+		if matchGeneratedGlob(glob, relPath) {
+			return SkipGeneratedGlob, true
+		}
+	}
+	if c.hasGeneratedHeader(absPath, relPath) {
+		return SkipGeneratedHeader, true
+	}
+	return "", false
+}
+
+// generatedHeaderRe is Go's own marker for machine-written source
+// (https://go.dev/s/generatedcode). Anchored at both ends: a sentence that
+// merely mentions the convention inside a longer comment is not a claim
+// that the file is generated.
+var generatedHeaderRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
+
+// maxHeaderLines bounds the header probe. The convention puts the marker
+// before the package clause and the probe stops there anyway, so the cap
+// only bites on files with an unusually long licence preamble — where
+// reading further costs more than the rule is worth.
+const maxHeaderLines = 32
+
+// hasGeneratedHeader reports whether the file carries the generated marker
+// ahead of its package clause. A read failure is a warning, not an error:
+// a file we cannot open is a file we cannot index either, and the parse
+// step downstream will report it in its own voice.
+func (c *scanContext) hasGeneratedHeader(absPath, relPath string) bool {
+	f, err := os.Open(absPath)
+	if err != nil {
+		c.warnings = append(c.warnings,
+			fmt.Sprintf("generated-header probe %s: %v", relPath, err))
+		return false
+	}
+	defer func() { _ = f.Close() }()
+
+	sc := bufio.NewScanner(f)
+	for i := 0; i < maxHeaderLines && sc.Scan(); i++ {
+		line := sc.Text()
+		if strings.HasPrefix(line, "package ") {
+			return false
+		}
+		if generatedHeaderRe.MatchString(line) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchGeneratedGlob reports whether relPath matches one
+// Options.GeneratedGlobs pattern; that field's godoc documents the four
+// shapes. The extra rules exist because path.Match cannot express
+// "anywhere in the tree", and "anywhere in the tree" is how every codegen
+// convention is actually written down: `*.pb.go`, not `**/**/*.pb.go`.
+func matchGeneratedGlob(pattern, relPath string) bool {
+	if pattern == "" {
+		return false
+	}
+	if dir := strings.TrimSuffix(pattern, "/"); dir != pattern {
+		return relPath == dir ||
+			strings.HasPrefix(relPath, dir+"/") ||
+			strings.Contains(relPath, "/"+dir+"/")
+	}
+	pattern = strings.TrimPrefix(pattern, "**/")
+	if ok, err := path.Match(pattern, relPath); err == nil && ok {
+		return true
+	}
+	if strings.Contains(pattern, "/") {
+		return false
+	}
+	// A pattern naming no directory is a filename convention, so it has to
+	// reach files at any depth.
+	ok, err := path.Match(pattern, path.Base(relPath))
+	return err == nil && ok
+}
+
+func hasPathSegment(relPath, segment string) bool {
+	for _, part := range strings.Split(relPath, "/") {
+		if part == segment {
+			return true
+		}
+	}
+	return false
+}
+
+// relOrSelf falls back to the target path when it is not under base. That
+// only happens for symlinked trees, where an absolute path in the ledger
+// is still more useful than an empty one.
+func relOrSelf(base, target string) string {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return target
+	}
+	return rel
 }
 
 func (c *scanContext) parseFile(ctx context.Context, absPath, relPath string) error {

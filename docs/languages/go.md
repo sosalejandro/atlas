@@ -38,8 +38,7 @@ The scanner skips by default:
 
 - Directories named `vendor/`, `node_modules/`, or starting with `.`
   (`.git/`, `.atlas/`, etc.).
-- Files inside any `generated/` subdirectory (atlas considers them
-  derived — annotate the source they're generated from instead).
+- Generated code — see [Generated code](#generated-code) below.
 
 `_test.go` files are **included** by default — they're where
 `@atlas:feature` lives most often. Pass
@@ -53,6 +52,45 @@ helper atlas hasn't indexed has no source span, so `atlas cov sync
 Pass `codeindex/go.Options.SkipUnexportedFuncs = true` for a graph-only
 audit where they are noise — accepting that coverage attribution then
 under-reports.
+
+## Generated code
+
+Machine-written files are excluded from the index by default, and
+therefore from the coverage denominator: they execute constantly, nobody
+writes tests for them, and counting them flatters every number they touch.
+
+A file is treated as generated when **any** of these hold:
+
+| Rule              | What it matches                                                              |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `generated-header`| A line matching `^// Code generated .* DO NOT EDIT\.$` **before** the package clause — [Go's own convention](https://go.dev/s/generatedcode). Emitted by sqlc, protoc-gen-go, mockgen, stringer, wire. |
+| `generated-glob`  | A hit on `codeindex/go.Options.GeneratedGlobs`.                              |
+| `generated-dir`   | Any path segment named `generated`.                                          |
+
+The header rule is the one that travels: it holds wherever the tool put
+its output. Reach for globs only when your generator omits the header —
+some `protoc-gen-*` plugins and ORMs do. Pattern shapes:
+
+```
+*.pb.go            filename convention — matches at any depth
+gen/               a whole subtree, rooted or nested
+internal/db/*.go   anchored path glob — `*` does not cross a `/`
+**/*.sql.go        leading `**/` is stripped, then matched as above
+```
+
+A malformed pattern is reported on the scan warnings and ignored, so one
+typo can't silently widen or narrow the denominator.
+
+Every exclusion is recorded — path plus reason, in walk order — on
+`Result.SkippedFiles` (surfaced as `Index.SkippedFiles`), alongside files
+dropped by `Options.IgnorePackages` (reason `ignored-package`). That's what
+lets a report say *"12% of executed statements are in generated code,
+excluded by policy"* instead of *"12% unattributable"*.
+
+To measure the generated layer instead — a hand-written repository wrapper
+living next to its sqlc output is arguably production code — set
+`codeindex/go.Options.IncludeGenerated = true`. Detection still runs, but
+nothing is skipped and `SkippedFiles` stays empty of generated entries.
 
 ## Sample project layout
 
@@ -142,15 +180,20 @@ trace through it — the edge will silently be absent from
 `@atlas:contract auth.login` so the audit picks it up even if the trace
 chain doesn't reach it.
 
-### 2. Generated code is dropped silently
+### 2. Generated code without a header needs a glob
 
-Any file under a `generated/` subdirectory is skipped — atlas considers
-it derived from `.sql` or `.proto` sources. If you keep your
-`oapi-codegen` / `sqlc` / `protoc` output somewhere atlas doesn't
-recognise (e.g. a top-level `gen/` directory), it'll be indexed normally.
-Either rename the directory to include `generated/` in the path, or
-configure `codeindex/go.Options.IgnorePackages` programmatically via the
-library API.
+Codegen that writes the standard `// Code generated ... DO NOT EDIT.`
+header is excluded wherever it lands — no configuration, no directory
+naming convention. Codegen that omits it is indexed like hand-written
+code, and its statements land in the coverage denominator with no test
+that could plausibly cover them.
+
+If a scan reports symbols from `oapi-codegen` / `protoc` / ORM output,
+check the first line of one of those files. No header means you need a
+`codeindex/go.Options.GeneratedGlobs` entry — see
+[Generated code](#generated-code). Every exclusion shows up on
+`Result.SkippedFiles` with its reason, so you can verify the rule fired
+rather than inferring it from a symbol count.
 
 ### 3. Duplicated type names across packages get package-qualified ids
 
