@@ -126,7 +126,11 @@ func lineOf(lc string) (int, error) {
 	if dot < 0 {
 		return 0, fmt.Errorf("missing '.' in %q", lc)
 	}
-	return strconv.Atoi(lc[:dot])
+	line, err := strconv.Atoi(lc[:dot])
+	if err != nil {
+		return 0, fmt.Errorf("line number %q: %w", lc[:dot], err)
+	}
+	return line, nil
 }
 
 // ExecutedSpansByFile collapses blocks to the set of executed line spans per

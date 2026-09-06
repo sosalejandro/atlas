@@ -173,7 +173,7 @@ func indexSymbolsByFile(syms []store.SymbolRow) map[string][]symSpan {
 		spans := make([]symSpan, 0, len(ls))
 		for i, l := range ls {
 			start := int(l.start)
-			end := start
+			var end int
 			if l.end != nil && *l.end >= start {
 				end = *l.end
 			} else if i+1 < len(ls) {
