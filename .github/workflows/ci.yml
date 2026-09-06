@@ -43,19 +43,22 @@ jobs:
     # reports and does not gate, and issue #143 tracks turning it back on --
     # at which point `continue-on-error` comes out and the name loses its
     # suffix.
-    name: build + test + lint — ${{ matrix.os }} ${{ matrix.blocking && '(blocking)' || '(ADVISORY — Windows portability, see #143)' }}
+    name: build + test + lint — ${{ matrix.os }} ${{ matrix.gate }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ !matrix.blocking }}
+    continue-on-error: ${{ matrix.advisory }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            blocking: true
+            gate: "(blocking)"
+            advisory: false
           - os: macos-latest
-            blocking: true
+            gate: "(blocking)"
+            advisory: false
           - os: windows-latest
-            blocking: false
+            gate: "(ADVISORY - Windows portability, see issue 143)"
+            advisory: true
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
