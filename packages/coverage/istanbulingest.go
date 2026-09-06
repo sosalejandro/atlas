@@ -158,7 +158,7 @@ func attributeIstanbulStatements(byFileStmts map[string][]istanbul.Statement, by
 				c.covered++
 			}
 			rep.counts[sid] = c
-			rep.stmtsAttributed++
+			rep.attributedByFile[rf]++
 		}
 	}
 	rep.finalize()

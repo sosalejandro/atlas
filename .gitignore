@@ -50,3 +50,7 @@ node_modules/
 # tracked; the seeded single-file canvas is a 3 MB build artifact.
 .design/**/atlas-*.html
 .design/**/docs-that-fail-ci.html
+
+# Agent worktrees live inside the repo and would otherwise be committed as
+# embedded repositories — and would be matched by ./... in go test and lint.
+.claude/worktrees/
