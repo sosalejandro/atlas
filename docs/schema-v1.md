@@ -619,6 +619,97 @@ exact regardless, so the cap narrows the enumeration and never the accounting
 -- a truncated list that claimed completeness is the exact failure mode this
 table exists to prevent.
 
+### 5.14 `coverage_history` — the per-commit measurement series (migration 0013)
+
+```sql
+CREATE TABLE coverage_history (
+  id          INTEGER   PRIMARY KEY AUTOINCREMENT,
+  commit_sha  TEXT      NOT NULL,
+  measured_at TIMESTAMP NOT NULL,
+  score       REAL,
+  denominator INTEGER   NOT NULL DEFAULT 0,
+  note        TEXT
+);
+
+CREATE UNIQUE INDEX coverage_history_commit_idx ON coverage_history(commit_sha);
+CREATE INDEX coverage_history_measured_idx ON coverage_history(measured_at);
+
+CREATE TABLE coverage_history_features (
+  history_id  INTEGER NOT NULL REFERENCES coverage_history(id) ON DELETE CASCADE,
+  feature_id  TEXT    NOT NULL,
+  score       REAL,
+  denominator INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (history_id, feature_id)
+) WITHOUT ROWID;
+```
+
+Written by `atlas trend record` and by `atlas trend`'s backfill, read by
+`atlas trend` and its `--compare-to` regression gate (issue #92). Every other
+table here answers "what is true now"; this pair answers "is it getting
+better or worse".
+
+**Who writes rows.** `atlas trend record` writes the point for a commit,
+scored through the audit. `atlas trend` additionally **backfills** the points
+it can derive from `coverage_runs` / `coverage_results` that have no point
+yet — statement coverage over each feature's linked impl symbols, one point
+per run group, keyed by `run_group` (which CI is encouraged to set to the
+commit sha) or by `coverage-run:<id>` when there is none. Backfill never
+overwrites an existing point and is skipped under `--no-backfill`. Nothing
+else writes here: `atlas cov sync` and `atlas audit` do not.
+
+| Column        | Type      | Notes                                                                                                                                                       |
+| ------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `commit_sha`  | TEXT      | Free text like `snapshots.git_ref` -- Atlas never forks git to validate it, and CI systems legitimately record tags or synthetic ids. UNIQUE; see below.     |
+| `measured_at` | TIMESTAMP | Orders the series and tells the reader how stale a point is. Updated on a re-measurement.                                                                    |
+| `score`       | REAL      | **NULLABLE, and this is the load-bearing decision.** NULL means no coverage evidence at that commit, which is NOT the same fact as a score of zero.          |
+| `denominator` | INTEGER   | The size of the surface the score was computed over, **in the same unit as the score** — statements when statement coverage exists, else scored symbols. See below. |
+| `note`        | TEXT      | Optional free-form label (a CI run id, a branch name). Backfilled points carry `backfilled from coverage run <ids>` here.                                    |
+
+**What `score` holds.** The audit's **coverage component**, not
+`FeatureHealth.Score`. The overall audit score re-normalises a blend of
+coverage, annotation freshness, pattern compliance and contract drift;
+recording that in a table `atlas trend` gates on as a coverage regression
+would fire the gate on a stale annotation and let a real coverage drop hide
+behind another component rising.
+
+**What `denominator` holds, and why the unit matters.** The denominator is
+the guard against "deleting a thousand untested lines raises the number
+without a single new test", and a guard in the wrong unit is not a guard. The
+Tier B coverage score is a fraction of **statements**, so the denominator is
+the statement total the coverage frontier reports for the feature's scored
+(non-test-role) linked symbols. A denominator counted in `feature_symbols`
+rows cannot see a statement-level deletion at all. When no statement data
+exists for a feature — the gotest pass/fail model, playwright, maestro — the
+coverage signal is itself a fraction of symbols, and the denominator falls
+back to the count of scored symbols so the unit still matches the score.
+
+**Why `score` is nullable.** Coverage evidence is routinely absent for a
+commit: the docs-only PR nobody ran the suite on, the CI job that died before
+`cov sync`. Storing 0 there would make `atlas trend` draw a cliff that never
+happened and make the regression gate fail an innocent PR. NULL means "not
+measured"; readers skip the point rather than plotting or comparing it as a
+zero. `coverage_history_features.score` carries the same rule per feature.
+
+**Why `commit_sha` is UNIQUE rather than `(commit_sha, measured_at)`.** The
+logical key of a point is the pair, but a commit's score is a function of the
+commit: a re-measurement is a correction, not a second observation. A CI job
+that retries, or a developer who runs `atlas trend record` twice, must leave
+ONE point behind. `store.History.Record` upserts on this index and replaces
+the child rows, so last-write-wins is the recorded semantic and stale
+per-feature rows never survive a shrinking feature set.
+
+**Retention.** `atlas trend record --retain <window>` deletes points older
+than the window; `ON DELETE CASCADE` carries the breakdown with them, so
+there is no second statement to forget. Atlas does not roll old points up
+into daily aggregates -- a rollup must pick a representative score per day,
+and every choice makes the retained series disagree with the raw one it
+replaced.
+
+**Durability caveat.** The store is a re-derivable cache (§10), but this is
+the one table that cannot be rebuilt from the working tree: deleting
+`atlas.db` loses the series. Teams that need it durable should record it from
+CI into a committed artifact as well.
+
 ## 6. Partial Unique Indices and Invariants
 
 | Invariant                                                                | Where enforced                                                          |
@@ -720,15 +811,21 @@ tree every run). The `?` parameter is bound from the `config` table.
 ### 7.5 Audit-score trend for a single feature
 
 ```sql
-SELECT taken_at, score, layer_scores_json
-FROM audit_snapshots
-WHERE feature_id = ?
-ORDER BY taken_at DESC
+SELECT h.commit_sha, h.measured_at, f.score, f.denominator
+FROM coverage_history h
+LEFT JOIN coverage_history_features f
+       ON f.history_id = h.id AND f.feature_id = ?
+ORDER BY h.measured_at DESC
 LIMIT 20;
 ```
 
-Drives `atlas audit history <feature-id>` and the score-delta column of
-`atlas diff`.
+Drives `atlas trend --feature <id>`. The join is a LEFT JOIN on purpose: a
+commit whose breakdown has no row for the feature is still a point on the
+axis, with a NULL score. Inner-joining it away would silently close the gap
+and make a feature that STOPPED being measured look continuous.
+
+(The original form of this query read the per-feature `audit_snapshots`
+table, which migration 0006 dropped as unwritten -- see §5.10.)
 
 ---
 
@@ -744,7 +841,8 @@ API which is responsible for the SQL.
 | `codeindex/ts`   | `symbols`, `edges`, `file_hashes`                         | Same as Go scanner, on the `apps/**` + `packages/**` trees.                                   |
 | `codeindex/annotations` | `annotations`, `feature_symbols`                  | Runs after `codeindex/{go,ts}` so the symbols already exist for FK resolution.                |
 | `coverage`       | `coverage_runs`, `coverage_results`                       | `atlas cov sync` after a framework-specific ingest.                                           |
-| `audit`          | `audit_snapshots`                                         | `atlas audit` — one row per (feature, run) tuple.                                             |
+| `audit`          | `audit_snapshot_runs`                                     | `atlas audit` — one whole-project JSON blob per run (§5.10 for why the per-feature table went). |
+| `trend`          | `coverage_history`, `coverage_history_features`           | `atlas trend record` — one point per commit, upserted so a CI retry corrects rather than appends. |
 | `cli/config`     | `config`                                                  | `atlas config set <key> <value>`. Read-only for everyone else.                                |
 | `cli/init`       | `config`, `features`                                      | Bootstraps the DB; for YAML imports, also seeds `features` + `feature_symbols`.               |
 | `migrate-annotations` | `annotations` (status flip from `testreg` → `atlas`) | `atlas migrate-annotations --apply`. Idempotent.                                              |
@@ -758,6 +856,9 @@ API which is responsible for the SQL.
   at all.
 - A coverage ingest run: one tx covering the `INSERT INTO coverage_runs` plus
   all the `INSERT INTO coverage_results`. A partial ingest is no ingest.
+- A trend point: one tx covering the `coverage_history` upsert, the delete of
+  the previous per-feature rows, and the new ones. A half-replaced point
+  would report a feature set that never existed at any commit.
 
 ---
 

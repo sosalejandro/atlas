@@ -1,14 +1,21 @@
 # atlas cov
 
-`atlas cov` groups the coverage-ingest verb (`sync`) and the coverage-status
-view (`status`). Coverage is what feeds the `coverage_pass_rate` audit
-component, so a project that never runs `cov sync` will see the audit
-fall back to other signals (annotation freshness, aggregate linkage, etc.).
+`atlas cov` groups the coverage-ingest verb (`sync`), the coverage-status view
+(`status`), and the patch-coverage gate (`diff`). Coverage is what feeds the
+`coverage_pass_rate` audit component, so a project that never runs `cov sync`
+will see the audit fall back to other signals (annotation freshness, aggregate
+linkage, etc.).
 
-| Subcommand                | Purpose                                                                        |
-| ------------------------- | ------------------------------------------------------------------------------ |
-| [`sync`](#sync)           | Ingest a test framework's report into the atlas store.                         |
-| [`status`](#status)       | Per-feature coverage view, and the attribution gap, from the latest run.       |
+`sync` writes; `status` and `diff` read. `status` answers "how covered is the
+codebase", which no single pull request can move; `diff` answers "how covered
+is what this branch changed", which is the number a CI gate can actually fail
+on.
+
+| Subcommand                          | Purpose                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------ |
+| [`sync`](#sync)                     | Ingest a test framework's report into the atlas store.                         |
+| [`status`](#status)                 | Per-feature coverage view, and the attribution gap, from the latest run.       |
+| [`diff`](./cov-diff.md)             | Coverage of the lines this branch changed, with a `--fail-under` CI gate.      |
 
 ## Subcommand reference
 
@@ -311,6 +318,11 @@ annotated with `// @atlas:feature auth.login` would group under
    row per file they could not attribute. Both cascade with the run, so the
    accounting cannot outlive the run it describes — and `cov status --gaps`
    reads them straight back.
+5. [`cov diff`](./cov-diff.md) reads the same frontier, but joins it against
+   the line ranges of `git diff <base>...HEAD` instead of against whole
+   features. That join is only valid where the symbol index still describes
+   the files on disk, so it re-hashes every changed file first and refuses the
+   ones that have moved under it.
 
 There is no "merge with previous run" mode — each `cov sync` is a
 standalone run. To see history across runs, query the `coverage_runs`

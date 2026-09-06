@@ -22,16 +22,18 @@ import (
 	"github.com/sosalejandro/atlas/packages/store"
 )
 
-// newCovCmd builds the `atlas cov` command group with sync + status
+// newCovCmd builds the `atlas cov` command group with sync, status and diff
 // subcommands.
 func newCovCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cov",
 		Short: "Test coverage ingestion + per-feature views",
-		Long:  "cov groups the coverage-ingest (sync) and coverage-status verbs.",
+		Long: "cov groups the coverage-ingest (sync), coverage-status and " +
+			"patch-coverage (diff) verbs.",
 	}
 	cmd.AddCommand(newCovSyncCmd())
 	cmd.AddCommand(newCovStatusCmd())
+	cmd.AddCommand(newCovDiffCmd())
 	return cmd
 }
 

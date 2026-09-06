@@ -7,6 +7,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 type Querier interface {
@@ -19,6 +20,7 @@ type Querier interface {
 	DeleteEdgesByFile(ctx context.Context, filePath string) error
 	DeleteFeature(ctx context.Context, id string) (int64, error)
 	DeleteFileHash(ctx context.Context, filePath string) error
+	DeleteHistoryFeatures(ctx context.Context, historyID int64) error
 	DeleteSnapshot(ctx context.Context, id int64) (int64, error)
 	DeleteSymbolByID(ctx context.Context, id int64) error
 	DeleteSymbolsByFile(ctx context.Context, filePath string) error
@@ -36,9 +38,14 @@ type Querier interface {
 	GetEdgeID(ctx context.Context, arg GetEdgeIDParams) (int64, error)
 	GetFeature(ctx context.Context, id string) (Feature, error)
 	GetFileHash(ctx context.Context, filePath string) (FileHash, error)
+	// Column order matches the table declaration so sqlc reuses the generated
+	// model type rather than inventing a per-query row type. Same for every
+	// SELECT below.
+	GetHistoryPoint(ctx context.Context, commitSha string) (CoverageHistory, error)
 	GetSnapshot(ctx context.Context, id int64) (Snapshot, error)
 	GetSymbolByQualifiedName(ctx context.Context, qualifiedName string) (Symbol, error)
 	GetSymbolIDByQualifiedName(ctx context.Context, qualifiedName string) (int64, error)
+	HistoryPointIDByCommit(ctx context.Context, commitSha string) (int64, error)
 	InsertAuditSnapshotRun(ctx context.Context, scoreJson string) (sql.Result, error)
 	InsertAuditSnapshotRunWithTime(ctx context.Context, arg InsertAuditSnapshotRunWithTimeParams) (sql.Result, error)
 	InsertCoverageResult(ctx context.Context, arg InsertCoverageResultParams) error
@@ -48,6 +55,7 @@ type Querier interface {
 	InsertCoverageRunGap(ctx context.Context, arg InsertCoverageRunGapParams) error
 	// edge_meta is a NULLable kind-specific qualifier. Python import edges populate it with a scope tag (module/function/conditional/type_checking/try_guard) via migration 0008 - issue #16. Non-import edges pass NULL.
 	InsertEdge(ctx context.Context, arg InsertEdgeParams) (sql.Result, error)
+	InsertHistoryFeature(ctx context.Context, arg InsertHistoryFeatureParams) error
 	InsertSnapshot(ctx context.Context, arg InsertSnapshotParams) (sql.Result, error)
 	InsertSymbol(ctx context.Context, arg InsertSymbolParams) (sql.Result, error)
 	// One row per (run, test, executed symbol). REPLACE so a re-ingest of the
@@ -76,6 +84,10 @@ type Querier interface {
 	ListFeatureSymbolsBySymbol(ctx context.Context, symbolID int64) ([]FeatureSymbol, error)
 	ListFeaturesByKind(ctx context.Context, kind string) ([]Feature, error)
 	ListFileHashes(ctx context.Context) ([]FileHash, error)
+	ListHistoryFeatures(ctx context.Context, historyID int64) ([]CoverageHistoryFeature, error)
+	// Newest first with a LIMIT so a cap keeps the most RECENT window; the port
+	// reverses into oldest-first, which is how a series reads.
+	ListHistoryPoints(ctx context.Context, arg ListHistoryPointsParams) ([]CoverageHistory, error)
 	ListSnapshotsByGitRef(ctx context.Context, gitRef string) ([]Snapshot, error)
 	// Note: FindByPattern still uses raw SQL in symbols.go because sqlc's
 	// sqlite engine handles JSON-substring matchers poorly.
@@ -120,6 +132,9 @@ type Querier interface {
 	// The single most recent run, used as the seed for the coverage frontier: its
 	// group (if any) is what the audit scores over.
 	NewestCoverageRun(ctx context.Context) (CoverageRun, error)
+	// Retention. The per-feature rows go with the point via ON DELETE CASCADE,
+	// so there is no second statement to forget.
+	PruneHistoryBefore(ctx context.Context, measuredAt time.Time) (int64, error)
 	SetConfig(ctx context.Context, arg SetConfigParams) error
 	// Records how many gap files did not fit the per-run cap. Written in the same
 	// transaction as the rows themselves, so the count and the list can never
@@ -135,6 +150,13 @@ type Querier interface {
 	UpsertAnnotation(ctx context.Context, arg UpsertAnnotationParams) error
 	UpsertFeature(ctx context.Context, arg UpsertFeatureParams) error
 	UpsertFileHash(ctx context.Context, arg UpsertFileHashParams) error
+	// coverage_history is the measurement series behind `atlas trend` (#92).
+	// A re-measurement of a commit CORRECTS its point, it does not append a
+	// second one, so the write is an upsert on the unique commit_sha index.
+	// last_insert_rowid() is not updated on the DO UPDATE path, which is why
+	// the caller reads the id back with HistoryPointIDByCommit instead of
+	// trusting an execresult here.
+	UpsertHistoryPoint(ctx context.Context, arg UpsertHistoryPointParams) error
 }
 
 var _ Querier = (*Queries)(nil)

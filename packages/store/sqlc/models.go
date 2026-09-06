@@ -30,6 +30,22 @@ type Config struct {
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }
 
+type CoverageHistory struct {
+	ID          int64     `db:"id" json:"id"`
+	CommitSha   string    `db:"commit_sha" json:"commit_sha"`
+	MeasuredAt  time.Time `db:"measured_at" json:"measured_at"`
+	Score       *float64  `db:"score" json:"score"`
+	Denominator int64     `db:"denominator" json:"denominator"`
+	Note        *string   `db:"note" json:"note"`
+}
+
+type CoverageHistoryFeature struct {
+	HistoryID   int64    `db:"history_id" json:"history_id"`
+	FeatureID   string   `db:"feature_id" json:"feature_id"`
+	Score       *float64 `db:"score" json:"score"`
+	Denominator int64    `db:"denominator" json:"denominator"`
+}
+
 type CoverageResult struct {
 	ID           int64   `db:"id" json:"id"`
 	RunID        int64   `db:"run_id" json:"run_id"`

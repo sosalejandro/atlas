@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "atlas",
+          "informationUri": "https://github.com/sosalejandro/atlas",
+          "semanticVersion": "0.13.0",
+          "rules": [
+            {
+              "id": "atlas/coverage-unattributed",
+              "name": "CoverageUnattributed",
+              "shortDescription": {
+                "text": "Executed statements atlas could not charge to any indexed symbol"
+              },
+              "fullDescription": {
+                "text": "The coverage report says these statements ran, but atlas has no indexed symbol covering them, so they contribute to no feature's score. This is a blind spot in the measurement rather than a defect in the code: usually the file was excluded from the scan, or the coverage report names it by an import path atlas cannot map to the checkout."
+              },
+              "helpUri": "https://github.com/sosalejandro/atlas/blob/main/docs/commands/report.md#atlascoverage-unattributed",
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "tags": [
+                  "atlas",
+                  "coverage",
+                  "measurement"
+                ]
+              }
+            },
+            {
+              "id": "atlas/dead-code",
+              "name": "DeadCode",
+              "shortDescription": {
+                "text": "A symbol with no qualifying incoming edges"
+              },
+              "fullDescription": {
+                "text": "Nothing in the indexed graph references this symbol. Treat it as a triage candidate, not a verdict: dynamic dispatch, plugin entry points and re-export chains are invisible to static analysis and surface here even when the symbol is live at runtime."
+              },
+              "helpUri": "https://github.com/sosalejandro/atlas/blob/main/docs/commands/report.md#atlasdead-code",
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "tags": [
+                  "atlas",
+                  "dead-code",
+                  "maintainability"
+                ]
+              }
+            },
+            {
+              "id": "atlas/feature-uncovered",
+              "name": "FeatureUncovered",
+              "shortDescription": {
+                "text": "A feature's health score is below the configured floor"
+              },
+              "fullDescription": {
+                "text": "atlas scored this feature from its coverage, annotation freshness, pattern compliance and contract drift signals, and the result is below the floor the repository gates on. The score's components name which signal dragged it down."
+              },
+              "helpUri": "https://github.com/sosalejandro/atlas/blob/main/docs/commands/report.md#atlasfeature-uncovered",
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "atlas",
+                  "coverage",
+                  "maintainability"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "atlas/feature-uncovered",
+          "ruleIndex": 2,
+          "level": "error",
+          "message": {
+            "text": "feature billing.invoice scores 12.0/100 (coverage 4.0)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "internal/billing/invoice.go"
+                },
+                "region": {
+                  "startLine": 42,
+                  "endLine": 87
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "atlasFindingV1": "b9b25a80b8fc5ec5"
+          }
+        },
+        {
+          "ruleId": "atlas/dead-code",
+          "ruleIndex": 1,
+          "level": "warning",
+          "message": {
+            "text": "Shim has 0 incoming import edges (dead-code candidate)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "internal/legacy/shim.go"
+                },
+                "region": {
+                  "startLine": 7
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "atlasFindingV1": "4e685010680098f3"
+          }
+        },
+        {
+          "ruleId": "atlas/coverage-unattributed",
+          "ruleIndex": 0,
+          "level": "note",
+          "message": {
+            "text": "118 statements executed but charged to no indexed symbol (reason: no-indexed-symbol)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "internal/worker/queue.go"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "atlasFindingV1": "a20db1bf4482bcf1"
+          }
+        }
+      ],
+      "columnKind": "utf16CodeUnits"
+    }
+  ]
+}
