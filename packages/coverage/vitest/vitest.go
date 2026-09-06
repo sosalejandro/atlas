@@ -29,7 +29,7 @@ import (
 func Framework() coverage.Framework { return coverage.FrameworkVitest }
 
 type report struct {
-	StartTime   int64        `json:"startTime"`   // epoch ms (Vitest emits ms)
+	StartTime   int64        `json:"startTime"` // epoch ms (Vitest emits ms)
 	NumPassed   int          `json:"numPassedTests"`
 	NumFailed   int          `json:"numFailedTests"`
 	NumSkipped  int          `json:"numPendingTests"`

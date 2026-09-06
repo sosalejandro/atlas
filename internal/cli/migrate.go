@@ -62,11 +62,11 @@ no-op so a CI script that forgot to pick a mode fails loud.`,
 
 // migrateAnnotationsResult is the JSON payload for `atlas migrate-annotations`.
 type migrateAnnotationsResult struct {
-	FilesScanned    int                        `json:"files_scanned"`
-	FilesTouched    int                        `json:"files_touched"`
-	Candidates      int                        `json:"candidates"`
-	Rewrites        []migrateAnnotationRewrite `json:"rewrites,omitempty"`
-	Mode            string                     `json:"mode"` // "dry-run" | "apply"
+	FilesScanned int                        `json:"files_scanned"`
+	FilesTouched int                        `json:"files_touched"`
+	Candidates   int                        `json:"candidates"`
+	Rewrites     []migrateAnnotationRewrite `json:"rewrites,omitempty"`
+	Mode         string                     `json:"mode"` // "dry-run" | "apply"
 }
 
 // migrateAnnotationRewrite records one line where a testreg annotation

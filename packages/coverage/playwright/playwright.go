@@ -45,12 +45,12 @@ type report struct {
 }
 
 type stats struct {
-	StartTime string `json:"startTime"`
-	Duration  float64 `json:"duration"` // ms
-	Expected  int    `json:"expected"`
-	Unexpected int   `json:"unexpected"`
-	Flaky     int    `json:"flaky"`
-	Skipped   int    `json:"skipped"`
+	StartTime  string  `json:"startTime"`
+	Duration   float64 `json:"duration"` // ms
+	Expected   int     `json:"expected"`
+	Unexpected int     `json:"unexpected"`
+	Flaky      int     `json:"flaky"`
+	Skipped    int     `json:"skipped"`
 }
 
 type suite struct {
@@ -73,9 +73,9 @@ type testCase struct {
 }
 
 type testRunBlock struct {
-	Status   string         `json:"status"` // "passed"|"failed"|"timedOut"|"skipped"
-	Duration float64        `json:"duration"` // ms
-	Error    *errorBlock    `json:"error,omitempty"`
+	Status   string      `json:"status"`   // "passed"|"failed"|"timedOut"|"skipped"
+	Duration float64     `json:"duration"` // ms
+	Error    *errorBlock `json:"error,omitempty"`
 }
 
 type errorBlock struct {

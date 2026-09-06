@@ -55,10 +55,10 @@ score regressions.`,
 
 // snapshotResult is the JSON payload for `atlas snapshot`.
 type snapshotResult struct {
-	ID         int64  `json:"id"`
-	GitRef     string `json:"git_ref"`
-	Note       string `json:"note,omitempty"`
-	IncludesAudit bool `json:"includes_audit"`
+	ID            int64  `json:"id"`
+	GitRef        string `json:"git_ref"`
+	Note          string `json:"note,omitempty"`
+	IncludesAudit bool   `json:"includes_audit"`
 }
 
 func runSnapshot(cmd *cobra.Command, rootArg, ref, note string, includeAudit bool) error {
