@@ -31,12 +31,27 @@ type Config struct {
 type ScanConfig struct {
 	SkipDirs []string `yaml:"skip_dirs"`
 	SkipTS   bool     `yaml:"skip_ts"`
+
+	// Generated lists extra path globs identifying machine-written code,
+	// on top of the two rules the scanner knows on its own (a
+	// `// Code generated ... DO NOT EDIT.` header, and a `generated` path
+	// segment). It is config rather than a flag because which files a
+	// given codebase generates is a property of the codebase, not of the
+	// invocation -- `*_gen.go`, `*.pb.go`, `mocks/**` and the like are the
+	// same on every machine that scans it.
+	Generated []string `yaml:"generated"`
+
+	// IncludeGenerated indexes generated files instead of excluding them.
+	// Excluding is the default because generated statements execute
+	// constantly and would dominate any coverage or complexity reading
+	// taken over hand-written code (issue #96).
+	IncludeGenerated bool `yaml:"include_generated"`
 }
 
 // AuditConfig mirrors the `audit:` block.
 type AuditConfig struct {
-	FreshnessWindowDays      int `yaml:"freshness_window_days"`
-	ContractDriftWindowDays  int `yaml:"contract_drift_window_days"`
+	FreshnessWindowDays     int `yaml:"freshness_window_days"`
+	ContractDriftWindowDays int `yaml:"contract_drift_window_days"`
 }
 
 // SprintConfig mirrors the `sprint:` block.

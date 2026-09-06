@@ -145,6 +145,7 @@ type covRunFlags struct {
 	serialize bool
 	keep      bool
 	noIngest  bool
+	runGroup  string
 }
 
 func newCovRunCmd() *cobra.Command {
@@ -194,6 +195,8 @@ would silently take away the concurrency those tests asked for. Pass
 		"keep the counter snapshots after the run")
 	cmd.Flags().BoolVar(&f.noIngest, "no-ingest", false,
 		"collect and convert only; do not write to the store")
+	cmd.Flags().StringVar(&f.runGroup, "run-group", "",
+		"correlation key tying this run to the other frameworks measured in the same build; the audit then scores them as one frontier")
 	return cmd
 }
 
@@ -338,7 +341,7 @@ func consumeProfiles(ctx context.Context, cmd *cobra.Command, res runner.Result,
 		return nil
 	}
 
-	stats, err := coverage.IngestGoProfilePerTest(ctx, s, store.FrameworkGoTest, profiles)
+	stats, err := coverage.IngestGoProfilePerTest(ctx, s, coverage.RunMeta{Framework: store.FrameworkGoTest, Group: f.runGroup}, profiles)
 	if err != nil {
 		return fmt.Errorf("cov run: %w", err)
 	}

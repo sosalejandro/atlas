@@ -16,6 +16,7 @@ func newScanCmd() *cobra.Command {
 		root             string
 		hashFiles        bool
 		nodeModulesPaths []string
+		includeGenerated bool
 	)
 	cmd := &cobra.Command{
 		Use:   "scan",
@@ -32,10 +33,18 @@ stabilise.
 --node-modules-path mirrors 'atlas init': point the TypeScript scanner
 at a real node_modules directory so the embedded scanner.ts can resolve
 its 'typescript' dependency. When unset, scan walks up from --root
-looking for a node_modules/ sibling and uses the first hit.`,
+looking for a node_modules/ sibling and uses the first hit.
+
+--include-generated indexes machine-written files that would otherwise be
+excluded. Exclusion is the default because generated statements execute
+constantly and would dominate any coverage or complexity reading taken
+over hand-written code; the flag is the escape hatch for "why did my
+symbol disappear?". Which files count as generated is a property of the
+codebase, so extra patterns belong under scan.generated in atlas.yaml
+rather than on the command line.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runScan(cmd, root, hashFiles, nodeModulesPaths)
+			return runScan(cmd, root, hashFiles, nodeModulesPaths, includeGenerated)
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "",
@@ -45,6 +54,8 @@ looking for a node_modules/ sibling and uses the first hit.`,
 	cmd.Flags().StringSliceVar(&nodeModulesPaths, "node-modules-path", nil,
 		"absolute path to a node_modules dir the TS scanner can borrow typescript from "+
 			"(repeatable; auto-detected from the scan root when unset)")
+	cmd.Flags().BoolVar(&includeGenerated, "include-generated", false,
+		"index machine-written files instead of excluding them (see scan.generated in atlas.yaml)")
 	return cmd
 }
 
@@ -53,7 +64,7 @@ looking for a node_modules/ sibling and uses the first hit.`,
 // envelope field distinguishes the two.
 type scanResult = initResult
 
-func runScan(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPaths []string) error {
+func runScan(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPaths []string, includeGenerated bool) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -68,7 +79,7 @@ func runScan(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPath
 		return err
 	}
 
-	idx, warnings, err := indexProjectFromConfig(ctx, rootDir, hashFiles, nodeModulesPaths)
+	idx, warnings, err := indexProjectFromConfig(ctx, rootDir, hashFiles, nodeModulesPaths, includeGenerated)
 	if err != nil {
 		return err
 	}

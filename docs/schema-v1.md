@@ -393,6 +393,45 @@ CREATE INDEX coverage_runs_framework_idx ON coverage_runs(framework, finished_at
 | `raw_path`     | TEXT      | Optional. Path to the raw test output (e.g. `go test -json` JSONL file, Playwright HTML report dir).             |
 | `summary_json` | TEXT      | JSON blob with framework-specific aggregate stats (pass/fail/skip counts, duration totals).                       |
 
+**Later migrations add to this table.** Migration 0011 (issue #100) adds the
+attribution accounting, and 0012 (issue #86) adds the run group:
+
+```sql
+-- 0011_coverage_attribution
+ALTER TABLE coverage_runs ADD COLUMN files_in_report     INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE coverage_runs ADD COLUMN files_matched       INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE coverage_runs ADD COLUMN files_unmatched     INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE coverage_runs ADD COLUMN stmts_attributed    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE coverage_runs ADD COLUMN stmts_unattributed  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE coverage_runs ADD COLUMN gaps_truncated      INTEGER NOT NULL DEFAULT 0;
+
+-- 0012_coverage_run_groups
+ALTER TABLE coverage_runs ADD COLUMN run_group TEXT;
+CREATE INDEX coverage_runs_group_idx ON coverage_runs(run_group, finished_at);
+```
+
+| Column               | Type    | Notes                                                                                                                                                                                                             |
+| -------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `files_in_report`    | INTEGER | Files the coverage report named. Zero for a run with no accounting (pre-0011, or a pass/fail framework) -- see the all-zero rule below.                                                                            |
+| `files_matched`      | INTEGER | Of those, files atlas resolved to indexed symbols.                                                                                                                                                                |
+| `files_unmatched`    | INTEGER | Files whose execution atlas could not charge to any symbol.                                                                                                                                                       |
+| `stmts_attributed`   | INTEGER | Statements charged to a symbol.                                                                                                                                                                                   |
+| `stmts_unattributed` | INTEGER | Statements that ran but reached no symbol. This is the honest size of the coverage blind spot, and it stays exact however the per-file enumeration in `coverage_run_gaps` was capped.                              |
+| `gaps_truncated`     | INTEGER | How many gap FILES did not fit the store's per-run cap. Written by the gap insert, not the run insert, so the count and the list are committed together.                                                           |
+| `run_group`          | TEXT    | Nullable correlation key (a git SHA, a CI run id) tying several syncs into one measurement. Atlas never interprets it. NULL means the run stands alone, which is the pre-0012 behaviour every existing row keeps. |
+
+An **all-zero counter set is not a perfect attribution**. A run predating 0011,
+or one from a framework with no statement coverage, leaves every counter at 0;
+readers must report "no accounting recorded" rather than "0 of 0 attributed",
+which would read as "nothing was lost".
+
+The **frontier** is what the audit scores: resolve the newest run, and if it
+carries a `run_group`, take that whole group; otherwise take that run alone.
+Resolving from the newest run OUTWARD (rather than from "the group with the
+newest member") is what makes an operator who forgets `--run-group` fall back
+to the old single-run semantics instead of silently merging into a stale
+group.
+
 ### 5.9 `coverage_results` — per-test (or per-symbol) outcome rows
 
 ```sql
@@ -421,6 +460,19 @@ CREATE INDEX coverage_results_feature_idx ON coverage_results(feature_id);
 | `status`      | TEXT    | `pass`, `fail`, or `skip`.                                                                                                         |
 | `duration_ms` | INTEGER | Per-test runtime. `0` if the framework didn't report it.                                                                           |
 | `message`     | TEXT    | Failure message / skip reason. NULL for `pass`.                                                                                    |
+
+Migration 0009 (Tier B) adds the statement fractions the line-weighted
+coverage score reads:
+
+```sql
+ALTER TABLE coverage_results ADD COLUMN covered_stmts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE coverage_results ADD COLUMN total_stmts   INTEGER NOT NULL DEFAULT 0;
+```
+
+Both stay 0 for pre-0009 rows and for frameworks that carry no statement
+counts (gotest pass/fail, playwright, ...). The audit falls back to the binary
+pass model when `total_stmts` is zero across a feature's symbols, so a mixed
+store scores each feature by the best evidence it has.
 
 ### 5.10 `audit_snapshots` — REMOVED (see migration 0006)
 
@@ -510,6 +562,62 @@ here, looks up the nearest symbol below the annotation line, and emits the
 appropriate `feature_symbols` row.
 
 ---
+
+### 5.12 `test_coverage` — per-test execution evidence (migration 0010)
+
+```sql
+CREATE TABLE test_coverage (
+  run_id         INTEGER NOT NULL REFERENCES coverage_runs(id) ON DELETE CASCADE,
+  test_symbol_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
+  symbol_id      INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
+  covered_stmts  INTEGER NOT NULL DEFAULT 0,
+  total_stmts    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (run_id, test_symbol_id, symbol_id)
+) WITHOUT ROWID;
+
+CREATE INDEX test_coverage_symbol_idx ON test_coverage(run_id, symbol_id);
+```
+
+A `coverage_results` row says "this symbol ran during the run". A
+`test_coverage` row says "this symbol ran BECAUSE OF this test", which is the
+difference between knowing a codebase is covered and knowing what a given
+capability's tests actually exercise (issue #104).
+
+That grain makes feature location a set operation rather than a graph walk:
+the union of the symbols a feature's annotated tests executed, minus the
+symbols nearly every test executes, IS the feature's implementation surface --
+correct through interface dispatch, DI and reflection, none of which a static
+call-edge walk can follow. The reverse index answers the inverse question --
+which tests reach a changed symbol -- which is affected-test selection.
+
+`WITHOUT ROWID` because the table is all key: a run of a few thousand tests
+against a few thousand symbols is the largest table in the store, and the
+composite PK is the only access path.
+
+### 5.13 `coverage_run_gaps` — the files a run could not attribute (migration 0011)
+
+```sql
+CREATE TABLE coverage_run_gaps (
+  run_id INTEGER NOT NULL REFERENCES coverage_runs(id) ON DELETE CASCADE,
+  path   TEXT    NOT NULL,
+  stmts  INTEGER NOT NULL DEFAULT 0,
+  reason TEXT    NOT NULL,
+  PRIMARY KEY (run_id, path)
+) WITHOUT ROWID;
+
+CREATE INDEX coverage_run_gaps_loss_idx ON coverage_run_gaps(run_id, stmts DESC);
+```
+
+The per-file enumeration behind `coverage_runs.stmts_unattributed`: which
+files executed statements atlas could not charge to any symbol, and why (no
+indexed symbol for the file at all, or execution outside every known symbol
+span).
+
+The list is CAPPED per run, largest loss first, and the number of dropped
+files is recorded in `coverage_runs.gaps_truncated`. The run-level totals stay
+exact regardless, so the cap narrows the enumeration and never the accounting
+-- a truncated list that claimed completeness is the exact failure mode this
+table exists to prevent.
 
 ## 6. Partial Unique Indices and Invariants
 

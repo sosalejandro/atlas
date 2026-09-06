@@ -88,7 +88,7 @@ type symSpan struct {
 //
 // Profile file paths are import-path-qualified (module prefix); atlas symbol
 // file paths are repo-relative. They are reconciled by suffix match.
-func IngestGoProfile(ctx context.Context, s *store.Store, framework store.Framework, r io.Reader) (ProfileIngestStats, error) {
+func IngestGoProfile(ctx context.Context, s *store.Store, meta RunMeta, r io.Reader) (ProfileIngestStats, error) {
 	var stats ProfileIngestStats
 	blocks, err := gocover.Parse(r)
 	if err != nil {
@@ -143,7 +143,8 @@ func IngestGoProfile(ctx context.Context, s *store.Store, framework store.Framew
 	}
 	now := time.Now().UTC()
 	runID, err := s.Coverage().InsertRunWithResults(ctx, rep.withAttribution(store.CoverageRun{
-		Framework: framework, StartedAt: now, FinishedAt: now,
+		Framework: meta.Framework, StartedAt: now, FinishedAt: now,
+		RunGroup: meta.runGroup(),
 	}), results)
 	if err != nil {
 		return stats, fmt.Errorf("coverage: persist profile run: %w", err)

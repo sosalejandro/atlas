@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sosalejandro/atlas/packages/codeindex"
+	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
 	tsscan "github.com/sosalejandro/atlas/packages/codeindex/ts"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -21,6 +22,7 @@ func newInitCmd() *cobra.Command {
 		root             string
 		hashFiles        bool
 		nodeModulesPaths []string
+		includeGenerated bool
 	)
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -42,10 +44,18 @@ write a one-off importer against the Features port.
 node_modules directory so it can resolve the embedded scanner.ts's
 'typescript' dependency. When not supplied, init walks up from --root
 looking for a node_modules/ sibling and uses the first hit. Explicit
-values always win over the auto-detected path.`,
+values always win over the auto-detected path.
+
+--include-generated indexes machine-written files that would otherwise be
+excluded. Exclusion is the default because generated statements execute
+constantly and would dominate any coverage or complexity reading taken
+over hand-written code; the flag is the escape hatch for "why did my
+symbol disappear?". Which files count as generated is a property of the
+codebase, so extra patterns belong under scan.generated in atlas.yaml
+rather than on the command line.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runInit(cmd, root, hashFiles, nodeModulesPaths)
+			return runInit(cmd, root, hashFiles, nodeModulesPaths, includeGenerated)
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "",
@@ -55,6 +65,8 @@ values always win over the auto-detected path.`,
 	cmd.Flags().StringSliceVar(&nodeModulesPaths, "node-modules-path", nil,
 		"absolute path to a node_modules dir the TS scanner can borrow typescript from "+
 			"(repeatable; auto-detected from the scan root when unset)")
+	cmd.Flags().BoolVar(&includeGenerated, "include-generated", false,
+		"index machine-written files instead of excluding them (see scan.generated in atlas.yaml)")
 	return cmd
 }
 
@@ -75,7 +87,7 @@ type initResult struct {
 	DurationMS               int64  `json:"duration_ms"`
 }
 
-func runInit(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPaths []string) error {
+func runInit(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPaths []string, includeGenerated bool) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -90,7 +102,7 @@ func runInit(cmd *cobra.Command, rootArg string, hashFiles bool, nodeModulesPath
 		return err
 	}
 
-	idx, warnings, err := indexProjectFromConfig(ctx, rootDir, hashFiles, nodeModulesPaths)
+	idx, warnings, err := indexProjectFromConfig(ctx, rootDir, hashFiles, nodeModulesPaths, includeGenerated)
 	if err != nil {
 		return err
 	}
@@ -159,7 +171,13 @@ func printInitText(cmd *cobra.Command, r initResult, warnings []string) {
 // TS scanner degrades to a warning and the Go scan still completes.
 //
 // Returns the index, any orchestrator warnings, and the first hard error.
-func indexProjectFromConfig(ctx context.Context, rootDir string, hashFiles bool, nodeModulesPaths []string) (
+func indexProjectFromConfig(
+	ctx context.Context,
+	rootDir string,
+	hashFiles bool,
+	nodeModulesPaths []string,
+	includeGenerated bool,
+) (
 	*codeindex.Index, []string, error,
 ) {
 	resolvedNM := effectiveNodeModulesPaths(rootDir, nodeModulesPaths)
@@ -169,6 +187,15 @@ func indexProjectFromConfig(ctx context.Context, rootDir string, hashFiles bool,
 		HashFiles: hashFiles,
 		TSOptions: tsscan.Options{
 			NodeModulesPaths: resolvedNM,
+		},
+		GoOptions: goscan.Options{
+			GeneratedGlobs: loaded.Scan.Generated,
+			// The flag can only turn exclusion OFF. A config that asks to
+			// index generated code cannot be overridden back to excluding
+			// it from the command line, because the flag exists for the
+			// one-off "why did my symbol disappear?" investigation, not as
+			// a second place to configure the default.
+			IncludeGenerated: includeGenerated || loaded.Scan.IncludeGenerated,
 		},
 	}
 	idx, err := codeindex.IndexProject(ctx, rootDir, opts)

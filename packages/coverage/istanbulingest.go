@@ -54,7 +54,7 @@ type IstanbulIngestStats struct {
 // trick the go-cover path uses to persist under store.FrameworkGoTest). The
 // audit's Tier-B line-weighted signal reads covered_stmts/total_stmts
 // regardless of the framework tag.
-func IngestIstanbul(ctx context.Context, s *store.Store, framework store.Framework, r io.Reader) (IstanbulIngestStats, error) {
+func IngestIstanbul(ctx context.Context, s *store.Store, meta RunMeta, r io.Reader) (IstanbulIngestStats, error) {
 	var stats IstanbulIngestStats
 	byFileStmts, err := istanbul.Parse(r)
 	if err != nil {
@@ -105,7 +105,8 @@ func IngestIstanbul(ctx context.Context, s *store.Store, framework store.Framewo
 	}
 	now := time.Now().UTC()
 	runID, err := s.Coverage().InsertRunWithResults(ctx, rep.withAttribution(store.CoverageRun{
-		Framework: framework, StartedAt: now, FinishedAt: now,
+		Framework: meta.Framework, StartedAt: now, FinishedAt: now,
+		RunGroup: meta.runGroup(),
 	}), results)
 	if err != nil {
 		return stats, fmt.Errorf("coverage: persist istanbul run: %w", err)

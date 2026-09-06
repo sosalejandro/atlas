@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -40,6 +42,7 @@ func newCovSyncCmd() *cobra.Command {
 		framework string
 		input     string
 		perTest   string
+		runGroup  string
 	)
 	cmd := &cobra.Command{
 		Use:   "sync",
@@ -59,13 +62,18 @@ When --framework is omitted, cov sync attempts to auto-detect from the
 filename (.json patterns from each framework) and the file's top-level
 shape. Failing detection is fatal — pass --framework explicitly.
 
-Input source: --input <path> (a file) or "-" / unset for stdin.`,
+Input source: --input <path> (a file) or "-" / unset for stdin.
+
+A polyglot repo measures itself more than once per build. Pass the SAME
+--run-group to every sync of one build (a git SHA, a CI run id) and the
+audit reads those runs as one coverage frontier; without it each sync
+stands alone and the last one to land is the only one scored.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if perTest != "" {
-				return runCovSyncPerTest(cmd, framework, perTest)
+				return runCovSyncPerTest(cmd, framework, perTest, runGroup)
 			}
-			return runCovSync(cmd, framework, input)
+			return runCovSync(cmd, framework, input, runGroup)
 		},
 	}
 	cmd.Flags().StringVar(&framework, "framework", "",
@@ -74,6 +82,8 @@ Input source: --input <path> (a file) or "-" / unset for stdin.`,
 		"report file path, or '-' for stdin")
 	cmd.Flags().StringVar(&perTest, "per-test", "",
 		"directory of per-test coverprofiles named <TestSymbol>.out; records which symbols each test executed (go-cover only)")
+	cmd.Flags().StringVar(&runGroup, "run-group", "",
+		"correlation key (a git SHA, a CI run id) tying this sync to the other frameworks measured in the same build; the audit then scores them as one frontier instead of letting the last sync win")
 	return cmd
 }
 
@@ -88,7 +98,7 @@ Input source: --input <path> (a file) or "-" / unset for stdin.`,
 //
 // The result is both the ordinary union run AND per-test evidence, so a store
 // ingested this way is a strict superset of one ingested whole-run.
-func runCovSyncPerTest(cmd *cobra.Command, framework, dir string) error {
+func runCovSyncPerTest(cmd *cobra.Command, framework, dir, runGroup string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -136,7 +146,7 @@ func runCovSyncPerTest(cmd *cobra.Command, framework, dir string) error {
 	}
 	defer func() { _ = s.Close() }()
 
-	stats, err := coverage.IngestGoProfilePerTest(ctx, s, store.FrameworkGoTest, profiles)
+	stats, err := coverage.IngestGoProfilePerTest(ctx, s, coverage.RunMeta{Framework: store.FrameworkGoTest, Group: runGroup}, profiles)
 	if err != nil {
 		return fmt.Errorf("cov sync (per-test): %w", err)
 	}
@@ -224,7 +234,7 @@ func renderAttributionGaps(cmd *cobra.Command, a covAttribution) {
 	}
 }
 
-func runCovSync(cmd *cobra.Command, framework, input string) error {
+func runCovSync(cmd *cobra.Command, framework, input, runGroup string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -260,7 +270,7 @@ func runCovSync(cmd *cobra.Command, framework, input string) error {
 	// Persisted under the 'go-test' framework tag — a coverprofile IS
 	// go-test coverage, and this avoids a CHECK-constraint migration.
 	if framework == "go-cover" {
-		stats, err := coverage.IngestGoProfile(ctx, s, store.FrameworkGoTest, r)
+		stats, err := coverage.IngestGoProfile(ctx, s, coverage.RunMeta{Framework: store.FrameworkGoTest, Group: runGroup}, r)
 		if err != nil {
 			return fmt.Errorf("cov sync (go-cover): %w", err)
 		}
@@ -294,7 +304,7 @@ func runCovSync(cmd *cobra.Command, framework, input string) error {
 	// vitest/jest coverage, and this avoids a CHECK-constraint migration
 	// (the same trick go-cover uses with the 'go-test' tag).
 	if framework == string(coverage.FrameworkIstanbul) {
-		stats, err := coverage.IngestIstanbul(ctx, s, store.FrameworkVitest, r)
+		stats, err := coverage.IngestIstanbul(ctx, s, coverage.RunMeta{Framework: store.FrameworkVitest, Group: runGroup}, r)
 		if err != nil {
 			return fmt.Errorf("cov sync (istanbul): %w", err)
 		}
@@ -326,6 +336,7 @@ func runCovSync(cmd *cobra.Command, framework, input string) error {
 	opts := coverage.IngestOptions{
 		Framework: coverage.Framework(framework),
 		Resolver:  s.Symbols(),
+		RunGroup:  runGroup,
 	}
 	if input != "-" && input != "" {
 		p := input
@@ -415,33 +426,54 @@ func newCovStatusCmd() *cobra.Command {
 	var (
 		feature string
 		gaps    bool
+		group   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Per-feature coverage view from the latest coverage run",
-		Long: `cov status pulls the most recent coverage run from the store and
-summarises pass/fail/skip counts grouped by feature_id. With --feature
-the output is filtered to one feature only.
+		Short: "Per-feature coverage view from the current coverage frontier",
+		Long: `cov status summarises pass/fail/skip counts grouped by feature_id
+over the current coverage FRONTIER -- the same runs the audit scores. With
+--feature the output is filtered to one feature only.
 
---gaps additionally reports the run's ATTRIBUTION accounting: how much of
-the coverage report atlas could charge to a symbol, and which files it
-could not. That is read back from the store, so the blind spot is
-inspectable long after the ingest that measured it.`,
+The frontier is resolved from the newest run outward: a run synced with
+--run-group brings its whole group along, an ungrouped run stands alone.
+So a polyglot build that tagged every sync shows one combined picture,
+and one that did not shows only its last sync -- which is exactly what
+the audit will score.
+
+--group breaks the frontier down into the runs that compose it, which is
+how you check that every framework in a build actually landed under the
+same key.
+
+--gaps additionally reports the frontier's ATTRIBUTION accounting: how
+much of the coverage reports atlas could charge to a symbol, and which
+files it could not. That is read back from the store, so the blind spot
+is inspectable long after the ingest that measured it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCovStatus(cmd, feature, gaps)
+			return runCovStatus(cmd, feature, gaps, group)
 		},
 	}
 	cmd.Flags().StringVar(&feature, "feature", "",
 		"restrict output to one feature id")
 	cmd.Flags().BoolVar(&gaps, "gaps", false,
-		"report the run's attribution accounting and the files whose execution could not be attributed")
+		"report the attribution accounting and the files whose execution could not be attributed")
+	cmd.Flags().BoolVar(&group, "group", false,
+		"break the frontier down into the runs that compose it")
 	return cmd
 }
 
 // covStatusResult is the JSON payload for `atlas cov status`.
 type covStatusResult struct {
-	RunID    int64                 `json:"run_id"`
+	// RunID is the run the frontier was resolved FROM -- the newest in the
+	// store. It stays for compatibility with readers written before run
+	// groups; RunIDs is the honest answer once a frontier can span runs.
+	RunID  int64   `json:"run_id"`
+	RunIDs []int64 `json:"run_ids"`
+	// Group is the run group the frontier was read under, absent when the
+	// newest run carried none and therefore stands alone.
+	Group    *string               `json:"group,omitempty"`
+	Runs     []covStatusRunRow     `json:"runs,omitempty"`
 	Features []covStatusFeatureRow `json:"features"`
 
 	// Attribution is populated by --gaps from what the ingest persisted on
@@ -468,6 +500,16 @@ type covStatusAttribution struct {
 	Gaps          []store.CoverageGap `json:"gaps"`
 }
 
+// covStatusRunRow is one run of the frontier, emitted by --group. It answers
+// "did every framework in this build land under the same key?", which is the
+// one question a mis-tagged CI job makes urgent.
+type covStatusRunRow struct {
+	RunID      int64     `json:"run_id"`
+	Framework  string    `json:"framework"`
+	FinishedAt time.Time `json:"finished_at"`
+	Results    int       `json:"results"`
+}
+
 type covStatusFeatureRow struct {
 	FeatureID *shared.FeatureID `json:"feature_id,omitempty"`
 	Passed    int               `json:"passed"`
@@ -477,7 +519,7 @@ type covStatusFeatureRow struct {
 	PassRate  float64           `json:"pass_rate"`
 }
 
-func runCovStatus(cmd *cobra.Command, feature string, gaps bool) error {
+func runCovStatus(cmd *cobra.Command, feature string, gaps, group bool) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -492,29 +534,34 @@ func runCovStatus(cmd *cobra.Command, feature string, gaps bool) error {
 	}
 	defer func() { _ = s.Close() }()
 
-	runs, err := s.Coverage().ListRuns(ctx, "")
+	// Read the frontier rather than the newest row: status that summarised a
+	// different set of runs than the audit scores would be reporting on
+	// something no other command acts on.
+	frontier, err := s.Coverage().LatestFrontier(ctx)
 	if err != nil {
-		return fmt.Errorf("cov status: list runs: %w", err)
+		return fmt.Errorf("cov status: resolve frontier: %w", err)
 	}
-	if len(runs) == 0 {
-		return fmt.Errorf("cov status: no coverage runs in the store yet — run 'atlas cov sync' first")
-	}
-	latest := runs[0]
-	for _, r := range runs[1:] {
-		if r.FinishedAt.After(latest.FinishedAt) {
-			latest = r
-		}
+	if frontier.Empty() {
+		return fmt.Errorf("cov status: no coverage runs in the store yet - run 'atlas cov sync' first")
 	}
 
-	results, err := s.Coverage().ListResults(ctx, latest.ID)
+	results, err := s.Coverage().ListFrontierResults(ctx, frontier)
 	if err != nil {
-		return fmt.Errorf("cov status: list results %d: %w", latest.ID, err)
+		return fmt.Errorf("cov status: list frontier results: %w", err)
 	}
 
 	rows := aggregateCovStatus(results, feature)
-	res := covStatusResult{RunID: latest.ID, Features: rows}
+	res := covStatusResult{
+		RunID:    frontier.Newest,
+		RunIDs:   frontier.RunIDs(),
+		Group:    frontier.Group,
+		Features: rows,
+	}
+	if group {
+		res.Runs = frontierRunRows(frontier, results)
+	}
 	if gaps {
-		attr, err := loadCovAttribution(ctx, s, latest)
+		attr, err := loadCovAttribution(ctx, s, frontier)
 		if err != nil {
 			return err
 		}
@@ -522,48 +569,99 @@ func runCovStatus(cmd *cobra.Command, feature string, gaps bool) error {
 	}
 	if flags.JSON {
 		return emitJSON(stdoutOrJSON(cmd), "cov.status",
-			map[string]any{"feature": feature, "gaps": gaps}, res, nil)
+			map[string]any{"feature": feature, "gaps": gaps, "group": group}, res, nil)
 	}
-	printCovStatusText(cmd, latest, rows)
+	printCovStatusText(cmd, frontier, rows)
+	if res.Runs != nil {
+		printCovFrontierRuns(cmd, res.Runs)
+	}
 	if res.Attribution != nil {
-		printCovAttribution(cmd, latest.ID, *res.Attribution)
+		printCovAttribution(cmd, frontier, *res.Attribution)
 	}
 	return nil
 }
 
-// loadCovAttribution reads a run's persisted attribution accounting. The
-// counters live on the run row; the per-file enumeration behind them is a
-// separate read, because a run with a large blind spot can carry hundreds of
-// gap rows that the default view never wants.
-func loadCovAttribution(ctx context.Context, s *store.Store, run store.CoverageRun) (covStatusAttribution, error) {
-	rows, err := s.CoverageGaps().List(ctx, run.ID)
-	if err != nil {
-		return covStatusAttribution{}, fmt.Errorf("cov status: list gaps %d: %w", run.ID, err)
+// frontierRunRows counts each run's contribution to the pooled result set, so
+// a run that landed in the group but carried nothing is visible as such
+// rather than merely absent.
+func frontierRunRows(f store.CoverageFrontier, results []store.CoverageResult) []covStatusRunRow {
+	counts := make(map[int64]int, len(f.Runs))
+	for _, r := range results {
+		counts[r.RunID]++
 	}
-	return covStatusAttribution{
+	rows := make([]covStatusRunRow, 0, len(f.Runs))
+	for _, r := range f.Runs {
+		rows = append(rows, covStatusRunRow{
+			RunID:      r.ID,
+			Framework:  string(r.Framework),
+			FinishedAt: r.FinishedAt,
+			Results:    counts[r.ID],
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].RunID < rows[j].RunID })
+	return rows
+}
+
+func printCovFrontierRuns(cmd *cobra.Command, rows []covStatusRunRow) {
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "frontier runs (%d):\n", len(rows))
+	for _, r := range rows {
+		fmt.Fprintf(out, "  run %-6d %-12s %s  results=%d\n",
+			r.RunID, r.Framework, r.FinishedAt.UTC().Format(time.RFC3339), r.Results)
+	}
+}
+
+// loadCovAttribution reads the frontier's persisted attribution accounting.
+// The counters live on each run row; the per-file enumeration behind them is
+// a separate read per run, because a run with a large blind spot can carry
+// hundreds of gap rows that the default view never wants.
+//
+// Across a frontier the counters SUM. Each run accounts for its own report,
+// and the reports do not overlap -- go-cover measures Go files, istanbul
+// measures the front end -- so the sum is the build's total blind spot, which
+// is the number a CI gate wants. Runs carrying no accounting contribute
+// nothing and cannot dilute it.
+func loadCovAttribution(ctx context.Context, s *store.Store, f store.CoverageFrontier) (covStatusAttribution, error) {
+	var out covStatusAttribution
+	for _, run := range f.Runs {
 		// A run predating schema 0011, or one from a framework with no
 		// statement coverage at all, leaves every counter at zero. Reporting
 		// that as 0-of-0 attributed would read as "nothing was lost", which
 		// is the opposite of what it means.
-		Recorded:          run.FilesInReport > 0 || run.StmtsAttributed > 0 || run.StmtsUnattributed > 0,
-		FilesInReport:     run.FilesInReport,
-		FilesMatched:      run.FilesMatched,
-		FilesUnmatched:    run.FilesUnmatched,
-		StmtsAttributed:   run.StmtsAttributed,
-		StmtsUnattributed: run.StmtsUnattributed,
-		GapsTruncated:     run.GapsTruncated,
-		Gaps:              rows,
-	}, nil
+		if run.FilesInReport == 0 && run.StmtsAttributed == 0 && run.StmtsUnattributed == 0 {
+			continue
+		}
+		rows, err := s.CoverageGaps().List(ctx, run.ID)
+		if err != nil {
+			return covStatusAttribution{}, fmt.Errorf("cov status: list gaps %d: %w", run.ID, err)
+		}
+		out.Recorded = true
+		out.FilesInReport += run.FilesInReport
+		out.FilesMatched += run.FilesMatched
+		out.FilesUnmatched += run.FilesUnmatched
+		out.StmtsAttributed += run.StmtsAttributed
+		out.StmtsUnattributed += run.StmtsUnattributed
+		out.GapsTruncated += run.GapsTruncated
+		out.Gaps = append(out.Gaps, rows...)
+	}
+	if out.Gaps == nil {
+		out.Gaps = []store.CoverageGap{}
+	}
+	// Largest loss first: the enumeration is capped in the terminal, so the
+	// rows a reader actually sees must be the ones that cost the most.
+	sort.SliceStable(out.Gaps, func(i, j int) bool { return out.Gaps[i].Stmts > out.Gaps[j].Stmts })
+	return out, nil
 }
 
 // printCovAttribution renders the accounting under the feature rollup. The
 // terminal list is capped at maxGapLines; --json carries every stored row.
-func printCovAttribution(cmd *cobra.Command, runID int64, a covStatusAttribution) {
+func printCovAttribution(cmd *cobra.Command, f store.CoverageFrontier, a covStatusAttribution) {
 	out := cmd.OutOrStdout()
 	if !a.Recorded {
 		fmt.Fprintf(out,
-			"run %d carries no attribution metadata (ingested before schema 0011, "+
-				"or by a framework without statement coverage)\n", runID)
+			"frontier %v has no attribution metadata on any run (ingested before "+
+				"schema 0011, or by a framework without statement coverage)\n",
+			f.RunIDs())
 		return
 	}
 	total := a.StmtsAttributed + a.StmtsUnattributed
@@ -638,9 +736,13 @@ func aggregateCovStatus(rs []store.CoverageResult, filter string) []covStatusFea
 	return out
 }
 
-func printCovStatusText(cmd *cobra.Command, run store.CoverageRun, rows []covStatusFeatureRow) {
-	fmt.Fprintf(cmd.OutOrStdout(), "Coverage run %d (%s, finished %s)\n",
-		run.ID, run.Framework, run.FinishedAt.Format("2006-01-02 15:04:05"))
+func printCovStatusText(cmd *cobra.Command, f store.CoverageFrontier, rows []covStatusFeatureRow) {
+	if f.Group != nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "Coverage frontier %q (%d runs, newest %d)\n",
+			*f.Group, len(f.Runs), f.Newest)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "Coverage run %d (ungrouped)\n", f.Newest)
+	}
 	if len(rows) == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "  (no results)")
 		return

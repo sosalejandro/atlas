@@ -54,7 +54,7 @@ func TestAttribution_MatchesGoToolCover(t *testing.T) {
 	}
 	defer func() { _ = profile.Close() }()
 
-	stats, err := coverage.IngestGoProfile(ctx, s, store.FrameworkGoTest, profile)
+	stats, err := coverage.IngestGoProfile(ctx, s, coverage.RunMeta{Framework: store.FrameworkGoTest}, profile)
 	if err != nil {
 		t.Fatalf("IngestGoProfile: %v", err)
 	}

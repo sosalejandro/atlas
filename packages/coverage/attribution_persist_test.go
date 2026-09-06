@@ -66,7 +66,7 @@ func TestIngestGoProfile_PersistsAttribution(t *testing.T) {
 	ctx := context.Background()
 	s := storeWithBillingSymbol(t)
 
-	stats, err := coverage.IngestGoProfile(ctx, s, store.FrameworkGoTest, strings.NewReader(gapProfile))
+	stats, err := coverage.IngestGoProfile(ctx, s, coverage.RunMeta{Framework: store.FrameworkGoTest}, strings.NewReader(gapProfile))
 	if err != nil {
 		t.Fatalf("IngestGoProfile: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestIngestIstanbul_PersistsAttribution(t *testing.T) {
       }
     }`
 
-	stats, err := coverage.IngestIstanbul(ctx, s, store.FrameworkVitest, strings.NewReader(report))
+	stats, err := coverage.IngestIstanbul(ctx, s, coverage.RunMeta{Framework: store.FrameworkVitest}, strings.NewReader(report))
 	if err != nil {
 		t.Fatalf("IngestIstanbul: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestIngestGoProfilePerTest_PersistsUnionNotSumOfGaps(t *testing.T) {
 
 	// Both profiles are `-coverpkg=./...` shaped: each names the whole
 	// codebase, so both carry the identical 9-statement unindexed file.
-	stats, err := coverage.IngestGoProfilePerTest(ctx, s, store.FrameworkGoTest, []coverage.PerTestProfile{
+	stats, err := coverage.IngestGoProfilePerTest(ctx, s, coverage.RunMeta{Framework: store.FrameworkGoTest}, []coverage.PerTestProfile{
 		{Test: "billing.TestTotal", Profile: strings.NewReader(gapProfile)},
 		{Test: "billing.Total", Profile: strings.NewReader(gapProfile)},
 	})

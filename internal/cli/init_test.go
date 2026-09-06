@@ -225,7 +225,7 @@ func TestIndexProjectFromConfig_AutoDetectsNodeModules(t *testing.T) {
 	loaded = Config{}
 	flags = globalFlags{}
 
-	idx, warnings, err := indexProjectFromConfig(context.Background(), root, false, nil)
+	idx, warnings, err := indexProjectFromConfig(context.Background(), root, false, nil, false)
 	if err != nil {
 		t.Fatalf("indexProjectFromConfig: %v\nwarnings: %v", err, warnings)
 	}
@@ -319,7 +319,7 @@ func TestIndexProjectFromConfig_FailsCleanlyWhenNoNodeModules(t *testing.T) {
 	loaded = Config{}
 	flags = globalFlags{}
 
-	idx, _, err := indexProjectFromConfig(context.Background(), root, false, nil)
+	idx, _, err := indexProjectFromConfig(context.Background(), root, false, nil, false)
 	if err != nil {
 		t.Fatalf("indexProjectFromConfig: %v", err)
 	}

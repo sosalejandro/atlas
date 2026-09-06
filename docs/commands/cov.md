@@ -44,12 +44,31 @@ filename and the file's top-level shape. Failed detection is fatal — pass
 
 Input source: `--input <path>` (a file) or `-` / unset for stdin.
 
+**Run groups.** A polyglot repo measures itself more than once per build.
+Pass the SAME `--run-group` to every sync of one build (a git SHA, a CI run
+id) and the audit reads those runs as one coverage frontier. Without it each
+sync stands alone and the last one to land is the only one scored — ingest
+istanbul after go-cover and every Go capability scores as if the Go suite
+never ran.
+
+```bash
+GROUP="$(git rev-parse HEAD)"
+atlas cov sync --framework go-cover --input cover.out       --run-group "$GROUP"
+atlas cov sync --framework istanbul --input coverage-final.json --run-group "$GROUP"
+```
+
+Atlas never interprets the key. Forgetting the flag is safe: the run stands
+alone, which is the behaviour that predates run groups — it never merges into
+whatever stale group happens to be named.
+
 #### Flags
 
 | Flag                          | Default               | Description                                                                                       |
 | ----------------------------- | --------------------- | ------------------------------------------------------------------------------------------------- |
 | `--framework`                 | (auto-detect)         | Framework tag — one of `go-test`, `playwright`, `vitest`, `jest`, `maestro`.                      |
 | `--input`                     | `-` (stdin)           | Report file path, or `-` for stdin.                                                                |
+| `--per-test`                  | (off)                 | Directory of per-test coverprofiles named `<TestSymbol>.out` (go-cover only).                       |
+| `--run-group`                 | (none)                | Correlation key tying this sync to the other frameworks measured in the same build.                 |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                              |
 | `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                    |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                      |
@@ -183,20 +202,32 @@ JS/TS the granularity is per test file.
 atlas cov status [flags]
 ```
 
-`cov status` pulls the most recent coverage run from the store and
-summarises pass/fail/skip counts grouped by `feature_id`. With `--feature`
-the output is filtered to a single feature.
+`cov status` summarises pass/fail/skip counts grouped by `feature_id` over
+the current coverage **frontier** — the same runs the audit scores. With
+`--feature` the output is filtered to a single feature.
 
-With `--gaps` it also reports that run's **attribution accounting** — read
-back from the store, not recomputed — so "how much of what ran can atlas
-actually see?" is answerable by anything that did not run the ingest itself.
+The frontier resolves from the newest run outward: a run synced with
+`--run-group` brings its whole group along, an ungrouped run stands alone.
+So a build that tagged every sync shows one combined picture, and one that
+did not shows only its last sync — which is exactly what the audit will
+score. `--group` breaks the frontier into the runs that compose it, which is
+how you check that every framework in a build actually landed under the same
+key.
+
+With `--gaps` it also reports the frontier's **attribution accounting** —
+read back from the store, not recomputed — so "how much of what ran can
+atlas actually see?" is answerable by anything that did not run the ingest
+itself. The counters sum across the frontier: the reports do not overlap
+(go-cover measures Go files, istanbul the front end), so the sum is the
+build's total blind spot.
 
 #### Flags
 
 | Flag                          | Default               | Description                                              |
 | ----------------------------- | --------------------- | -------------------------------------------------------- |
 | `--feature`                   | (all features)        | Restrict output to one feature id.                       |
-| `--gaps`                      | off                   | Also report the run's attribution accounting and the files whose execution could not be attributed. |
+| `--gaps`                      | off                   | Also report the frontier's attribution accounting and the files whose execution could not be attributed. |
+| `--group`                     | off                   | Break the frontier down into the runs that compose it.   |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                    |
 | `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                          |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope.                           |
@@ -207,9 +238,25 @@ actually see?" is answerable by anything that did not run the ingest itself.
 ```
 # Run from: /tmp/atlas-fixture (after the go-test ingest above)
 $ atlas cov status
-Coverage run 1 (go-test, finished 2026-05-22 00:00:01)
+Coverage run 1 (ungrouped)
   <unassigned>                              pass=1 fail=1 skip=0  (50%)
 ```
+
+#### Example: a grouped polyglot build
+
+```
+# Run from: a repo whose CI syncs both suites under one --run-group
+$ atlas cov status --group
+Coverage frontier "9f2c1ab" (2 runs, newest 2)
+  billing                                   pass=1 fail=0 skip=0  (100%)
+  web                                       pass=1 fail=0 skip=0  (100%)
+frontier runs (2):
+  run 1      go-test      2026-09-05T12:00:00Z  results=1
+  run 2      vitest       2026-09-05T12:01:00Z  results=1
+```
+
+A run listed with `results=0` landed in the group but contributed nothing —
+usually a sync that ran before `atlas scan` indexed the code it measured.
 
 #### Example: the attribution gap of the latest run
 

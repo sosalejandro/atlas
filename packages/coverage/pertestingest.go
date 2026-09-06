@@ -98,7 +98,7 @@ func accumulate(rep attributionReport, testID int64, union map[int64]symbolCount
 func IngestGoProfilePerTest(
 	ctx context.Context,
 	s *store.Store,
-	framework store.Framework,
+	meta RunMeta,
 	profiles []PerTestProfile,
 ) (PerTestIngestStats, error) {
 	var stats PerTestIngestStats
@@ -156,7 +156,8 @@ func IngestGoProfilePerTest(
 	}
 	now := time.Now().UTC()
 	runID, err := s.Coverage().InsertRunWithResults(ctx, merged.withAttribution(store.CoverageRun{
-		Framework: framework, StartedAt: now, FinishedAt: now,
+		Framework: meta.Framework, StartedAt: now, FinishedAt: now,
+		RunGroup: meta.runGroup(),
 	}), results)
 	if err != nil {
 		return stats, fmt.Errorf("coverage: persist per-test run: %w", err)
