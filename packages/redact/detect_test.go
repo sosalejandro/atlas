@@ -29,6 +29,19 @@ import (
 // push for whoever runs it next.
 var stripeShaped = "sk_" + "live_" + "51H8xQ2eZvKYlo2C9dR7pW4nT"
 
+// awsSessionShaped is an AWS TEMPORARY (STS) access key id shape, assembled
+// for the same reason as stripeShaped.
+//
+// This one is not hypothetical: a literal here raised a real
+// "Amazon AWS Temporary Access Key ID" alert on the repository after the batch
+// merged. Nothing leaked -- the value never was a credential -- but the alert
+// is indistinguishable from one that matters, which is the whole cost. A
+// security alert a maintainer learns to dismiss is worse than no alert.
+//
+// Unlike AKIA..., AWS publishes no documented example for the ASIA prefix, so
+// there is no allowlisted constant to reach for.
+var awsSessionShaped = "ASIA" + "Y34FZKBOKMUTVV7A"
+
 func TestScan_DetectsHighSignalSecrets(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -64,9 +77,9 @@ func TestScan_DetectsHighSignalSecrets(t *testing.T) {
 		},
 		{
 			name:   "aws temporary session key id",
-			text:   "ASIAY34FZKBOKMUTVV7A was rotated",
+			text:   awsSessionShaped + " was rotated",
 			want:   KindAWSAccessKey,
-			secret: "ASIAY34FZKBOKMUTVV7A",
+			secret: awsSessionShaped,
 		},
 		{
 			name:   "postgres dsn redacts only the password",
@@ -239,7 +252,7 @@ func TestScan_OverlappingMatchesCollapseToTheWidestSpan(t *testing.T) {
 func TestScan_FindingsAreOrderedByPosition(t *testing.T) {
 	text := "AKIAIOSFODNN7EXAMPLE\n" +
 		`apiKey = "` + stripeShaped + `"` + "\n" +
-		"ASIAY34FZKBOKMUTVV7A\n"
+		awsSessionShaped + "\n"
 	got := Scan(text)
 	if len(got) != 3 {
 		t.Fatalf("Scan returned %d findings, want 3: %+v", len(got), got)

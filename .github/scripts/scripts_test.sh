@@ -730,6 +730,62 @@ else
 	fi
 fi
 
+
+# --- secret-scan.sh --------------------------------------------------------
+#
+# The tests that matter here are the NEGATIVE ones. A secret scanner that
+# reports clean is indistinguishable from one that is not running.
+#
+# That is not hypothetical: the first version of the planted-key test below
+# asserted only "exit code is non-zero", and it PASSED on a CI runner where
+# gitleaks was not installed -- the script exited 127 without looking at
+# anything. Every assertion here therefore checks the SPECIFIC exit code from
+# secret-scan.sh's documented contract (0 clean, 1 found, 2 bad usage,
+# 127 cannot run).
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+	it "secret-scan.sh behaviour"
+	skip "gitleaks not installed; run: go install github.com/zricethezav/gitleaks/v8@v8.30.0"
+else
+	scan_status() {
+		# Run the scanner and echo its exit code, without set -e aborting us.
+		local mode="$1"
+		set +e
+		SCAN_MODE="$mode" bash "$SCRIPT_DIR/secret-scan.sh" >"$WORK/scan.log" 2>&1
+		local rc=$?
+		set -e
+		echo "$rc"
+	}
+
+	it "secret-scan.sh reports the tree as committed is clean"
+	assert_eq "$(scan_status tree)" "0"
+
+	it "secret-scan.sh reports the whole history is clean"
+	assert_eq "$(scan_status history)" "0"
+
+	it "secret-scan.sh catches a planted key outside the detector's fixtures"
+	# The allowlist in .gitleaks.toml is scoped by path AND rule. Widen it to a
+	# blanket rule and this goes red. Asserting exactly 1 -- not "non-zero" --
+	# is what makes it a test of detection rather than of the script running.
+	planted="$REPO_ROOT/packages/store/zz_secretscan_probe.go"
+	printf 'package store\n\nvar probe = "%s%s"\n' "ASIA" "Y34FZKBOKMUTVV7A" >"$planted"
+	planted_rc="$(scan_status tree)"
+	rm -f "$planted"
+	assert_eq "$planted_rc" "1"
+
+	it "secret-scan.sh refuses to run without the repository config"
+	# Scanning with gitleaks' default rules would flag every fixture in
+	# packages/redact, so a missing config is a hard stop rather than a scan
+	# whose output nobody can act on.
+	mv "$REPO_ROOT/.gitleaks.toml" "$WORK/gitleaks.toml.bak"
+	noconf_rc="$(scan_status tree)"
+	mv "$WORK/gitleaks.toml.bak" "$REPO_ROOT/.gitleaks.toml"
+	assert_eq "$noconf_rc" "2"
+
+	it "secret-scan.sh rejects an unknown scan mode"
+	assert_eq "$(scan_status sideways)" "2"
+fi
+
 # ---------------------------------------------------------------------------
 
 printf '\n%d test(s), %d failure(s)\n' "$TESTS_RUN" "$TESTS_FAILED"
