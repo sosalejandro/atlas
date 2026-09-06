@@ -52,3 +52,45 @@ func TestAttributeStatements_ReportsGaps(t *testing.T) {
 		t.Errorf("gaps[1] = %+v, want generated.go/5/no-indexed-symbol", gaps[1])
 	}
 }
+
+// merge folds many per-test profiles into one report. Attributed statements
+// must fold per FILE, not as a scalar maximum: two profiles that describe
+// different files (per-package profiles, or a narrower -coverpkg) each carry a
+// partial total, and the run attributed the union of them. Taking the larger
+// scalar silently discards the other profile's work — and the number it feeds,
+// coverage_runs.stmts_attributed, is the one the whole product quotes.
+func TestAttributionReport_MergeFoldsAttributedPerFile(t *testing.T) {
+	byFile := indexSymbolsByFile([]store.SymbolRow{
+		{ID: 1, FilePath: "src/a.go", Line: 10, EndLine: ip(20)},
+		{ID: 2, FilePath: "src/b.go", Line: 10, EndLine: ip(20)},
+	})
+	// Two per-package profiles: each names only its own package's file.
+	repA := attributeStatements(map[string][]gocover.Block{
+		"github.com/org/repo/src/a.go": {{File: "a.go", StartLine: 11, NumStmts: 7, Count: 1}},
+	}, byFile)
+	repB := attributeStatements(map[string][]gocover.Block{
+		"github.com/org/repo/src/b.go": {{File: "b.go", StartLine: 11, NumStmts: 5, Count: 1}},
+	}, byFile)
+
+	merged := newAttributionReport()
+	merged.merge(repA)
+	merged.merge(repB)
+
+	if merged.stmtsAttributed != 12 {
+		t.Errorf("stmtsAttributed = %d, want 12 (7 in a.go + 5 in b.go); a scalar max would say 7",
+			merged.stmtsAttributed)
+	}
+	if merged.filesMatched != 2 {
+		t.Errorf("filesMatched = %d, want 2", merged.filesMatched)
+	}
+
+	// And the union property still has to hold: the same file seen twice with
+	// the same attributable statements counts once, not twice.
+	twice := newAttributionReport()
+	twice.merge(repA)
+	twice.merge(repA)
+	if twice.stmtsAttributed != 7 {
+		t.Errorf("stmtsAttributed = %d after merging one profile twice, want 7 — union, not sum",
+			twice.stmtsAttributed)
+	}
+}

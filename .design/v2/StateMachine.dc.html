@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #10141a; color: #dfe2eb;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased; }
+    a { color: #a2c9ff; text-decoration: none; }
+    a:hover { color: #58a6ff; }
+    .mono { font-family: 'JetBrains Mono', monospace; font-feature-settings: "tnum"; }
+  </style>
+</helmet>
+<div style="width:1440px;height:900px;display:flex;flex-direction:column;background:#10141a;overflow:hidden">
+  <header style="height:48px;flex:0 0 48px;background:#0a0e14;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid #414752"><div style="display:flex;align-items:center;gap:12px"><div style="display:flex;align-items:center;gap:8px"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="#a2c9ff" stroke-width="1.6"><circle cx="10" cy="10" r="7.2"/><circle cx="10" cy="10" r="2.4" fill="#a2c9ff" stroke="none"/></svg><span style="font-size:15px;font-weight:700;color:#dfe2eb;letter-spacing:-.01em">atlas</span></div><div style="width:1px;height:16px;background:#414752"></div><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#a2c9ff;font-weight:500">nutrition-v2-go</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#8b919d">main @ 8523b6c</span></div><div style="display:flex;align-items:center;gap:8px"><div style="display:flex;align-items:center;gap:6px;background:linear-gradient(to bottom,#a2c9ff,#58a6ff);color:#00315c;padding:5px 11px;border-radius:3px;font-size:11px;font-weight:700;letter-spacing:.08em"><svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="#00315c" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2.6"/><path d="M10 3v2.5M10 14.5V17M3 10h2.5M14.5 10H17"/></svg><span>SCAN</span></div><div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#8b919d"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2M10 15.4v2M17.4 10h-2M5 10H3M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2 4.8 4.8"/></svg></div></div></header>
+  <div style="flex:1 1 auto;display:flex;min-height:0">
+    <aside style="width:200px;flex:0 0 200px;background:#0a0e14;display:flex;flex-direction:column;border-right:1px solid #414752"><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M4 5h9M4 5 6.5 2.5M4 5l2.5 2.5"/><path d="M16 15H7m9 0-2.5-2.5M16 15l-2.5 2.5"/></svg><span>Since main</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M3 5h14M3 10h14M3 15h9"/></svg><span>Capabilities</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:rgba(162,201,255,0.10);color:#a2c9ff;border-left:3px solid #a2c9ff;font-size:13px;font-weight:600"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="10" cy="4" r="2"/><circle cx="4.5" cy="15" r="2"/><circle cx="15.5" cy="15" r="2"/><path d="M10 6v3m0 0-4.5 4M10 9l4.5 4"/></svg><span>Diagrams</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/></svg><span>Matrix</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><path d="M10 2.5 3.5 5v4.2c0 3.9 2.7 7.1 6.5 8.3 3.8-1.2 6.5-4.4 6.5-8.3V5L10 2.5Z"/><path d="m7.4 10 1.9 1.9 3.5-3.6"/></svg><span>Trust</span></div><div style="display:flex;align-items:center;gap:12px;height:34px;padding:0 16px;background:transparent;color:#8b919d;border-left:3px solid transparent;font-size:13px;font-weight:400"><svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto"><circle cx="5" cy="5" r="2"/><circle cx="15" cy="10" r="2"/><circle cx="5" cy="15" r="2"/><path d="M7 6.5 13 9M7 13.5 13 11"/></svg><span>Workspace</span></div><div style="margin-top:auto;padding:14px 16px"><div style="padding:8px 10px;background:#181c22;border-radius:4px;display:flex;flex-direction:column;gap:1px"><span style="font-size:9px;letter-spacing:.16em;font-weight:700;color:#8b919d">ATLAS</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#c0c7d4">v0.14.0</span></div></div></aside>
+    <main style="flex:1 1 auto;min-width:0;overflow:hidden;padding:20px 24px">
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+  <div style="display:flex;align-items:center;gap:10px">
+    <span style="font-size:17px;font-weight:600;color:#dfe2eb">State machine</span>
+    <div style="display:flex;align-items:center;gap:7px;background:#1c2026;border:1px solid #414752;border-radius:4px;padding:6px 11px;font-size:12px;color:#c0c7d4">
+      <span class="mono">MeasurementEntry.status</span><span style="color:#8b919d">&#9662;</span>
+    </div>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#8b919d;background:#31353c;padding:2px 7px;border-radius:3px;white-space:nowrap">authored · docs/diagrams/entry-state.mmd</span>
+    <span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.06em;color:#ffdad6;background:#93000a;padding:2px 7px;border-radius:3px">2 TRANSITIONS UNTESTED</span>
+  </div>
+  <div style="display:flex;gap:6px">
+    <div style="border:1px solid #414752;color:#c0c7d4;padding:6px 12px;border-radius:4px;font-size:11px;font-weight:600">Edit source</div><div style="border:1px solid #414752;color:#c0c7d4;padding:6px 12px;border-radius:4px;font-size:11px;font-weight:600">Check transitions</div><div style="border:1px solid #414752;color:#c0c7d4;padding:6px 12px;border-radius:4px;font-size:11px;font-weight:600">Export</div>
+  </div>
+</div>
+
+<div style="background:#1c2026;border:1px solid #414752;border-radius:8px;padding:14px 16px 10px;margin-bottom:14px">
+  <svg viewBox="0 0 1180 350" width="100%" height="350"><defs><marker id="ah-v" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#67df70"/></marker><marker id="ah-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ffb4ab"/></marker><marker id="ah-u" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b919d"/></marker><marker id="ah-n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#414752"/></marker><marker id="ah-p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#a2c9ff"/></marker><pattern id="hatch" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="6" stroke="#8b919d" stroke-opacity="0.25" stroke-width="2"/></pattern></defs><rect x="60" y="150" width="168" height="52" rx="12" fill="rgba(103,223,112,0.10)" stroke="#67df70" stroke-width="1.4"/><text x="144.0" y="174" text-anchor="middle" fill="#dfe2eb" font-size="12" font-family="JetBrains Mono, monospace">draft</text><text x="144.0" y="189" text-anchor="middle" fill="#67df70" font-size="9" font-family="JetBrains Mono, monospace">3 tests</text><rect x="320" y="60" width="168" height="52" rx="12" fill="rgba(103,223,112,0.10)" stroke="#67df70" stroke-width="1.4"/><text x="404.0" y="84" text-anchor="middle" fill="#dfe2eb" font-size="12" font-family="JetBrains Mono, monospace">submitted</text><text x="404.0" y="99" text-anchor="middle" fill="#67df70" font-size="9" font-family="JetBrains Mono, monospace">5 tests</text><rect x="620" y="60" width="168" height="52" rx="12" fill="rgba(103,223,112,0.10)" stroke="#67df70" stroke-width="1.4"/><text x="704.0" y="84" text-anchor="middle" fill="#dfe2eb" font-size="12" font-family="JetBrains Mono, monospace">verified</text><text x="704.0" y="99" text-anchor="middle" fill="#67df70" font-size="9" font-family="JetBrains Mono, monospace">4 tests</text><rect x="320" y="250" width="168" height="52" rx="12" fill="rgba(147,0,10,0.20)" stroke="#ffb4ab" stroke-width="1.4"/><text x="404.0" y="274" text-anchor="middle" fill="#dfe2eb" font-size="12" font-family="JetBrains Mono, monospace">rejected</text><text x="404.0" y="289" text-anchor="middle" fill="#ffb4ab" font-size="9" font-family="JetBrains Mono, monospace">no test</text><rect x="880" y="150" width="168" height="52" rx="12" fill="transparent" stroke="#414752" stroke-width="1.4" stroke-dasharray="2 4"/><text x="964.0" y="174" text-anchor="middle" fill="#dfe2eb" font-size="12" font-family="JetBrains Mono, monospace">archived</text><text x="964.0" y="189" text-anchor="middle" fill="#414752" font-size="9" font-family="JetBrains Mono, monospace">unreachable</text><circle cx="14" cy="176.0" r="7" fill="#dfe2eb"/><line x1="22" y1="176.0" x2="54" y2="176.0" stroke="#67df70" stroke-width="1.4" marker-end="url(#ah-v)"/><path d="M228 176 Q274 109 320 86" fill="none" stroke="#67df70" stroke-width="1.4" marker-end="url(#ah-v)"/><text x="274" y="102" text-anchor="middle" fill="#c0c7d4" font-size="9.5" font-family="JetBrains Mono, monospace">Submit()</text><path d="M488 86 Q554 68 620 86" fill="none" stroke="#67df70" stroke-width="1.4" marker-end="url(#ah-v)"/><text x="554" y="61" text-anchor="middle" fill="#c0c7d4" font-size="9.5" font-family="JetBrains Mono, monospace">Approve()</text><path d="M488 86 Q404 209 320 276" fill="none" stroke="#ffb4ab" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah-d)"/><text x="404" y="202" text-anchor="middle" fill="#ffb4ab" font-size="9.5" font-family="JetBrains Mono, monospace">Reject(reason)</text><path d="M320 276 Q274 272 228 176" fill="none" stroke="#ffb4ab" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah-d)"/><text x="274" y="265" text-anchor="middle" fill="#ffb4ab" font-size="9.5" font-family="JetBrains Mono, monospace">Reopen()</text><path d="M788 86 Q834 113 880 176" fill="none" stroke="#414752" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah-n)"/><text x="834" y="106" text-anchor="middle" fill="#414752" font-size="9.5" font-family="JetBrains Mono, monospace">Archive()</text><path d="M178 150 q 30 -34 60 0" fill="none" stroke="#67df70" stroke-width="1.4" marker-end="url(#ah-v)"/><text x="208" y="126" text-anchor="middle" fill="#67df70" font-size="9.5" font-family="JetBrains Mono, monospace">Edit()</text></svg>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px solid #414752">
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      <span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#67df70;background:rgba(103,223,112,0.12);padding:2px 7px;border-radius:3px">A TEST DRIVES IT</span><span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.06em;color:#ffdad6;background:#93000a;padding:2px 7px;border-radius:3px">EXISTS IN CODE, NEVER EXERCISED</span>
+      <span style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#414752;border:1px dashed #414752;padding:1px 6px;border-radius:3px">DRAWN, NOT IMPLEMENTED</span>
+    </div>
+    <span style="font-size:11px;color:#8b919d" class="mono">5 states &middot; 7 transitions &middot; 1 unreachable</span>
+  </div>
+</div>
+
+<div style="display:flex;gap:16px;height:230px">
+  <div style="flex:1.2;background:#1c2026;border:1px solid #414752;border-radius:8px;padding:15px;min-width:0">
+    <div style="font-size:10px;letter-spacing:.14em;font-weight:700;color:#8b919d">TRANSITION COVERAGE</div>
+    <div style="display:flex;flex-direction:column;margin-top:10px;border:1px solid #414752;border-radius:6px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 11px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:#67df70;flex:0 0 auto"></span>
+        <span style="font-size:11px;color:#dfe2eb;width:190px;flex:0 0 auto" class="mono">draft &rarr; submitted</span>
+        <span style="font-size:10px;color:#8b919d;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" class="mono">Entry.Submit (entry.go:88)</span>
+        <span style="font-size:10px;color:#67df70;flex:0 0 auto" class="mono">TestSubmit</span>
+      </div><div style="display:flex;align-items:center;gap:10px;padding:8px 11px;border-top:1px solid #414752">
+        <span style="width:8px;height:8px;border-radius:50%;background:#67df70;flex:0 0 auto"></span>
+        <span style="font-size:11px;color:#dfe2eb;width:190px;flex:0 0 auto" class="mono">submitted &rarr; verified</span>
+        <span style="font-size:10px;color:#8b919d;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" class="mono">Entry.Approve (entry.go:114)</span>
+        <span style="font-size:10px;color:#67df70;flex:0 0 auto" class="mono">TestApprove</span>
+      </div><div style="display:flex;align-items:center;gap:10px;padding:8px 11px;border-top:1px solid #414752">
+        <span style="width:8px;height:8px;border-radius:50%;background:#ffb4ab;flex:0 0 auto"></span>
+        <span style="font-size:11px;color:#dfe2eb;width:190px;flex:0 0 auto" class="mono">submitted &rarr; rejected</span>
+        <span style="font-size:10px;color:#8b919d;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" class="mono">Entry.Reject (entry.go:131)</span>
+        <span style="font-size:10px;color:#ffb4ab;flex:0 0 auto" class="mono">never run</span>
+      </div><div style="display:flex;align-items:center;gap:10px;padding:8px 11px;border-top:1px solid #414752">
+        <span style="width:8px;height:8px;border-radius:50%;background:#ffb4ab;flex:0 0 auto"></span>
+        <span style="font-size:11px;color:#dfe2eb;width:190px;flex:0 0 auto" class="mono">rejected &rarr; draft</span>
+        <span style="font-size:10px;color:#8b919d;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" class="mono">Entry.Reopen (entry.go:147)</span>
+        <span style="font-size:10px;color:#ffb4ab;flex:0 0 auto" class="mono">never run</span>
+      </div><div style="display:flex;align-items:center;gap:10px;padding:8px 11px;border-top:1px solid #414752">
+        <span style="width:8px;height:8px;border-radius:50%;border:1px dashed #414752;flex:0 0 auto"></span>
+        <span style="font-size:11px;color:#dfe2eb;width:190px;flex:0 0 auto" class="mono">verified &rarr; archived</span>
+        <span style="font-size:10px;color:#8b919d;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" class="mono">no implementation</span>
+        <span style="font-size:10px;color:#414752;flex:0 0 auto" class="mono">drawn only</span>
+      </div>
+    </div>
+  </div>
+  <div style="flex:1;background:#1c2026;border:1px solid #414752;border-left:3px solid #a2c9ff;border-radius:8px;padding:15px;min-width:0">
+    <div style="font-size:10px;letter-spacing:.14em;font-weight:700;color:#a2c9ff">WHY THIS ONE IS AUTHORED, NOT GENERATED</div>
+    <div style="font-size:11.5px;color:#c0c7d4;line-height:1.6;margin-top:10px">
+      Deriving a state machine from code is unreliable — a status field and a switch statement do not announce themselves as a machine. So the diagram is written by hand and <b style="color:#dfe2eb">checked</b>: every drawn transition must map to a method, and every method that mutates the status must appear in the drawing.
+    </div>
+    <div style="margin-top:12px;padding:10px 12px;background:#181c22;border-radius:6px;font-size:11px;color:#c0c7d4;line-height:1.55">
+      Reverse check found nothing missing: no code path mutates <span class="mono">status</span> outside these five methods.
+    </div>
+  </div>
+</div>
+    </main>
+  </div>
+  <footer style="height:32px;flex:0 0 32px;border-top:1px solid #414752;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#8b919d"><span>MeasurementEntry.status &middot; authored + verified</span><span>5 states &middot; 2 untested transitions &middot; 1 unimplemented</span></footer>
+</div>
+</x-dc>
+</body>
+</html>

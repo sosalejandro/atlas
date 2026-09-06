@@ -49,7 +49,7 @@ github.com/example/attribution/shipping/order.go:15.17,17.3 1 0
 github.com/example/attribution/shipping/order.go:18.2,18.15 1 1
 `
 
-	stats, err := coverage.IngestGoProfilePerTest(ctx, s, store.FrameworkGoTest, []coverage.PerTestProfile{
+	stats, err := coverage.IngestGoProfilePerTest(ctx, s, coverage.RunMeta{Framework: store.FrameworkGoTest}, []coverage.PerTestProfile{
 		{Test: "Order.Total", Profile: strings.NewReader(billing)},       // billing keeps the bare id
 		{Test: "shipping.rate", Profile: strings.NewReader(shipping)},    // stand-in test symbol in shipping
 		{Test: "nope.TestMissing", Profile: strings.NewReader(shipping)}, // no such symbol

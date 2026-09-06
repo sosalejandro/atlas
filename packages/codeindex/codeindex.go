@@ -38,17 +38,22 @@ import (
 //   - PatternMatches → per-symbol parser-based EDA pattern hits (Phase 6f).
 //     Keyed by SymbolID; values are the recogniser hits. Empty when
 //     Options.SkipPatternRecognizers is true.
+//   - SkippedFiles   → the Go sub-scanner's exclusion ledger (generated
+//     code, ignored packages). Carried through so `doctor` / `cov sync`
+//     can attribute otherwise-unexplained executed statements to policy
+//     rather than reporting them as unattributable.
 //   - Warnings       → surfaced by `atlas scan` to stderr
 type Index struct {
-	Root           string                            `json:"root"`
-	GeneratedAt    time.Time                         `json:"generated_at"`
-	Graph          *graph.Graph                      `json:"graph"`
-	Symbols        []shared.Symbol                   `json:"symbols"`
-	Annotations    []shared.Annotation               `json:"annotations"`
-	FileHashes     map[string]FileHash               `json:"file_hashes"`
-	SymbolLangs    map[shared.SymbolID]string        `json:"symbol_langs,omitempty"`
+	Root           string                               `json:"root"`
+	GeneratedAt    time.Time                            `json:"generated_at"`
+	Graph          *graph.Graph                         `json:"graph"`
+	Symbols        []shared.Symbol                      `json:"symbols"`
+	Annotations    []shared.Annotation                  `json:"annotations"`
+	FileHashes     map[string]FileHash                  `json:"file_hashes"`
+	SymbolLangs    map[shared.SymbolID]string           `json:"symbol_langs,omitempty"`
 	PatternMatches map[shared.SymbolID][]patterns.Match `json:"pattern_matches,omitempty"`
-	Warnings       []string                          `json:"warnings,omitempty"`
+	SkippedFiles   []goscan.SkippedFile                 `json:"skipped_files,omitempty"`
+	Warnings       []string                             `json:"warnings,omitempty"`
 }
 
 // FileHash is the per-file record fed into the future
@@ -165,12 +170,7 @@ func IndexProject(ctx context.Context, rootDir string, opts Options) (*Index, er
 	if err != nil {
 		return nil, fmt.Errorf("go scan: %w", err)
 	}
-	idx.Graph = goRes.Graph
-	idx.Symbols = goRes.Symbols
-	idx.Warnings = append(idx.Warnings, goRes.Warnings...)
-	for _, sym := range goRes.Symbols {
-		idx.SymbolLangs[sym.ID] = "go"
-	}
+	mergeGoResult(idx, goRes)
 
 	// Phase A.5: Parser-based EDA pattern recognition (Phase 6f).
 	// We re-parse Go files here rather than threading AST handles out of
@@ -178,7 +178,11 @@ func IndexProject(ctx context.Context, rootDir string, opts Options) (*Index, er
 	// recognisers walk a different shape (struct embeds, closures) than
 	// the call-graph builder.
 	if !opts.SkipPatternRecognizers {
-		patMatches, patWarnings := runPatternRecognizers(ctx, abs, opts)
+		excluded := make(map[string]bool, len(idx.SkippedFiles))
+		for _, sf := range idx.SkippedFiles {
+			excluded[sf.Path] = true
+		}
+		patMatches, patWarnings := runPatternRecognizers(ctx, abs, opts, excluded)
 		for sym, ms := range patMatches {
 			idx.PatternMatches[sym] = ms
 		}
@@ -376,6 +380,23 @@ func projectHasPY(rootDir string, skipDirs map[string]bool) bool {
 	return found
 }
 
+// mergeGoResult seeds the Index from the Go sub-scan. The Go scanner runs
+// first and owns the graph outright, so this is assignment rather than the
+// conflict-resolving merge the TS and Python phases need.
+//
+// SkippedFiles rides along because the files the scanner declined to index
+// are exactly the files whose executed statements would otherwise surface
+// as unattributable coverage.
+func mergeGoResult(idx *Index, goRes *goscan.Result) {
+	idx.Graph = goRes.Graph
+	idx.Symbols = goRes.Symbols
+	idx.SkippedFiles = goRes.SkippedFiles
+	idx.Warnings = append(idx.Warnings, goRes.Warnings...)
+	for _, sym := range goRes.Symbols {
+		idx.SymbolLangs[sym.ID] = "go"
+	}
+}
+
 // mergeTSResult folds a tsscan.Result into the orchestrator's Index. Symbol
 // IDs that already exist in the Go graph are NOT overwritten — the Go
 // scanner wins (it has stronger guarantees about source-of-truth for
@@ -555,12 +576,17 @@ func hashFile(absPath, relPath string) (FileHash, error) {
 // (struct embeds, closures) than the call-graph builder. The double parse
 // is the price of keeping the two concerns separate; benchmarks on the
 // 1500-file nutrition tree clock the recogniser pass at < 200ms total.
-func runPatternRecognizers(ctx context.Context, rootAbs string, opts Options) (map[shared.SymbolID][]patterns.Match, []string) {
+func runPatternRecognizers(
+	ctx context.Context,
+	rootAbs string,
+	opts Options,
+	excluded map[string]bool,
+) (map[shared.SymbolID][]patterns.Match, []string) {
 	matchesBySym := make(map[shared.SymbolID][]patterns.Match)
 	var warnings []string
 
 	skip := map[string]bool{
-		"vendor": true, "node_modules": true, "generated": true,
+		"vendor": true, "node_modules": true,
 	}
 	for _, d := range opts.SkipDirs {
 		skip[d] = true
@@ -586,7 +612,11 @@ func runPatternRecognizers(ctx context.Context, rootAbs string, opts Options) (m
 		}
 		relPath, _ := filepath.Rel(rootAbs, path)
 		relPath = filepath.ToSlash(relPath)
-		if strings.Contains(relPath, "/generated/") {
+		// Exclusion is the Go scanner's decision, not a second opinion. It
+		// already classified every file by header, glob and directory and
+		// recorded why; re-deriving the rule here is how the two passes end
+		// up disagreeing about what the codebase contains.
+		if excluded[relPath] {
 			return nil
 		}
 		fset := token.NewFileSet()

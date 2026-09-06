@@ -43,12 +43,26 @@ type CoverageResult struct {
 }
 
 type CoverageRun struct {
-	ID          int64     `db:"id" json:"id"`
-	Framework   string    `db:"framework" json:"framework"`
-	StartedAt   time.Time `db:"started_at" json:"started_at"`
-	FinishedAt  time.Time `db:"finished_at" json:"finished_at"`
-	RawPath     *string   `db:"raw_path" json:"raw_path"`
-	SummaryJson string    `db:"summary_json" json:"summary_json"`
+	ID                int64     `db:"id" json:"id"`
+	Framework         string    `db:"framework" json:"framework"`
+	StartedAt         time.Time `db:"started_at" json:"started_at"`
+	FinishedAt        time.Time `db:"finished_at" json:"finished_at"`
+	RawPath           *string   `db:"raw_path" json:"raw_path"`
+	SummaryJson       string    `db:"summary_json" json:"summary_json"`
+	FilesInReport     int64     `db:"files_in_report" json:"files_in_report"`
+	FilesMatched      int64     `db:"files_matched" json:"files_matched"`
+	FilesUnmatched    int64     `db:"files_unmatched" json:"files_unmatched"`
+	StmtsAttributed   int64     `db:"stmts_attributed" json:"stmts_attributed"`
+	StmtsUnattributed int64     `db:"stmts_unattributed" json:"stmts_unattributed"`
+	GapsTruncated     int64     `db:"gaps_truncated" json:"gaps_truncated"`
+	RunGroup          *string   `db:"run_group" json:"run_group"`
+}
+
+type CoverageRunGap struct {
+	RunID  int64  `db:"run_id" json:"run_id"`
+	Path   string `db:"path" json:"path"`
+	Stmts  int64  `db:"stmts" json:"stmts"`
+	Reason string `db:"reason" json:"reason"`
 }
 
 type Edge struct {

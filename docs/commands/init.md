@@ -27,6 +27,7 @@ atlas init [flags]
 | `--root`                      | repo root / cwd       | Project root to scan.                                                                                                |
 | `--hash-files`                | `true`                | Compute SHA-256 of every scanned file. Pin to `false` only if hashing dominates wall time on a giant repo.           |
 | `--node-modules-path`         | auto-detected         | Absolute path to a `node_modules/` directory the TS scanner can borrow `typescript` from. Repeatable.                |
+| `--include-generated`         | off                   | Index machine-written files instead of excluding them (see `atlas scan`).                                            |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path. Without it, atlas searches upward from `--root` for `.atlas.yaml`.                             |
 | `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path. Useful for parallel CI shards (e.g. `.atlas/ci-shard-3.db`).                         |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope (`{schema_version, command, args, result, generated_at}`) instead of human-friendly text. |

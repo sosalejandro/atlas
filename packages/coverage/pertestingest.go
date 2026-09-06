@@ -36,8 +36,11 @@ type PerTestIngestStats struct {
 	// SymbolsExecuted is the size of the union across all tests — the same
 	// number a whole-run ingest would report.
 	SymbolsExecuted int
-	// StmtsUnattributed is the statements no symbol claimed, aggregated
-	// across profiles (issue #85's accounting, per test).
+	// StmtsUnattributed is the statements no symbol claimed, unioned across
+	// profiles (issue #85's accounting). Union rather than sum: every
+	// per-test profile names the whole codebase, so a file atlas cannot
+	// index shows up once per test and summing would report a blind spot
+	// as many times too large as there are tests.
 	StmtsUnattributed int
 	// Gaps enumerates unattributed execution across all profiles.
 	Gaps []FileGap
@@ -95,7 +98,7 @@ func accumulate(rep attributionReport, testID int64, union map[int64]symbolCount
 func IngestGoProfilePerTest(
 	ctx context.Context,
 	s *store.Store,
-	framework store.Framework,
+	meta RunMeta,
 	profiles []PerTestProfile,
 ) (PerTestIngestStats, error) {
 	var stats PerTestIngestStats
@@ -115,8 +118,7 @@ func IngestGoProfilePerTest(
 	// test ran. Summing would double-count shared code.
 	union := map[int64]symbolCounts{}
 	perTest := make([]store.TestExecution, 0, len(profiles)*32)
-	lost := map[string]int{}
-	reason := map[string]string{}
+	merged := newAttributionReport()
 
 	for _, p := range profiles {
 		testID, ok := testIDs[p.Test]
@@ -130,17 +132,14 @@ func IngestGoProfilePerTest(
 		}
 		rep := attributeStatements(gocover.BlocksByFile(gocover.MergeBlocks(blocks)), byFile)
 		stats.TestsIngested++
-		stats.StmtsUnattributed += rep.stmtsUnattributed
-		for path, n := range rep.lostByFile {
-			lost[path] += n
-			reason[path] = rep.reasonByFile[path]
-		}
+		merged.merge(rep)
 		perTest = append(perTest, accumulate(rep, testID, union)...)
 	}
 
 	stats.Rows = len(perTest)
 	stats.SymbolsExecuted = len(union)
-	stats.Gaps = attributionReport{lostByFile: lost, reasonByFile: reason}.gaps()
+	stats.StmtsUnattributed = merged.stmtsUnattributed
+	stats.Gaps = merged.gaps()
 
 	results := make([]store.CoverageResult, 0, len(union))
 	for _, sid := range sortedCountKeys(union) {
@@ -156,9 +155,10 @@ func IngestGoProfilePerTest(
 		})
 	}
 	now := time.Now().UTC()
-	runID, err := s.Coverage().InsertRunWithResults(ctx, store.CoverageRun{
-		Framework: framework, StartedAt: now, FinishedAt: now,
-	}, results)
+	runID, err := s.Coverage().InsertRunWithResults(ctx, merged.withAttribution(store.CoverageRun{
+		Framework: meta.Framework, StartedAt: now, FinishedAt: now,
+		RunGroup: meta.runGroup(),
+	}), results)
 	if err != nil {
 		return stats, fmt.Errorf("coverage: persist per-test run: %w", err)
 	}
@@ -166,6 +166,9 @@ func IngestGoProfilePerTest(
 
 	if err := s.TestCoverage().Insert(ctx, runID, perTest); err != nil {
 		return stats, fmt.Errorf("coverage: persist per-test evidence: %w", err)
+	}
+	if _, err := s.CoverageGaps().Insert(ctx, runID, merged.gapRows()); err != nil {
+		return stats, fmt.Errorf("coverage: persist per-test gaps: %w", err)
 	}
 	sort.Slice(stats.TestsUnresolved, func(i, j int) bool {
 		return stats.TestsUnresolved[i] < stats.TestsUnresolved[j]

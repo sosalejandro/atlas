@@ -13,6 +13,9 @@ type Querier interface {
 	CountTestsInRun(ctx context.Context, runID int64) (int64, error)
 	DeleteAnnotationsByFile(ctx context.Context, filePath string) error
 	DeleteConfig(ctx context.Context, key string) error
+	// Clears a run's list before rewriting it, so a re-ingest cannot leave two
+	// generations of rows interleaved.
+	DeleteCoverageRunGaps(ctx context.Context, runID int64) error
 	DeleteEdgesByFile(ctx context.Context, filePath string) error
 	DeleteFeature(ctx context.Context, id string) (int64, error)
 	DeleteFileHash(ctx context.Context, filePath string) error
@@ -40,6 +43,9 @@ type Querier interface {
 	InsertAuditSnapshotRunWithTime(ctx context.Context, arg InsertAuditSnapshotRunWithTimeParams) (sql.Result, error)
 	InsertCoverageResult(ctx context.Context, arg InsertCoverageResultParams) error
 	InsertCoverageRun(ctx context.Context, arg InsertCoverageRunParams) (sql.Result, error)
+	// One row per file whose execution could not be charged to a symbol.
+	// REPLACE so a retried ingest of the same run is idempotent.
+	InsertCoverageRunGap(ctx context.Context, arg InsertCoverageRunGapParams) error
 	// edge_meta is a NULLable kind-specific qualifier. Python import edges populate it with a scope tag (module/function/conditional/type_checking/try_guard) via migration 0008 - issue #16. Non-import edges pass NULL.
 	InsertEdge(ctx context.Context, arg InsertEdgeParams) (sql.Result, error)
 	InsertSnapshot(ctx context.Context, arg InsertSnapshotParams) (sql.Result, error)
@@ -56,7 +62,14 @@ type Querier interface {
 	ListAuditSnapshotRuns(ctx context.Context, limit int64) ([]AuditSnapshotRun, error)
 	ListConfig(ctx context.Context) ([]Config, error)
 	ListCoverageResults(ctx context.Context, runID int64) ([]ListCoverageResultsRow, error)
+	// One join rather than a query per run: the audit reads a frontier once per
+	// feature, so a round trip per framework would multiply across a large repo.
+	ListCoverageResultsByGroup(ctx context.Context, runGroup *string) ([]CoverageResult, error)
+	// Biggest loss first, ties broken by path: a consumer reading only the head
+	// of the list still sees the worst offenders, in a stable order.
+	ListCoverageRunGaps(ctx context.Context, runID int64) ([]ListCoverageRunGapsRow, error)
 	ListCoverageRunsByFramework(ctx context.Context, framework string) ([]CoverageRun, error)
+	ListCoverageRunsByGroup(ctx context.Context, runGroup *string) ([]CoverageRun, error)
 	ListEdgesIn(ctx context.Context, toSymbolID int64) ([]ListEdgesInRow, error)
 	ListEdgesOut(ctx context.Context, fromSymbolID int64) ([]ListEdgesOutRow, error)
 	ListFeatureSymbolsByFeature(ctx context.Context, featureID string) ([]FeatureSymbol, error)
@@ -104,7 +117,14 @@ type Querier interface {
 	// almost always indicates the annotation is orphan (comment-only file or
 	// markdown), not a legitimate attach to a faraway function.
 	LookupSymbolAtOrAfterLine(ctx context.Context, arg LookupSymbolAtOrAfterLineParams) (Symbol, error)
+	// The single most recent run, used as the seed for the coverage frontier: its
+	// group (if any) is what the audit scores over.
+	NewestCoverageRun(ctx context.Context) (CoverageRun, error)
 	SetConfig(ctx context.Context, arg SetConfigParams) error
+	// Records how many gap files did not fit the per-run cap. Written in the same
+	// transaction as the rows themselves, so the count and the list can never
+	// disagree about whether the list is complete.
+	SetCoverageRunGapsTruncated(ctx context.Context, arg SetCoverageRunGapsTruncatedParams) error
 	SetSymbolPatternMatches(ctx context.Context, arg SetSymbolPatternMatchesParams) error
 	SetSymbolPatternMatchesByQualifiedName(ctx context.Context, arg SetSymbolPatternMatchesByQualifiedNameParams) error
 	// symbol_id -> how many distinct tests executed it. A symbol executed by most

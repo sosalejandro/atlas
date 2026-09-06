@@ -80,7 +80,7 @@ type junitSkipped struct {
 // summaryJSON is the alternative format some CI wrappers emit. It is
 // intentionally minimal — just enough to record per-flow outcomes.
 type summaryJSON struct {
-	StartedAt string          `json:"started_at"`
+	StartedAt string            `json:"started_at"`
 	Flows     []summaryJSONFlow `json:"flows"`
 }
 

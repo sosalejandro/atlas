@@ -18,8 +18,17 @@
 //     is the routeparse/ package's job).
 //  3. Function discovery — walk every .go file (including _test.go by
 //     default; see Options.SkipTests), skipping vendor/, node_modules/,
-//     hidden dirs, and "generated" subtrees. Register *ast.FuncDecl as
+//     hidden dirs, and generated code. Register *ast.FuncDecl as
 //     Nodes, collect struct field types for call resolution.
+//
+//     Generated code is identified by Go's own header convention
+//     (`// Code generated ... DO NOT EDIT.` ahead of the package
+//     clause), by Options.GeneratedGlobs, and by a "generated" path
+//     segment — in that reporting order. Every exclusion lands on
+//     Result.SkippedFiles with its reason, because a file dropped from
+//     the index is a file dropped from the coverage denominator and
+//     that has to be countable. Options.IncludeGenerated indexes them
+//     instead.
 //
 //     Test files are scanned by default because Atlas's feature
 //     attribution relies on `@atlas:feature` / `@testreg` annotations
@@ -33,9 +42,10 @@
 // Public API:
 //
 //	res, err := goscan.Scan(ctx, rootDir, goscan.Options{...})
-//	res.Graph      // *graph.Graph
-//	res.Symbols    // []shared.Symbol (denormalised view, same data)
-//	res.Warnings   // []string
+//	res.Graph        // *graph.Graph
+//	res.Symbols      // []shared.Symbol (denormalised view, same data)
+//	res.SkippedFiles // []SkippedFile (path + reason, in walk order)
+//	res.Warnings     // []string
 //
 // What is intentionally NOT in this package (per architecture doc):
 //   - No SQLite persistence (store/ is a tier-2.5 side-channel).

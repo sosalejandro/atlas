@@ -243,16 +243,16 @@ func (a *auditImpl) ScoreAll(ctx context.Context) ([]FeatureHealth, error) {
 	if len(feats) == 0 {
 		return []FeatureHealth{}, nil
 	}
-	// Cache the latest coverage run once per ScoreAll call — looking it up
-	// per-feature would multiply DB chatter by O(features).
-	latest, hasCov, err := a.latestCoverageRun(ctx)
+	// Resolve the frontier once per ScoreAll call — looking it up per-feature
+	// would multiply DB chatter by O(features).
+	frontier, err := a.latestCoverageFrontier(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("audit ScoreAll: latest coverage: %w", err)
+		return nil, fmt.Errorf("audit ScoreAll: %w", err)
 	}
 
 	out := make([]FeatureHealth, 0, len(feats))
 	for _, feat := range feats {
-		health, err := a.scoreFromFeature(ctx, feat, latest, hasCov)
+		health, err := a.scoreFromFeature(ctx, feat, frontier)
 		if err != nil {
 			return nil, fmt.Errorf("audit ScoreAll: %q: %w", feat.ID, err)
 		}
@@ -271,11 +271,11 @@ func (a *auditImpl) ScoreAll(ctx context.Context) ([]FeatureHealth, error) {
 // scoreOne wraps scoreFromFeature with a per-call coverage lookup. Used by
 // ScoreFeature where there is no batch-amortisation opportunity.
 func (a *auditImpl) scoreOne(ctx context.Context, feat store.Feature) (FeatureHealth, error) {
-	latest, hasCov, err := a.latestCoverageRun(ctx)
+	frontier, err := a.latestCoverageFrontier(ctx)
 	if err != nil {
-		return FeatureHealth{}, fmt.Errorf("latest coverage: %w", err)
+		return FeatureHealth{}, err
 	}
-	return a.scoreFromFeature(ctx, feat, latest, hasCov)
+	return a.scoreFromFeature(ctx, feat, frontier)
 }
 
 // PersistSnapshot serialises scores as JSON and writes one row into the
@@ -319,34 +319,22 @@ func (a *auditImpl) LoadSnapshot(ctx context.Context, snapshotID int64) ([]Featu
 	return out, nil
 }
 
-// latestCoverageRun returns the latest coverage_run.ID and a `hasCov` bool
-// indicating whether any coverage run has been ingested. The "latest" choice
-// is the most recent finished_at across all frameworks — Atlas treats a
-// project as having ONE current coverage frontier, even when multiple
-// frameworks contribute to it.
+// latestCoverageFrontier returns the coverage runs the audit scores against.
 //
-// When no coverage runs exist, returns (0, false, nil) — NOT an error.
-func (a *auditImpl) latestCoverageRun(ctx context.Context) (int64, bool, error) {
-	runs, err := a.store.Coverage().ListRuns(ctx, "")
+// Atlas treats a project as having ONE current coverage frontier, but a
+// polyglot repo builds that frontier out of several runs — one per framework
+// per CI build. The store resolves them from the newest run outward: a run
+// tagged with a run group brings its whole group along, an untagged run
+// stands alone (which is the pre-#86 "newest run wins" behaviour, so every
+// store ingested before run groups scores exactly as it did).
+//
+// An empty frontier means no coverage has been ingested — NOT an error.
+func (a *auditImpl) latestCoverageFrontier(ctx context.Context) (store.CoverageFrontier, error) {
+	front, err := a.store.Coverage().LatestFrontier(ctx)
 	if err != nil {
-		return 0, false, fmt.Errorf("list coverage runs: %w", err)
+		return store.CoverageFrontier{}, fmt.Errorf("latest coverage frontier: %w", err)
 	}
-	if len(runs) == 0 {
-		return 0, false, nil
-	}
-	// ListRuns returns rows in stored order — pick the row with the highest
-	// finished_at to be framework-agnostic.
-	var (
-		latestID   int64
-		latestTime time.Time
-	)
-	for _, r := range runs {
-		if r.FinishedAt.After(latestTime) {
-			latestTime = r.FinishedAt
-			latestID = r.ID
-		}
-	}
-	return latestID, latestID != 0, nil
+	return front, nil
 }
 
 // patternsCanonicalServiceName is exported indirectly: we import

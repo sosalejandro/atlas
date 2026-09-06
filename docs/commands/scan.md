@@ -22,10 +22,46 @@ atlas scan [flags]
 | `--root`                      | repo root / cwd       | Project root to scan.                                                                                                |
 | `--hash-files`                | `true`                | Compute SHA-256 of every scanned file. Pin to `false` only if hashing dominates wall time on a giant repo.           |
 | `--node-modules-path`         | auto-detected         | Absolute path to a `node_modules/` directory the TS scanner can borrow `typescript` from. Repeatable.                |
+| `--include-generated`         | off                   | Index machine-written files instead of excluding them. See "Generated code" below.                                   |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                                                |
 | `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                                      |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                                        |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                                                                                       |
+
+
+## Generated code
+
+Machine-written files are EXCLUDED from the index by default. Generated
+statements execute constantly -- a protobuf accessor runs under every test
+that touches the message -- so indexing them lets them dominate any coverage
+or complexity reading taken over hand-written code.
+
+Two rules apply without any configuration:
+
+1. Go's conventional `// Code generated ... DO NOT EDIT.` header, checked
+   before anything else because it is the signal the file itself declares.
+2. A `generated` path segment, which catches legacy trees that carry no
+   header.
+
+Which OTHER files a codebase generates is a property of the codebase, not of
+the invocation, so extra patterns belong in `atlas.yaml`:
+
+```yaml
+scan:
+  generated:
+    - "**/*.pb.go"
+    - "**/*_gen.go"
+    - "mocks/**"
+```
+
+`--include-generated` turns exclusion off for one run -- the escape hatch for
+"why did my symbol disappear?". `scan.include_generated: true` makes that the
+default for the project. The flag can only turn exclusion off; it is not a
+second place to configure the default, so a config that asks to index
+generated code cannot be switched back from the command line.
+
+`atlas scan --json` reports what was skipped and under which rule, so an
+over-broad glob is visible rather than silent.
 
 ## Examples
 
