@@ -51,19 +51,37 @@ const (
 	minAttributedFraction = 0.95
 
 	// minSQLResolvedFraction is the share of SQL operations `atlas sql`
-	// resolves to a known table set. Observed 134 of 138 = 0.9710.
+	// resolves to a known table set. Observed 135 of 145 = 0.9310.
 	//
-	// This one is gated close to the observation because it is a property of
-	// queries this repo authors: an unresolvable operation is a query atlas
-	// cannot advise on, and adding one should be a deliberate act.
+	// An unresolvable operation is a query atlas cannot advise on, so adding
+	// one should be a deliberate act. This constant has been lowered exactly
+	// once, deliberately, and the reason is recorded here rather than in a
+	// commit message nobody will find:
 	//
-	// Read that margin before you add a query: it is ONE operation wide.
-	// 133 of 138 is 0.9638 and fails. When it was set the observation was
-	// 0.9922 (128 of 129); four operations have become unresolvable since,
-	// and this constant has not moved. Whoever trips it should decide
-	// whether to resolve the four or restate the floor — not lower it to
-	// whatever today's number happens to be.
-	minSQLResolvedFraction = 0.97
+	// The batched ingest (#150's companion) builds its multi-row VALUES
+	// clauses at run time, because the row count per statement depends on the
+	// chunk size. Dynamically assembled SQL is not statically resolvable by
+	// construction -- that is not a defect in the analyser, it is what the
+	// analyser is for. Six operations moved from resolved to unresolved and
+	// the fraction fell 0.9710 -> 0.9310, in exchange for 3.18x on a fresh
+	// ingest and 6.06x on a rescan.
+	//
+	// Lowering a floor because it tripped is usually the wrong instinct. It is
+	// right here only because the cause is understood, intended and measured,
+	// and because the ratchet that actually matters is not this number --
+	// see maxSQLUnresolved below, which is what stops the next unresolvable
+	// query from arriving unnoticed.
+	minSQLResolvedFraction = 0.92
+
+	// maxSQLUnresolved is the real ratchet, and it is a COUNT rather than a
+	// fraction.
+	//
+	// A fraction floor is satisfiable by adding resolvable queries, so a
+	// codebase can accumulate unresolvable ones indefinitely while the ratio
+	// improves. The count cannot be gamed that way: every new query atlas
+	// cannot read has to be argued for here, which is the "deliberate act"
+	// the paragraph above asks for.
+	maxSQLUnresolved = 10
 
 	// minSymbols / minEdges are floor checks on the scan itself. They are
 	// deliberately far below the observation (4,895 symbols and 9,281 edges
@@ -274,6 +292,15 @@ func dogfoodSQL(t *testing.T, env dogfoodEnv) {
 	if out.ResolvedFraction < minSQLResolvedFraction {
 		t.Errorf("sql resolved %.4f of %d operations, below the committed floor of %.4f",
 			out.ResolvedFraction, out.Operations, minSQLResolvedFraction)
+	}
+	// The count, not the ratio, is what keeps this honest: a fraction floor
+	// can be satisfied by writing more resolvable queries while the
+	// unresolvable ones pile up beside them.
+	if out.Unresolved > maxSQLUnresolved {
+		t.Errorf("sql left %d operations unresolvable, above the committed ceiling of %d; "+
+			"a query atlas cannot read is a query it cannot advise on, so raising this "+
+			"ceiling should come with a reason in the constant's comment",
+			out.Unresolved, maxSQLUnresolved)
 	}
 }
 
