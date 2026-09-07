@@ -21,13 +21,34 @@ which prints the same inventory, taken from the database in front of you.
 
 ## 1. The short answer
 
-**Nothing leaves your machine.** Atlas makes no network calls: no upload, no
-telemetry, no update check, no crash reporting. There is no account, no
-server, and no cloud tier today.
+**Nothing leaves your machine.** Atlas makes no outbound network calls: no
+upload, no telemetry, no update check, no crash reporting. There is no
+account, no server, and no cloud tier today.
 
-That is enforced, not promised. `packages/redact/egress_test.go` walks the
-import graph of the `atlas` binary from `cmd/atlas` and fails the build if
-any first-party package imports `net`, `net/http`, `net/rpc` or `net/smtp`.
+That is enforced, not promised, and it is enforced twice because atlas ships
+**two binaries** with different capabilities:
+
+| binary | can it open a socket? | enforced by |
+| --- | --- | --- |
+| `atlas` | **No — at all.** It cannot import `net`, `net/http`, `net/rpc` or `net/smtp`. | `TestAtlasBinary_ImportsNoNetworkPackage` walks the import graph from `cmd/atlas` and fails the build. |
+| `atlas-serve` | It **listens**, on loopback only. It never **dials**. | `TestServeBinary_NeverDialsOut` walks from `cmd/atlas-serve` looking for the calls — `net.Dial*`, `http.Get/Post/NewRequest`, `http.Client`, `net.Dialer` — and `httpapi.RequireLoopback` refuses any routable address. |
+
+Everything that reads your source lives in `atlas`, which cannot reach the
+network under any circumstances. `atlas-serve` exists only to hand an
+already-built index to a local UI, and it is a separate binary precisely so
+that the first row of that table stays absolute: a GUI is not a reason to
+weaken the guarantee for every user who does not want one.
+
+The distinction the second row draws is the one that matters for
+exfiltration. An inbound listener bound to loopback cannot send your code
+anywhere; an outbound dial is the thing that could. The dialing check is also
+strictly more precise than an import check, which would pass a package that
+imported `os/exec` and shelled out to `curl`.
+
+`atlas-serve` has **no authentication** and serves a complete map of the
+indexed tree — symbol names, file paths, which code nothing tests. That is
+why the loopback refusal is in the server rather than in a warning: on a
+routable address it would be a disclosure, not a convenience.
 The walk covers the first-party packages `go list -deps ./cmd/atlas` reports.
 No count is quoted here on purpose: the number moves with every package
 split, and a stale figure in a security document is worse than none. To see
