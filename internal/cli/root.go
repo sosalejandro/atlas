@@ -121,6 +121,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newReportCmd())
 	root.AddCommand(newTrendCmd())
 	root.AddCommand(newSQLCmd())
+	root.AddCommand(newSCIPCmd())
 	root.AddCommand(newFlowCmd())
 	root.AddCommand(newHotspotsCmd())
 	root.AddCommand(newMCPCmd())
