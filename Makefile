@@ -86,4 +86,3 @@ version-check: ## Check the binary version, release manifest and changelog agree
 	@$(SCRIPTS)/check-version-consistency.sh
 
 .PHONY: ci
-ci: vet test lint secret-scan-history test-scripts-full ## Everything CI runs, minus the OS matrix

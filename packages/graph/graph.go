@@ -81,19 +81,44 @@ type Edge struct {
 
 // Graph is the in-memory call-graph DAG.
 //
-// Adjacency lists are lazily built on first walk and invalidated on any
-// edge mutation. Callers do not need to manage that — the public API
-// reseeds the caches transparently. Direct field mutation (Graph.Edges =
-// kept) requires InvalidateAdjacency afterward; the codeindex/go scanner
-// is the only known caller that does this for prune passes.
+// Adjacency lists are lazily built on first walk and then MAINTAINED, not
+// discarded: AddEdge extends them by the one edge it appended. They used to
+// be dropped on every mutation, which meant the per-edge cycle check
+// rebuilt the whole map from g.Edges — 36.78% of scan CPU and most of the
+// GC pressure on a 12,728-edge graph (issue #150, docs/performance.md).
+//
+// Callers do not need to manage any of that. Direct field mutation
+// (Graph.Edges = kept) still requires InvalidateAdjacency afterward; the
+// codeindex/go scanner is the only known caller that does this, for its
+// prune passes.
 type Graph struct {
 	Nodes map[shared.SymbolID]*Node `json:"nodes"`
 	Edges []Edge                    `json:"edges"`
 
-	// Lazily built adjacency lists; nil-when-stale, repopulated by
-	// buildAdjacency on demand.
+	// Lazily built adjacency lists; nil when never built or explicitly
+	// invalidated, repopulated by buildAdjacency on demand and kept in
+	// step by AddEdgeKindLineMetaTier thereafter.
+	//
+	// Both are keyed insertion-ordered slices rather than sets. That is
+	// load-bearing: dfs walks outgoing[current] in slice order, so the
+	// cycle flag it produces is a function of edge insertion order. A set
+	// would make Edge.Cycle depend on Go's map iteration order, and
+	// Edge.Cycle is serialised into the golden corpus (issue #120).
 	outgoing map[shared.SymbolID][]shared.SymbolID
 	incoming map[shared.SymbolID][]shared.SymbolID
+
+	// adjLen is len(Edges) as of the last time the two maps above were in
+	// step with it.
+	//
+	// It exists because caching changed what a forgotten
+	// InvalidateAdjacency costs. Before, the cycle check re-read g.Edges
+	// on every call, so a caller who rewrote the slice by hand and forgot
+	// to invalidate still got a correct answer; now it would silently get
+	// a stale one, and a wrong Edge.Cycle is a golden-corpus diff with no
+	// visible cause. Comparing lengths catches the prune shape — rewrite
+	// g.Edges to a shorter slice — which is the only direct-mutation shape
+	// in this tree, for the price of one integer compare per walk.
+	adjLen int
 }
 
 // New creates an empty graph.
@@ -148,9 +173,11 @@ func (g *Graph) MergeNode(oldID shared.SymbolID, resolved *Node) {
 // AddEdge appends a directed edge from→to and marks it as a Cycle if
 // adding it would create a path from to→from in the existing graph.
 //
-// Cycle detection runs a DFS over the current edges; for very large graphs
-// (>100k edges) this is the only O(E) cost — keep it in mind for the
-// future SQLite-backed path which can use a recursive CTE instead.
+// Cycle detection runs a DFS over the adjacency map, which is maintained
+// incrementally rather than rebuilt, so the append itself is amortised
+// O(1). What remains is the walk: worst case O(V+E) per edge on a densely
+// connected graph. For the SQLite-backed path a recursive CTE replaces
+// both.
 //
 // Kind defaults to the empty string (treated as "call" by downstream
 // consumers). Callers that want to record a specific relationship kind
@@ -229,7 +256,20 @@ func (g *Graph) AddEdgeKindLineMeta(from, to shared.SymbolID, kind string, line 
 // provenance-free overloads above still exist for in-memory consumers,
 // and packages/store refuses to persist what they build.
 func (g *Graph) AddEdgeKindLineMetaTier(from, to shared.SymbolID, kind string, line int, meta string, tier ResolutionTier) {
-	g.invalidateAdjacency()
+	// The maps are extended here, not dropped. Dropping them was the
+	// defect: hasPath rebuilt the whole map from g.Edges on every call, so
+	// building an E-edge graph cost O(E^2) map inserts plus E discarded
+	// maps for the collector (issue #150). One edge in, one entry in each
+	// direction out.
+	//
+	// The sequence is load-bearing. The cycle flag asks whether the graph
+	// ALREADY reaches from `to` back to `from`, so it has to be answered
+	// against the adjacency as it stands — the walk first, the two appends
+	// after. And buildAdjacency is called here rather than left to
+	// hasPath, because hasPath answers the self-edge case (from == to)
+	// without walking anything, and the appends below need live maps
+	// whether or not a walk happened.
+	g.buildAdjacency()
 	cycle := g.hasPath(to, from)
 	g.Edges = append(g.Edges, Edge{
 		From:  from,
@@ -240,6 +280,9 @@ func (g *Graph) AddEdgeKindLineMetaTier(from, to shared.SymbolID, kind string, l
 		Cycle: cycle,
 		Tier:  tier,
 	})
+	g.outgoing[from] = append(g.outgoing[from], to)
+	g.incoming[to] = append(g.incoming[to], from)
+	g.adjLen = len(g.Edges)
 }
 
 // AddEdgeTier is AddEdge with the resolution tier stated. This is the
@@ -541,16 +584,20 @@ func computeMaxDepth(tn *ChainNode) int {
 }
 
 // hasPath checks if there is a directed path from src to dst.
+//
+// It walks the shared outgoing map rather than building its own. That is
+// the whole of issue #150: this function has exactly one caller, AddEdge,
+// and the private copy it used to build meant an E-edge graph rebuilt the
+// adjacency E times. The walk is unchanged — same map contents, same slice
+// order, same first-match-wins DFS — so the Edge.Cycle flag it produces is
+// bit-for-bit what it was.
 func (g *Graph) hasPath(src, dst shared.SymbolID) bool {
 	if src == dst {
 		return true
 	}
-	adj := make(map[shared.SymbolID][]shared.SymbolID)
-	for _, e := range g.Edges {
-		adj[e.From] = append(adj[e.From], e.To)
-	}
+	g.buildAdjacency()
 	visited := make(map[shared.SymbolID]bool)
-	return dfs(src, dst, adj, visited)
+	return dfs(src, dst, g.outgoing, visited)
 }
 
 func dfs(current, target shared.SymbolID, adj map[shared.SymbolID][]shared.SymbolID, visited map[shared.SymbolID]bool) bool {
@@ -575,22 +622,37 @@ func dfs(current, target shared.SymbolID, adj map[shared.SymbolID][]shared.Symbo
 func (g *Graph) InvalidateAdjacency() {
 	g.outgoing = nil
 	g.incoming = nil
+	g.adjLen = 0
 }
 
 func (g *Graph) invalidateAdjacency() {
 	g.InvalidateAdjacency()
 }
 
+// buildAdjacency (re)populates the two adjacency maps from g.Edges, and is
+// a no-op when they are already in step with it.
+//
+// "In step" is a length comparison as well as a nil check. AddEdge keeps
+// the maps warm now, so a caller who rewrote g.Edges by hand and skipped
+// InvalidateAdjacency would otherwise keep reading a cache that no longer
+// describes the graph. Every such caller in this tree does invalidate, and
+// this is not a substitute for that contract — it is the cheap half of it,
+// and it covers the prune shape (g.Edges replaced by a shorter slice) that
+// the scanners actually use.
+//
+// Edges are walked in slice order, so both maps come out in insertion
+// order. dfs depends on that; see the field comments on Graph.
 func (g *Graph) buildAdjacency() {
-	if g.outgoing != nil {
+	if g.outgoing != nil && g.adjLen == len(g.Edges) {
 		return
 	}
-	g.outgoing = make(map[shared.SymbolID][]shared.SymbolID)
-	g.incoming = make(map[shared.SymbolID][]shared.SymbolID)
+	g.outgoing = make(map[shared.SymbolID][]shared.SymbolID, len(g.Edges))
+	g.incoming = make(map[shared.SymbolID][]shared.SymbolID, len(g.Edges))
 	for _, e := range g.Edges {
 		g.outgoing[e.From] = append(g.outgoing[e.From], e.To)
 		g.incoming[e.To] = append(g.incoming[e.To], e.From)
 	}
+	g.adjLen = len(g.Edges)
 }
 
 // ChainResult is the output of ChainFrom — a tree plus per-walk stats.

@@ -204,3 +204,65 @@ func BenchmarkIngest_RescanUnchanged(b *testing.B) {
 		}
 	}
 }
+
+// The two benchmarks below run the SAME corpus through the row-at-a-time
+// symbol and edge writers, via IngestOptions.rowAtATime.
+//
+// They exist so the batching win stays measurable from one binary, forever.
+// The headline before/after in docs/performance.md was taken the honest way
+// — by restoring the pre-change `ingest.go` and re-running the identical
+// harness — but that number decays: nobody a year from now will check out a
+// deleted implementation to find out whether batching still pays. These
+// two will still answer, on whatever machine is asking.
+//
+// What they do NOT measure is the whole change. The unchanged-file check,
+// the annotation upsert and the file_hashes upsert are batched on both
+// sides, because they have no row-at-a-time survivor to switch back to. So
+// the ratio here is the symbol + edge half only, and it is smaller than the
+// end-to-end figure in the doc. That is a floor on the win, not a
+// contradiction of it.
+
+// BenchmarkIngest_Fresh_RowAtATime is BenchmarkIngest_Fresh with one
+// prepared statement per symbol and per edge.
+func BenchmarkIngest_Fresh_RowAtATime(b *testing.B) {
+	idx := buildBenchIndex(benchIngestShape)
+	ctx := context.Background()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		st := benchStore(b)
+		b.StartTimer()
+		if _, err := st.Ingest(ctx, idx, IngestOptions{rowAtATime: true}); err != nil {
+			b.Fatalf("ingest: %v", err)
+		}
+	}
+}
+
+// BenchmarkIngest_RescanChanged_RowAtATime is BenchmarkIngest_RescanChanged
+// with the same switch thrown. This is the pair that matters: the rescan is
+// the path `atlas scan` takes after every edit, and it is where the
+// row-at-a-time writer paid an INSERT, an UPDATE and a SELECT for every
+// already-known symbol.
+func BenchmarkIngest_RescanChanged_RowAtATime(b *testing.B) {
+	first := buildBenchIndex(benchIngestShape)
+	second := buildBenchIndex(benchIngestShape)
+	for p, fh := range second.FileHashes {
+		fh.SHA256 = "ff" + fh.SHA256[2:]
+		second.FileHashes[p] = fh
+	}
+
+	ctx := context.Background()
+	opts := IngestOptions{rowAtATime: true}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		st := benchStore(b)
+		if _, err := st.Ingest(ctx, first, opts); err != nil {
+			b.Fatalf("seed ingest: %v", err)
+		}
+		b.StartTimer()
+		if _, err := st.Ingest(ctx, second, opts); err != nil {
+			b.Fatalf("rescan ingest: %v", err)
+		}
+	}
+}
