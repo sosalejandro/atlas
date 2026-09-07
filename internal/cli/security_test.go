@@ -353,7 +353,21 @@ var verbsWithNoArtifact = map[string]bool{
 	// version reports only the build stamps compiled into the binary --
 	// no repository content reaches it at all.
 	"version": true,
-	"help":    true, "completion": true,
+	// scip writes nothing: `scip inspect` reads an index the user names and
+	// prints counts. No symbol name, path or source line reaches its output.
+	//
+	// One field does deserve naming, because it is the kind of thing this
+	// list exists to make somebody state out loud: `project_root` is
+	// reproduced VERBATIM from the index, and SCIP records it as an
+	// absolute file:// URI. On a developer machine that is a home
+	// directory, so a --json envelope pasted into a bug report can carry a
+	// username. It is kept because it is the field that answers "was this
+	// index built for THIS checkout", which is the question the command
+	// exists to help with -- but it comes from the index, not from atlas
+	// reading the tree, and a caller who cannot disclose it should drop it
+	// rather than expect atlas to have removed it.
+	"scip": true,
+	"help": true, "completion": true,
 	// cov has artifact-producing subcommands (cov run), which the catalogue
 	// names individually; the verb itself writes only to the store.
 	"cov": true,
