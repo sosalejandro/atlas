@@ -119,6 +119,7 @@ interface CliArgs {
   exclude: string[];
   routers: RouterKind[];
   tsconfig: string | null;
+  includeNestedRepos: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +133,7 @@ function parseArgs(argv: string[]): CliArgs {
     exclude: [],
     routers: [],
     tsconfig: null,
+    includeNestedRepos: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -149,6 +151,9 @@ function parseArgs(argv: string[]): CliArgs {
         break;
       case '--exclude':
         args.exclude.push(next());
+        break;
+      case '--include-nested-repos':
+        args.includeNestedRepos = true;
         break;
       case '--router': {
         const v = next();
@@ -208,6 +213,21 @@ function toRel(projectRoot: string, absPath: string): string {
   return path.relative(projectRoot, absPath).split(path.sep).join('/');
 }
 
+// A directory holding `.git` is a different repository, and its files are not
+// part of this codebase. Mirrors shared.IsNestedRepoRoot on the Go side and
+// the same prune in scanner.py; the three must agree, because a boundary
+// honoured by two walkers and missed by the third leaks exactly the symbols
+// the third produces.
+//
+// `.git` may be a FILE -- a git worktree holds `gitdir: ...` -- so this tests
+// existence, not isDirectory(). The scan root is never reached here: the
+// check only runs on entries found INSIDE a directory being walked.
+let INCLUDE_NESTED_REPOS = false;
+
+function isNestedRepoRoot(dir: string): boolean {
+  return fs.existsSync(path.join(dir, '.git'));
+}
+
 function collectTsFiles(dir: string, extensions: string[], skip: Set<string>): string[] {
   const results: string[] = [];
   if (!fs.existsSync(dir)) return results;
@@ -216,6 +236,7 @@ function collectTsFiles(dir: string, extensions: string[], skip: Set<string>): s
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (skip.has(entry.name) || entry.name.startsWith('.')) continue;
+      if (!INCLUDE_NESTED_REPOS && isNestedRepoRoot(fullPath)) continue;
       results.push(...collectTsFiles(fullPath, extensions, skip));
     } else if (entry.isFile() && extensions.some((ext) => entry.name.endsWith(ext))) {
       results.push(fullPath);
@@ -1518,6 +1539,7 @@ function main(): void {
   let args: CliArgs;
   try {
     args = parseArgs(process.argv.slice(2));
+    INCLUDE_NESTED_REPOS = args.includeNestedRepos;
   } catch (e) {
     process.stderr.write(`[atlas-ts] usage error: ${(e as Error).message}\n`);
     process.exit(2);

@@ -172,7 +172,7 @@ func BenchmarkAnnotationWalk(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, _, err := walkAnnotations(ctx, root, opts, skip); err != nil {
+		if _, _, _, err := walkAnnotations(ctx, root, opts, skip); err != nil {
 			b.Fatalf("walkAnnotations: %v", err)
 		}
 	}

@@ -251,9 +251,10 @@ func indexProjectFromConfig(
 ) {
 	resolvedNM := effectiveNodeModulesPaths(rootDir, nodeModulesPaths)
 	opts := codeindex.Options{
-		SkipTS:    loaded.Scan.SkipTS,
-		SkipDirs:  loaded.Scan.SkipDirs,
-		HashFiles: hashFiles,
+		SkipTS:             loaded.Scan.SkipTS,
+		SkipDirs:           loaded.Scan.SkipDirs,
+		IncludeNestedRepos: loaded.Scan.IncludeNestedRepos,
+		HashFiles:          hashFiles,
 		TSOptions: tsscan.Options{
 			NodeModulesPaths: resolvedNM,
 		},

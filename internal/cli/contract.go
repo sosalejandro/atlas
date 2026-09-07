@@ -62,8 +62,9 @@ func runContractList(cmd *cobra.Command, rootArg, kind string) error {
 	}
 
 	idx, err := codeindex.IndexProject(ctx, rootDir, codeindex.Options{
-		SkipTS:   loaded.Scan.SkipTS,
-		SkipDirs: loaded.Scan.SkipDirs,
+		SkipTS:             loaded.Scan.SkipTS,
+		SkipDirs:           loaded.Scan.SkipDirs,
+		IncludeNestedRepos: loaded.Scan.IncludeNestedRepos,
 	})
 	if err != nil {
 		return fmt.Errorf("contract list: index %s: %w", rootDir, err)

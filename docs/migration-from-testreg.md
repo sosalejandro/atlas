@@ -176,6 +176,7 @@ are defined by the `Config` struct in
 | -------------------------------- | ----------- | ------------------------ | ------------------------------------------------------------------ |
 | `db_path`                        | string      | `.atlas/atlas.db`        | SQLite store path. Relative paths anchor at the git repo root.     |
 | `scan.skip_dirs`                 | []string    | `[vendor, node_modules, dist, build]` | Directory names skipped by the scanner.                |
+| `scan.include_nested_repos`      | bool        | `false`                               | Index git repositories nested inside the scan root (clones, submodules, worktrees) as part of this codebase. See below. |
 | `scan.skip_ts`                   | bool        | `false`                  | Skip the TS scanner entirely (Go-only mode).                       |
 | `scan.generated`                 | []string    | `[]`                     | Extra path globs identifying machine-written code, on top of the built-in header and `generated/` rules. |
 | `scan.include_generated`         | bool        | `false`                  | Index generated files instead of excluding them.                   |
@@ -210,6 +211,7 @@ db_path: .atlas/atlas.db
 
 scan:
   skip_dirs: [vendor, node_modules, dist, build]
+  # include_nested_repos: false
   skip_ts: false
   generated: []
   include_generated: false

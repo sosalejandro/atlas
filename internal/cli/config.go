@@ -32,6 +32,16 @@ type ScanConfig struct {
 	SkipDirs []string `yaml:"skip_dirs"`
 	SkipTS   bool     `yaml:"skip_ts"`
 
+	// IncludeNestedRepos indexes git repositories nested inside the scan
+	// root -- clones, submodules, worktrees -- as part of this codebase.
+	//
+	// It is config rather than a flag for the same reason skip_dirs is:
+	// whether a submodule is part of your product is a property of the
+	// repository, not of the invocation. The default is off, because a
+	// nested repository's files cannot be covered by this repo's test run,
+	// so counting them dilutes every coverage denominator here.
+	IncludeNestedRepos bool `yaml:"include_nested_repos"`
+
 	// Generated lists extra path globs identifying machine-written code,
 	// on top of the two rules the scanner knows on its own (a
 	// `// Code generated ... DO NOT EDIT.` header, and a `generated` path

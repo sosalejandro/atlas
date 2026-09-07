@@ -79,6 +79,10 @@ type Options struct {
 	// loader can populate it.
 	Include []string
 
+	// IncludeNestedRepos walks into git repositories nested inside the
+	// scan root. Off by default; see shared.IsNestedRepoRoot.
+	IncludeNestedRepos bool
+
 	// Exclude is a list of glob patterns to skip during the walk. Reserved
 	// — the embedded scanner accepts the flag but currently only honours
 	// the built-in DEFAULT_SKIP_DIRS set.
@@ -344,6 +348,9 @@ func buildScannerArgsSep(scriptPath, projectRoot string, opts Options, sep rune)
 			return nil, fmt.Errorf("exclude[%q]: %w", exc, err)
 		}
 		args = append(args, "--exclude", clean)
+	}
+	if opts.IncludeNestedRepos {
+		args = append(args, "--include-nested-repos")
 	}
 	for _, rk := range opts.Routers {
 		switch rk {

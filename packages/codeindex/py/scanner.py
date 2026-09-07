@@ -1107,7 +1107,10 @@ def _visit_module_assign(
 
 
 def _iter_python_files(
-    root: str, includes: list[str], excludes: frozenset[str]
+    root: str,
+    includes: list[str],
+    excludes: frozenset[str],
+    include_nested_repos: bool = False,
 ) -> Iterable[str]:
     """Yield absolute paths to ``.py`` files under ``root``.
 
@@ -1128,6 +1131,22 @@ def _iter_python_files(
                 if d not in excludes and not d.startswith(".")
                 or d == "."  # never going to happen, but explicit
             ]
+            if not include_nested_repos:
+                # A directory holding `.git` is a different repository, and
+                # its files are not part of this codebase. Mirrors
+                # shared.IsNestedRepoRoot on the Go side; the two must agree,
+                # because a boundary honoured by one walker and missed by
+                # another leaks exactly the symbols the other produces.
+                #
+                # `.git` may be a FILE (a git worktree holds `gitdir: ...`),
+                # so this tests existence, not isdir. os.walk already never
+                # yields `root` itself as a subdirectory name, so the scan
+                # root cannot prune itself here.
+                dirnames[:] = [
+                    d
+                    for d in dirnames
+                    if not os.path.exists(os.path.join(dirpath, d, ".git"))
+                ]
             for fname in filenames:
                 if fname.endswith(".py"):
                     yield os.path.join(dirpath, fname)
@@ -1183,6 +1202,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--root", required=True)
     p.add_argument("--include", action="append", default=[])
     p.add_argument("--exclude", action="append", default=[])
+    p.add_argument("--include-nested-repos", action="store_true", default=False)
     return p.parse_args(argv)
 
 
@@ -1238,7 +1258,9 @@ def main(argv: list[str]) -> int:
 
     excludes = DEFAULT_SKIP_DIRS | frozenset(ns.exclude)
     out = _Output()
-    for abs_path in _iter_python_files(root, ns.include, excludes):
+    for abs_path in _iter_python_files(
+        root, ns.include, excludes, ns.include_nested_repos
+    ):
         rel_path = os.path.relpath(abs_path, root).replace(os.sep, "/")
         _scan_file(abs_path, rel_path, out)
 

@@ -16,6 +16,12 @@ type Options struct {
 	// walks. Defaults to "." (the whole rootDir).
 	BackendRoot string
 
+	// IncludeNestedRepos walks into git repositories nested inside the scan
+	// root. Off by default: a nested repository's files belong to another
+	// codebase, and indexing them dilutes every number computed here. See
+	// shared.IsNestedRepoRoot.
+	IncludeNestedRepos bool
+
 	// IgnorePackages lists directory names or rootDir-relative paths to
 	// skip entirely. e.g. ["docs", "examples/legacy"].
 	IgnorePackages []string
