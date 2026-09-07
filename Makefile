@@ -65,10 +65,6 @@ test: ## go test with the race detector
 lint: ## golangci-lint over the Go source
 	@golangci-lint run ./packages/... ./internal/...
 
-.PHONY: sync-docs
-sync-docs: ## Regenerate the derived halves of docs/_data (then fill in provenance by hand)
-	@go run ./cmd/atlas docs sync --root .
-
 .PHONY: secret-scan
 secret-scan: ## Scan the working tree for committed credentials (same check CI runs)
 	@./.github/scripts/secret-scan.sh
