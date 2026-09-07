@@ -110,11 +110,13 @@ func invokeSites(prog *ssa.Program) int {
 // differing only in whether Types was allocated, and shows the second one
 // cannot be turned into SSA at all.
 //
-// The panic is worth understanding before anyone tries again. It is
-// caught by the recover in buildCallGraph, so the visible symptom of
-// "save 100 MB by leaving Types nil" would not be a crash — it would be
-// Status.CallGraph going quietly false and every interface edge in the
-// repository disappearing.
+// Issue #155 changes who this binds. SSA left the resolver, so production
+// no longer needs types.Info.Types for THIS reason — see
+// TestLoad_TypesInfoTypesIsStillLoadBearing for the reason it still cannot
+// be dropped, and docs/performance.md for the measurement. What the test
+// pins now is the CHA oracle: it needs Types, so a future attempt to check
+// the tree with a leaner types.Info has to leave the oracle a full one or
+// lose its only second opinion.
 func TestSSA_RequiresTypesInfoTypes(t *testing.T) {
 	t.Parallel()
 
@@ -146,19 +148,11 @@ func TestSSA_RequiresTypesInfoTypes(t *testing.T) {
 	})
 }
 
-// checkedPackages is what Load hands to buildCallGraph, obtained the same
-// way Load obtains it so the scope these tests measure is the scope the
-// resolver actually uses.
+// checkedPackages is what Load computes dispatch over, obtained the same
+// way Load obtains it -- see resolvedPackages.
 func checkedPackages(t *testing.T, dir string) []*packages.Package {
 	t.Helper()
-	p, err := Load(context.Background(), dir, Options{IncludeTests: true})
-	if err != nil {
-		t.Fatalf("Load(%s): %v", dir, err)
-	}
-	if !p.Status().CallGraph {
-		t.Fatalf("Load(%s) built no call graph; the fixture is broken", dir)
-	}
-	return viewedPackages(p)
+	return resolvedPackages(t, dir)
 }
 
 // viewedPackages is the set of packages a loaded Program indexes files for.
@@ -174,34 +168,40 @@ func viewedPackages(p *Program) []*packages.Package {
 	return out
 }
 
-// loadObservingSSA runs a real resolver Load of dir and returns the
-// ssa.Program buildCallGraph built, together with the packages it was
-// built over.
+// loadObservingSSA builds the CHA oracle over the packages production
+// resolves for dir, and returns the ssa.Program it built, the packages it
+// was built over, and a real Load of the same tree.
 //
-// This is what makes the scope assertion below an assertion about
-// PRODUCTION. Rebuilding SSA in the test with the test's own call to
-// ssautil.Packages would measure the test's own arguments: it stays green
-// when buildCallGraph switches to ssautil.AllPackages, which is exactly
-// the change that would build a body for every transitive dependency.
+// The oracle's SCOPE is what makes invokeparity_test.go's comparison mean
+// anything: ssautil.Packages gives bodies to the packages it is handed and
+// declaration-only shells to everything reached from them, so the set
+// handed in fixes which concrete methods CHA can name at all. Widen it and
+// the oracle answers a different question while still looking like CHA.
+// That used to be a property of production; since issue #155 removed SSA
+// from the resolver it is a property of the oracle, and it needs the same
+// assertion for a better reason.
 func loadObservingSSA(t *testing.T, dir string) (*Program, *ssa.Program, []*packages.Package) {
 	t.Helper()
 
+	built := resolvedPackages(t, dir)
+
 	var got *ssa.Program
-	var built []*packages.Package
-	ssaObserver = func(prog *ssa.Program, pkgs []*packages.Package) {
-		got, built = prog, pkgs
-	}
+	ssaObserver = func(prog *ssa.Program, _ []*packages.Package) { got = prog }
 	t.Cleanup(func() { ssaObserver = nil })
+
+	if _, ok := chaInvokes(built); !ok {
+		t.Fatalf("the CHA oracle failed on %s; there is no program to measure", dir)
+	}
+	if got == nil {
+		t.Fatal("the oracle did not reach the SSA observer; this test is measuring nothing")
+	}
 
 	p, err := Load(context.Background(), dir, Options{IncludeTests: true})
 	if err != nil {
 		t.Fatalf("Load(%s): %v", dir, err)
 	}
 	if !p.Status().CallGraph {
-		t.Fatalf("Load(%s) built no call graph; the fixture is broken", dir)
-	}
-	if got == nil {
-		t.Fatal("buildCallGraph did not reach the SSA observer; this test is measuring nothing")
+		t.Fatalf("Load(%s) computed no dispatch; the fixture is broken", dir)
 	}
 	return p, got, built
 }
@@ -354,12 +354,18 @@ func TestSSA_NoFunctionBodiesOutsideTheScannedTree(t *testing.T) {
 	for _, pkg := range built {
 		scanned[pkg.Types] = true
 	}
-	// ...and that set has to be the resolver's own packages rather than a
-	// superset someone widened. Every package the Program indexes files
-	// for is in it, and it is not larger than what accept() returned.
+	// ...and that set has to cover the resolver's own packages rather than
+	// some other selection. Every package a real Load indexes files for
+	// has to be in it, or the oracle is answering about a different tree
+	// than the one production resolved. By path, not by pointer: the two
+	// come from two loads and share no *types.Package values.
+	paths := map[string]bool{}
+	for _, pkg := range built {
+		paths[pkg.PkgPath] = true
+	}
 	for _, pkg := range viewedPackages(p) {
-		if !scanned[pkg.Types] {
-			t.Fatalf("the Program indexes %s but buildCallGraph was not given it; "+
+		if !paths[pkg.PkgPath] {
+			t.Fatalf("the Program indexes %s and the oracle was not given it; "+
 				"the census is comparing different sets", pkg.PkgPath)
 		}
 	}
@@ -378,7 +384,7 @@ func TestSSA_NoFunctionBodiesOutsideTheScannedTree(t *testing.T) {
 			got, c.bodies)
 	}
 	if c.outsideSource != 0 {
-		t.Errorf("%d function bodies built from dependency SYNTAX, want 0; buildCallGraph is "+
+		t.Errorf("%d function bodies built from dependency SYNTAX, want 0; the oracle is "+
 			"no longer handing ssautil.Packages only the scanned tree", c.outsideSource)
 	}
 	if c.shells == 0 {
@@ -414,7 +420,7 @@ func TestSSA_NoFunctionBodiesOutsideTheScannedTree(t *testing.T) {
 //
 // The failure mode is the reason this is a test rather than a comment.
 // ssa.Program.Build builds packages on parallel goroutines, so that panic
-// does not travel to the recover in buildCallGraph — it takes the process
+// does not travel to the recover in chaInvokes — it takes the process
 // down. This test provokes it through ssa.Package.Build, which runs
 // inline, so it can be observed without dying.
 func TestSSA_DependencyPackagesAreLoadBearing(t *testing.T) {

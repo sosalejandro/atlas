@@ -1,7 +1,7 @@
 package goscan
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"go/ast"
@@ -381,7 +381,7 @@ func (c *scanContext) discoverFunctions(ctx context.Context) error {
 		if d.IsDir() {
 			return c.visitDir(abs, d)
 		}
-		return c.visitFile(ctx, abs, d)
+		return c.visitFile(abs, d)
 	}); err != nil {
 		return fmt.Errorf("walk %s: %w", c.backendAbs, err)
 	}
@@ -406,7 +406,35 @@ func (c *scanContext) visitDir(abs string, d os.DirEntry) error {
 
 // visitFile decides whether one .go file is indexed, and records it on the
 // ledger when it is not.
-func (c *scanContext) visitFile(ctx context.Context, abs string, d os.DirEntry) error {
+//
+// It takes no context: cancellation is checked once per walk entry by
+// discoverFunctions, immediately before this call, and the per-file
+// annotation parse that used to carry its own check no longer reads
+// anything to be cancelled halfway through.
+//
+// THE FILE IS READ HERE, ONCE, AND NOWHERE ELSE IN THIS PACKAGE (issue
+// #156). Three consumers downstream want the same bytes — the
+// generated-header rule, go/parser, and the @api annotation pass — and each
+// used to fetch its own copy. They are now fanned out from one buffer that
+// lives exactly as long as this call.
+//
+// The read now happens BEFORE the generated classification, so a file the
+// ledger is about to exclude is read in full where the old header probe
+// stopped after one bufio fill. That is the one place this change costs
+// anything, and it costs it only to a caller using Scan on its own. Bytes
+// read for one 4 MB file, /proc/self/io rchar, before → after:
+//
+//	                              ordinary file      generated file
+//	Scan alone                    8.4 MB → 4.2 MB    4.2 KB → 4.2 MB
+//	inside codeindex.IndexProject 21.0 MB → 12.6 MB  8.39 MB → 8.39 MB
+//
+// The bottom row is why the top row's second column is not a regression in
+// the product: IndexProject's annotation walk reads every file whatever
+// this ledger decided, so within a scan the full read this now does is one
+// the process was going to pay regardless — and the 4 KB probe on top of it
+// is what disappears. A generated file ends up marginally cheaper per scan,
+// not dearer.
+func (c *scanContext) visitFile(abs string, d os.DirEntry) error {
 	if !strings.HasSuffix(d.Name(), ".go") {
 		return nil
 	}
@@ -417,16 +445,29 @@ func (c *scanContext) visitFile(ctx context.Context, abs string, d os.DirEntry) 
 		return nil
 	}
 	relPath := filepath.ToSlash(relOrSelf(c.projectRoot, abs))
+
+	src, _, err := annotations.ReadSource(abs)
+	if err != nil {
+		// A file we cannot read is a file we cannot index, whether the
+		// reason is a permission bit or the per-file size bound
+		// (annotations.MaxSourceBytes). Both are warnings rather than
+		// errors, for the same reason a parse failure is: one unreadable
+		// file must not cost the scan every other file's symbols.
+		c.warnings = append(c.warnings, fmt.Sprintf("read %s: %v", relPath, err))
+		return nil
+	}
+
 	// Under IncludeGenerated the classification cannot change the outcome,
-	// so skip it entirely rather than pay a header read per file.
+	// so it is skipped — not to save a read any more, the bytes are in
+	// hand, but because the answer would go nowhere.
 	if !c.opts.IncludeGenerated {
-		if reason, generated := c.generatedReason(abs, relPath); generated {
+		if reason, generated := c.generatedReason(src, relPath); generated {
 			c.skippedFiles = append(c.skippedFiles,
 				SkippedFile{Path: relPath, Reason: reason})
 			return nil
 		}
 	}
-	return c.parseFile(ctx, abs, relPath)
+	return c.parseFile(abs, relPath, src)
 }
 
 // recordIgnoredPackage enumerates the .go files under a pruned directory so
@@ -460,10 +501,11 @@ func (c *scanContext) recordIgnoredPackage(dirAbs string) {
 // Ordering by cost instead would make the cheapest rule the loudest, and
 // the explanation the least informative one available.
 //
-// The header check reads the first few kilobytes; every other rule is
-// string work. That read is the price of a truthful reason.
-func (c *scanContext) generatedReason(absPath, relPath string) (SkipReason, bool) {
-	if c.hasGeneratedHeader(absPath, relPath) {
+// The header check walks the first few lines of the bytes visitFile has
+// already read; every other rule is string work. Nothing here opens a file
+// — see visitFile's godoc and issue #156.
+func (c *scanContext) generatedReason(src []byte, relPath string) (SkipReason, bool) {
+	if hasGeneratedHeader(src) {
 		return SkipGeneratedHeader, true
 	}
 	for _, glob := range c.generatedGlobs {
@@ -489,31 +531,46 @@ var generatedHeaderRe = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$
 // reading further costs more than the rule is worth.
 const maxHeaderLines = 32
 
-// hasGeneratedHeader reports whether the file carries the generated marker
-// ahead of its package clause. A read failure is a warning, not an error:
-// a file we cannot open is a file we cannot index either, and the parse
-// step downstream will report it in its own voice.
-func (c *scanContext) hasGeneratedHeader(absPath, relPath string) bool {
-	f, err := os.Open(absPath)
-	if err != nil {
-		c.warnings = append(c.warnings,
-			fmt.Sprintf("generated-header probe %s: %v", relPath, err))
-		return false
-	}
-	defer func() { _ = f.Close() }()
-
-	sc := bufio.NewScanner(f)
-	for i := 0; i < maxHeaderLines && sc.Scan(); i++ {
-		line := sc.Text()
-		if strings.HasPrefix(line, "package ") {
+// hasGeneratedHeader reports whether src carries the generated marker ahead
+// of its package clause.
+//
+// It used to open the file and run a bufio.Scanner over it — one of the
+// reads issue #156 collapsed. The loop below is that scanner's behaviour
+// over a slice, including the one detail easiest to lose in the move:
+// bufio.ScanLines strips a trailing CR as well as the LF, so a CRLF file
+// reached the anchored regexp already normalised. Drop that and the
+// `DO NOT EDIT\.$` anchor stops matching on every Windows checkout — and
+// the symptom is a silently wider coverage denominator, not an error.
+//
+// No allocation: the lines are subslices of src, and the walk stops at the
+// package clause or after maxHeaderLines, whichever comes first.
+func hasGeneratedHeader(src []byte) bool {
+	rest := src
+	for i := 0; i < maxHeaderLines && len(rest) > 0; i++ {
+		line := rest
+		if nl := bytes.IndexByte(rest, '\n'); nl >= 0 {
+			line, rest = rest[:nl], rest[nl+1:]
+		} else {
+			rest = nil
+		}
+		line = bytes.TrimSuffix(line, trailingCR)
+		if bytes.HasPrefix(line, packageClausePrefix) {
 			return false
 		}
-		if generatedHeaderRe.MatchString(line) {
+		if generatedHeaderRe.Match(line) {
 			return true
 		}
 	}
 	return false
 }
+
+var (
+	// Package-level so the probe allocates nothing per file. trailingCR is
+	// the CR of a CRLF pair, not the pair: bufio.ScanLines treats a lone CR
+	// as content, and hasGeneratedHeader keeps that asymmetry.
+	trailingCR          = []byte("\r")
+	packageClausePrefix = []byte("package ")
+)
 
 // matchGeneratedGlob reports whether relPath matches one
 // Options.GeneratedGlobs pattern; that field's godoc documents the four
@@ -569,20 +626,25 @@ func relOrSelf(base, target string) string {
 // ast.Node pointers, so parsing the file again would produce a tree that
 // looks identical and resolves nothing — the single most likely way to
 // wire this up and have every typed lookup silently miss.
-func (c *scanContext) syntaxFor(absPath string) (*token.FileSet, *ast.File, bool, error) {
+//
+// src is the file's bytes, already in hand. Handing them over is not a
+// tidier spelling of the same call: a nil src is precisely what makes
+// go/parser open and read the file itself, so this one argument is the
+// difference between reading the file once and reading it twice (#156).
+func (c *scanContext) syntaxFor(absPath string, src []byte) (*token.FileSet, *ast.File, bool, error) {
 	if file, ok := c.typedSyntax(absPath); ok {
 		return c.typed.Fset(), file, true, nil
 	}
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, absPath, nil, parser.ParseComments)
+	file, err := parser.ParseFile(fset, absPath, src, parser.ParseComments)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("go/parser: %w", err)
 	}
 	return fset, file, false, nil
 }
 
-func (c *scanContext) parseFile(ctx context.Context, absPath, relPath string) error {
-	fset, file, typed, err := c.syntaxFor(absPath)
+func (c *scanContext) parseFile(absPath, relPath string, src []byte) error {
+	fset, file, typed, err := c.syntaxFor(absPath, src)
 	if err != nil {
 		c.warnings = append(c.warnings, fmt.Sprintf("parse %s: %v", relPath, err))
 		return nil // graceful skip
@@ -598,10 +660,10 @@ func (c *scanContext) parseFile(ctx context.Context, absPath, relPath string) er
 
 	c.extractStructFields(file)
 
-	// Parse @api annotations to discover endpoint → handler edges. We feed
-	// the file through packages/codeindex/annotations rather than reading
-	// the raw lines a second time.
-	apis, _ := annotations.ParseRelative(ctx, absPath, relPath)
+	// Parse @api annotations to discover endpoint → handler edges, from the
+	// same bytes visitFile read. ParseRelative would do its own os.ReadFile
+	// here; ParseBytes is the half of it that does the work (issue #156).
+	apis := annotations.ParseBytes(relPath, src, annotations.CommentStyleFor(".go"))
 
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)

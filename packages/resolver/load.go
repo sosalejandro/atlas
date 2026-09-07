@@ -97,12 +97,18 @@ type Status struct {
 	// Files is the number of source files this program can answer for.
 	Files int `json:"files"`
 
-	// CallGraph reports whether class-hierarchy analysis ran. When it is
-	// false, static calls still resolve exactly; only interface dispatch
-	// degrades to "no answer".
+	// CallGraph reports whether interface dispatch was computed. When it
+	// is false, static calls still resolve exactly; only interface
+	// dispatch degrades to "no answer".
+	//
+	// The name predates issue #155, which replaced class-hierarchy
+	// analysis over an SSA call graph with the same computation over
+	// go/types. It is kept because it is a wire field: internal/cli and
+	// packages/codeindex copy it into JSON that has already been
+	// published.
 	CallGraph bool `json:"call_graph"`
 
-	// InvokeSites is the number of distinct interface call sites CHA
+	// InvokeSites is the number of distinct interface call sites
 	// resolved to at least one concrete method.
 	InvokeSites int `json:"invoke_sites"`
 
@@ -170,7 +176,7 @@ func Load(ctx context.Context, dir string, opts Options) (*Program, error) {
 	p.indexFiles(checked, abs)
 	if len(checked) > 0 {
 		p.fset = checked[0].Fset
-		p.buildCallGraph(checked)
+		p.buildDispatch(checked)
 	}
 	return p, nil
 }

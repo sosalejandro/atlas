@@ -111,10 +111,57 @@ func BenchmarkPackagesLoad(b *testing.B) {
 	reportPeakRSS(b)
 }
 
+// BenchmarkDispatchStage prices the interface-dispatch stage on its own,
+// both ways: the go/types index atlas ships since issue #155, and the SSA
+// + class-hierarchy analysis it replaced, over exactly the same packages
+// in the same process.
+//
+// This is the before/after for #155's central claim, and it is a
+// benchmark rather than a doc paragraph because the claim is a ratio and
+// ratios rot. Run it as
+//
+//	go test ./packages/resolver -run NONE -bench BenchmarkDispatchStage \
+//	  -benchtime 1x -count 3 -benchmem
+//
+// and take the MEDIAN of B/op and allocs/op. Ignore ns/op unless the
+// machine is quiet: the cha arm is the parallel one (buildAllSSA fans out
+// at GOMAXPROCS) and it loses whichever cores something else has taken,
+// which is why docs/performance.md draws no wall-clock conclusion from
+// this pair.
+func BenchmarkDispatchStage(b *testing.B) {
+	checked := loadForRecheck(b)
+
+	b.Run("types", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if len(typeInvokes(checked)) == 0 {
+				b.Fatal("no interface call sites; the benchmark is measuring nothing")
+			}
+		}
+	})
+	b.Run("cha", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			invokes, ok := chaInvokes(checked)
+			if !ok || len(invokes) == 0 {
+				b.Fatal("the oracle found nothing; the arms are not comparable")
+			}
+		}
+	})
+}
+
 // BenchmarkCallGraphScope is the census behind issue #152 cause 3. It is
 // a benchmark rather than a test because it loads and SSA-builds this
 // whole repository, which `go test ./...` runs under -race in CI and
 // should not be made to pay for.
+//
+// Since issue #155 it prices something atlas no longer does. It is kept
+// because the census is the evidence for the two claims #152 and #155
+// rest on -- that SSA was never built over dependency syntax, and that
+// the SSA stage was nevertheless 245 MB of the load -- and because the
+// CHA oracle invokeparity_test.go compares against is exactly this
+// program. If the oracle ever has to be re-justified, this is the
+// measurement that does it.
 //
 // Run it as
 //

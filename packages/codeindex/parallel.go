@@ -21,12 +21,21 @@ import (
 //
 // # What is parallel, and what deliberately is not
 //
-// IndexProject reads every source file three times: once in the Go
-// sub-scanner, once again in the pattern recognisers (a second parse — see
+// IndexProject reads every source file once per pass, three passes: the Go
+// sub-scanner, the pattern recognisers (a second parse — see
 // runPatternRecognizers' godoc for why the two passes cannot share an AST),
-// and once more in the annotation walk, which also hashes it. The second
-// and third are pure functions of one file's bytes, so they parallelise
-// with nothing shared but the result slice.
+// and the annotation walk, which also hashes it. The second and third are
+// pure functions of one file's bytes, so they parallelise with nothing
+// shared but the result slice.
+//
+// Once per pass, not once per scan, and issue #156 settled that deliberately
+// rather than settling for it: collapsing the three would mean holding every
+// file's bytes from the first pass until the last finished with them, a
+// ceiling that scales with the repository instead of with --jobs. Each pass
+// reads through annotations.ReadSource and fans the bytes out to everything
+// that wants them; the count this file is responsible for keeping at one is
+// the count WITHIN a pass. TestIndexProject_ReadsEachFileOncePerPass asserts
+// the total.
 //
 // The Go sub-scanner does not, and is not touched here. Its phase 2 and
 // phase 3 write into shared lookup maps and assign symbol ids by walk
@@ -249,8 +258,18 @@ func runPatternRecognizers(
 	cfg := opts.PatternConfig
 	results := mapOrdered(ctx, opts.Jobs, todo,
 		func(ctx context.Context, f sourceFile) patternFileResult {
+			// Read once, parse from the bytes. A nil src here is what
+			// makes go/parser open the file itself, and going through
+			// ReadSource also puts this pass behind the same per-file
+			// size bound as the other two — a file one pass refuses and
+			// another parses would be a denominator that disagrees with
+			// itself (issue #156).
+			src, _, rerr := annotations.ReadSource(f.abs)
+			if rerr != nil {
+				return patternFileResult{warning: fmt.Sprintf("pattern read %s: %v", f.rel, rerr)}
+			}
 			fset := token.NewFileSet()
-			file, perr := parser.ParseFile(fset, f.abs, nil, parser.ParseComments)
+			file, perr := parser.ParseFile(fset, f.abs, src, parser.ParseComments)
 			if perr != nil {
 				return patternFileResult{warning: fmt.Sprintf("pattern parse %s: %v", f.rel, perr)}
 			}
@@ -338,16 +357,25 @@ func walkAnnotations(
 	results := mapOrdered(ctx, opts.Jobs, files,
 		func(ctx context.Context, f sourceFile) annotationFileResult {
 			res := annotationFileResult{rel: f.rel}
-			anns, perr := annotations.ParseRelative(ctx, f.abs, f.rel)
-			if perr != nil {
-				res.warn = perr
+			// The extension check comes before the read for the reason
+			// ParseRelative gives: a file no comment dialect covers has
+			// nothing to parse and, per the condition below, nothing to
+			// hash either, so reading it would buy nothing.
+			if !annotations.Supported(f.ext) {
 				return res
 			}
-			res.anns = anns
-			if hashFiles && (len(anns) > 0 || f.ext == ".go") {
-				if fh, herr := hashFile(f.abs, f.rel); herr == nil {
-					res.hash, res.hashed = fh, true
-				}
+			// ONE READ, TWO CONSUMERS. The annotations and the SHA-256
+			// used to be two separate reads of the same file — the second
+			// of them streamed through io.Copy for no reason but that it
+			// had a *os.File in hand (issue #156).
+			content, info, rerr := annotations.ReadSource(f.abs)
+			if rerr != nil {
+				res.warn = rerr
+				return res
+			}
+			res.anns = annotations.ParseBytes(f.rel, content, annotations.CommentStyleFor(f.ext))
+			if hashFiles && (len(res.anns) > 0 || f.ext == ".go") {
+				res.hash, res.hashed = hashBytes(f.rel, content, info), true
 			}
 			return res
 		})

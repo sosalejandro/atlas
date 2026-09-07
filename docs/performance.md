@@ -39,8 +39,19 @@ go test ./packages/graph -run NONE -bench BenchmarkGraph -benchtime 3x -count 3
 go test ./packages/resolver -run NONE -benchtime 1x -count 3 -benchmem \
   -bench 'BenchmarkPackagesLoad|BenchmarkTypeCheckInfoFields|BenchmarkCallGraphScope'
 
+# Interface dispatch, both ways, over the same packages in one process:
+# the go/types index atlas ships and the SSA + CHA it replaced (issue
+# #155). Medians of three; ignore ns/op unless the machine is quiet.
+go test ./packages/resolver -run NONE -benchtime 1x -count 3 -benchmem \
+  -bench BenchmarkDispatchStage
+
 # Ingest-side: a synthetic corpus shaped like this repository.
 go test ./packages/store -run NONE -bench BenchmarkIngest -benchtime 5x -count 3
+
+# The two tables an ingest bulk-loads, timed on their own, with their
+# indexes maintained during the load and built after it (§3, issue #157).
+go test ./packages/store -run NONE -benchtime 5x -count 9 -benchmem \
+  -bench 'BenchmarkEdgeLoad|BenchmarkSymbolLoad'
 
 # A profile of either.
 go test ./packages/codeindex -run NONE -bench BenchmarkGoScan_Typed \
@@ -98,7 +109,8 @@ All figures below were taken on:
 
 Two corpora appear below, and the difference matters when comparing rows.
 The §3 ingest figures and the §2 worker sweep are #109's, taken at `f4d5299`
-on a 653-file tree. Everything in §1 was re-taken for #150 at `ba00402` plus
+on a 653-file tree; §3's last subsection is #157's, taken later at `2815817`
+against the same synthetic corpus and with its own conditions stated there. Everything in §1 was re-taken for #150 at `ba00402` plus
 that branch, which is a slightly larger tree:
 
 | | #109 (`f4d5299`) | #150 (`ba00402`+) |
@@ -141,6 +153,12 @@ this branch:
 |---|---:|---|
 | cumulative allocation, one `IndexProject` (`B/op`) | **709 MB** | median of 5, spread 0.06% |
 | resident peak, whole `atlas init` process (`VmHWM`) | **473 MB** | median of 5 (456/469/473/477/507), spread 10.8% |
+
+Both rows predate issue #156, which took the first to **684 MB** and left the
+second where it was; §6 has that pair, measured against a frozen corpus and
+interleaved. They are kept here as written because the point they are making
+is the independence of the two columns, and re-measuring them would not change
+it.
 
 A scan churns roughly half again what it ever holds — and the two columns
 demonstrate their own independence in how well they repeat. The allocation
@@ -489,10 +507,19 @@ go test ./packages/codeindex -run NONE -bench BenchmarkGoScan_ASTOnly -benchtime
 ### Resolver memory: what a typed load costs (issue #152, causes 2 and 3)
 
 Issue #152 measured 803 MB of CUMULATIVE ALLOCATION for a scan and named
-three causes. Two of them are `packages/resolver`'s, and both close as
-**necessary** — the saving is real, it is measured below, and it cannot be
-taken without giving up the call graph. The third
+three causes. Two of them are `packages/resolver`'s. The third
 (`annotations.ParseRelative`) is not this package's.
+
+**Read this subsection as history, and the one after it as the current
+state.** Both of #152's resolver causes were closed as *necessary*: the
+saving was real, it is measured below, and it could not be taken without
+giving up the call graph. Issue #155 reopened the question by asking
+whether the call graph needed the architecture that made it necessary, and
+one of the two closes differently now — [Issue #155 — interface dispatch
+from go/types, and the 216 MB it
+returned](#issue-155--interface-dispatch-from-gotypes-and-the-216-mb-it-returned).
+Every figure in the rest of this subsection was taken with SSA in the load
+and is still what that program cost.
 
 **Read the units before the numbers.** `B/op` is CUMULATIVE ALLOCATION: every
 byte the allocator handed out over the run, including everything the GC took
@@ -585,7 +612,7 @@ every sample of both sessions. This is the concrete reason issue #152 asks
 for medians — and the reason no wall-clock conclusion is drawn from this
 table.
 
-#### Cause 2 — `types.Info.Types` is populated, never read by atlas, and required anyway
+#### Cause 2 — `types.Info.Types` is populated, never read by atlas, and was required anyway
 
 The finding was correct as far as it went. `go/types.(*Checker).recordTypeAndValue`
 was the largest single allocator in a scan (100.22 MB of CUMULATIVE
@@ -610,21 +637,41 @@ type-check the same syntax with the same checker and differ only in whether
 | **saving** | **98,376,944 (−40.6%)** | 54,771 (−3.3%) |
 
 98.4 MB of CUMULATIVE ALLOCATION, which corroborates the 100.22 MB
-`-alloc_space` pprof attributed to `recordTypeAndValue`. It is unavailable,
-because `go/ssa` reads the map that atlas does not. `ssa.Function.typeOf`
-calls `types.Info.TypeOf`, whose only fallback for a nil `Types` is
-`ObjectOf` — which answers for `*ast.Ident`
-and nothing else — so the first composite expression in the first function
-body panics. `TestSSA_RequiresTypesInfoTypes` is that measurement, run on a
+`-alloc_space` pprof attributed to `recordTypeAndValue`. It was
+unavailable, because `go/ssa` read the map that atlas does not.
+`ssa.Function.typeOf` calls `types.Info.TypeOf`, whose only fallback for a
+nil `Types` is `ObjectOf` — which answers for `*ast.Ident` and nothing
+else — so the first composite expression in the first function body
+panics. `TestSSA_RequiresTypesInfoTypes` is that measurement, run on a
 six-declaration program that imports nothing, so the failure cannot be
 blamed on anything else.
 
-The failure mode matters more than the bytes. That panic is contained — by
-`buildAllSSA` since this investigation; see the end of cause 3 — so leaving
-`Types` nil would not crash a scan. It would do something worse:
-`Status.CallGraph` would go quietly false and every interface edge in the
-repository would disappear. This is the shape of regression the resolver is
-built to make loud, and it would have been silent.
+The failure mode mattered more than the bytes. That panic is contained —
+by `buildAllSSA` since this investigation; see the end of cause 3 — so
+leaving `Types` nil would not have crashed a scan. It would have done
+something worse: `Status.CallGraph` going quietly false and every
+interface edge in the repository disappearing. This is the shape of
+regression the resolver is built to make loud, and it would have been
+silent.
+
+**Issue #155 asked for this to be re-tested once SSA was gone, and it was.
+The correctness blocker is gone; the bytes are still not collectable.**
+`TestDispatch_DoesNotNeedTypesInfoTypes` type-checks that same
+six-declaration program with `Types` nil and resolves its interface call
+site to both implementations — identically to the full-`Info` arm. The
+dispatch index reads `Selections` and `Defs` and never asks an expression
+for its type, so nothing in atlas reads `Types` any more, in production or
+in a library it calls.
+
+It buys nothing, because `packages.LoadMode` has no bit for a subset of
+`types.Info`: `NeedTypesInfo` fills every map or none, and there is no
+`Config` hook to supply one. Taking the 98.4 MB therefore still means
+driving `types.Config.Check` by hand, and the two paragraphs below are
+still why that is a bad trade. **What changed is the reason: this was
+blocked by a correctness failure and is now blocked only by cost.** That
+is a smaller obstacle and a different issue — a `packages` upstream that
+grew a partial-`Info` mode would unblock it outright — so it is recorded
+here rather than closed again as inherent.
 
 Two costs do not appear in the table above and are the reason this would not
 be worth doing even if the bytes were free. Driving `types.Config.Check`
@@ -637,10 +684,16 @@ the load: `doc.go`'s A/B prices dependency types from source at 3.16 s and
 Nobody has written the hand-rolled checker, so that pair is the cost of the
 choice it would have to make and not a measurement of the program itself.
 
-#### Cause 3 — SSA scope is already at its floor
+#### Cause 3 — SSA scope was already at its floor, and the floor was the wrong question
 
 The hypothesis was that `ssautil.Packages(pkgs, ssa.BuilderMode(0))` builds
 function bodies for every transitive dependency. It does not.
+
+Everything in this section is correct and none of it saved anything,
+because it asked how small the SSA program could be made rather than
+whether it had to exist. It did not: see the next section. The census is
+kept because it is the evidence for both halves of that — the 245 MB was
+real, and it was the scanned tree's own bodies rather than dependencies'.
 `ssautil.Packages` passes syntax and `types.Info` only for the packages it
 was handed; a dependency reached through `packages.Visit` gets
 `CreatePackage(p.Types, nil, nil, true)` — declarations, no code.
@@ -758,6 +811,160 @@ tree: `packages/coverage/pertestingest.go:167` loses its only target,
 68.6 MB of CUMULATIVE ALLOCATION for a third of the interface graph is not a
 trade this scanner should make, so it was measured and reverted rather than
 kept.
+
+### Issue #155 — interface dispatch from go/types, and the 216 MB it returned
+
+Cause 3 above measured the SSA stage at 245 MB of CUMULATIVE ALLOCATION and
+concluded that its scope was already minimal. Both are true. Issue #155
+asked a different question — whether the stage had to exist — and the
+answer was no.
+
+The whole output of `ssautil.Packages` → `buildAllSSA` → `cha.CallGraph` →
+`indexInvokes` was one field, `invokes map[token.Pos][]*types.Func`. Its key
+is a `go/token` concept and its value a `go/types` one; no `ssa.Program` was
+retained past the call. CHA walks SSA for one structural reason — to
+enumerate call sites — and `packages/resolver` already enumerates its own:
+`resolve.go` walks the AST and reads `p.invokes[call.Lparen]`. The
+satisfaction computation underneath CHA (`chautil.LazyCallees`) is pure
+`go/types`. So `packages/resolver/typedispatch.go` computes the same map
+directly, and `go/ssa` is no longer linked into the atlas binary at all.
+
+**Equivalence first.** The safety argument is in
+`packages/resolver/invokeparity_test.go`, which keeps the old CHA
+implementation compiled into the test binary as an oracle and compares the
+two maps candidate by candidate over this repository, the golden corpus,
+`brokencorpus` and `sampleproject`. Summarised at the end of this section;
+read it there rather than trusting the numbers below to imply it.
+
+#### The measurements
+
+Machine and corpus: the ones at the top of this page. **Both arms were
+built from two trees and run against ONE frozen tree** — the repository at
+`2815817`, extracted with `git archive` so neither arm scans its own source
+— and the resolver benchmarks were run with the working directory inside
+that frozen tree so `selfRepo` resolves to it. 101 packages, 682 `.go`
+files.
+
+`BenchmarkLoad` — a whole resolver load, `IncludeTests: true`, warm build
+cache. **Five samples each, one benchmark per process** (`VmHWM` is a
+per-process high-water mark and a second benchmark inherits it), medians,
+spread as (max − min) / median:
+
+| `BenchmarkLoad` | ns/op | B/op (CUMULATIVE ALLOCATION) | allocs/op | peak RSS (RESIDENT PEAK) |
+|---|---:|---:|---:|---:|
+| before — type check + SSA + CHA | 639 ms *(17.6%)* | 586,321,440 *(0.2%)* | 7,466,662 *(0.0%)* | 401.5 MB *(8.7%)* |
+| after — type check + go/types dispatch | 493 ms *(1.6%)* | 370,503,880 *(0.2%)* | 3,784,184 *(0.0%)* | 258.3 MB *(5.0%)* |
+| **difference** | **−146 ms (−22.9%)** | **−215,817,560 (−36.8%)** | **−3,682,478 (−49.3%)** | **−143.2 MB (−35.7%)** |
+
+```sh
+# in the frozen tree
+go test -c -o /tmp/resolver.test ./packages/resolver
+cd packages/resolver && for i in $(seq 5); do
+  /tmp/resolver.test -test.run NONE -test.bench 'BenchmarkLoad$' \
+    -test.benchtime 1x -test.benchmem
+done
+```
+
+`BenchmarkIndexProject` — the whole scan, not just the load. Three samples
+each, `ATLAS_BENCH_ROOT` pointed at the frozen tree:
+
+| `BenchmarkIndexProject` | ns/op | B/op (CUMULATIVE ALLOCATION) | allocs/op |
+|---|---:|---:|---:|
+| before | 823 ms *(2.0%)* | 709,299,752 *(0.2%)* | 8,825,263 *(0.0%)* |
+| after | 678 ms *(0.5%)* | 495,131,664 *(0.3%)* | 5,158,580 *(0.0%)* |
+| **difference** | **−145 ms (−17.6%)** | **−214,168,088 (−30.2%)** | **−3,666,683 (−41.5%)** |
+
+The two differences agree to 0.8% (215.8 MB against 214.2 MB), which is
+what a saving located entirely in `resolver.Load` should look like from two
+different benchmarks. `resolver.Load` is now 74.8% of a whole scan's
+cumulative allocation, against 82.7% before — it did not stop dominating,
+it just got smaller.
+
+A full `atlas init` into a throwaway database, five samples each, by the
+`VmHWM` method in [Measuring resident peak](#measuring-resident-peak):
+
+| `atlas init` on the frozen tree | wall | peak RSS (RESIDENT PEAK) |
+|---|---:|---:|
+| before | 1,400 ms *(7.7%)* | 462 MB *(7.6%)* |
+| after | 1,219 ms *(2.1%)* | 300 MB *(11.3%)* |
+| **difference** | **−181 ms (−12.9%)** | **−162 MB (−35.1%)** |
+
+Both RSS spreads are inside this page's ±10% tolerance and the gap between
+the medians is sixteen times that tolerance, which is why this one is quoted
+as a change rather than as two numbers that happen to differ.
+
+The stage on its own, from `BenchmarkDispatchStage`, which runs both
+implementations over the same `[]*packages.Package` in one process —
+medians of three, run with `-benchtime 1x -count 3 -benchmem`:
+
+| `BenchmarkDispatchStage` | ns/op | B/op (CUMULATIVE ALLOCATION) | allocs/op |
+|---|---:|---:|---:|
+| `cha` — `ssautil.Packages` + build + `cha.CallGraph` | 198 ms | 247,141,064 | 4,103,890 |
+| `types` — the dispatch index | 60 ms | 29,890,896 | 394,410 |
+| **ratio** | **3.3x** | **8.3x** | **10.4x** |
+
+The `cha` arm reproduces cause 3's 245,558,560 B/op to 0.6%, four milestones
+later, which is the check that these two tables are measuring the same
+program. Do not read the wall-clock row without the caveat cause 3 already
+gives: the `cha` arm is the parallel one and its share of TIME is a
+property of the afternoon.
+
+The binary shrinks by 962 KB — 8,827,985 to 7,866,270 bytes for the same
+`cmd/edgedump` harness built from both trees — which is
+`golang.org/x/tools/go/ssa` and `go/callgraph` leaving the link.
+
+#### Equivalence — what was compared, and what differs
+
+The dispatch maps are **not identical**, and the four things that are
+identical are why that is acceptable. All of it is asserted, per tree, by
+`TestInvokes_TypesPathIsEquivalentToCHA`:
+
+1. **Nothing is lost.** Every candidate CHA names, the types path names.
+   Zero exceptions on all four trees. Under-approximating would be a
+   correctness regression, and #155 says the work stops there.
+2. **Inside the loaded tree the two agree exactly**, site for site,
+   candidate for candidate.
+3. **Every extra candidate is declared outside the loaded tree** — in a
+   dependency, for which the scan holds no symbol and can emit no edge.
+   On this repository that is 2,567 extra candidates, all in stdlib or
+   module dependencies.
+4. **At every site that can emit an edge, `len(Targets) > 1` is
+   unchanged**, so `Edge.Ambiguous` cannot move either. This is the
+   assertion that matters, because `packages/codeindex/go/typed.go`
+   computes ambiguity *before* dropping unindexed candidates, deliberately.
+   195 sites do change that verdict; every one of them has no in-tree
+   candidate at all and therefore emits nothing.
+
+The difference has one cause. CHA's universe of concrete types is whatever
+`ssautil.AllFunctions` reached: package-level functions, exported types of
+syntactic packages, and everything structurally reachable from a type that
+was converted to an interface — a rule x/tools's own doc comment calls
+"unprincipled" and carries a standing TODO to replace. On this repository
+that admits `(*embed.file).Name`, a type nothing here can name, while
+omitting most of the error types in the same dependencies. The types path
+enumerates every named type the loaded tree can reach, which is a
+definition rather than a reachability artefact, and which can only be a
+superset.
+
+`Status.InvokeSites` moves with it, 1,378 → 1,405 on this repository: 27
+call sites that now resolve to at least one candidate, all of them in
+dependencies.
+
+**And the output does not move at all.** By the #150 method — two binaries
+built from two trees, run against the frozen tree, complete symbol and edge
+sets rendered field by field (id, kind, path, line, end line, package,
+signature, doc; from, to, kind, line, `cycle`, `ambiguous`, `meta`, `tier`)
+and diffed:
+
+| frozen tree | lines compared | differing |
+|---|---:|---:|
+| the repository at `2815817` | 18,398 | **0** |
+| `goldencorpus` | 109 | **0** |
+| `brokencorpus` (1 of 2 packages type-checks — the #87 path) | 8 | **0** |
+| `sampleproject`, `authoritycorpus`, `generatedproject`, `unseencandidates`, `testfileproject` | 35 | **0** |
+
+An `atlas init --json` of the frozen tree by both binaries differs in three
+fields: the timestamp, the temp database path, and the duration.
 
 ## 2. Parallel per-file passes — what it bought, and what it did not
 
@@ -948,6 +1155,215 @@ Two loops were left alone, deliberately:
   and collapsing it into a batch would trade real complexity for a cost
   nobody has shown to be significant.
 
+### Building the indexes after the bulk load (issue #157) — measured, NOT shipped
+
+**Read this subsection as a costed negative result.** The optimisation works,
+the figures below are real, and the code was written, reviewed and then
+deliberately not merged. The reason is in
+[Why it was not shipped](#why-it-was-not-shipped) at the end.
+
+Every row an `INSERT` writes into `edges` is also threaded into four
+B-trees, one of them a five-column `UNIQUE`. Building an index after the
+rows land sorts once instead of descending a tree per row, so the candidate
+`Ingest` dropped the **non-unique** indexes on `symbols` and `edges` for the
+load and rebuilt them at the end — but only when the table it was filling was
+empty, which is `atlas init` and nothing else.
+
+Issue #157 predicted 2x on the edge path. It is 6%. The figures below are
+what the prediction cost to check, and they are printed in full because the
+gap between them and the estimate is the useful part.
+
+Everything in this subsection was taken on this branch at `2815817`, on the
+machine in "The machine and the corpus" above, against the synthetic corpus
+`benchIngestShape` (661 files, 5,288 symbols, 10,576 edges). **The machine
+was shared** — a VM held about 80% of one core throughout, and other Go test
+suites came and went — so every wall-clock figure here is a **median of 9
+runs x 5 iterations** with its full observed range printed beside it, and
+each table was taken in a window where the one-minute load average was under
+2. Two runs of the same arm minutes apart differed by up to 7%, which is why
+each table below comes from a single interleaved command rather than from
+figures collected at different times.
+
+**The edge load in isolation** — 10,576 edges into an empty table, one
+transaction, WAL, the same chunked multi-row `VALUES` writer `Ingest` uses:
+
+```sh
+go test ./packages/store -run NONE -bench BenchmarkEdgeLoad \
+  -benchtime 5x -count 9 -benchmem
+```
+
+| arm | median | range over 9 | vs. today |
+|---|---:|---|---:|
+| `_IndexesDuringInsert` — all four maintained during the load (before) | 147.7 ms | 144.7–153.0 | — |
+| `_DeferNonUnique` — the three non-unique built after (the candidate) | **138.5 ms** | 137.7–143.7 | **−9.2 ms, 1.07x** |
+| `_DeferAll` — the unique one dropped too (a ceiling, not a candidate) | 137.7 ms | 136.2–194.0 | −10.0 ms |
+| `_NoIndexes` — no maintenance and no build (the floor) | 117.7 ms | 115.8–120.5 | −30.0 ms |
+
+The floor row is what makes the other three legible: **all four indexes
+together are 30 ms of a 148 ms load, 20%.** A 2x was never on the table.
+With #109's batched writer already in place the largest single cost on
+`modernc.org/sqlite` is Go-side parameter binding — `conn.bind` is 29% of
+`writeEdges` in a CPU profile — and no amount of index scheduling touches
+it.
+
+**The `symbols` load in isolation** — 5,288 symbols into an empty table.
+Only four of its five indexes can come off: `qualified_name`'s uniqueness is
+a column constraint, so SQLite built that index itself, it has no DDL of its
+own to rebuild from, and `DROP INDEX` refuses it. The load keeps probing it
+either way.
+
+```sh
+go test ./packages/store -run NONE -bench BenchmarkSymbolLoad \
+  -benchtime 5x -count 9 -benchmem
+```
+
+| arm | median | range over 9 |
+|---|---:|---|
+| `_IndexesDuringInsert` | 100.1 ms | 98.6–103.6 |
+| `_DeferNonUnique` (the candidate) | **96.5 ms** | 95.0–97.5 |
+
+−3.6 ms, 1.04x. Small, but the two ranges do not overlap at all, so it is a
+real difference rather than a lucky median.
+
+**End to end**, which is the number that should be quoted:
+
+```sh
+go test ./packages/store -run NONE -benchtime 5x -count 9 -benchmem \
+  -bench 'BenchmarkIngest_(Fresh|RescanChanged)(_IndexesDuringLoad)?$'
+```
+
+| benchmark | before (`_IndexesDuringLoad`) | after | change |
+|---|---:|---:|---:|
+| `BenchmarkIngest_Fresh` — `atlas init`, empty DB | 295.6 ms | **280.5 ms** | **−15.2 ms, 1.05x** |
+| `BenchmarkIngest_RescanChanged` — `atlas scan` after an edit | 179.3 ms | 180.8 ms | +1.4 ms, inside the spread |
+
+Ranges: Fresh 277.4–300.2 after against 293.9–302.1 before; RescanChanged
+179.8–186.3 after against 177.1–180.6 before.
+
+Against a full `atlas init` at roughly 1,600 ms, 15 ms is **about 1%**. It is
+worth having and it is not worth describing as anything more.
+
+The `RescanChanged` row is the one that proves the gate rather than the
+saving. A rebuild sorts every row in the table, not only the ones this
+ingest wrote; on a rescan that is the whole graph sorted to save maintenance
+on the handful of rows that changed, which is a pessimisation. So
+`deferIndexBuild` refuses any table that is not empty, and the two arms
+differ only by the two `SELECT 1 FROM … LIMIT 1` probes that ask. The +1.4 ms
+is inside the run-to-run spread and the ranges overlap.
+
+Allocation, same runs. **Cumulative allocation** (`B/op`) and counts
+(`allocs/op`), neither of which is load dependent; no resident-peak figure
+was taken for the ingest, and these do not stand in for one:
+
+| benchmark | before | after |
+|---|---|---|
+| `Ingest_Fresh` | 221,382 allocs / 20.19 MB cumulative | 221,588 allocs / 20.20 MB cumulative |
+| `EdgeLoad` | 53,675 allocs / 6.696 MB cumulative | 53,710 allocs / 6.697 MB cumulative |
+| `SymbolLoad` | 75,205 allocs / 7.099 MB cumulative | 75,310 allocs / 7.103 MB cumulative |
+
+The deferral costs about 206 extra allocations and 9 KB of extra cumulative
+allocation per fresh ingest: the `pragma_index_list` query and seven DDL
+statements.
+
+#### The threshold, and why it is 2,000
+
+`deferIndexBuild` also declines batches under `minDeferredIndexRows`,
+because taking the indexes off and putting them back is not free even when
+there is nothing to sort:
+
+```sh
+go test ./packages/store -run NONE -bench BenchmarkDeferIndexBuild_FixedCost \
+  -benchtime 2000x -count 5 -benchmem
+```
+
+0.563 ms (median of 5 x 2,000; range 0.553–0.573), for one query and six DDL
+statements on an empty `edges`, inside an already-open transaction — each
+`DROP`/`CREATE` makes SQLite rewrite and reparse the whole schema. Against a
+saving of 0.87 us per edge row that crosses over near 640 rows; `symbols`,
+with a fourth index to rebuild and a smaller per-row saving (0.68 us),
+crosses nearer 1,030. Two thousand clears both with margin.
+
+#### What was measured and rejected
+
+Recorded so the same afternoon is not spent twice. The first three were
+measured here, on this branch, by the commands above. The last group was
+**not**: it comes from the survey written up in issue #157 and is repeated
+here as a pointer, not as a figure this page stands behind.
+
+- **Dropping `edges_dedupe_idx` too: 0.8 ms, and it is the dangerous one.**
+  That index is `UNIQUE` and it is not an accelerator —
+  `packages/store/queries/edges.sql` writes with `INSERT OR IGNORE`, so the
+  index *is* the deduplication. Issue #157's alternative was to move dedup
+  into a Go map so the index could be dropped. `_DeferAll` prices that at
+  137.7 ms against `_DeferNonUnique`'s 138.5 ms — 0.8 ms, inside the
+  run-to-run spread — because building a five-column unique index over the
+  whole table costs about what maintaining it during the load costs. Nobody
+  should trade the graph's uniqueness key and its surrogate-id ordering for
+  that. `TestRebuildableIndexes_NeverOffersAUniqueIndex` is the guard.
+- **Rebuilding on a populated table: not measured as a saving, because it
+  cannot be one.** The rebuild's cost scales with the table and the saving
+  with the batch. This is a gate, not a tuning parameter.
+- **Hard-coding the `CREATE INDEX` text in `ingest.go`: rejected on
+  maintenance, not speed.** A copy of the migration's DDL is a second
+  definition nothing keeps in step — migration 0020 changes an index,
+  `ingest.go` keeps rebuilding the 0018 shape, and every query that index
+  served silently gets slower with nothing failing. The rebuild statement is
+  SQLite's own text read back out of `sqlite_master`, and
+  `TestIngestDeferred_RestoresEveryIndexVerbatim` compares the whole of
+  `sqlite_master` for both tables against a load that never touched them.
+
+Three more were priced in **issue #157's own survey and are not re-measured
+on this page** — go to the issue for the numbers, and do not quote them from
+here. In its author's summary: `synchronous` FULL/NORMAL/OFF made no
+difference, because the ingest is already one transaction and there is one
+fsync either way; compressing the store has nothing to win, the whole
+database being 3.9 MB; and normalising `file_path` to an integer FK is a
+sub-1 MB saving on a 900 KB table despite 94.5% duplication.
+
+#### Why it was not shipped
+
+Two numbers, one of which is not about speed.
+
+**The gain is about 1% of an `atlas init`** — 15.2 ms off 1,600 ms, from a 6%
+improvement on a load that is itself a small part of the run. Real, measured,
+and reproducible; also small enough that it earns nothing on its own.
+
+**The cost lands on atlas's own SQL, in the one place that is embarrassing.**
+SQLite cannot bind a table or an index name as a parameter, so `DROP INDEX`
+and the emptiness probe must be built by string concatenation, and the rebuild
+re-executes the `CREATE INDEX` text SQLite itself recorded in `sqlite_master`.
+The implementation handles this about as carefully as it can be handled — the
+deferrable tables are a closed literal set, and the index names come from
+`pragma_index_list` on those tables rather than from a caller — but the
+statements are still not statically readable, and `atlas sql` is right to say
+so:
+
+| | operations | unresolved | resolved fraction |
+| --- | --- | --- | --- |
+| without the deferral | 145 | 10 | 0.9310 |
+| with it | 149 | **13** | **0.9128** |
+
+That crosses both bars `test/acceptance/dogfood_test.go` commits atlas to —
+`minSQLResolvedFraction` 0.9200 and `maxSQLUnresolved` 10 — and it crosses
+them in the direction that matters: three more operations that atlas cannot
+read, added to atlas's own data layer, in exchange for 1%.
+
+The gate could have been moved instead; its own comment invites that, with a
+reason. The reason would have had to be "we added dynamic SQL to the data
+layer of the tool whose job is reading SQL, to save 15 ms", and that is not a
+reason, it is a description.
+
+**What would change the answer.** The index set on `symbols` and `edges` is
+fixed by the migrations, so the DDL could be constants instead of
+`sqlite_master` text, with a test asserting the constants still match
+`pragma_index_list` after migration. That keeps the 6%, removes the dynamic
+SQL, and leaves both floors untouched. It is more code than the saving
+justifies today; it is written down so the option is not lost.
+
+Everything above this subsection stays because the measurement is the
+deliverable. A 2x prediction that turns out to be 6% is worth more recorded
+than repeated.
+
 ## 4. Summary — what to do next
 
 Ordered by measured value:
@@ -974,12 +1390,26 @@ Ordered by measured value:
    opposite of what #109 concluded, because #109's comparison had the
    quadratic graph cost in both arms.
 4. **Re-profile `goscan` phase by phase.** With graph construction removed
-   the rest of phase A is visible for the first time, and it is `go/types`
-   and `go/ssa`. Parallelising phase 2 is worth reconsidering *after* a
-   fresh phase-level measurement, not before.
+   the rest of phase A is visible for the first time, and it was `go/types`
+   and `go/ssa`. `go/ssa` is gone since #155 (§1), which took 216 MB of
+   cumulative allocation and 143 MB of resident peak out of a load and left
+   the edge set byte-identical; what remains is `go/types` and the
+   `go list` it is fed from. Parallelising phase 2 is worth reconsidering
+   *after* a fresh phase-level measurement, not before.
 5. Batched ingest and the parallel orchestrator passes: done, above. The
    parallel passes are worth 8.7% end to end now rather than 0.9%, on the
    same code — the denominator moved.
+6. **The ingest's SQLite-side costs are close to spent (#157).** Deferring
+   the index builds took a fresh ingest from 295.6 ms to 280.5 ms, about 1%
+   of an `atlas init` — measured, and **not shipped**, because the technique
+   needs string-built DDL and that cost atlas three unresolvable operations
+   in its own data layer. What is left of the edge load is 20% index work
+   and the rest is parameter binding and statement
+   preparation inside `modernc.org/sqlite`. Anyone reaching for the next
+   ingest win should read §3's "measured and rejected" list first: dropping
+   the unique index has been priced here, and durability pragmas, store
+   compression and normalising `file_path` were priced in issue #157. None
+   of them is where the remaining time is.
 
 ## 5. Annotation parsing — allocation (issue #152, cause 1)
 
@@ -1092,13 +1522,16 @@ bundle the banner comment IS the whole file. Multiply by `--jobs`: a 64 MB
 generated file in a tree scanned at `--jobs=12` is a resident cost this
 parser used to refuse and now accepts.
 
-It is left unbounded on purpose. A cap here cannot degrade gracefully — the
-parse is whole-file, so a bound could only skip the file entirely, which is
-the same "lost all of its annotations" failure the cap was removed for with
-a different message. The place to bound it is the walker that chooses which
-files to hand over, where skipping is already an explicit ledgered decision.
-`ParseRelative`'s own comment carries this argument so it is not only on
-this page.
+It was left unbounded on purpose, and **issue #156 has since bounded it — see
+§6.** The argument recorded here was that a cap inside `ParseRelative` cannot
+degrade gracefully, the parse being whole-file, so a bound could only skip the
+file entirely: the same "lost all of its annotations" failure the cap was
+removed for, with a different message. That still holds, and it is why the
+bound did not end up here. It ended up one level out, in the single function
+every pass now reads through (`annotations.ReadSource`), where the caller
+that asked for the file is still holding the ledger it can record the refusal
+on. The height, 16 MiB against a 106 KB largest file, is chosen so it never
+fires on the inputs the 1 MB cap used to fire on.
 
 ### The scan
 
@@ -1158,8 +1591,9 @@ any of those is a different change with a different argument — in particular
 the three regexes are run per comment line and a cheap `@` pre-filter would
 skip most of them — and none of it was measured here, so none of it is
 claimed.
-6. **Allocation is now gated, and the remaining question is whether 709 MB of
+6. **Allocation is now gated, and the remaining question is whether 684 MB of
    CUMULATIVE ALLOCATION per scan is justified rather than merely stable.**
+   (709 MB before issue #156 removed the redundant per-file reads; §6.)
    `TestDogfood_ScanMemoryCeiling` stops it growing quietly; it says nothing
    about whether the current figure is right. Issue #152 names three
    candidates. One is now closed and two are answered NEGATIVELY, on
@@ -1172,3 +1606,240 @@ claimed.
    SSA bodies for every transitive dependency — **inherent**: building only the
    initial packages panics in `prog.Build()`.
    The gate is the floor under whatever comes next, not a substitute for it.
+
+## 6. One read per file per pass (issue #156)
+
+**Every figure in this section is CUMULATIVE ALLOCATION (`B/op`) or BYTES
+READ FROM DISK unless it says RESIDENT PEAK.** The two resident figures are
+under "What did not move" below.
+
+### What was wrong
+
+Every non-test `.go` file in a scan was opened and read by atlas's own code
+**six times**, each read allocating its own copy of the bytes. Issue #156
+names four of them; the other two are the same two sites reached from a
+second pass, and they cost the same:
+
+| # | pass | site | why |
+|---|---|---|---|
+| 1 | Go sub-scanner | generated-header probe | `os.Open` + `bufio.Scanner`, first lines only |
+| 2 | Go sub-scanner | `parser.ParseFile(fset, path, nil, …)` | **a nil `src` is what makes go/parser open the file itself** |
+| 3 | Go sub-scanner | `annotations.ParseRelative` | `@api` endpoint discovery |
+| 4 | pattern recognisers | a second `parser.ParseFile(…, nil, …)` | different AST shapes; see that pass's godoc |
+| 5 | annotation walk | `os.ReadFile` | annotation extraction, every language |
+| 6 | annotation walk | `os.Open` + `io.Copy` | SHA-256 for the incremental cache |
+
+`go/packages` reads them once more for type checking, inside x/tools where
+atlas has no say; that read is not counted here and was not removed.
+
+Only two of the six had names in the `-alloc_space` profile —
+`io.copyBuffer` 28.4 MB and `os.readFileContents` 25.9 MB, 8% of a 717 MB
+scan. The 28.4 MB was never the hashing: `io.Copy` allocates a 32 KB staging
+buffer per file because neither `*os.File` nor a `hash.Hash` offers it a
+fast path. SHA-256 itself is about 1% of scan time and is unchanged — a
+faster hash was measured and rejected under "What was not done".
+
+### The change
+
+Each pass reads once, through `annotations.ReadSource`, and fans the bytes
+out: hash from them, probe the generated header from the first lines of
+them, parse annotations from them (`ParseBytes` already existed), and pass
+them to `parser.ParseFile` as `src`.
+
+### Reads, measured rather than counted by eye
+
+`/proc/self/io` `rchar` is the kernel's own count of bytes returned by
+`read(2)`, page cache included, and nothing inside Go can bypass it — which
+is why the assertion is written against it rather than against a package
+seam a new reader would walk straight past. One 4 MB fixture file, warm
+cache, bytes read divided by the fixture's size:
+
+| | before | after |
+|---|---:|---:|
+| `IndexProject`, ordinary file | 20,976,046 B — **5.00 copies** | 12,583,211 B — **3.00 copies** |
+| `IndexProject`, generated file | 8,392,908 B — 2.00 copies + a 4 KB probe | 8,388,811 B — **2.00 copies** |
+| `goscan.Scan` alone, ordinary file | 8,392,941 B — 2.00 copies | 4,194,475 B — **1.00 copy** |
+| `goscan.Scan` alone, generated file | 4,203 B | 4,194,460 B — 1.00 copy |
+
+The last row is the one place this costs anything. The header probe used to
+stop after one `bufio` fill, so a file the ledger excluded was never read in
+full; now it is read before it is classified, because the classification
+reads the same bytes as everything else. Row two is why that is not a
+regression in the product: `IndexProject`'s annotation walk reads every file
+whatever the generated ledger decided, so within a scan the full read is one
+the process was going to pay anyway, and the 4 KB probe on top of it is what
+disappears. A generated file is 4 KB cheaper per scan, not 4 MB dearer. A
+caller using `goscan.Scan` on its own against a codegen-heavy tree is the
+case that pays, and it pays one read per excluded file.
+
+`TestScan_ReadsEachFileOnce` and `TestIndexProject_ReadsEachFileOncePerPass`
+assert those numbers. They skip on non-Linux, where `/proc/self/io` does not
+exist.
+
+### Why the answer is three and not one
+
+Issue #156 asks for one read per scan. One read per PASS is what is
+implementable, and the difference is a decision rather than a shortfall.
+`IndexProject` makes three sequential passes and each has a recorded reason
+it cannot consume the previous one's product: the Go scanner's ASTs are
+adopted from the type checker and keyed by node pointers no other pass holds;
+the pattern recognisers walk different AST shapes; the annotation walk covers
+every language atlas reads and its output ORDER is load-bearing for feature
+attribution. Collapsing the three reads into one means caching every file's
+bytes from the first pass until the last is done with them — the whole tree's
+source resident for the length of a scan, a ceiling that scales with the
+repository rather than with `--jobs`. That is the trade #152 was opened
+about, taken in the wrong direction. The number worth attacking is the number
+of passes, not the number of reads inside one.
+
+### Allocation
+
+Machine and corpus: Intel Core i7-10750H, 12 logical CPUs, `GOMAXPROCS=12`,
+linux/amd64, Go 1.26.4, machine not quiet. Both arms scanned a **fixed
+681-file corpus** — `git archive HEAD` of `2815817` extracted to a temp
+directory — rather than the working tree, because this branch adds four `.go`
+files to the repository and the benchmark's default corpus is the repository
+itself. Comparing 681 files against 685 would have credited this change with
+four files' worth of someone else's allocation.
+
+```sh
+ATLAS_BENCH_ROOT=/path/to/frozen/corpus \
+go test ./packages/codeindex -run '^$' \
+  -bench 'IndexProject|GoScan_Typed|GoScan_ASTOnly|PatternRecognizers|AnnotationWalk' \
+  -benchtime 1x -benchmem
+```
+
+Three samples per arm, medians. CUMULATIVE ALLOCATION:
+
+| benchmark | before `B/op` | after `B/op` | | before `allocs/op` | after `allocs/op` | |
+|---|---:|---:|---:|---:|---:|---:|
+| `IndexProject` | 709,129,728 | **683,731,448** | **−3.58%** | 8,821,876 | 8,814,090 | −0.09% |
+| `GoScan_Typed` | 636,810,936 | 634,182,704 | −0.41% | 7,984,058 | 7,981,607 | −0.03% |
+| `GoScan_ASTOnly` | 96,656,128 | **87,829,648** | **−9.13%** | 1,744,491 | 1,737,375 | −0.41% |
+| `PatternRecognizers` | 34,610,728 | 34,615,072 | +0.01% | 816,304 | 816,692 | +0.05% |
+| `AnnotationWalk` | 40,495,064 | **16,575,128** | **−59.1%** | 53,355 | 48,344 | −9.4% |
+
+**The bytes and the count say different things again, and both are printed
+for the same reason as in §5.** What was removed is a small number of large
+allocations per file — a whole copy of the file, three times over, plus a
+32 KB `io.Copy` buffer — so `B/op` moves 3.6% end to end while `allocs/op`
+barely moves at all. A change that halves an allocation's size does not halve
+the number of allocations, and a reader who sees only the first column will
+draw the wrong conclusion about what changed.
+
+`GoScan_Typed` moves 0.41% and `GoScan_ASTOnly` 9.13% for the same reason
+the two exist: under type checking the parse is adopted from `go/packages`
+rather than done here, so read #2 was already not happening on most files,
+and 637 MB of that arm is the type checker. The AST-only column is where
+this package's own reads live, and that is where they show.
+
+The allocation gate has correspondingly more room: `TestDogfood_ScanMemoryCeiling`
+reports **684,388,192 B/op, 8,836,783 allocs/op** on the working tree (685
+files), 28.7% under the bytes ceiling where it was 26.2% under before. The
+ceilings are not moved here; they are a floor under regressions, and lowering
+them belongs in a change that argues for the new number.
+
+### What did not move
+
+**RESIDENT PEAK, `VmHWM` of a whole `atlas init`,** by the method in
+§Measuring resident peak, seven INTERLEAVED pairs (before and after run
+back to back within each pair, so ambient load drifts across both arms
+equally) against the frozen corpus:
+
+|  | samples (MB) | median |
+|---|---|---:|
+| before | 438, 464, 467, 467, 470, 475, 490 | **467 MB** |
+| after | 445, 458, 466, 471, 475, 479, 495 | **471 MB** |
+
+0.9% apart, on a quantity this page documents as repeating to ±10%. **No
+resident-peak conclusion is available from these runs**, and the interleaving
+is why that is stated confidently rather than hopefully: an earlier
+non-interleaved pair of five-run sets put the same two binaries 5.8% apart,
+in the same direction, and that difference was drift.
+
+Wall clock, five interleaved pairs of a whole `atlas init` over the frozen
+corpus: **1332 ms → 1317 ms**, medians, −1.1%, with the after arm lower in
+four pairs of five. Reading that as a speedup would be reading noise; it is
+recorded to show the change does not cost time, which is the only claim three
+percent of a scan's allocation entitles it to.
+
+### The per-file size bound, decided once
+
+`annotations.MaxSourceBytes` is **16 MiB**, and this is where the pipeline
+acquires a per-file bound for the first time since #152 removed the last one.
+
+The argument in full is on the constant. In short: holding a file's bytes for
+the whole of its processing is what makes one read enough, and it also puts
+one file's size into the momentary footprint next to the AST built from it.
+The 1 MB `bufio` token cap that used to bound this was removed for a good
+reason — it fired on ORDINARY files (anything with one long line) and cost
+every annotation in the file rather than the long line's. A whole-file bound
+is a different decision from a line bound: the largest source file in this
+repository is 106 KB, 154 times under 16 MiB, and a `.go` file at the bound
+would cost `go/parser` several hundred megabytes of AST before producing a
+symbol. It also makes the ceiling sayable: **`--jobs × 16 MiB` of source
+bytes in flight, 192 MB at `--jobs=12`** — the annotation walk and the pattern
+pass are the parallel ones, and the Go sub-scanner's walk is serial, so it
+contributes one file, not one per worker. RESIDENT is roughly twice the
+source figure, because every pass derives something file-sized from the bytes
+it was handed: `logicalLine` strings in the annotation parser, an AST in the
+other two. §5's table measured that ratio directly — a 32 MB file, 63.5 MB
+resident for one parse.
+
+A file over the bound is not read. Callers report it the way they already
+report a file they cannot parse — a warning naming the file and the reason —
+and the scan carries on. It gets no content hash either, so
+`packages/indexfresh` classifies it `StateAbsent` and its callers fall back to
+their non-incremental path for that file: "rescan this every time" rather than
+"trust a digest nobody computed".
+
+Nothing in this repository is within two orders of magnitude of the bound, so
+**the bound is not measured here and no figure claims it is.** It is a
+ceiling, and the evidence for a ceiling is the argument for its height plus
+the tests that show it fires and degrades as described
+(`TestReadSource_BoundIsCheckedBeforeAnythingIsAllocated`,
+`TestReadSource_AtTheBound`, `TestScan_OversizeFileIsSkippedWithAWarning`).
+
+### Determinism (#120)
+
+Same corpus, `atlas init` from a binary built either side of the change,
+compared on the resulting databases: **symbols, edges (with kind, path, line,
+resolution tier and meta) and file hashes are byte-for-byte identical**, as
+are the 25 scan warnings and every count in the `--json` summary. The golden
+corpus suite, `TestScan_SkippedFilesAreDeterministic` and the store's
+determinism tests pass unchanged.
+
+One thing that comparison found and this change did not cause: **SQLite
+rowid order in `symbols` and `edges` is already not stable between two runs
+of the same binary.** Two `atlas init` runs of the unmodified baseline differ
+in 10,394 rows of insert order; two runs of this branch differ in 10,388;
+one of each differ in 10,392. The magnitudes are the same, so the property
+predates this branch. It is not a determinism failure of the kind #120 is
+about — the scanner's own output order is asserted by the golden corpus and
+holds — but it does mean insert order is not something a reader can use to
+compare two databases, and this page says so rather than leaving the next
+person to rediscover it.
+
+### What was not done
+
+**A faster hash: measured and rejected.** CRC-32 is 28x faster than SHA-256
+on this workload and saves 13 ms of a ~1,320 ms `atlas init`. It is refused
+on correctness rather than on the 1%: a hash collision here means a CHANGED
+file is classified unchanged, and the incremental scan then serves stale
+symbols for it indefinitely. Collision resistance is the property being
+bought, and 13 ms is not a reason to stop buying it.
+
+**Wrapping `os.ReadFile`: measured and reverted.** The obvious shape for
+`ReadSource` — `os.Stat`, compare, `os.ReadFile` — stats every file twice,
+because `os.ReadFile` stats again for its own size hint, and the second stat
+allocates an `os.fileStat` per file across ~1,850 calls per scan. On
+`BenchmarkPatternRecognizers`, the one pass that gains a stat rather than
+losing a read, medians of three: 34,610,728 B/op before the change,
+34,764,688 with the wrapper (+0.44%), 34,615,072 with the open + fstat +
+`ReadFull` loop that shipped (+0.01%). The 154 KB is not the point; a pass
+that ends up measurably worse is a pass someone will later be right to
+question.
+
+**Collapsing the three passes: not attempted, and the reason is above.** It
+is the only remaining way to reach one read per scan and it buys the read by
+selling the memory ceiling.
