@@ -22,7 +22,8 @@
 //     types.Info.Selections), across packages, through embedding, and
 //     through generic instantiation.
 //  2. Which concrete implementations can this interface call reach
-//     (class-hierarchy analysis over SSA, golang.org/x/tools/go/callgraph/cha).
+//     (class-hierarchy analysis, computed from go/types — see
+//     typedispatch.go).
 //  3. Which packages could not be type-checked at all, so the caller can
 //     fall back to name matching for exactly those files and say so.
 //
@@ -49,6 +50,17 @@
 // come from compiled export data and the initial packages are still fully
 // type-checked. Nothing this package answers needs dependency syntax, so
 // it does not pay for it.
+//
+// It also no longer builds an SSA program. Issue #155 observed that the
+// entire output of ssautil.Packages -> cha.CallGraph was one
+// map[token.Pos][]*types.Func, both halves of which are go/token and
+// go/types concepts, and that CHA walks SSA only to enumerate call sites
+// — which this package's caller already does. Computing the same
+// dispatch from go/types took 216 MB of cumulative allocation and 3.7M
+// allocations out of a load of this repository, and 143 MB off its
+// resident peak. docs/performance.md §1 has the measurement;
+// invokeparity_test.go is the reason it was safe to take, and keeps the
+// old implementation as the oracle it is checked against.
 //
 // The A/B, on this repository, warm build and module caches, three
 // interleaved samples of each arm in a process apiece, medians (machine

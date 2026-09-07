@@ -15,6 +15,24 @@ import (
 	"golang.org/x/tools/go/ssa/ssautil"
 )
 
+// This file is the class-hierarchy analysis atlas used to ship, kept as
+// the ORACLE the types-level dispatch index is measured against.
+//
+// It was production code until issue #155. The whole output of
+// ssautil.Packages -> buildAllSSA -> cha.CallGraph -> indexInvokes was one
+// field, map[token.Pos][]*types.Func, whose key and value are both
+// go/token and go/types concepts; SSA appeared nowhere in it. CHA walks
+// SSA for one reason -- to enumerate call sites -- and atlas already
+// enumerates its own. typedispatch.go computes the same map from
+// go/types, for an eighth of the cumulative allocation.
+//
+// It stays here, compiled only into the test binary, because deleting it
+// would delete the only independent answer to "is the new one right".
+// invokeparity_test.go runs both over this repository and the fixtures
+// and compares them candidate by candidate. A pair of implementations
+// that disagree is a bug in one of them; a single implementation with no
+// second opinion is a bug nobody finds.
+
 // buildCallGraph runs class-hierarchy analysis and records, for every
 // interface call site, the concrete methods it can reach.
 //
@@ -39,46 +57,42 @@ import (
 // signature like func(error) means every function with that shape. That
 // is not resolution, it is a fan-out, and issue #87 exists to reduce
 // exactly this kind of guess.
-func (p *Program) buildCallGraph(pkgs []*packages.Package) {
+func chaInvokes(pkgs []*packages.Package) (invokes map[token.Pos][]*types.Func, ok bool) {
+	invokes = map[token.Pos][]*types.Func{}
 	defer func() {
 		// SSA construction walks type-checked syntax that this package
-		// did not produce and cannot fully vouch for. A panic here must
-		// cost interface dispatch, not the scan: static resolution has
-		// already been established by the type checker and stands on its
-		// own. This covers ssautil.Packages, CHA and the indexing below;
-		// the builder itself is covered by buildAllSSA, for the reason
-		// written there.
+		// did not produce and cannot fully vouch for. When it panics the
+		// oracle has no opinion, and a parity test must skip rather than
+		// compare against an empty map -- which would agree with anything
+		// that also found nothing.
 		if r := recover(); r != nil {
-			p.status.CallGraph = false
-			p.invokes = map[token.Pos][]*types.Func{}
+			invokes, ok = map[token.Pos][]*types.Func{}, false
 		}
 	}()
 
-	start := timeNow()
 	// ssautil.Packages, NOT ssautil.AllPackages, and that one word is the
 	// whole of issue #152's cause 3. Packages hands syntax and types.Info
 	// only to the packages it was given; a dependency reached through
 	// packages.Visit is created from its types alone, so it becomes an
 	// ssa.Package of declarations with no code. AllPackages would build
-	// bodies for every transitive dependency, which is the ~99 MB the issue
-	// went looking for and did not find.
-	// TestSSA_NoFunctionBodiesOutsideTheScannedTree is the assertion, and it
-	// reads the program built HERE — see ssaObserver.
+	// bodies for every transitive dependency.
+	//
+	// It matters to the ORACLE too, and more than it did to production.
+	// The scope of SSA fixes which concrete methods CHA can name, so a
+	// parity test run against AllPackages would be comparing the types
+	// index to a different question.
+	// TestSSA_NoFunctionBodiesOutsideTheScannedTree is the assertion.
 	prog, _ := ssautil.Packages(pkgs, ssa.BuilderMode(0))
 	if prog == nil {
-		return
+		return invokes, false
 	}
 	if !buildAllSSA(prog) {
-		return
+		return invokes, false
 	}
 	if ssaObserver != nil {
 		ssaObserver(prog, pkgs)
 	}
-
-	cg := cha.CallGraph(prog)
-	p.indexInvokes(cg)
-	p.status.CallGraph = true
-	p.status.CallGraphDuration = timeSince(start)
+	return indexInvokes(cha.CallGraph(prog)), true
 }
 
 // ssaObserver, when non-nil, is handed the built ssa.Program and the
@@ -156,7 +170,8 @@ func buildAllSSA(prog *ssa.Program) bool {
 // so does the syntax tree the scanner walks. Both come from the same
 // FileSet, so the token.Pos is an exact identity — no filename
 // comparison, no line arithmetic, nothing that could drift.
-func (p *Program) indexInvokes(cg *callgraph.Graph) {
+func indexInvokes(cg *callgraph.Graph) map[token.Pos][]*types.Func {
+	invokes := make(map[token.Pos][]*types.Func)
 	seen := make(map[token.Pos]map[string]bool)
 	for _, node := range cg.Nodes {
 		for _, edge := range node.Out {
@@ -172,7 +187,7 @@ func (p *Program) indexInvokes(cg *callgraph.Graph) {
 				continue
 			}
 			seen[pos][key] = true
-			p.invokes[pos] = append(p.invokes[pos], callee)
+			invokes[pos] = append(invokes[pos], callee)
 		}
 	}
 	// CHA's node and edge iteration is map-ordered, so the candidate
@@ -180,13 +195,13 @@ func (p *Program) indexInvokes(cg *callgraph.Graph) {
 	// means the scanner emits the same edges in the same order for the
 	// same tree, which docs/testing/determinism.md requires and the
 	// golden snapshot would otherwise fail on at random.
-	for pos, funcs := range p.invokes {
+	for pos, funcs := range invokes {
 		sort.Slice(funcs, func(i, j int) bool {
 			return ObjectKey(funcs[i]) < ObjectKey(funcs[j])
 		})
-		p.invokes[pos] = funcs
+		invokes[pos] = funcs
 	}
-	p.status.InvokeSites = len(p.invokes)
+	return invokes
 }
 
 // invokeTarget extracts (call site, concrete callee) from one callgraph

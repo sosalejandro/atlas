@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -515,26 +515,32 @@ func mergePYResult(idx *Index, res *pyscan.Result) {
 	idx.Warnings = append(idx.Warnings, res.Warnings...)
 }
 
-func hashFile(absPath, relPath string) (FileHash, error) {
-	f, err := os.Open(absPath)
-	if err != nil {
-		return FileHash{}, fmt.Errorf("open %s: %w", absPath, err)
-	}
-	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return FileHash{}, fmt.Errorf("hash %s: %w", absPath, err)
-	}
-	info, err := f.Stat()
-	if err != nil {
-		return FileHash{}, fmt.Errorf("stat %s: %w", absPath, err)
-	}
+// hashBytes builds the incremental cache's record for a file the caller has
+// already read, from those bytes and the stat that read had to do anyway.
+//
+// It replaces a hashFile that opened the file a second time and streamed it
+// through io.Copy (issue #156). Two things went with that:
+//
+//   - The read itself — one of the six a .go file used to cost per scan.
+//   - io.Copy's 32 KB staging buffer, allocated fresh per file because
+//     neither a *os.File nor a hash.Hash implements the ReaderFrom /
+//     WriterTo fast path. That is the 28.4 MB the scan profile attributed
+//     to io.copyBuffer, and it was never the hashing; sha256 itself is
+//     about 1% of scan time and stays exactly as it was.
+//
+// The digest must remain byte-identical to indexfresh.hashFile's — SHA-256
+// of the file's bytes, hex-encoded — or every file classifies stale forever
+// and both incremental callers fall back permanently. sha256.Sum256 over
+// the whole slice is the same function as Write-then-Sum over the same
+// bytes; nothing about the digest changed here.
+func hashBytes(relPath string, content []byte, info fs.FileInfo) FileHash {
+	sum := sha256.Sum256(content)
 	return FileHash{
 		Path:        relPath,
-		SHA256:      hex.EncodeToString(h.Sum(nil)),
+		SHA256:      hex.EncodeToString(sum[:]),
 		ModTime:     info.ModTime().UTC(),
 		LastScanned: time.Now().UTC(),
-	}, nil
+	}
 }
 
 // EncodePatternMatches serialises a per-symbol slice of Match records to
