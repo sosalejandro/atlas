@@ -895,6 +895,52 @@ else
 	assert_eq "$(scan_status sideways)" "2"
 fi
 
+# --- smoke-release.sh ------------------------------------------------------
+#
+# The smoke script is the release pipeline's only proof that a published
+# binary STARTS. Its own failure modes therefore matter as much as the
+# binary's: a smoke test that exits 0 because it could not find the binary
+# is the vacuous-success shape this file was rewritten to stop tolerating.
+
+it "smoke-release.sh rejects a missing argument rather than passing"
+set +e
+bash "$SCRIPT_DIR/smoke-release.sh" >/dev/null 2>&1
+smoke_noarg_rc=$?
+set -e
+assert_eq "$smoke_noarg_rc" "2"
+
+it "smoke-release.sh rejects a binary that does not exist"
+set +e
+bash "$SCRIPT_DIR/smoke-release.sh" "$WORK/not-a-binary" >/dev/null 2>&1
+smoke_missing_rc=$?
+set -e
+assert_eq "$smoke_missing_rc" "2"
+
+it "smoke-release.sh fails on a binary that is not atlas"
+# A file that exists and is executable but cannot index anything. Exiting 0
+# here would mean the release gate passes on any file of the right name.
+printf '#!/bin/sh\nexit 0\n' >"$WORK/fake-atlas"
+chmod +x "$WORK/fake-atlas"
+set +e
+bash "$SCRIPT_DIR/smoke-release.sh" "$WORK/fake-atlas" >/dev/null 2>&1
+smoke_fake_rc=$?
+set -e
+assert_eq "$smoke_fake_rc" "1"
+
+it "smoke-release.sh passes against a binary built from this checkout"
+if go build -o "$WORK/atlas-smoke" "$REPO_ROOT/cmd/atlas" 2>/dev/null; then
+	set +e
+	bash "$SCRIPT_DIR/smoke-release.sh" "$WORK/atlas-smoke" >"$WORK/smoke.log" 2>&1
+	smoke_real_rc=$?
+	set -e
+	if [ "$smoke_real_rc" -ne 0 ]; then
+		printf '%s\n' "$(cat "$WORK/smoke.log")" >&2
+	fi
+	assert_eq "$smoke_real_rc" "0"
+else
+	skip "could not build cmd/atlas"
+fi
+
 # ---------------------------------------------------------------------------
 
 printf '\n%d test(s), %d failure(s)\n' "$TESTS_RUN" "$TESTS_FAILED"

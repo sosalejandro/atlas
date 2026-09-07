@@ -20,6 +20,11 @@ import (
 func main() {
 	if err := cli.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		// Not a literal 1. The status distinguishes "I checked and the
+		// gate does not hold" from "I could not check", which a CI job
+		// needs in order to tell a real finding from a broken run. The
+		// contract, and why this repository paid to learn it, is in
+		// internal/cli/exitcode.go.
+		os.Exit(cli.ExitCodeFor(err))
 	}
 }
