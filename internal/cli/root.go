@@ -22,9 +22,20 @@ import (
 // VCS revision. The defaults below are only the last-resort sentinel
 // values — see internal/cli/buildinfo.go for the resolution contract.
 var (
-	Version   = "v0.13.0"
-	Commit    = "fba0d11"
-	BuildDate = "2026-05-24T01:31:52Z"
+	Version = "v0.14.0"
+	// Commit and BuildDate carry NO source default, deliberately.
+	//
+	// They used to hold "fba0d11" and a May timestamp, frozen at whatever the
+	// tree said when someone last edited them by hand. Paired with a Version
+	// that moved, an unstamped `go install` then reported a confident triple
+	// that was wrong in two of three fields — worse than reporting nothing,
+	// because a wrong commit sends someone to the wrong diff.
+	//
+	// Empty means unknown, resolveBuildInfo falls back to the VCS data the Go
+	// toolchain embeds, and a release build supplies both via -ldflags. See
+	// buildinfo.go.
+	Commit    = ""
+	BuildDate = ""
 )
 
 // globalFlags holds the cobra-bound values for the persistent flags every

@@ -55,6 +55,15 @@ func (p *Program) buildCallGraph(pkgs []*packages.Package) {
 	}()
 
 	start := timeNow()
+	// ssautil.Packages, NOT ssautil.AllPackages, and that one word is the
+	// whole of issue #152's cause 3. Packages hands syntax and types.Info
+	// only to the packages it was given; a dependency reached through
+	// packages.Visit is created from its types alone, so it becomes an
+	// ssa.Package of declarations with no code. AllPackages would build
+	// bodies for every transitive dependency, which is the ~99 MB the issue
+	// went looking for and did not find.
+	// TestSSA_NoFunctionBodiesOutsideTheScannedTree is the assertion, and it
+	// reads the program built HERE — see ssaObserver.
 	prog, _ := ssautil.Packages(pkgs, ssa.BuilderMode(0))
 	if prog == nil {
 		return
@@ -62,12 +71,35 @@ func (p *Program) buildCallGraph(pkgs []*packages.Package) {
 	if !buildAllSSA(prog) {
 		return
 	}
+	if ssaObserver != nil {
+		ssaObserver(prog, pkgs)
+	}
 
 	cg := cha.CallGraph(prog)
 	p.indexInvokes(cg)
 	p.status.CallGraph = true
 	p.status.CallGraphDuration = timeSince(start)
 }
+
+// ssaObserver, when non-nil, is handed the built ssa.Program and the
+// packages it was built over, after buildAllSSA and before CHA.
+//
+// It exists for one assertion, and the assertion is why it is worth a hook
+// in production code. The scope of SSA construction — which packages get
+// bodies built for them — is a property of THIS function's arguments, and
+// a test that calls ssautil.Packages itself measures its own arguments
+// instead. That test passed while the production call was
+// ssautil.AllPackages, which is the change it exists to catch, and the
+// only fix is for it to look at the program production built.
+//
+// A hook rather than a field on Program, because the ssa.Program is the
+// largest single thing a load constructs — 245 MB of cumulative allocation
+// out of a load's 584 MB, docs/performance.md §1 — and keeping a reference
+// past buildCallGraph would turn a churn cost into a residency one on
+// every scan, to serve a test.
+//
+// Not safe for concurrent Loads. Tests that set it do not call t.Parallel.
+var ssaObserver func(prog *ssa.Program, pkgs []*packages.Package)
 
 // buildAllSSA builds every package in prog and reports whether all of
 // them built.

@@ -35,10 +35,14 @@ import (
 // UNITS FIRST, because conflating them is the confusion that produced #152.
 // These are `B/op` and `allocs/op` from `b.ReportAllocs`: CUMULATIVE BYTES
 // ALLOCATED over one IndexProject call, not resident memory. A scan does not
-// hold 836 MB. Peak RSS of a full `atlas init` on this same tree is 436 MB —
-// median of five (432/435/436/439/441), read from /proc/<pid>/status VmHWM,
-// method in docs/performance.md. Churn and residency move for different
-// reasons and a ceiling on one says nothing about the other.
+// hold 709 MB. Peak RSS of a full `atlas init` on this tree is 473 MB — median
+// of five (456/469/473/477/507), read from /proc/<pid>/status VmHWM, method in
+// docs/performance.md. That is a 10.8% spread against 0.06% on the number this
+// gate bounds, which is the practical reason the gate is on churn: an RSS
+// ceiling would need ten times the headroom to survive its own noise, and a
+// ceiling with 30% of slack in it does not catch anything. Churn and residency
+// move for different reasons and a ceiling on one says nothing about the
+// other.
 //
 // This gate is on churn, and the choice is deliberate rather than convenient:
 // churn is what the collector is paid to clean up, it is what #150 blew out
@@ -49,15 +53,31 @@ import (
 // "the fix saved 6 GB of RAM" is a sentence this constant does not support.
 //
 // MEASUREMENT. linux/amd64, Intel Core i7-10750H, Go 1.26.4, 12 logical CPUs,
-// this tree at the mem/gate branch point (674 .go files under the walkers'
-// skip rules; 675 once this file exists), machine not quiet:
+// machine not quiet:
 //
 //	go test ./packages/codeindex -run NONE -bench '^BenchmarkIndexProject$' \
 //	        -benchtime 1x -benchmem -count 1
 //
-// Five separate processes. Medians: 835,960,496 B/op and 9,010,665 allocs/op.
-// Issue #152's independent measurement of the same benchmark reported
-// 835,174,704 and 9,010,894, which is inside the run-to-run spread below.
+// Five separate processes each time. TWO observations, because the tree moved
+// under the ceiling between them and only the second one is current:
+//
+//	tree                                  files          B/op    allocs/op
+//	mem/gate branch point      674 (675 with this)  835,960,496    9,010,665
+//	this branch, ParseRelative fixed        681      708,904,952    8,822,140
+//
+// The 127 MB between them is not drift: it is the -15.9% the annotation-parse
+// fix bought (docs/performance.md §5), measured here from the other side.
+// Issue #152's independent measurement of the first pair reported 835,174,704
+// and 9,010,894, inside the run-to-run spread below.
+//
+// HEADROOM AS IT NOW STANDS, which is not the headroom these constants were
+// argued for. Against the current observation the ceilings sit at +35.4%
+// (bytes) and +17.9% (count), where 15% was the intent. The bytes ceiling is
+// loose by roughly the size of the saving that made it loose, and tightening
+// it to ~815,000,000 would restore the design. That is a deliberate change
+// with its own argument and it is not made here: this branch is fixing what
+// the gate SAYS, and re-tuning a blocking CI gate is a separate commit that
+// should be able to point at a green run of everything else first.
 //
 // WHY AN ABSOLUTE NUMBER AND NOT BYTES-PER-FILE. The same reason
 // maxSQLUnresolved is a count and not a fraction: a per-file figure is
@@ -67,20 +87,24 @@ import (
 // headroom is for, and it is why the failure message prints the file count —
 // so a reader can tell growth from regression without opening a profiler.
 //
-// WHY 15% OF HEADROOM AND NOT 2% OR 100%. Two different things have to fit
-// under it and only one of them is noise:
+// WHY 15% OF HEADROOM WAS ASKED FOR, AND NOT 2% OR 100%. (What the constants
+// now deliver against the current observation is the paragraph above; this is
+// the argument they were chosen by.) Two different things have to fit under
+// the ceiling and only one of them is noise:
 //
-//   - Noise is almost nothing. Fourteen samples spanning ATLAS_BENCH_JOBS
-//     1/4/12 and GOMAXPROCS 2/12 spread 834,476,160-837,336,792 B/op (0.34%)
-//     and 9,006,747-9,013,315 allocs/op (0.07%). Unlike the ns/op figures in
-//     docs/performance.md, which move up to 35% run to run on this machine,
-//     allocation accounting does not care about ambient load or core count.
-//     About 1% covers it.
+//   - Noise is almost nothing. Fourteen samples on the mem/gate tree,
+//     spanning ATLAS_BENCH_JOBS 1/4/12 and GOMAXPROCS 2/12, spread
+//     834,476,160-837,336,792 B/op (0.34%) and 9,006,747-9,013,315 allocs/op
+//     (0.07%); the five on this branch spread 0.06% and 0.05%. Unlike the
+//     ns/op figures in docs/performance.md, which move up to 35% run to run
+//     on this machine, allocation accounting does not care about ambient load
+//     or core count. About 1% covers it.
 //   - The rest is corpus growth, and that is the real reason the ceiling is
 //     not tight. The benchmark scans THIS repository, so B/op rises as the
-//     repository does — roughly 1.24 MB of churn per .go file. 15% is about
-//     100 more .go files; the tree grew 653 -> 674 across the whole of #109
-//     and #150. So this should need re-arguing about once every five
+//     repository does — roughly 1.04 MB of churn per .go file on this
+//     branch's 681 (it was 1.24 MB before the annotation-parse fix). The
+//     tree grew 653 -> 681 across the whole of #109, #150 and #152, so
+//     ordinary growth should need re-arguing about once every five
 //     milestones rather than every week.
 //
 // A ceiling too close to the observation fails on a quiet Tuesday and gets
@@ -91,10 +115,30 @@ import (
 // 67,824,856 allocs (docs/performance.md §1) — 7.5x and 6.5x the ceilings,
 // caught the day it landed rather than months later. One new allocator the
 // size of #152's own first finding (ParseRelative rebuilding every file it is
-// about to read: 142 MB, 17% of the total) trips it on its own. Measured
-// sensitivity, from the mutation runs recorded on the test below: a single
-// change adding more than about 12% to scan churn fails the gate. That is not
-// an assertion; the runs are in the table.
+// about to read: 142 MB, 17% of the total) trips it on its own.
+//
+// SENSITIVITY, said two ways, because they answer differently and an earlier
+// version of this comment printed a single "about 12%" that was neither.
+//
+//   - By arithmetic, which depends on which baseline you stand on. Against
+//     the mutation runs' own baseline of 836,447,416 B/op the ceilings are
+//     +14.8% and +15.3% away; against this branch's 708,904,952 they are
+//     +35.4% and +17.9%. The second pair is what a change landing today has
+//     to beat.
+//   - By measurement, which is the only claim with runs behind it, and it
+//     BRACKETS the threshold rather than locating it. On the mem/gate
+//     baseline: +11.2% on bytes passed and +45.0% failed; +7.4% on the count
+//     passed and +22.2% failed. Nothing was run in between, so nothing
+//     narrower than (+11.2%, +45.0%] and (+7.4%, +22.2%] was observed — and
+//     the mutations were not re-run against this branch's lower baseline, so
+//     they bracket the OLD arithmetic and not the current one.
+//
+// Both arithmetic answers sit inside the measured bytes bracket, which is as
+// much as the runs support. Percentages in the table below are against the
+// CEILING, the way the failure message prints them; the ones here are against
+// the unmutated BASELINE, which is what "a change adding X%" means. They are
+// different denominators, and reading one for the other is what produced the
+// figure this paragraph replaced.
 //
 // TWO CEILINGS, NOT ONE, and the mutation runs are why. The buffer mutations
 // moved B/op by up to 144% while allocs/op did not budge — the same number of
@@ -111,8 +155,13 @@ import (
 // argue for itself. A ceiling nobody has to argue with has stopped measuring
 // anything.
 const (
-	maxScanBytesPerOp  = 960_000_000 // 835,960,496 observed, +14.8%
-	maxScanAllocsPerOp = 10_400_000  // 9,010,665 observed, +15.4%
+	// The trailing percentage is headroom over the CURRENT observation
+	// (708,904,952 / 8,822,140, five processes on this branch), not over the
+	// mem/gate figures these were set against. See MEASUREMENT above for why
+	// the two differ and why the bytes ceiling is looser than it was argued
+	// for.
+	maxScanBytesPerOp  = 960_000_000 // 708,904,952 observed, +35.4%
+	maxScanAllocsPerOp = 10_400_000  // 8,822,140 observed, +17.9%
 )
 
 // benchTimeout bounds the child. It has to build the codeindex test binary,
@@ -142,20 +191,35 @@ const benchTimeout = 10 * time.Minute
 // parser.go is untouched by this branch. Every number below is from the run,
 // not from arithmetic:
 //
-//	mutation                          B/op    vs ceiling   allocs/op  vs ceiling  gate
-//	none                       836,447,416       -12.9%    9,015,812     -13.3%   pass
-//	scanner buffer +64 KB/file 929,867,736        -3.1%    9,015,462     -13.3%   pass
-//	scanner buffer +256 KB/f 1,212,664,856       +26.3%    9,015,068     -13.3%   FAIL bytes
-//	scanner buffer +1 MB/file 2,343,121,072      +144.1%   9,014,321     -13.3%   FAIL bytes
-//	+1 Sprintf per line        842,490,296       -12.2%    9,680,537      -6.9%   pass
-//	+3 Sprintf per line        852,094,600       -11.2%   11,021,266      +6.0%   FAIL allocs
+// Two percentage columns per metric, because the two questions are
+// different: "vs ceiling" is how far the run sat from the gate (what the
+// failure message prints), "vs base" is how much the mutation added to the
+// unmutated scan (what a reader asking "how big a regression does this
+// catch" means).
 //
-// Two things to read out of it. The failures say the gate works; the +6.0%
-// row says it works on a SMALL regression, not only on a catastrophic one.
-// And the two passing rows matter as much: a gate that fails on any change at
-// all is a gate that gets deleted within a month. +64 KB per file is 93 MB of
-// extra churn (+11.2%) and stays green, which is where the 15% headroom went
-// and is far more than ordinary repo growth will produce in a year.
+//	mutation                          B/op   vs ceiling  vs base   gate
+//	none                       836,447,416      -12.9%        —    pass
+//	scanner buffer +64 KB/file 929,867,736       -3.1%   +11.2%    pass
+//	scanner buffer +256 KB/f 1,212,664,856      +26.3%   +45.0%    FAIL bytes
+//	scanner buffer +1 MB/file 2,343,121,072     +144.1%  +180.1%   FAIL bytes
+//	+1 Sprintf per line        842,490,296      -12.2%    +0.7%    pass
+//	+3 Sprintf per line        852,094,600      -11.2%    +1.9%    pass on bytes
+//
+//	mutation                     allocs/op   vs ceiling  vs base   gate
+//	none                         9,015,812      -13.3%        —    pass
+//	scanner buffer +64 KB/file   9,015,462      -13.3%    -0.0%    pass
+//	scanner buffer +256 KB/f     9,015,068      -13.3%    -0.0%    pass
+//	scanner buffer +1 MB/file    9,014,321      -13.3%    -0.0%    pass
+//	+1 Sprintf per line          9,680,537       -6.9%    +7.4%    pass
+//	+3 Sprintf per line         11,021,266       +6.0%   +22.2%    FAIL allocs
+//
+// Two things to read out of it. The failures say the gate works; +22.2% on
+// the count says it works on a moderate regression, not only on a
+// catastrophic one. And the passing rows matter as much: a gate that fails on
+// any change at all is a gate that gets deleted within a month. +64 KB per
+// file is 93 MB of extra churn (+11.2%) and stays green, which is where the
+// 15% headroom went and is far more than ordinary repo growth will produce in
+// a year.
 //
 // The bytes rows barely move allocs/op and the Sprintf rows barely move B/op.
 // That is not a quirk of these mutations — it is the reason both constants
@@ -184,9 +248,9 @@ func TestDogfood_ScanMemoryCeiling(t *testing.T) {
 	if !ok {
 		t.Fatalf("benchmark reported no allocs/op; -benchmem did not take effect:\n%s", out)
 	}
-	files := m["gofiles"]
+	files := fileCountLabel(m)
 
-	t.Logf("scan churn over %.0f .go files: %s cumulative allocation (ceiling %s, %+.1f%%), "+
+	t.Logf("scan churn over %s .go files: %s cumulative allocation (ceiling %s, %+.1f%%), "+
 		"%s allocations (ceiling %s, %+.1f%%)",
 		files,
 		commas(bytesPerOp), commas(maxScanBytesPerOp), pctOf(bytesPerOp, maxScanBytesPerOp),
@@ -197,8 +261,8 @@ func TestDogfood_ScanMemoryCeiling(t *testing.T) {
 			"committed ceiling of %s.\n\n"+
 			"These are CUMULATIVE BYTES ALLOCATED, not resident memory — see the constant's "+
 			"comment before reasoning about RSS from this number.\n\n"+
-			"It scanned %.0f .go files. If that count has grown a lot since the ceiling was "+
-			"set (675 files), this may be the repository rather than the code; if it has not, "+
+			"It scanned %s .go files. If that count has grown a lot since the ceiling was "+
+			"set (681 files), this may be the repository rather than the code; if it has not, "+
 			"something on the scan path started allocating. Either way, find out which:\n\n"+
 			"    %s -memprofile /tmp/scan.mem -o /tmp/scan.test\n"+
 			"    go tool pprof -top -sample_index=alloc_space /tmp/scan.test /tmp/scan.mem\n\n"+
@@ -319,6 +383,47 @@ func parseBenchmarkLine(out, name string) (map[string]float64, error) {
 		return m, nil
 	}
 	return nil, fmt.Errorf("no %s result line in the output", name)
+}
+
+// fileCountLabel renders the scanned-file count for the log line and the
+// failure message.
+//
+// It exists as a function so it can be tested, and it is tested because the
+// obvious spelling — `files := m["gofiles"]` — reads a missing metric as
+// zero and then prints "It scanned 0 .go files". That number has one job: it
+// lets a reader tell corpus growth from a code regression without opening a
+// profiler. A fabricated zero answers that question WRONGLY, which is worse
+// than declining to answer it, and it does so in the one message someone
+// reads while a blocking CI job is red.
+//
+// gofiles is a ReportMetric the benchmark chooses to emit, unlike B/op and
+// allocs/op which -benchmem guarantees, so its absence is an ordinary
+// outcome rather than a broken run — which is why it degrades to a label
+// here instead of failing the gate the way a missing B/op does above.
+func fileCountLabel(m map[string]float64) string {
+	n, ok := m["gofiles"]
+	if !ok {
+		return "an unreported number of"
+	}
+	return fmt.Sprintf("%.0f", n)
+}
+
+// TestDogfood_FileCountLabelNeverInventsAZero is the guard on that. It is a
+// pure-function test riding in the dogfood job because the constant it
+// protects lives here; it costs microseconds.
+func TestDogfood_FileCountLabelNeverInventsAZero(t *testing.T) {
+	if got := fileCountLabel(map[string]float64{"B/op": 1, "allocs/op": 2}); strings.Contains(got, "0") {
+		t.Errorf("fileCountLabel with no gofiles metric = %q; a reader is told a count that "+
+			"was never measured", got)
+	}
+	if got := fileCountLabel(map[string]float64{"gofiles": 675}); got != "675" {
+		t.Errorf("fileCountLabel = %q, want 675", got)
+	}
+	// Zero really measured is still zero: the label only refuses to invent
+	// one, it does not hide one.
+	if got := fileCountLabel(map[string]float64{"gofiles": 0}); got != "0" {
+		t.Errorf("fileCountLabel of a measured zero = %q, want 0", got)
+	}
 }
 
 // pctOf is how far observed sits from ceiling, signed, for a message that

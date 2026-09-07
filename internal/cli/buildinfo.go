@@ -47,26 +47,46 @@ const shortSHALen = 7
 // at init() time; tests drive the pure helper resolveFromBuildInfo via
 // synthetic *debug.BuildInfo values without poking the real runtime.
 func resolveBuildInfo() (version, commit, builtAt string) {
-	if ldflagsStamped() {
-		return Version, Commit, BuildDate
-	}
-	bi, ok := debug.ReadBuildInfo()
-	if !ok {
-		return defaultVersion, defaultCommit, defaultBuildDate
-	}
-	return resolveFromBuildInfo(bi)
-}
+	// Each field resolves independently: an ldflags value if one was
+	// supplied, otherwise what the toolchain embedded, otherwise the default.
+	//
+	// This used to be all-or-nothing -- any one field being non-default meant
+	// "stamped", and all three came from source. That was defensible while
+	// Version, Commit and BuildDate were all hand-edited together. It stopped
+	// being defensible when Version alone was moved for a release: the
+	// short-circuit then returned a Version from source beside a Commit and
+	// BuildDate that were blank or, worse, frozen at whatever the tree said
+	// months earlier. A confidently wrong commit is worse than an absent one,
+	// because it sends a reader to the wrong diff.
+	//
+	// A hybrid of ldflags and VCS data is exactly what a `go install` of a
+	// tagged commit SHOULD report: the version its source declares, and the
+	// revision the toolchain actually saw.
+	version, commit, builtAt = Version, Commit, BuildDate
 
-// ldflagsStamped reports whether any of the three build-info package
-// vars has been overridden via `-ldflags="-X ..."`. Treating "any one"
-// as the trigger keeps release-build behaviour unchanged: if CI stamps
-// Version=v0.7.0 but forgets BuildDate, we still emit
-// "v0.7.0 (commit unknown, built unknown)" — never a hybrid of ldflags
-// + ReadBuildInfo data, which would be confusing to debug.
-func ldflagsStamped() bool {
-	return Version != defaultVersion ||
-		Commit != defaultCommit ||
-		BuildDate != defaultBuildDate
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		v, c, b := resolveFromBuildInfo(bi)
+		if version == "" || version == defaultVersion {
+			version = v
+		}
+		if commit == "" || commit == defaultCommit {
+			commit = c
+		}
+		if builtAt == "" || builtAt == defaultBuildDate {
+			builtAt = b
+		}
+	}
+
+	if version == "" {
+		version = defaultVersion
+	}
+	if commit == "" {
+		commit = defaultCommit
+	}
+	if builtAt == "" {
+		builtAt = defaultBuildDate
+	}
+	return version, commit, builtAt
 }
 
 // resolveFromBuildInfo is the pure projection from a *debug.BuildInfo

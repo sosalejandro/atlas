@@ -22,10 +22,21 @@ import (
 // single-line file gave `err=bufio.Scanner: token too long, bytes
 // recovered=0`.
 //
-// os.ReadFile has no such cap, so the file now parses. That is a widening,
-// not a narrowing: no input that used to yield annotations stops doing so.
-// It is asserted rather than assumed because "we quietly started indexing
-// minified bundles" is the kind of change that should be someone's decision.
+// os.ReadFile has no such cap, so the file now parses. In annotation terms
+// that is a widening and not a narrowing — no input that used to yield
+// annotations stops doing so — and it is asserted rather than assumed because
+// "we quietly started indexing minified bundles" is the kind of change that
+// should be someone's decision.
+//
+// In MEMORY terms it is a trade, not a free win, and the test that pins the
+// widening is the right place to say so. The 1 MB token cap was the only
+// per-file bound on how much this parser could hold at once; os.ReadFile has
+// none, so one parse now peaks at roughly twice the file's size in RESIDENT
+// memory (63.5 MB for a 32 MB single-line file, measured — see the figures
+// and the reasoning in ParseRelative). The 2 MB fixture below is deliberately
+// just over the old cap rather than the tens of megabytes a real generated
+// bundle reaches: this test exists to pin the behaviour, and making it
+// allocate 128 MB to do so would be a poor trade of its own.
 func TestParseRelative_LineLongerThanTheOldScannerCap(t *testing.T) {
 	t.Parallel()
 

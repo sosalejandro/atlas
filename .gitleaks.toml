@@ -55,7 +55,13 @@ real header; the body is deliberately too short to be a key of any kind.
 [allowlist]
   description = "Paths that are not source, or are generated/vendored."
   paths = [
-    '''\.claude/worktrees/.*''',
+    # Anchored. Unanchored, this pattern matches the ABSOLUTE path, so a scan
+    # whose root is itself inside .claude/worktrees allowlists every file in it
+    # and reports "no leaks found" having read nothing. Every agent worktree in
+    # this repo sat at such a path, so `make secret-scan` passed vacuously
+    # there for eight batches. secret-scan.sh now also refuses a scan that read
+    # essentially nothing, so the same mistake cannot be silent twice.
+    '''^\.claude/worktrees/.*''',
     '''\.git/.*''',
     '''dist/.*''',
     '''packages/store/sqlc/.*\.sql\.go''',

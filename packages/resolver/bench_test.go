@@ -3,14 +3,12 @@ package resolver
 import (
 	"context"
 	"fmt"
-	"go/token"
 	"go/types"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
 
-	"golang.org/x/tools/go/callgraph/cha"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
@@ -125,11 +123,22 @@ func BenchmarkPackagesLoad(b *testing.B) {
 //
 // The metrics answer the two questions the issue left open.
 //
-// bodiesOutside is the number of SSA function bodies built for packages
-// atlas does not index. It is 0: ssautil.Packages hands syntax only to
-// the packages it was given, so a dependency becomes an ssa.Package of
-// declarations with no code. The ~99 MB the issue attributed to
-// dependency bodies is the scanned tree's own bodies.
+// bodiesOutsideSrc is the number of SSA function bodies built from the
+// SYNTAX of a package atlas does not index. It is 0, and that is the
+// question the issue was actually asking: ssautil.Packages hands syntax
+// only to the packages it was given, so a dependency becomes an
+// ssa.Package of declarations with no code and there is nothing to build.
+// The ~99 MB the issue attributed to dependency bodies is the scanned
+// tree's own bodies.
+//
+// bodiesOutsideWrap is what a previous version of this census left out.
+// go/ssa synthesises a pointer-receiver wrapper whenever the scanned tree
+// needs *T's method set for a T declared elsewhere; those functions have
+// no ssa.Package, the loop skipped every function with fn.Pkg == nil, and
+// so a whole class of body built over a dependency's methods was excluded
+// from a number presented as a census. They are counted now, and
+// instrsOutsideWrap is there so the size of what was missed is visible
+// rather than inferred — a wrapper is a load, a call and a return.
 //
 // The dedup arm prices the one duplication that IS left. With
 // IncludeTests, a package with in-package tests is loaded twice — plainly
@@ -162,6 +171,14 @@ func BenchmarkCallGraphScope(b *testing.B) {
 // census builds SSA and CHA over input and reports what came out. all is
 // the full package list, used only to count how much of the tree input
 // covers.
+//
+// The counting is takeCensus (ssainputs_test.go), shared with
+// TestSSA_NoFunctionBodiesOutsideTheScannedTree so that the metrics
+// reported here and the assertion made there cannot mean different things.
+// It is also where the bodiesOutside undercount was fixed: this loop used
+// to skip every function with fn.Pkg == nil, which is every synthetic
+// wrapper go/ssa builds, and a wrapper over a dependency's method is
+// exactly what "bodies outside the scanned tree" is asking about.
 func census(b *testing.B, input, all []*packages.Package) {
 	b.Helper()
 	scanned := map[*types.Package]bool{}
@@ -171,43 +188,25 @@ func census(b *testing.B, input, all []*packages.Package) {
 
 	prog, _ := ssautil.Packages(input, ssa.BuilderMode(0))
 	prog.Build()
-
-	shells := 0
-	for _, ssaPkg := range prog.AllPackages() {
-		if !scanned[ssaPkg.Pkg] {
-			shells++
-		}
-	}
-	bodies, outside := 0, 0
-	for fn := range ssautil.AllFunctions(prog) {
-		if len(fn.Blocks) == 0 || fn.Pkg == nil {
-			continue
-		}
-		bodies++
-		if !scanned[fn.Pkg.Pkg] {
-			outside++
-		}
-	}
-
-	sites := map[token.Pos]bool{}
-	for _, node := range cha.CallGraph(prog).Nodes {
-		for _, edge := range node.Out {
-			if pos, _, ok := invokeTarget(edge); ok {
-				sites[pos] = true
-			}
-		}
-	}
+	c := takeCensus(prog, scanned)
 
 	b.StopTimer()
 	b.ReportMetric(float64(len(input)), "pkgsIn")
-	b.ReportMetric(float64(len(prog.AllPackages())), "ssaPkgs")
-	b.ReportMetric(float64(shells), "shells")
-	b.ReportMetric(float64(bodies), "bodies")
-	b.ReportMetric(float64(outside), "bodiesOutside")
+	b.ReportMetric(float64(c.ssaPkgs), "ssaPkgs")
+	b.ReportMetric(float64(c.shells), "shells")
+	b.ReportMetric(float64(c.bodies), "bodies")
+	b.ReportMetric(float64(c.instrs), "instrs")
+	// The three metrics the old bodiesOutside collapsed into one number.
+	// bodiesOutsideSrc is the one the ~99 MB hypothesis was about and it
+	// is 0; bodiesOutsideWrap is what the old loop silently dropped.
+	b.ReportMetric(float64(c.outsideSource), "bodiesOutsideSrc")
+	b.ReportMetric(float64(c.outsideSynthetic), "bodiesOutsideWrap")
+	b.ReportMetric(float64(c.outsideInstrs), "instrsOutsideWrap")
+	b.ReportMetric(float64(c.syntheticInside), "bodiesWrapInside")
 	compiled, twice := fileCensus(all)
 	b.ReportMetric(float64(compiled), "filesCompiled")
 	b.ReportMetric(float64(twice), "filesBuiltTwice")
-	b.ReportMetric(float64(len(sites)), "invokeSites")
+	b.ReportMetric(float64(c.invokeSites), "invokeSites")
 	b.StartTimer()
 }
 
@@ -287,9 +286,13 @@ func coveredBy(files []map[string]bool, i int) bool {
 // over. Two further costs are invisible here and matter at least as much
 // as the bytes. Driving types.Config.Check directly means reimplementing
 // what packages.Load does with per-package errors — the degradation path
-// issue #87 built, which is what lets atlas run mid-edit — and it gives
-// up go/packages' export-data caching, which is what makes the load 0.5 s
-// instead of 3.6 s (see doc.go).
+// issue #87 built, which is what lets atlas run mid-edit — and it puts the
+// caller in charge of where dependency types come from, which is the
+// single most expensive decision in the load: doc.go's NeedDeps A/B prices
+// dependency types from source at 3.16 s and 2,131 MB of cumulative
+// allocation against 0.52 s and 340 MB from export data. Nobody has
+// written the hand-rolled checker, so that pair is the cost of the choice
+// it would have to make, not a measurement of the program itself.
 func BenchmarkTypeCheckInfoFields(b *testing.B) {
 	pkgs := loadForRecheck(b)
 

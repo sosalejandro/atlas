@@ -203,3 +203,116 @@ func TestParseRelative_LoneCROnItsOwnIsNotALineBreak(t *testing.T) {
 		t.Fatalf("IDs = %v; want both ids on the single logical line", got[0].IDs)
 	}
 }
+
+// TestSplitLines_ContractIsWhatBufioScanLinesDid is the guard on dropCR, and
+// it has to sit on splitLines rather than on ParseBytes because — measured,
+// not assumed — nothing above splitLines can see whether the "\r" was removed.
+//
+// The differential: dropCR's body was replaced with `return line`, and 4,000
+// randomly assembled CR-laden inputs (CRLF, LF, lone-CR and CR-CR-LF endings,
+// across all three comment styles) were parsed through ParseBytes. Every
+// annotation field of every result hashed identically to the same corpus
+// parsed with dropCR intact, and the whole annotations suite stayed green.
+// The reason is structural: each unwrapper bytes.TrimSpaces the text it takes
+// off a line before that text becomes a logicalLine, and TrimSpace eats "\r"
+// — so does the `\s*$` in the @atlas and @testreg patterns, and `(\S+)` in
+// the @api one.
+//
+// So dropCR is not what makes CRLF and LF agree TODAY, and the tests above
+// would keep passing without it. What it makes true is splitLines' documented
+// contract, which is what the unwrappers are entitled to rely on: an
+// unwrapper that stopped trimming, or a matcher anchored more tightly than
+// `\s*$`, would inherit the "\r" the day it was written. Pinning the line
+// former is how that stays a decision rather than an accident — the same
+// reason the normalisation was moved here out of bufio.ScanLines to begin
+// with.
+func TestSplitLines_ContractIsWhatBufioScanLinesDid(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		content string
+		want    []string
+	}{
+		{
+			// The behaviour dropCR exists for.
+			name:    "CRLF loses the CR with the LF",
+			content: "a\r\nb\r\n",
+			want:    []string{"a", "b", ""},
+		},
+		{
+			// bufio.ScanLines' asymmetry, preserved deliberately: a CR
+			// that does not precede an LF is ordinary content, so a
+			// classic-Mac file stays one line. Treating it as a break
+			// would newly find annotations in files atlas has never
+			// reported any for.
+			name:    "a lone CR is content, not a line break",
+			content: "a\rb\n",
+			want:    []string{"a\rb", ""},
+		},
+		{
+			// Only ONE CR goes. ScanLines drops a single trailing CR and
+			// leaves anything before it, so "x\r\r\n" is the line "x\r".
+			name:    "only the CR adjacent to the LF is dropped",
+			content: "x\r\r\n",
+			want:    []string{"x\r", ""},
+		},
+		{
+			// ScanLines strips a trailing CR from the final token too,
+			// with no LF after it. The final line is where an
+			// implementation that only handled "\r\n" pairs would differ.
+			name:    "the final line without an LF is normalised too",
+			content: "tail\r",
+			want:    []string{"tail"},
+		},
+		{
+			name:    "LF-only content is untouched",
+			content: "a\nb",
+			want:    []string{"a", "b"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var got []string
+			for _, line := range splitLines([]byte(tc.content)) {
+				got = append(got, string(line))
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("splitLines(%q) = %q; want %q", tc.content, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSplitLines_YieldsSubslicesNotCopies pins the other half of splitLines'
+// contract, the half issue #152 was about. bytes.Split allocates a header per
+// line for the whole file and the callers then copied each one to a string;
+// walking subslices is why only the handful of comment lines a file has are
+// ever copied, and it is most of the -66% on the 512 KB row in
+// docs/performance.md §5.
+//
+// Aliasing is asserted by writing through the input after the lines have been
+// collected: a subslice sees the change, a copy cannot.
+func TestSplitLines_YieldsSubslicesNotCopies(t *testing.T) {
+	t.Parallel()
+
+	content := []byte("first\nsecond\nthird")
+	var lines [][]byte
+	for _, line := range splitLines(content) {
+		lines = append(lines, line)
+	}
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want 3", len(lines))
+	}
+
+	content[0] = 'X'
+	content[len(content)-1] = 'X'
+	if got := string(lines[0]); got != "Xirst" {
+		t.Fatalf("first line = %q after writing through the input; splitLines copied it", got)
+	}
+	if got := string(lines[2]); got != "thirX" {
+		t.Fatalf("last line = %q after writing through the input; splitLines copied it", got)
+	}
+}

@@ -155,9 +155,42 @@ func ParseRelative(ctx context.Context, absPath, relPath string) ([]shared.Annot
 	// inherited. See lineendings_test.go.
 	//
 	// The one behaviour deliberately NOT preserved is the scanner's 1 MB
-	// token cap: a file with a longer single line (a minified bundle, a
-	// generated table) used to fail with bufio.ErrTooLong and lose ALL of
-	// its annotations. Reading the file whole has no such limit.
+	// token cap, and it cuts both ways.
+	//
+	// What it bought: a file with a longer single line (a minified bundle,
+	// a generated table) used to fail with bufio.ErrTooLong, and because
+	// the error aborted the parse it lost ALL of its annotations, not just
+	// the long line's. Those files now parse.
+	//
+	// What it cost: that cap was the ONLY per-file bound on how much memory
+	// one file could occupy here. os.ReadFile has none — it stats the file
+	// and allocates all of it — so the bound is now the file's own size,
+	// times however many workers walkAnnotations is running
+	// (codeindex.Options.Jobs, `atlas scan --jobs`).
+	// Measured on this branch (linux/amd64, i7-10750H, Go 1.26.4; VmHWM
+	// either side of one ParseRelative, medians of three processes), the
+	// RESIDENT PEAK of one parse is about twice the file:
+	//
+	//	 2 MB single-line file ->  4.4 MB resident
+	//	32 MB single-line file -> 63.5 MB resident
+	//	64 MB single-line file -> 126.6 MB resident
+	//	32 MB ordinary source  -> 59.3 MB resident
+	//
+	// Twice, not once, because the file is read whole and then every
+	// comment line it carries is copied into a logicalLine string — and on
+	// a minified bundle the banner comment IS the whole file. A 64 MB
+	// generated file in a tree scanned at --jobs=12 is therefore a resident
+	// cost this parser used to refuse and now accepts.
+	//
+	// Left unbounded on purpose, and this is the argument rather than an
+	// oversight: a cap here cannot degrade gracefully. The parse is
+	// whole-file (unwrapBlockComments needs to see a block open before it
+	// can attribute the lines inside it), so a bound could only skip the
+	// file entirely — which is precisely the "lost ALL of its annotations"
+	// failure the cap was removed for, with a different error message. The
+	// place to bound this is the walker that chooses which files to hand
+	// over, where skipping is already an explicit, ledgered decision
+	// (codeindex.Options.AnnotationExts, the exclusion ledger), not here.
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", absPath, err)

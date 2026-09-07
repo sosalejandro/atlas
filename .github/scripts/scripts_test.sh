@@ -629,6 +629,115 @@ bash "$BREW_FORMULA" --version v1.2.3 --dist "$nosums" >/dev/null 2>&1
 assert_not_ok $?
 
 # ---------------------------------------------------------------------------
+# The stable channel's asset names, checked END TO END.
+#
+# Four independent places spell out what a released file is called:
+#
+#   lib.sh    atlas_artifact_name  — what the publisher writes into dist/
+#   install.sh                     — what the consumer action downloads
+#   brew-formula.sh                — what `brew install` fetches
+#   checksums.sh                   — what the signature ends up covering
+#
+# Until these cases existed, each was checked against a LITERAL in this
+# file. Literals in four places is not agreement, it is four independent
+# chances to drift, and the drift is invisible here and fatal there: a
+# rename in lib.sh keeps every literal assertion green and 404s in a
+# consumer's CI, or installs nothing on whichever platform nobody tried.
+# The edge channel already learned this the expensive way (see the
+# edge-assets.sh block above); the stable channel had the same hole and no
+# incident to show for it yet.
+#
+# So these compare the ends AGAINST EACH OTHER. There is no expected string
+# below that both sides do not have to produce.
+# ---------------------------------------------------------------------------
+
+# runner_labels_for maps a GOOS/GOARCH pair onto the runner.os / runner.arch
+# labels a workflow would present for it. This is the one table that has to
+# be written down, because GitHub's vocabulary and Go's are genuinely
+# different words for the same machine.
+runner_labels_for() {
+	case "$1/$2" in
+	linux/amd64) echo "Linux X64" ;;
+	linux/arm64) echo "Linux ARM64" ;;
+	darwin/amd64) echo "macOS X64" ;;
+	darwin/arm64) echo "macOS ARM64" ;;
+	windows/amd64) echo "Windows X64" ;;
+	windows/arm64) echo "Windows ARM64" ;;
+	*) return 1 ;;
+	esac
+}
+
+it "every shipped target's published name is the name the installer asks for"
+NAME_VERSION="v1.2.3"
+mismatched=""
+for target in $ATLAS_TARGETS; do
+	goos="${target%%/*}"
+	goarch="${target##*/}"
+	labels="$(runner_labels_for "$goos" "$goarch")" || {
+		mismatched="$mismatched $target(no-runner-labels)"
+		continue
+	}
+	published="$(atlas_artifact_name "$NAME_VERSION" "$goos" "$goarch")"
+	requested="$(bash "$ACTION_INSTALL" --print-asset-name \
+		--version "$NAME_VERSION" --os "${labels%% *}" --arch "${labels##* }")"
+	[ "$published" = "$requested" ] ||
+		mismatched="$mismatched ${target}[publish=$published install=$requested]"
+done
+if [ -n "$mismatched" ]; then
+	fail "publisher and installer disagree on asset names:$mismatched"
+else
+	pass
+fi
+
+# Homebrew resolves exactly one url per machine, so a formula whose urls do
+# not match the published names fails for a user on one platform and for
+# nobody else — the hardest kind of break to notice. The four platforms
+# below are the ones a formula can express; Homebrew has no Windows.
+it "the Homebrew formula's download urls are the published asset names"
+brewnames="$WORK/brew-names"
+brew_fixture "$brewnames" "$NAME_VERSION"
+formula_out="$(bash "$BREW_FORMULA" --version "$NAME_VERSION" --dist "$brewnames" \
+	--repo acme/atlas 2>&1)"
+if [ $? -ne 0 ]; then
+	fail "brew-formula.sh failed: $formula_out"
+else
+	missing=""
+	for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+		goos="${target%%/*}"
+		goarch="${target##*/}"
+		labels="$(runner_labels_for "$goos" "$goarch")"
+		want="$(bash "$ACTION_INSTALL" --print-asset-name \
+			--version "$NAME_VERSION" --os "${labels%% *}" --arch "${labels##* }")"
+		case "$formula_out" in
+		*"/releases/download/${NAME_VERSION}/${want}\""*) ;;
+		*) missing="$missing $want" ;;
+		esac
+	done
+	if [ -n "$missing" ]; then
+		fail "formula has no url ending in the published name(s):$missing"
+	else
+		pass
+	fi
+fi
+
+# The signature covers SHA256SUMS and nothing else, so an asset the manifest
+# does not name is an asset nobody can verify. A url in the formula pointing
+# at one would send a user to an unverifiable download while every check in
+# this pipeline stayed green.
+it "every url in the formula names a file the signed manifest covers"
+uncovered=""
+while IFS= read -r assetname; do
+	[ -n "$assetname" ] || continue
+	grep -q "[[:space:]]\*\?${assetname}\$" "$brewnames/SHA256SUMS" ||
+		uncovered="$uncovered $assetname"
+done < <(printf '%s\n' "$formula_out" | sed -n 's|.*/releases/download/[^/]*/\([^"]*\)".*|\1|p')
+if [ -n "$uncovered" ]; then
+	fail "formula links assets absent from SHA256SUMS:$uncovered"
+else
+	pass
+fi
+
+# ---------------------------------------------------------------------------
 # build.sh — the real thing, against this checkout
 # ---------------------------------------------------------------------------
 

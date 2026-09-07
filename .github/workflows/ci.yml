@@ -349,16 +349,24 @@ jobs:
         run: ./test/acceptance/run.sh
 
   version-consistency:
-    name: version / manifest / changelog agree (ADVISORY — known failing, see docs/releasing.md)
+    name: version / manifest / changelog agree (blocking)
     runs-on: ubuntu-latest
-    # Advisory on purpose, and named so nobody has to guess. As of this
-    # workflow landing, internal/cli.Version, .release-please-manifest.json
-    # and CHANGELOG.md disagree — that predates this job and is exactly what
-    # issue #121 asks to be made visible. Making it blocking now would red-X
-    # every PR for a defect none of them introduced. docs/releasing.md says
-    # what the one-time fix is; once it lands, delete continue-on-error and
-    # drop ADVISORY from the name.
-    continue-on-error: true
+    # This job was advisory from the day it landed, for one reason: it was
+    # failing. internal/cli.Version said v0.13.0, the manifest said 0.8.0,
+    # and the changelog stopped at 0.8.0, so making it blocking would have
+    # red-X'd every pull request for a defect none of them introduced.
+    #
+    # The reconciliation landed (all four sources now say 0.14.0 — see
+    # docs/releasing.md, "Why 0.14.0"), so the reason is gone and the
+    # `continue-on-error` with it. An advisory gate that has started passing
+    # is worse than no gate: it is a check nobody reads, sitting next to the
+    # checks they should, teaching that a red X is survivable.
+    #
+    # What it defends is narrow and worth blocking for. The only mechanism
+    # allowed to move these numbers is release-please. A hand-edited version
+    # constant is how they drifted five minors apart the first time, and the
+    # cost is that a bug report against "atlas v0.13.0" maps to no commit,
+    # because no such release was ever tagged.
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
