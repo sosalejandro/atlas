@@ -31,7 +31,11 @@ type envelope struct {
 	Args          any      `json:"args,omitempty"`
 	Result        any      `json:"result"`
 	Warnings      []string `json:"warnings,omitempty"`
-	GeneratedAt   string   `json:"generated_at"`
+	// GeneratedAt is omitted under --stable: it is the single field that
+	// makes every envelope differ from itself between runs, and a digest
+	// or a checked-in artifact containing it certifies nothing. See
+	// stable.go.
+	GeneratedAt string `json:"generated_at,omitempty"`
 }
 
 // emitJSON writes the standard envelope around `result` to `w` with the
@@ -47,6 +51,25 @@ func emitJSON(w io.Writer, command string, args any, result any, warnings []stri
 		Result:        result,
 		Warnings:      warnings,
 		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+	if flags.Stable {
+		// Everything that depends on when or where this ran, dropped --
+		// including the envelope's own stamp -- so two runs over the same
+		// code produce the same bytes.
+		env.GeneratedAt = ""
+		stripped, err := stripVolatile(struct {
+			Args   any `json:"args,omitempty"`
+			Result any `json:"result"`
+		}{Args: args, Result: result})
+		if err != nil {
+			return err
+		}
+		m, ok := stripped.(map[string]any)
+		if !ok {
+			return fmt.Errorf("emit json: stable form is not an object")
+		}
+		env.Args = m["args"]
+		env.Result = m["result"]
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
