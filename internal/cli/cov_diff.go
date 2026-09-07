@@ -102,7 +102,7 @@ func runCovDiff(cmd *cobra.Command, base string, target *float64) error {
 		ctx = context.Background()
 	}
 	if strings.TrimSpace(base) == "" {
-		return fmt.Errorf("cov diff: --base is required (the ref this branch forked from, e.g. origin/main)")
+		return usagef("cov diff: --base is required (the ref this branch forked from, e.g. origin/main)")
 	}
 
 	changes, err := patch.Diff(ctx, loaded.repoRoot, base)
@@ -143,6 +143,23 @@ func runCovDiff(cmd *cobra.Command, base string, target *float64) error {
 	}
 	// The report is emitted either way: a failing gate that prints nothing
 	// forces the reviewer back to CI logs for the lines they need.
+	//
+	// The stale check comes BEFORE the verdict, and only when a gate was
+	// asked for. Both halves matter. Before, because a percentage computed
+	// against spans that describe a version of the file that no longer
+	// exists is not a low number or a high one -- it is not a measurement,
+	// and passing it to a comparison would launder it into one. Only when
+	// gating, because printing "3 files are stale" beside a number nobody
+	// is deciding anything with is a caveat, and exiting non-zero for a
+	// caveat teaches people to ignore the exit code.
+	if target != nil && len(res.StaleIndexFiles) > 0 {
+		return undeterminedf(
+			"cov diff: %d of %d changed file(s) have moved since the index was built, "+
+				"so the %d line(s) inside their stale spans cannot be attributed to a "+
+				"symbol; patch coverage is not a measurement here. Run `atlas scan` and "+
+				"retry, or drop --fail-under to see the report without the gate",
+			len(res.StaleIndexFiles), res.ChangedFiles, res.StaleIndexLines)
+	}
 	if !res.Passed {
 		return fmt.Errorf("cov diff: patch coverage %.1f%% is below --fail-under %g",
 			*res.Percent, *target)

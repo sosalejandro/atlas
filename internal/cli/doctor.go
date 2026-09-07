@@ -37,9 +37,11 @@ what was examined rather than nothing at all. A check that cannot run
 (no coverage ingested yet, no features annotated yet) reports "n/a" with
 the reason -- never "ok".
 
-The exit code is the CI contract: zero unless some check reached the
---fail-on severity. --fail-on warn tightens the gate without changing
-which checks run.`,
+The exit code is the CI contract: 0 clean, 1 a check reached the
+--fail-on severity, 2 bad usage, 3 a check could not run at all. 3 is
+the one worth wiring up -- it separates "atlas found a problem" from
+"atlas could not look", which otherwise arrive as the same red X.
+--fail-on warn tightens the gate without changing which checks run.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runDoctor(cmd, root, failOn)
@@ -59,7 +61,7 @@ func runDoctor(cmd *cobra.Command, rootArg, failOn string) error {
 	}
 	threshold, err := doctor.ParseSeverity(failOn)
 	if err != nil {
-		return fmt.Errorf("doctor: --fail-on: %w", err)
+		return usagef("doctor: --fail-on: %w", err)
 	}
 	dbPath, err := resolveDBPath(loaded, flags.DBPath)
 	if err != nil {
@@ -111,7 +113,12 @@ func runDoctor(cmd *cobra.Command, rootArg, failOn string) error {
 	}
 	report, err := doctor.Run(ctx, env, doctor.DefaultChecks())
 	if err != nil {
-		return fmt.Errorf("doctor: %w", err)
+		// doctor.Run errors only when a check could not COMPLETE -- "the
+		// input does not exist yet" is a not-applicable Result, not an
+		// error. So this is precisely the undetermined case: the gate did
+		// not run, and reporting it as a failing gate would be a lie in
+		// the more dangerous direction.
+		return undeterminedf("doctor: %w", err)
 	}
 
 	if flags.JSON {

@@ -96,7 +96,10 @@ Pair with --fallback-exit-code so CI can branch on "run this subset" versus
 	cmd.Flags().StringVar(&kindFlag, "kind", string(kindTest),
 		"what the human output leads with (test|package|feature)")
 	cmd.Flags().IntVar(&fallbackExitCode, "fallback-exit-code", 0,
-		"exit with this status when the answer is \"run everything\" (0 disables, which is the default so opting in never breaks an existing pipeline)")
+		"exit with this status when the answer is \"run everything\" (0 disables, "+
+			"which is the default so opting in never breaks an existing pipeline; "+
+			"3 is the value that matches the rest of the CLI, since bailing to "+
+			"run-all IS the undetermined case -- see internal/cli/exitcode.go)")
 
 	return cmd
 }

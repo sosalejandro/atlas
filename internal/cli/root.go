@@ -87,6 +87,13 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
+	// A flag cobra could not parse is a bad invocation, not a finding about
+	// the codebase. Classifying it once here means every subcommand inherits
+	// ExitUsage without restating it. See exitcode.go.
+	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return &ExitError{Code: ExitUsage, Err: err}
+	})
+
 	root.PersistentFlags().BoolVar(&flags.JSON, "json", false,
 		"emit stable JSON envelope instead of human-friendly text")
 	root.PersistentFlags().StringVar(&flags.DBPath, "db-path", "",
