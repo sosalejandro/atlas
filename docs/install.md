@@ -24,7 +24,7 @@ on without them.
 ```yaml
 - uses: sosalejandro/atlas/.github/actions/atlas@v0.14.0
   with:
-    args: audit --json
+    args: health --json
 ```
 
 `v0.14.0` here stands for whichever release you want; pin a real one from

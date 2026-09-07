@@ -1,0 +1,12 @@
+# The CRLF twins are byte-compared fixtures, and the bytes ARE the test.
+#
+# The repository-root .gitattributes checks every text file out as LF on
+# every platform, which is right for source and wrong for these four: a
+# *.crlf.fixture whose CRs were rewritten to LF on checkout is no longer a
+# CRLF file, and TestParseRelative_CRLFFixtureMatchesLFTwin would then be
+# asserting LF == LF while reporting that CRLF is handled.
+#
+# -text means "never convert, in either direction". The guard in that test
+# (it fails if the fixture has no CRLF in it) is the second line of defence;
+# this is the first.
+*.crlf.fixture -text

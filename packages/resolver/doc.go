@@ -47,8 +47,30 @@
 // The load mode omits packages.NeedDeps on purpose. With it, dependency
 // syntax is parsed and type-checked from source; without it, dependencies
 // come from compiled export data and the initial packages are still fully
-// type-checked. Measured on the atlas repository itself (143 packages,
-// warm build cache, see docs/languages/go.md for the full numbers), the
-// load takes about 0.5s without NeedDeps and about 3.6s with it. Nothing
-// this package answers needs dependency syntax, so it does not pay for it.
+// type-checked. Nothing this package answers needs dependency syntax, so
+// it does not pay for it.
+//
+// The A/B, on this repository, warm build and module caches, three
+// interleaved samples of each arm in a process apiece, medians (machine
+// and method: docs/performance.md). Both arms are the same
+// packages.Load(./..., Tests: true); only the mode differs:
+//
+//	                    wall     cumulative alloc   resident peak
+//	without NeedDeps    0.52 s          340 MB           243 MB
+//	with NeedDeps       3.16 s         2,131 MB        1,326 MB
+//
+// Six times the wall clock, six times the churn and five times the
+// resident set, for dependency syntax nothing here reads. Note which
+// column is which: docs/performance.md §"Three kinds of memory" is what
+// the last two mean, and they are not the same quantity.
+//
+// docs/languages/go.md records 0.39-0.42 s and 2.70-2.80 s for the same
+// pair, taken in an earlier session on a quieter machine. The ratio is
+// what carries between the two, and it is about six either way.
+//
+// This A/B is NOT a price for driving types.Config.Check by hand instead
+// of packages.Load — that program has never been written or measured, and
+// an importer built on gcexportdata would read the same export data this
+// arm does. What the pair prices is exactly what it varies: dependency
+// types from source against dependency types from export data.
 package resolver

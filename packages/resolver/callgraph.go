@@ -3,7 +3,10 @@ package resolver
 import (
 	"go/token"
 	"go/types"
+	"runtime"
 	"sort"
+	"sync"
+	"sync/atomic"
 
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/callgraph/cha"
@@ -42,7 +45,9 @@ func (p *Program) buildCallGraph(pkgs []*packages.Package) {
 		// did not produce and cannot fully vouch for. A panic here must
 		// cost interface dispatch, not the scan: static resolution has
 		// already been established by the type checker and stands on its
-		// own.
+		// own. This covers ssautil.Packages, CHA and the indexing below;
+		// the builder itself is covered by buildAllSSA, for the reason
+		// written there.
 		if r := recover(); r != nil {
 			p.status.CallGraph = false
 			p.invokes = map[token.Pos][]*types.Func{}
@@ -50,16 +55,97 @@ func (p *Program) buildCallGraph(pkgs []*packages.Package) {
 	}()
 
 	start := timeNow()
+	// ssautil.Packages, NOT ssautil.AllPackages, and that one word is the
+	// whole of issue #152's cause 3. Packages hands syntax and types.Info
+	// only to the packages it was given; a dependency reached through
+	// packages.Visit is created from its types alone, so it becomes an
+	// ssa.Package of declarations with no code. AllPackages would build
+	// bodies for every transitive dependency, which is the ~99 MB the issue
+	// went looking for and did not find.
+	// TestSSA_NoFunctionBodiesOutsideTheScannedTree is the assertion, and it
+	// reads the program built HERE — see ssaObserver.
 	prog, _ := ssautil.Packages(pkgs, ssa.BuilderMode(0))
 	if prog == nil {
 		return
 	}
-	prog.Build()
+	if !buildAllSSA(prog) {
+		return
+	}
+	if ssaObserver != nil {
+		ssaObserver(prog, pkgs)
+	}
 
 	cg := cha.CallGraph(prog)
 	p.indexInvokes(cg)
 	p.status.CallGraph = true
 	p.status.CallGraphDuration = timeSince(start)
+}
+
+// ssaObserver, when non-nil, is handed the built ssa.Program and the
+// packages it was built over, after buildAllSSA and before CHA.
+//
+// It exists for one assertion, and the assertion is why it is worth a hook
+// in production code. The scope of SSA construction — which packages get
+// bodies built for them — is a property of THIS function's arguments, and
+// a test that calls ssautil.Packages itself measures its own arguments
+// instead. That test passed while the production call was
+// ssautil.AllPackages, which is the change it exists to catch, and the
+// only fix is for it to look at the program production built.
+//
+// A hook rather than a field on Program, because the ssa.Program is the
+// largest single thing a load constructs — 245 MB of cumulative allocation
+// out of a load's 584 MB, docs/performance.md §1 — and keeping a reference
+// past buildCallGraph would turn a churn cost into a residency one on
+// every scan, to serve a test.
+//
+// Not safe for concurrent Loads. Tests that set it do not call t.Parallel.
+var ssaObserver func(prog *ssa.Program, pkgs []*packages.Package)
+
+// buildAllSSA builds every package in prog and reports whether all of
+// them built.
+//
+// It exists instead of a call to prog.Build() because prog.Build runs
+// each package on a goroutine it spawns itself and recovers nothing: a
+// panic out of the SSA builder unwinds a goroutine that buildCallGraph's
+// recover is not on the stack of, and takes the process down with it.
+// That is the wrong failure for this program. Atlas is meant to run
+// mid-edit against trees that do not compile (issue #87), and losing
+// interface dispatch for a repository is a far smaller loss than a scan
+// that dies. ssa.Package.Build runs inline and is documented idempotent
+// and thread-safe, so doing the fan-out here keeps the parallelism and
+// puts a recover back on every stack that can panic.
+//
+// One failure fails the whole graph rather than the one package. A
+// partially built program still answers cha.CallGraph, and it answers
+// short by exactly whatever the unbuilt package contained -- absences
+// indistinguishable from a call site that genuinely dispatches nowhere.
+// A missing call graph is reported as such by Status.CallGraph; a
+// quietly incomplete one is not reportable at all.
+func buildAllSSA(prog *ssa.Program) bool {
+	var (
+		wg     sync.WaitGroup
+		failed atomic.Bool
+		// The same bound x/tools uses, for the same reason: SSA
+		// construction is CPU-bound and a package apiece would put one
+		// goroutine per dependency on the run queue.
+		sem = make(chan struct{}, runtime.GOMAXPROCS(0))
+	)
+	for _, pkg := range prog.AllPackages() {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					failed.Store(true)
+				}
+			}()
+			pkg.Build()
+		}()
+	}
+	wg.Wait()
+	return !failed.Load()
 }
 
 // indexInvokes collects CHA's interface-dispatch answers keyed by the

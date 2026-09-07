@@ -103,8 +103,35 @@ history)
 esac
 
 echo "gitleaks $have_version, mode=$SCAN_MODE, config=.gitleaks.toml"
-if "$GITLEAKS_BIN" "$@"; then
-	echo "ok    no committed credentials found"
+
+# Capture the output so the "did it actually read anything?" check below can
+# see it. A scanner that reports success having read nothing is
+# indistinguishable, from the exit code alone, from one that read everything
+# and found nothing -- and this repo shipped exactly that for eight batches:
+# .gitleaks.toml's worktree allowlist was unanchored, so it matched the
+# ABSOLUTE path, and any scan rooted inside .claude/worktrees allowlisted its
+# own entire tree. Every agent's "secrets: ok" there was vacuous.
+scan_log="$(mktemp)"
+trap 'rm -f "$scan_log"' EXIT
+if "$GITLEAKS_BIN" "$@" 2>&1 | tee "$scan_log"; then
+	# gitleaks prints "scanned ~N bytes". A repository this size is megabytes;
+	# anything under 64 KB means the scan was allowlisted or misrooted out of
+	# existence, whatever the exit code said.
+	scanned="$(grep -oE 'scanned ~[0-9]+ bytes' "$scan_log" | head -1 | grep -oE '[0-9]+' || echo 0)"
+	if [ "${scanned:-0}" -lt 65536 ]; then
+		atlas_err ""
+		atlas_err "FAIL: gitleaks reported success after reading only ${scanned:-0} bytes."
+		atlas_err ""
+		atlas_err "That is not a clean scan, it is a scan that did not happen. The usual"
+		atlas_err "cause is an allowlist in .gitleaks.toml matching the scan root itself:"
+		atlas_err "a path pattern without a leading ^ is matched against the ABSOLUTE"
+		atlas_err "path, so running from inside a directory that pattern names allowlists"
+		atlas_err "everything under it."
+		atlas_err ""
+		atlas_err "Check the [allowlist] paths in .gitleaks.toml against \$PWD."
+		exit "$EXIT_BAD_USAGE"
+	fi
+	echo "ok    no committed credentials found (${scanned} bytes scanned)"
 	exit 0
 fi
 

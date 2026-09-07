@@ -1,8 +1,6 @@
 package annotations
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -129,35 +127,80 @@ func Parse(ctx context.Context, filePath string) ([]shared.Annotation, error) {
 // ParseRelative is Parse with separate absolute (for reading) and
 // repo-relative (for FilePosition.Path) paths.
 func ParseRelative(ctx context.Context, absPath, relPath string) ([]shared.Annotation, error) {
-	f, err := os.Open(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", absPath, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	ext := strings.ToLower(filepath.Ext(absPath))
-	style := commentStyleFor(ext)
+	// Extension first, read second. The order used to be the other way
+	// round, and it was free when the read was an os.Open the unsupported
+	// branch immediately closed. It is not free now that the read is the
+	// whole file, and no caller asks for an extension the parser does not
+	// understand: walkAnnotations filters by opts.AnnotationExts and the Go
+	// scanner passes .go paths.
+	style := commentStyleFor(filepath.Ext(absPath))
 	if style == styleUnsupported {
 		return nil, nil
 	}
 
-	// Read the whole file so we can unwrap block comments correctly.
-	var buf bytes.Buffer
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		buf.Write(scanner.Bytes())
-		buf.WriteByte('\n')
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan %s: %w", absPath, err)
+	// One allocation, of exactly the file's size.
+	//
+	// This used to be a fresh 64 KB bufio.Scanner buffer per file plus a
+	// bytes.Buffer that the loop grew line by line to rebuild the file the
+	// scanner had just taken apart — 142.09 MB cumulative across a scan of
+	// this repository, 17.7% of the total, and most of the 33.91 MB in
+	// bytes.growSlice (issue #152). The whole file is wanted regardless, so
+	// there was nothing the streaming read bought.
+	//
+	// It bought one thing by accident: bufio.ScanLines strips a trailing
+	// "\r" as well as the "\n", so a CRLF file reached the matchers already
+	// normalised to LF. os.ReadFile hands over the CRs, so that behaviour
+	// did not survive the change on its own — it moved into splitLines
+	// (comments.go), where it is written down and tested rather than
+	// inherited. See lineendings_test.go.
+	//
+	// The one behaviour deliberately NOT preserved is the scanner's 1 MB
+	// token cap, and it cuts both ways.
+	//
+	// What it bought: a file with a longer single line (a minified bundle,
+	// a generated table) used to fail with bufio.ErrTooLong, and because
+	// the error aborted the parse it lost ALL of its annotations, not just
+	// the long line's. Those files now parse.
+	//
+	// What it cost: that cap was the ONLY per-file bound on how much memory
+	// one file could occupy here. os.ReadFile has none — it stats the file
+	// and allocates all of it — so the bound is now the file's own size,
+	// times however many workers walkAnnotations is running
+	// (codeindex.Options.Jobs, `atlas scan --jobs`).
+	// Measured on this branch (linux/amd64, i7-10750H, Go 1.26.4; VmHWM
+	// either side of one ParseRelative, medians of three processes), the
+	// RESIDENT PEAK of one parse is about twice the file:
+	//
+	//	 2 MB single-line file ->  4.4 MB resident
+	//	32 MB single-line file -> 63.5 MB resident
+	//	64 MB single-line file -> 126.6 MB resident
+	//	32 MB ordinary source  -> 59.3 MB resident
+	//
+	// Twice, not once, because the file is read whole and then every
+	// comment line it carries is copied into a logicalLine string — and on
+	// a minified bundle the banner comment IS the whole file. A 64 MB
+	// generated file in a tree scanned at --jobs=12 is therefore a resident
+	// cost this parser used to refuse and now accepts.
+	//
+	// Left unbounded on purpose, and this is the argument rather than an
+	// oversight: a cap here cannot degrade gracefully. The parse is
+	// whole-file (unwrapBlockComments needs to see a block open before it
+	// can attribute the lines inside it), so a bound could only skip the
+	// file entirely — which is precisely the "lost ALL of its annotations"
+	// failure the cap was removed for, with a different error message. The
+	// place to bound this is the walker that chooses which files to hand
+	// over, where skipping is already an explicit, ledgered decision
+	// (codeindex.Options.AnnotationExts, the exclusion ledger), not here.
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", absPath, err)
 	}
 
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", absPath, err)
 	}
 
-	return ParseBytes(relPath, buf.Bytes(), style), nil
+	return ParseBytes(relPath, content, style), nil
 }
 
 // ParseBytes parses content as the given language style and returns

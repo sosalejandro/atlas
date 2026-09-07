@@ -49,11 +49,22 @@ func benchRoot(tb testing.TB) string {
 	return abs
 }
 
-// reportCorpus records what was actually scanned alongside the timing.
-// A ns/op with no file count next to it cannot be compared against
-// anything, including its own future self.
-func reportCorpus(b *testing.B, root string) {
-	b.Helper()
+// countGoFiles counts what a benchmark is about to scan, so the timing and
+// the allocation figures carry their corpus with them. A ns/op with no file
+// count next to it cannot be compared against anything, including its own
+// future self.
+//
+// It RETURNS the count rather than reporting it, and callers report it after
+// the loop, because b.ResetTimer "deletes user-reported metrics": a
+// b.ReportMetric before the reset is dropped silently, and the gofiles column
+// never reached the output at all between #109 and the memory gate (#152),
+// which needs the number in its failure message to tell repo growth from a
+// regression.
+//
+// The skip rules are the walkers' own: any directory named vendor or
+// node_modules, or beginning with a dot.
+func countGoFiles(tb testing.TB, root string) int {
+	tb.Helper()
 	files := 0
 	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -71,14 +82,20 @@ func reportCorpus(b *testing.B, root string) {
 		}
 		return nil
 	})
-	b.ReportMetric(float64(files), "gofiles")
+	return files
 }
 
 // BenchmarkIndexProject is the end-to-end orchestrator: every phase, in
 // the order `atlas scan` runs them.
+//
+// Its B/op and allocs/op are gated. See maxScanBytesPerOp in
+// test/acceptance/memory_test.go, which runs exactly this benchmark as a
+// subprocess and fails when a scan starts allocating more than a scan should.
+// Changing what this benchmark measures changes what that gate means, so keep
+// the two in step.
 func BenchmarkIndexProject(b *testing.B) {
 	root := benchRoot(b)
-	reportCorpus(b, root)
+	files := countGoFiles(b, root)
 	ctx := context.Background()
 	opts := Options{HashFiles: true, SkipTS: true, SkipPY: true, Jobs: benchJobs(b)}
 	b.ReportAllocs()
@@ -88,6 +105,8 @@ func BenchmarkIndexProject(b *testing.B) {
 			b.Fatalf("IndexProject: %v", err)
 		}
 	}
+	b.StopTimer()
+	b.ReportMetric(float64(files), "gofiles")
 }
 
 // BenchmarkGoScan_Typed is phase A as `atlas scan` runs it by default:
@@ -95,7 +114,7 @@ func BenchmarkIndexProject(b *testing.B) {
 // type-check.
 func BenchmarkGoScan_Typed(b *testing.B) {
 	root := benchRoot(b)
-	reportCorpus(b, root)
+	files := countGoFiles(b, root)
 	ctx := context.Background()
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -104,6 +123,8 @@ func BenchmarkGoScan_Typed(b *testing.B) {
 			b.Fatalf("goscan: %v", err)
 		}
 	}
+	b.StopTimer()
+	b.ReportMetric(float64(files), "gofiles")
 }
 
 // BenchmarkGoScan_ASTOnly is phase A with --skip-typed-resolution. Paired
