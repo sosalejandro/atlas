@@ -103,6 +103,16 @@ type Options struct {
 	// hidden directories).
 	SkipDirs []string
 
+	// IncludeNestedRepos indexes git repositories nested inside the scan
+	// root -- clones, submodules, worktrees -- as part of this codebase.
+	//
+	// The default (false) is not a performance choice. A nested repository's
+	// files cannot be covered by this repo's test run, so counting them
+	// dilutes every coverage denominator, and its annotations materialise
+	// features here that belong to another product. See nestedrepo.go.
+	// Teams who consider a submodule part of their product can set this.
+	IncludeNestedRepos bool
+
 	// HashFiles, when true, computes a SHA-256 of every annotation-bearing
 	// or Go source file scanned. Disabled by default in tests; the future
 	// `atlas scan` CLI defaults this to true.
@@ -203,7 +213,7 @@ func IndexProject(ctx context.Context, rootDir string, opts Options) (*Index, er
 	}
 
 	// Phase B: Annotations walk across all supported languages.
-	anns, hashes, walkErr := walkAnnotations(ctx, abs, opts, skipDirs)
+	anns, hashes, nestedWarnings, walkErr := walkAnnotations(ctx, abs, opts, skipDirs)
 	if walkErr != nil {
 		return nil, fmt.Errorf("annotation walk: %w", walkErr)
 	}
@@ -211,6 +221,11 @@ func IndexProject(ctx context.Context, rootDir string, opts Options) (*Index, er
 	for k, v := range hashes {
 		idx.FileHashes[k] = v
 	}
+	// Say what was not indexed. A repository skipped silently is
+	// indistinguishable, in every number that follows, from one that was
+	// never there -- and a user who WANTED it counted has to be able to
+	// find out why it was not without reading the source.
+	idx.Warnings = append(idx.Warnings, nestedWarnings...)
 
 	// Phase C: TS AST scan via Node subprocess. Auto-skipped when the
 	// project has no TS surface (no tsconfig.json + no package.json) or

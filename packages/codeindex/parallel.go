@@ -155,11 +155,17 @@ type sourceFile struct {
 // it is the thing that DEFINES the order every downstream merge relies on;
 // parallelising it would trade the ordering guarantee for nothing
 // measurable.
+// A nested git repository is skipped whatever skipDir says, and recorded in
+// nested so the caller can report it. See nestedrepo.go: skipping by name
+// cannot see a repository boundary, and a clone under the scan root was
+// being indexed as part of this codebase.
 func listFiles(
 	ctx context.Context,
 	rootAbs string,
 	skipDir func(name string) bool,
 	accept func(name string) bool,
+	includeNested bool,
+	nested *nestedRepos,
 ) ([]sourceFile, error) {
 	var out []sourceFile
 	err := filepath.WalkDir(rootAbs, func(path string, d os.DirEntry, err error) error {
@@ -171,6 +177,14 @@ func listFiles(
 		}
 		if d.IsDir() {
 			if skipDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			if !includeNested && isNestedRepoRoot(path, rootAbs) {
+				if nested != nil {
+					if rel, rerr := filepath.Rel(rootAbs, path); rerr == nil {
+						nested.add(filepath.ToSlash(rel))
+					}
+				}
 				return filepath.SkipDir
 			}
 			return nil
@@ -243,7 +257,8 @@ func runPatternRecognizers(
 		func(name string) bool { return skip[name] || strings.HasPrefix(name, ".") },
 		func(name string) bool {
 			return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
-		})
+		},
+		opts.IncludeNestedRepos, nil)
 	if walkErr != nil {
 		warnings = append(warnings, fmt.Sprintf("pattern walk: %v", walkErr))
 	}
@@ -340,7 +355,8 @@ func walkAnnotations(
 	rootAbs string,
 	opts Options,
 	skipDirs map[string]bool,
-) ([]shared.Annotation, map[string]FileHash, error) {
+) ([]shared.Annotation, map[string]FileHash, []string, error) {
+	nested := &nestedRepos{}
 	extSet := make(map[string]bool, len(opts.AnnotationExts))
 	for _, e := range opts.AnnotationExts {
 		extSet[strings.ToLower(e)] = true
@@ -348,9 +364,10 @@ func walkAnnotations(
 
 	files, err := listFiles(ctx, rootAbs,
 		func(name string) bool { return skipDirs[name] || strings.HasPrefix(name, ".") },
-		func(name string) bool { return extSet[strings.ToLower(filepath.Ext(name))] })
+		func(name string) bool { return extSet[strings.ToLower(filepath.Ext(name))] },
+		opts.IncludeNestedRepos, nested)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	hashFiles := opts.HashFiles
@@ -394,5 +411,9 @@ func walkAnnotations(
 			hashes[r.hash.Path] = r.hash
 		}
 	}
-	return out, hashes, nil
+	var nestedWarnings []string
+	if w := nestedRepoWarning(nested); w != "" {
+		nestedWarnings = append(nestedWarnings, w)
+	}
+	return out, hashes, nestedWarnings, nil
 }
