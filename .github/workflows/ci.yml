@@ -365,3 +365,43 @@ jobs:
 
       - name: Check version sources agree
         run: .github/scripts/check-version-consistency.sh
+
+  docs-claims:
+    name: published claims still hold (blocking)
+    # Issue #147. Twice, a fabricated claim shipped: an invented worked example
+    # in docs/commands/hotspots.md, and an `atlas version` transcript in
+    # docs/install.md captioned with a command that printed something else.
+    # Both were caught by a human reading docs against code. Neither would ever
+    # have been caught here, because nothing in CI read the docs.
+    #
+    # Its own job rather than a step in build-and-test, for the same reason the
+    # dogfood job is separate: "the documentation says something untrue" is a
+    # different failure from "a test broke", and a reviewer looking at a red X
+    # should be able to tell which without opening a log.
+    #
+    # Blocking from the start. The rule this replaces -- do not publish a
+    # number you did not measure -- already existed as prose, and was violated
+    # twice by people who had read it. An advisory version would be the same
+    # prose with a yellow icon.
+    #
+    # No coverprofile, no state database, no network: the guard reads markdown
+    # and the source files its probes derive counts from, and re-runs a handful
+    # of --help transcripts in process. What it does NOT check is written down
+    # in docs/testing/claims.md, and that page is part of the deliverable.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Read the pinned Go toolchain
+        id: toolchain
+        run: echo "version=$(tr -d '[:space:]' < .github/scripts/toolchain.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+          cache: true
+
+      - name: Check every published claim against the code it describes
+        run: make check-docs
