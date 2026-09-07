@@ -1,0 +1,18 @@
+// @atlas:feature web.dashboard
+import { test, expect } from 'vitest';
+
+test('renders dashboard', () => {
+  expect(true).toBe(true);
+});
+
+/* @atlas:feature web.dashboard web.notifications #mocked */
+test.describe('dashboard suite', () => {});
+
+/**
+ * @atlas:feature web.profile
+ * @atlas:owner frontend-team
+ */
+export function Profile() {}
+
+// @testreg checkout.cart checkout.shipping #real
+test('legacy multi-id', () => {});

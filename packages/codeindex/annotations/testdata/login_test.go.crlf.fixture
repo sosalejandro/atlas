@@ -1,0 +1,33 @@
+package auth
+
+import "testing"
+
+// @atlas:feature auth.login #real
+func TestLogin_Success(t *testing.T) {
+	_ = t
+}
+
+/*
+@atlas:contract auth.login
+@atlas:owner platform-team
+*/
+func (h *AuthHandler) Login(ctx context.Context) error {
+	return nil
+}
+
+// @testreg auth.login,auth.logout #real
+func TestLegacy_MultiID(t *testing.T) {
+	_ = t
+}
+
+// @api POST /api/v1/auth/login
+func (h *AuthHandler) APILogin() {}
+
+// @atlas:Feature wrong.case
+func ignored() {}
+
+// @atlas:feature
+func noIDs() {}
+
+// prose mentioning atlas:feature is ignored
+func bare() {}

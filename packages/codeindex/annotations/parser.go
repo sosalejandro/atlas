@@ -1,8 +1,6 @@
 package annotations
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -129,35 +127,47 @@ func Parse(ctx context.Context, filePath string) ([]shared.Annotation, error) {
 // ParseRelative is Parse with separate absolute (for reading) and
 // repo-relative (for FilePosition.Path) paths.
 func ParseRelative(ctx context.Context, absPath, relPath string) ([]shared.Annotation, error) {
-	f, err := os.Open(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", absPath, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	ext := strings.ToLower(filepath.Ext(absPath))
-	style := commentStyleFor(ext)
+	// Extension first, read second. The order used to be the other way
+	// round, and it was free when the read was an os.Open the unsupported
+	// branch immediately closed. It is not free now that the read is the
+	// whole file, and no caller asks for an extension the parser does not
+	// understand: walkAnnotations filters by opts.AnnotationExts and the Go
+	// scanner passes .go paths.
+	style := commentStyleFor(filepath.Ext(absPath))
 	if style == styleUnsupported {
 		return nil, nil
 	}
 
-	// Read the whole file so we can unwrap block comments correctly.
-	var buf bytes.Buffer
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		buf.Write(scanner.Bytes())
-		buf.WriteByte('\n')
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan %s: %w", absPath, err)
+	// One allocation, of exactly the file's size.
+	//
+	// This used to be a fresh 64 KB bufio.Scanner buffer per file plus a
+	// bytes.Buffer that the loop grew line by line to rebuild the file the
+	// scanner had just taken apart — 142.09 MB cumulative across a scan of
+	// this repository, 17.7% of the total, and most of the 33.91 MB in
+	// bytes.growSlice (issue #152). The whole file is wanted regardless, so
+	// there was nothing the streaming read bought.
+	//
+	// It bought one thing by accident: bufio.ScanLines strips a trailing
+	// "\r" as well as the "\n", so a CRLF file reached the matchers already
+	// normalised to LF. os.ReadFile hands over the CRs, so that behaviour
+	// did not survive the change on its own — it moved into splitLines
+	// (comments.go), where it is written down and tested rather than
+	// inherited. See lineendings_test.go.
+	//
+	// The one behaviour deliberately NOT preserved is the scanner's 1 MB
+	// token cap: a file with a longer single line (a minified bundle, a
+	// generated table) used to fail with bufio.ErrTooLong and lose ALL of
+	// its annotations. Reading the file whole has no such limit.
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", absPath, err)
 	}
 
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", absPath, err)
 	}
 
-	return ParseBytes(relPath, buf.Bytes(), style), nil
+	return ParseBytes(relPath, content, style), nil
 }
 
 // ParseBytes parses content as the given language style and returns

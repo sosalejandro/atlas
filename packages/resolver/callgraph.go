@@ -3,7 +3,10 @@ package resolver
 import (
 	"go/token"
 	"go/types"
+	"runtime"
 	"sort"
+	"sync"
+	"sync/atomic"
 
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/callgraph/cha"
@@ -42,7 +45,9 @@ func (p *Program) buildCallGraph(pkgs []*packages.Package) {
 		// did not produce and cannot fully vouch for. A panic here must
 		// cost interface dispatch, not the scan: static resolution has
 		// already been established by the type checker and stands on its
-		// own.
+		// own. This covers ssautil.Packages, CHA and the indexing below;
+		// the builder itself is covered by buildAllSSA, for the reason
+		// written there.
 		if r := recover(); r != nil {
 			p.status.CallGraph = false
 			p.invokes = map[token.Pos][]*types.Func{}
@@ -54,12 +59,61 @@ func (p *Program) buildCallGraph(pkgs []*packages.Package) {
 	if prog == nil {
 		return
 	}
-	prog.Build()
+	if !buildAllSSA(prog) {
+		return
+	}
 
 	cg := cha.CallGraph(prog)
 	p.indexInvokes(cg)
 	p.status.CallGraph = true
 	p.status.CallGraphDuration = timeSince(start)
+}
+
+// buildAllSSA builds every package in prog and reports whether all of
+// them built.
+//
+// It exists instead of a call to prog.Build() because prog.Build runs
+// each package on a goroutine it spawns itself and recovers nothing: a
+// panic out of the SSA builder unwinds a goroutine that buildCallGraph's
+// recover is not on the stack of, and takes the process down with it.
+// That is the wrong failure for this program. Atlas is meant to run
+// mid-edit against trees that do not compile (issue #87), and losing
+// interface dispatch for a repository is a far smaller loss than a scan
+// that dies. ssa.Package.Build runs inline and is documented idempotent
+// and thread-safe, so doing the fan-out here keeps the parallelism and
+// puts a recover back on every stack that can panic.
+//
+// One failure fails the whole graph rather than the one package. A
+// partially built program still answers cha.CallGraph, and it answers
+// short by exactly whatever the unbuilt package contained -- absences
+// indistinguishable from a call site that genuinely dispatches nowhere.
+// A missing call graph is reported as such by Status.CallGraph; a
+// quietly incomplete one is not reportable at all.
+func buildAllSSA(prog *ssa.Program) bool {
+	var (
+		wg     sync.WaitGroup
+		failed atomic.Bool
+		// The same bound x/tools uses, for the same reason: SSA
+		// construction is CPU-bound and a package apiece would put one
+		// goroutine per dependency on the run queue.
+		sem = make(chan struct{}, runtime.GOMAXPROCS(0))
+	)
+	for _, pkg := range prog.AllPackages() {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					failed.Store(true)
+				}
+			}()
+			pkg.Build()
+		}()
+	}
+	wg.Wait()
+	return !failed.Load()
 }
 
 // indexInvokes collects CHA's interface-dispatch answers keyed by the
