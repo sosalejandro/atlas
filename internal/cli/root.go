@@ -42,7 +42,11 @@ var (
 // subcommand can consult. Populated by cobra at parse time; consumed by
 // the per-verb RunE functions via the globals helper.
 type globalFlags struct {
-	JSON       bool
+	JSON bool
+	// Stable drops every field whose value depends on when or where the
+	// command ran, so two runs over the same code produce the same bytes.
+	// See stable.go for why atlas had no comparable output before this.
+	Stable     bool
 	DBPath     string
 	ConfigPath string
 	Verbose    bool
@@ -78,6 +82,13 @@ func NewRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		Version:       fmt.Sprintf("%s (commit %s, built %s)", version, commit, builtAt),
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			// --stable is about comparing two runs of the same command, and
+			// only the JSON envelope is machine-comparable. Implying --json
+			// rather than erroring keeps `--stable` a single-flag answer to
+			// "give me something I can diff".
+			if flags.Stable {
+				flags.JSON = true
+			}
 			cfg, err := loadConfig(flags.ConfigPath)
 			if err != nil {
 				return err
@@ -96,6 +107,9 @@ func NewRootCmd() *cobra.Command {
 
 	root.PersistentFlags().BoolVar(&flags.JSON, "json", false,
 		"emit stable JSON envelope instead of human-friendly text")
+	root.PersistentFlags().BoolVar(&flags.Stable, "stable", false,
+		"omit timestamps, durations and absolute paths so two runs over the "+
+			"same code produce identical bytes (implies --json)")
 	root.PersistentFlags().StringVar(&flags.DBPath, "db-path", "",
 		"override the SQLite state path (default: .atlas/atlas.db at repo root)")
 	root.PersistentFlags().StringVar(&flags.ConfigPath, "config", "",
