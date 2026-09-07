@@ -21,6 +21,14 @@ func mkRepo(t *testing.T, dir string, gitAsFile bool) {
 	if err := os.WriteFile(filepath.Join(dir, "pkg", "a.go"), []byte(src), 0o644); err != nil {
 		t.Fatalf("write a.go: %v", err)
 	}
+	// A Python file too. The Go scanner, the Python sub-scanner and the
+	// annotation walk are three independent walks, and the first version of
+	// this fix taught only the annotation walk about the boundary -- so the
+	// hashes were clean while symbols from both other scanners leaked.
+	py := "def nested_fn():\n    return 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "pkg", "m.py"), []byte(py), 0o644); err != nil {
+		t.Fatalf("write m.py: %v", err)
+	}
 	git := filepath.Join(dir, ".git")
 	if gitAsFile {
 		// Exactly what `git worktree add` leaves behind.
@@ -67,6 +75,28 @@ func TestNestedRepo_IsNotIndexedAsPartOfThisOne(t *testing.T) {
 	// how a nested repo's capabilities end up attributed to this product.
 	if got := len(idx.Annotations); got != 1 {
 		t.Errorf("collected %d annotations, want 1: %+v", got, idx.Annotations)
+	}
+
+	// THE ASSERTION THIS TEST ORIGINALLY LACKED. Checking hashes and
+	// annotations only exercises the annotation walk. The Go and Python
+	// scanners walk independently, and both were still indexing the nested
+	// repository when every assertion above already passed.
+	assertNoNestedSymbols(t, idx, "vendorclone/")
+}
+
+// assertNoNestedSymbols fails if any indexed symbol came from under prefix,
+// naming the scanner that produced it so a failure says which walk missed
+// the boundary rather than merely that one did.
+func assertNoNestedSymbols(t *testing.T, idx *Index, prefix string) {
+	t.Helper()
+	var leaked []string
+	for _, n := range idx.Graph.Nodes {
+		if strings.HasPrefix(filepath.ToSlash(n.Position.Path), prefix) {
+			leaked = append(leaked, n.Position.Path)
+		}
+	}
+	if len(leaked) > 0 {
+		t.Errorf("%d symbol(s) indexed from a nested repository: %v", len(leaked), leaked)
 	}
 }
 

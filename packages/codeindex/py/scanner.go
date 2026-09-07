@@ -70,6 +70,10 @@ type Options struct {
 	// When empty, the scanner walks the entire project root.
 	Include []string
 
+	// IncludeNestedRepos walks into git repositories nested inside the
+	// scan root. Off by default; see shared.IsNestedRepoRoot.
+	IncludeNestedRepos bool
+
 	// Exclude is a list of directory names to skip during the walk.
 	// Always-skipped (in scanner.py): .git, .venv, venv, __pycache__,
 	// node_modules, .tox, .mypy_cache, .pytest_cache, dist, build.
@@ -279,6 +283,11 @@ func buildScannerArgsSep(scriptPath, projectRoot string, opts Options, sep rune)
 			return nil, fmt.Errorf("exclude[%q]: %w", exc, err)
 		}
 		args = append(args, "--exclude", clean)
+	}
+	if opts.IncludeNestedRepos {
+		// Off by default on both sides. A directory holding .git is another
+		// repository and its files are not part of this codebase.
+		args = append(args, "--include-nested-repos")
 	}
 	return args, nil
 }

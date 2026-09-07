@@ -2,10 +2,11 @@ package codeindex
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
+
+	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
+	"github.com/sosalejandro/atlas/packages/shared"
 )
 
 // A git repository nested inside the scanned tree is not part of it.
@@ -40,11 +41,7 @@ import (
 //     would make every scan return nothing -- the same bug, spectacularly,
 //     in the other direction. TestNestedRepo_ScanRootIsNeverSkipped pins it.
 func isNestedRepoRoot(dir, scanRoot string) bool {
-	if dir == scanRoot {
-		return false
-	}
-	_, err := os.Lstat(filepath.Join(dir, ".git"))
-	return err == nil
+	return shared.IsNestedRepoRoot(dir, scanRoot)
 }
 
 // nestedRepos collects the repository roots a walk declined to descend into,
@@ -79,6 +76,11 @@ func (n *nestedRepos) len() int { return len(n.seen) }
 
 // nestedRepoWarning renders what the scan declined to index, or "" if it
 // declined nothing.
+//
+// Say it out loud. A repository skipped silently is indistinguishable, in
+// every number that follows, from one that was never there -- and a user who
+// WANTED it counted has to be able to find out why it was not, without
+// reading this file.
 func nestedRepoWarning(n *nestedRepos) string {
 	count := n.len()
 	if count == 0 {
@@ -102,4 +104,19 @@ func nestedRepoWarning(n *nestedRepos) string {
 	return msg + fmt.Sprintf("); %s files belong to another repository, so "+
 		"counting them would dilute every coverage denominator here. "+
 		"Set include_nested_repos to index them anyway.", pronoun)
+}
+
+// goScanOptions forwards the caller's Go sub-scanner options with the
+// nested-repo boundary applied.
+//
+// The boundary is ONE decision, taken by the caller, and atlas has four
+// independent walks -- the annotation walk, the Go scanner, and the Python
+// and TypeScript sub-scanners in their own languages. Every one of them has
+// to honour it: the first version of this fix taught only the annotation
+// walk, so file hashes came back clean while the Go and Python scanners went
+// on indexing the nested repository's symbols.
+func goScanOptions(opts Options) goscan.Options {
+	out := opts.GoOptions
+	out.IncludeNestedRepos = opts.IncludeNestedRepos
+	return out
 }

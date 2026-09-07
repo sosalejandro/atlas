@@ -396,6 +396,13 @@ func (c *scanContext) visitDir(abs string, d os.DirEntry) error {
 	if name == "vendor" || name == "node_modules" || strings.HasPrefix(name, ".") {
 		return filepath.SkipDir
 	}
+	// A git repository nested here is a different codebase. Skipping by name
+	// cannot see that, and the annotation walk honouring the boundary while
+	// this one did not is precisely how symbols from a nested repo reached
+	// the index while its file hashes did not.
+	if !c.opts.IncludeNestedRepos && shared.IsNestedRepoRoot(abs, c.backendAbs) {
+		return filepath.SkipDir
+	}
 	relDir := filepath.ToSlash(relOrSelf(c.backendAbs, abs))
 	if c.ignorePackages[relDir] || c.ignorePackages[name] {
 		c.recordIgnoredPackage(abs)

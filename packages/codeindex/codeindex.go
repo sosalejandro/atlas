@@ -189,7 +189,7 @@ func IndexProject(ctx context.Context, rootDir string, opts Options) (*Index, er
 	}
 
 	// Phase A: Go AST scan.
-	goRes, err := goscan.Scan(ctx, abs, opts.GoOptions)
+	goRes, err := goscan.Scan(ctx, abs, goScanOptions(opts))
 	if err != nil {
 		return nil, fmt.Errorf("go scan: %w", err)
 	}
@@ -213,25 +213,16 @@ func IndexProject(ctx context.Context, rootDir string, opts Options) (*Index, er
 	}
 
 	// Phase B: Annotations walk across all supported languages.
-	anns, hashes, nestedWarnings, walkErr := walkAnnotations(ctx, abs, opts, skipDirs)
-	if walkErr != nil {
-		return nil, fmt.Errorf("annotation walk: %w", walkErr)
+	if err := runAnnotationPhase(ctx, abs, opts, skipDirs, idx); err != nil {
+		return nil, err
 	}
-	idx.Annotations = anns
-	for k, v := range hashes {
-		idx.FileHashes[k] = v
-	}
-	// Say what was not indexed. A repository skipped silently is
-	// indistinguishable, in every number that follows, from one that was
-	// never there -- and a user who WANTED it counted has to be able to
-	// find out why it was not without reading the source.
-	idx.Warnings = append(idx.Warnings, nestedWarnings...)
 
 	// Phase C: TS AST scan via Node subprocess. Auto-skipped when the
 	// project has no TS surface (no tsconfig.json + no package.json) or
 	// when SkipTS is set; degrades to a warning if Node isn't on PATH.
 	if !opts.SkipTS && projectHasTS(abs) {
 		tsOpts := opts.TSOptions
+		tsOpts.IncludeNestedRepos = opts.IncludeNestedRepos
 		if tsOpts.Logger == nil {
 			tsOpts.Logger = opts.Logger
 		}
@@ -287,6 +278,7 @@ func runPythonScanPhase(
 	if pyOpts.Logger == nil {
 		pyOpts.Logger = opts.Logger
 	}
+	pyOpts.IncludeNestedRepos = opts.IncludeNestedRepos
 	pyScanner := pyscan.NewScanner(pyOpts)
 	defer func() {
 		if cerr := pyScanner.Close(); cerr != nil {
@@ -415,6 +407,28 @@ func projectHasPY(rootDir string, skipDirs map[string]bool) bool {
 // SkippedFiles rides along because the files the scanner declined to index
 // are exactly the files whose executed statements would otherwise surface
 // as unattributable coverage.
+// runAnnotationPhase walks the tree for annotations and file hashes and
+// folds the result into idx, including the note about any nested repository
+// the walk declined to enter.
+func runAnnotationPhase(
+	ctx context.Context,
+	abs string,
+	opts Options,
+	skipDirs map[string]bool,
+	idx *Index,
+) error {
+	anns, hashes, nestedWarnings, err := walkAnnotations(ctx, abs, opts, skipDirs)
+	if err != nil {
+		return fmt.Errorf("annotation walk: %w", err)
+	}
+	idx.Annotations = anns
+	for k, v := range hashes {
+		idx.FileHashes[k] = v
+	}
+	idx.Warnings = append(idx.Warnings, nestedWarnings...)
+	return nil
+}
+
 func mergeGoResult(idx *Index, goRes *goscan.Result) {
 	idx.Graph = goRes.Graph
 	idx.Symbols = goRes.Symbols
