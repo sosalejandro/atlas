@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/sosalejandro/atlas/packages/envelope"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ func TestEmitJSON_StableEnvelope(t *testing.T) {
 		t.Fatalf("emitJSON: %v", err)
 	}
 
-	var got envelope
+	var got envelope.Envelope
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal: %v\nraw:\n%s", err, buf.String())
 	}

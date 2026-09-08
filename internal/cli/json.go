@@ -10,66 +10,35 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/sosalejandro/atlas/packages/envelope"
 )
 
 // schemaVersion is the stable contract version every JSON envelope emits.
 //
-// Per docs/architecture.md §6, this is the additive-within-major contract
-// across every subcommand: new fields can appear without bumping; removals
-// or type changes bump the major.
-const schemaVersion = "v1"
-
-// envelope is the top-level JSON object every `--json` invocation emits.
-//
-// schema_version is pinned to "v1". `command` is the dotted verb path
-// ("audit", "cov.sync", "codebase.find"). `args` carries the cobra-parsed
-// flags + positional arguments — useful for the consumer to see what the
-// CLI thought it was being asked to do without re-parsing argv.
-type envelope struct {
-	SchemaVersion string   `json:"schema_version"`
-	Command       string   `json:"command"`
-	Args          any      `json:"args,omitempty"`
-	Result        any      `json:"result"`
-	Warnings      []string `json:"warnings,omitempty"`
-	// GeneratedAt is omitted under --stable: it is the single field that
-	// makes every envelope differ from itself between runs, and a digest
-	// or a checked-in artifact containing it certifies nothing. See
-	// stable.go.
-	GeneratedAt string `json:"generated_at,omitempty"`
-}
+// It is packages/envelope's, not a second copy: the HTTP API answers in the
+// same envelope, and a version the two surfaces could disagree about would
+// make the contract meaningless.
+const schemaVersion = envelope.SchemaVersion
 
 // emitJSON writes the standard envelope around `result` to `w` with the
 // supplied command tag + arg payload. Warnings is nil-safe.
 //
+// Under --stable every field whose value depends on when or where the
+// command ran is dropped, so two runs over the same code produce identical
+// bytes. See docs/determinism-and-comparison.md.
+//
 // Returns an error when JSON encoding fails — callers MUST propagate so
 // the caller's RunE returns a non-zero exit.
 func emitJSON(w io.Writer, command string, args any, result any, warnings []string) error {
-	env := envelope{
-		SchemaVersion: schemaVersion,
-		Command:       command,
-		Args:          args,
-		Result:        result,
-		Warnings:      warnings,
-		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
-	}
+	env := envelope.New(command, args, result, warnings,
+		time.Now().UTC().Format(time.RFC3339))
 	if flags.Stable {
-		// Everything that depends on when or where this ran, dropped --
-		// including the envelope's own stamp -- so two runs over the same
-		// code produce the same bytes.
-		env.GeneratedAt = ""
-		stripped, err := stripVolatile(struct {
-			Args   any `json:"args,omitempty"`
-			Result any `json:"result"`
-		}{Args: args, Result: result})
+		stable, err := env.Stable()
 		if err != nil {
-			return err
+			return fmt.Errorf("emit json: %w", err)
 		}
-		m, ok := stripped.(map[string]any)
-		if !ok {
-			return fmt.Errorf("emit json: stable form is not an object")
-		}
-		env.Args = m["args"]
-		env.Result = m["result"]
+		env = stable
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
