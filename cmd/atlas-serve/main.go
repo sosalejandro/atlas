@@ -43,6 +43,16 @@ import (
 	"github.com/sosalejandro/atlas/packages/store"
 )
 
+// Build stamps, written by .github/scripts/build.sh via -X main.Version and
+// friends. They are declared here rather than imported from internal/cli
+// because this binary must not pull in the command tree -- see the package
+// comment. An unstamped build reports "dev", the same default `atlas` uses.
+var (
+	Version   = "dev"
+	Commit    = "none"
+	BuildDate = "unknown"
+)
+
 // Exit codes mirror internal/cli/exitcode.go, because a caller scripting the
 // two binaries should not have to learn two contracts.
 const (
@@ -80,8 +90,14 @@ func run() error {
 		port    = flag.Int("port", 7777, "port to bind; 0 asks the OS for a free one and prints it")
 		stable  = flag.Bool("stable", false, "drop timestamps, durations and absolute paths so two requests over an unchanged index return identical bytes")
 		openAPI = flag.Bool("openapi", false, "print the generated OpenAPI 3.1 document and exit")
+		version = flag.Bool("version", false, "print version and build provenance, then exit")
 	)
 	flag.Parse()
+
+	if *version {
+		fmt.Printf("atlas-serve %s (commit %s, built %s)\n", Version, Commit, BuildDate)
+		return nil
+	}
 
 	wd, err := os.Getwd()
 	if err != nil {

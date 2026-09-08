@@ -824,18 +824,24 @@ else
 	fi
 
 	if [ "${ATLAS_SCRIPT_TESTS_SLOW:-0}" = "1" ]; then
-		it "build-matrix.sh builds every shipped target cgo-free"
+		it "build-matrix.sh builds every command for every shipped target, cgo-free"
 		mlog="$WORK/matrix.log"
 		if VERSION=v9.8.7 DIST="$WORK/distmatrix" \
 			bash "$SCRIPT_DIR/build-matrix.sh" >"$mlog" 2>&1; then
+			# Computed from the two lists rather than hardcoded, so adding a
+			# target or a binary does not require editing a number here --
+			# this assertion was `6` and went red the day a second binary
+			# shipped, which is the right failure but the wrong maintenance.
+			ncmds="$(printf '%s\n' $ATLAS_COMMANDS | wc -l | tr -d ' ')"
+			ntargets="$(printf '%s\n' $ATLAS_TARGETS | wc -l | tr -d ' ')"
 			count="$(find "$WORK/distmatrix" -type f | wc -l | tr -d ' ')"
-			assert_eq "$count" "6"
+			assert_eq "$count" "$((ncmds * ntargets))"
 		else
 			fail "build-matrix.sh failed: $(cat "$mlog")"
 		fi
 	else
-		it "build-matrix.sh builds every shipped target cgo-free"
-		skip "set ATLAS_SCRIPT_TESTS_SLOW=1 to run the six-target cross-compile"
+		it "build-matrix.sh builds every command for every shipped target, cgo-free"
+		skip "set ATLAS_SCRIPT_TESTS_SLOW=1 to run the full cross-compile"
 	fi
 fi
 
@@ -893,6 +899,83 @@ else
 
 	it "secret-scan.sh rejects an unknown scan mode"
 	assert_eq "$(scan_status sideways)" "2"
+fi
+
+# --- two binaries ------------------------------------------------------------
+#
+# The release ships `atlas` and `atlas-serve`. The second exists because
+# docs/security.md's "nothing leaves your machine" is enforced by an import
+# check on cmd/atlas, and an HTTP API needs net/http -- so the API lives in a
+# binary that listens and is separately proven never to dial out.
+#
+# Everything below guards the ways that split can go quietly wrong in the
+# pipeline: a stamp written into a symbol the binary does not link, an
+# artifact name collision, or a manifest that covers one of them.
+
+it "ATLAS_COMMANDS names both shipped binaries"
+assert_eq "$ATLAS_COMMANDS" "atlas atlas-serve"
+
+it "atlas_artifact_name defaults to atlas and accepts a binary"
+assert_eq "$(atlas_artifact_name v1.2.3 linux amd64)" "atlas_v1.2.3_linux_amd64"
+assert_eq "$(atlas_artifact_name v1.2.3 linux amd64 atlas-serve)" "atlas-serve_v1.2.3_linux_amd64"
+assert_eq "$(atlas_artifact_name v1.2.3 windows arm64 atlas-serve)" "atlas-serve_v1.2.3_windows_arm64.exe"
+
+it "the two artifact names never collide"
+# atlas_* must not match atlas-serve_*, or the SLSA subject glob, the brew
+# formula and the smoke download would each silently take the wrong set.
+# `atlas_*` matching six of twelve is exactly the bug this pins.
+case "$(atlas_artifact_name v1.2.3 linux amd64 atlas-serve)" in
+atlas_*) fail "atlas-serve's artifact name matches the atlas_* glob" ;;
+*) pass ;;
+esac
+
+it "atlas_ldflags_pkg targets a different package per binary"
+# atlas-serve does not import internal/cli, and -X against a symbol that is
+# not linked in is silently a no-op -- so one hardcoded path would leave the
+# second binary unversioned with nothing to notice.
+assert_eq "$(atlas_ldflags_pkg atlas)" "github.com/sosalejandro/atlas/internal/cli"
+assert_eq "$(atlas_ldflags_pkg atlas-serve)" "main"
+
+it "atlas_ldflags_pkg refuses a command it does not know"
+set +e
+atlas_ldflags_pkg not-a-binary >/dev/null 2>&1
+ldflags_rc=$?
+set -e
+if [ "$ldflags_rc" -ne 0 ]; then pass; else fail "atlas_ldflags_pkg accepted an unknown command"; fi
+
+it "build.sh refuses a command that does not exist"
+set +e
+CMD=not-a-binary bash "$SCRIPT_DIR/build.sh" >/dev/null 2>&1
+badcmd_rc=$?
+set -e
+if [ "$badcmd_rc" -ne 0 ]; then pass; else fail "build.sh built a command with no cmd/ directory"; fi
+
+it "build.sh stamps atlas-serve so it is not an unversioned binary"
+if CMD=atlas-serve VERSION=v9.9.9 ATLAS_SKIP_TOOLCHAIN_CHECK=1 DIST="$WORK/two" \
+	bash "$SCRIPT_DIR/build.sh" >"$WORK/serve-build.log" 2>&1; then
+	serve_bin="$(ls "$WORK"/two/atlas-serve_* 2>/dev/null | head -1)"
+	if [ -z "$serve_bin" ]; then
+		fail "build.sh produced no atlas-serve artifact"
+	else
+		serve_ver="$("$serve_bin" --version 2>&1)"
+		case "$serve_ver" in
+		*v9.9.9*) pass ;;
+		*) fail "atlas-serve reports '$serve_ver', not the stamped v9.9.9" ;;
+		esac
+	fi
+else
+	fail "build.sh failed for atlas-serve: $(cat "$WORK/serve-build.log")"
+fi
+
+it "atlas-serve renders its contract without binding a port"
+if [ -n "${serve_bin:-}" ] && [ -x "${serve_bin:-}" ]; then
+	if "$serve_bin" --openapi 2>/dev/null | grep -q 'openapi:'; then
+		pass
+	else
+		fail "atlas-serve --openapi emitted no OpenAPI document"
+	fi
+else
+	skip "atlas-serve was not built"
 fi
 
 # --- smoke-release.sh ------------------------------------------------------

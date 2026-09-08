@@ -60,14 +60,31 @@ Install-only, for a workflow that runs several atlas commands:
 
 ## Download a release
 
-Binaries are attached to every [release](https://github.com/sosalejandro/atlas/releases),
-named `atlas_<version>_<os>_<arch>` (`.exe` on Windows). Alongside them:
+Every [release](https://github.com/sosalejandro/atlas/releases) ships **two
+binaries** per platform, named `<binary>_<version>_<os>_<arch>` (`.exe` on
+Windows):
+
+| Binary | What it is | Needs the network? |
+| --- | --- | --- |
+| `atlas` | The CLI. Scans, indexes, answers, gates CI. **This is the one you want.** | **It cannot open a socket at all** — enforced by a build-failing test. |
+| `atlas-serve` | A local HTTP API over an index `atlas` already built, for the desktop app and other local UIs. Optional. | Listens on loopback only, and never dials out. Also enforced by tests. |
+
+Two binaries rather than one because `atlas` reads your source and
+[docs/security.md](security.md) guarantees it cannot send it anywhere. An HTTP
+API needs `net/http`, so it lives in a separate binary rather than weakening
+that guarantee for everyone who never runs a UI.
+
+Alongside them:
 
 | Asset | What it is |
 | --- | --- |
-| `SHA256SUMS` | One manifest covering every artifact in the release |
+| `SHA256SUMS` | One manifest covering every artifact in the release — both binaries, all targets |
 | `SHA256SUMS.cosign.bundle` | Keyless Sigstore signature over that manifest |
 | `atlas_<version>_sbom.spdx.json` | SPDX SBOM of the source tree |
+
+Both binaries carry SLSA provenance and are covered by the signed manifest.
+Homebrew installs `atlas` only; take `atlas-serve` from the release when you
+want it.
 
 ```bash
 VERSION=v0.14.0

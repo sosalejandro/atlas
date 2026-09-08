@@ -11,11 +11,13 @@
 #   COMMIT             short SHA to stamp     (default: HEAD)
 #   SOURCE_DATE_EPOCH  build timestamp        (default: HEAD committer date)
 #   GOOS / GOARCH      target                 (default: host)
+#   CMD                which binary to build  (default: atlas; see
+#                      ATLAS_COMMANDS in lib.sh for the full set)
 #   DIST               output directory       (default: <repo>/dist)
 #   ATLAS_SKIP_TOOLCHAIN_CHECK=1  downgrade the toolchain mismatch to a warning
 #   ATLAS_TOOLCHAIN_PIN           override the pinned Go version (tests only)
 #
-# Output: $DIST/atlas_<version>_<goos>_<goarch>[.exe]
+# Output: $DIST/<cmd>_<version>_<goos>_<goarch>[.exe]
 
 set -euo pipefail
 
@@ -23,6 +25,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
+
+CMD="${CMD:-atlas}"
+if [ ! -d "$REPO_ROOT/cmd/$CMD" ]; then
+	atlas_err "no such command: cmd/$CMD (ATLAS_COMMANDS is: $ATLAS_COMMANDS)"
+	exit 1
+fi
 
 GOOS="${GOOS:-$(go env GOOS)}"
 GOARCH="${GOARCH:-$(go env GOARCH)}"
@@ -58,7 +66,7 @@ if [ "$actual" != "go${pinned}" ]; then
 	fi
 fi
 
-out="$DIST/$(atlas_artifact_name "$version" "$GOOS" "$GOARCH")"
+out="$DIST/$(atlas_artifact_name "$version" "$GOOS" "$GOARCH" "$CMD")"
 mkdir -p "$DIST"
 
 # Environment hygiene. Every variable below can change generated code, and
@@ -93,10 +101,15 @@ esac
 #
 # -s -w: drop the symbol table and DWARF. Smaller download; also removes a
 # chunk of path-flavoured data from the artifact.
+# The stamp target differs per binary: atlas-serve does not import
+# internal/cli, and -X against a symbol that is not linked in is silently a
+# no-op -- so hardcoding one path would leave the second binary unversioned
+# with nothing to notice. See atlas_ldflags_pkg in lib.sh.
+stamp_pkg="$(atlas_ldflags_pkg "$CMD")"
 ldflags="-s -w"
-ldflags="$ldflags -X ${ATLAS_MODULE}/internal/cli.Version=${version}"
-ldflags="$ldflags -X ${ATLAS_MODULE}/internal/cli.Commit=${commit}"
-ldflags="$ldflags -X ${ATLAS_MODULE}/internal/cli.BuildDate=${build_date}"
+ldflags="$ldflags -X ${stamp_pkg}.Version=${version}"
+ldflags="$ldflags -X ${stamp_pkg}.Commit=${commit}"
+ldflags="$ldflags -X ${stamp_pkg}.BuildDate=${build_date}"
 
 printf 'building %s\n' "$out" >&2
 printf '  version=%s commit=%s date=%s (SOURCE_DATE_EPOCH=%s)\n' \
@@ -104,6 +117,6 @@ printf '  version=%s commit=%s date=%s (SOURCE_DATE_EPOCH=%s)\n' \
 printf '  target=%s/%s toolchain=%s cgo=0\n' "$GOOS" "$GOARCH" "$actual" >&2
 
 cd "$REPO_ROOT"
-go build -trimpath -buildvcs=false -ldflags "$ldflags" -o "$out" ./cmd/atlas
+go build -trimpath -buildvcs=false -ldflags "$ldflags" -o "$out" "./cmd/$CMD"
 
 printf '%s\n' "$out"

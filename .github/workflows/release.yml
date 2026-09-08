@@ -154,7 +154,13 @@ jobs:
       - name: Attest build provenance (SLSA)
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: 'dist/atlas_*'
+          # atlas* and not atlas_*, because the release ships two binaries
+          # and `atlas_*` does not match `atlas-serve_*`. That glob would
+          # have left the second binary unattested inside an attested
+          # release, which is the shape of gap nobody notices until an
+          # auditor does. SHA256SUMS and the SBOM are covered by the
+          # signature over the manifest rather than here.
+          subject-path: 'dist/atlas*_*'
 
       - name: Stage the release as a draft
         # A DRAFT, not a release. Everything above proves the artifacts
@@ -220,11 +226,17 @@ jobs:
         run: |
           set -euo pipefail
           name="atlas_${TAG}_${GOOS}_${GOARCH}"
-          if [ "$GOOS" = "windows" ]; then name="${name}.exe"; fi
+          serve="atlas-serve_${TAG}_${GOOS}_${GOARCH}"
+          if [ "$GOOS" = "windows" ]; then
+            name="${name}.exe"
+            serve="${serve}.exe"
+          fi
           echo "artifact=$name" >> "$GITHUB_ENV"
+          echo "serve_artifact=$serve" >> "$GITHUB_ENV"
           # From the release, not from a build artifact: the bytes under
           # test are the bytes a user downloads, delivery path included.
-          gh release download "$TAG" --pattern "$name" --pattern SHA256SUMS --dir dist
+          gh release download "$TAG" --pattern "$name" --pattern "$serve" \
+            --pattern SHA256SUMS --dir dist
 
       - name: Verify the digest before executing anything
         shell: bash
@@ -233,18 +245,39 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          grep " ${artifact}$" SHA256SUMS > one.sha256
+          grep -E " (${artifact}|${serve_artifact})$" SHA256SUMS > these.sha256
+          # Two lines expected, and asserted: a grep that silently matched
+          # one would verify half the download and report success.
+          test "$(wc -l < these.sha256)" -eq 2
           if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum -c one.sha256
+            sha256sum -c these.sha256
           else
-            shasum -a 256 -c one.sha256
+            shasum -a 256 -c these.sha256
           fi
 
       - name: Run it, with no toolchain installed
         shell: bash
-        # No setup-go step above, on purpose. atlas is shipped as a single
-        # static binary and this asserts it behaves like one.
+        # No setup-go step above, on purpose. atlas ships as static binaries
+        # and this asserts they behave like it.
         run: .github/scripts/smoke-release.sh "dist/${artifact}"
+
+      - name: Run atlas-serve, without binding a port
+        shell: bash
+        # --openapi exercises store-open, every route's registration and
+        # schema generation, then exits. Deliberately NOT a bind: the
+        # loopback refusal is unit-tested, and a listening socket on a
+        # shared runner is a flake waiting to happen.
+        run: |
+          set -euo pipefail
+          chmod +x "dist/${serve_artifact}" || true
+          "./dist/${serve_artifact}" --version
+          doc="$("./dist/${serve_artifact}" --openapi)"
+          # An empty document would exit 0 and mean nothing.
+          printf '%s' "$doc" | grep -q 'openapi:' \
+            || { echo "FAIL: --openapi emitted no OpenAPI document" >&2; exit 1; }
+          printf '%s' "$doc" | grep -q '/api/doctor' \
+            || { echo "FAIL: the contract does not describe /api/doctor" >&2; exit 1; }
+          echo "ok    atlas-serve starts and renders its contract"
 
   promote:
     name: publish the release (blocking)
