@@ -824,18 +824,24 @@ else
 	fi
 
 	if [ "${ATLAS_SCRIPT_TESTS_SLOW:-0}" = "1" ]; then
-		it "build-matrix.sh builds every shipped target cgo-free"
+		it "build-matrix.sh builds every command for every shipped target, cgo-free"
 		mlog="$WORK/matrix.log"
 		if VERSION=v9.8.7 DIST="$WORK/distmatrix" \
 			bash "$SCRIPT_DIR/build-matrix.sh" >"$mlog" 2>&1; then
+			# Computed from the two lists rather than hardcoded, so adding a
+			# target or a binary does not require editing a number here --
+			# this assertion was `6` and went red the day a second binary
+			# shipped, which is the right failure but the wrong maintenance.
+			ncmds="$(printf '%s\n' $ATLAS_COMMANDS | wc -l | tr -d ' ')"
+			ntargets="$(printf '%s\n' $ATLAS_TARGETS | wc -l | tr -d ' ')"
 			count="$(find "$WORK/distmatrix" -type f | wc -l | tr -d ' ')"
-			assert_eq "$count" "6"
+			assert_eq "$count" "$((ncmds * ntargets))"
 		else
 			fail "build-matrix.sh failed: $(cat "$mlog")"
 		fi
 	else
-		it "build-matrix.sh builds every shipped target cgo-free"
-		skip "set ATLAS_SCRIPT_TESTS_SLOW=1 to run the six-target cross-compile"
+		it "build-matrix.sh builds every command for every shipped target, cgo-free"
+		skip "set ATLAS_SCRIPT_TESTS_SLOW=1 to run the full cross-compile"
 	fi
 fi
 
