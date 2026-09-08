@@ -35,8 +35,9 @@ mkdir -p "$DIST"
 
 # Cross-compile the WHOLE MODULE per OS before building the artifacts.
 #
-# build.sh builds ./cmd/atlas, which is correct -- that is what ships. But it
-# only reaches the binary's transitive imports, so a package outside that graph
+# build.sh builds one command at a time, which is correct -- those are what
+# ship. But each only reaches its own transitive imports, so a package outside
+# both graphs
 # can stop compiling on a target and every artifact still builds. That is not
 # hypothetical: internal/adapters called syscall.Flock, which does not exist on
 # Windows, and this matrix went green while `go vet ./...` on a Windows runner
@@ -53,18 +54,22 @@ for goos in linux darwin windows; do
 	fi
 done
 
-for target in $ATLAS_TARGETS; do
-	goos="${target%%/*}"
-	goarch="${target##*/}"
-	GOOS="$goos" GOARCH="$goarch" DIST="$DIST" "$SCRIPT_DIR/build.sh" >/dev/null
+for cmd in $ATLAS_COMMANDS; do
+	for target in $ATLAS_TARGETS; do
+		goos="${target%%/*}"
+		goarch="${target##*/}"
+		GOOS="$goos" GOARCH="$goarch" DIST="$DIST" CMD="$cmd" \
+			"$SCRIPT_DIR/build.sh" >/dev/null
+	done
 done
 
 printf '\nverifying build settings of every artifact\n' >&2
 failures=0
+for cmd in $ATLAS_COMMANDS; do
 for target in $ATLAS_TARGETS; do
 	goos="${target%%/*}"
 	goarch="${target##*/}"
-	name="$(atlas_artifact_name "$VERSION" "$goos" "$goarch")"
+	name="$(atlas_artifact_name "$VERSION" "$goos" "$goarch" "$cmd")"
 	path="$DIST/$name"
 	if [ ! -f "$path" ]; then
 		atlas_err "missing artifact: $name"
@@ -89,10 +94,11 @@ for target in $ATLAS_TARGETS; do
 		printf '  ok  %s (%s/%s, cgo-free, trimpath)\n' "$name" "$goos" "$goarch" >&2
 	fi
 done
+done
 
 if [ "$failures" -ne 0 ]; then
 	atlas_err "$failures artifact(s) failed the cross-compile invariants"
 	exit 1
 fi
 
-printf 'built %s for: %s\n' "$VERSION" "$ATLAS_TARGETS" >&2
+printf 'built %s of [%s] for: %s\n' "$VERSION" "$ATLAS_COMMANDS" "$ATLAS_TARGETS" >&2

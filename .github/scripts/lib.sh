@@ -18,6 +18,36 @@ ATLAS_TARGETS="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 w
 # ATLAS_MODULE is the import path the -X ldflags target.
 ATLAS_MODULE="github.com/sosalejandro/atlas"
 
+# ATLAS_COMMANDS is every binary a release ships, in the order they are built.
+#
+# There are two, and the reason is docs/security.md rather than convenience:
+# `atlas` must not be able to open a socket -- a property enforced by
+# TestAtlasBinary_ImportsNoNetworkPackage -- so the HTTP API for the desktop
+# app lives in its own binary that listens and is separately proven never to
+# dial out. Merging them back would trade that guarantee for one fewer file
+# here.
+ATLAS_COMMANDS="atlas atlas-serve"
+
+# atlas_ldflags_pkg names the package whose Version/Commit/BuildDate the
+# stamp writes into, for one command.
+#
+# They differ because `atlas-serve` deliberately does NOT import internal/cli:
+# pulling the whole cobra command tree into the binary that listens would
+# make the thing an auditor has to read several times larger. Stamping a
+# symbol that does not exist is silently a no-op in Go, so an unversioned
+# binary in a signed release would have been invisible -- which is why this
+# is a lookup rather than one hardcoded path.
+atlas_ldflags_pkg() {
+	case "$1" in
+	atlas) printf '%s/internal/cli\n' "$ATLAS_MODULE" ;;
+	atlas-serve) printf 'main\n' ;;
+	*)
+		atlas_err "atlas_ldflags_pkg: unknown command $1"
+		return 1
+		;;
+	esac
+}
+
 atlas_err() { printf '%s\n' "$*" >&2; }
 
 # atlas_date_flavor reports which date(1) dialect is available: "gnu"
@@ -143,8 +173,8 @@ atlas_resolve_commit() {
 # so a directory of several releases sorts by version, and the .exe suffix
 # only where Windows requires it to be executable.
 atlas_artifact_name() {
-	local version="$1" goos="$2" goarch="$3"
-	local name="atlas_${version}_${goos}_${goarch}"
+	local version="$1" goos="$2" goarch="$3" binary="${4:-atlas}"
+	local name="${binary}_${version}_${goos}_${goarch}"
 	if [ "$goos" = "windows" ]; then
 		name="${name}.exe"
 	fi

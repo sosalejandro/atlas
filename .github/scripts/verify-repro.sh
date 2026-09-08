@@ -51,12 +51,17 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/build1" "$work/build2" "$work/tmp1" "$work/tmp2"
 
+# Every shipped binary, not just the first one. A reproducibility claim that
+# covers `atlas` and quietly omits `atlas-serve` is worse than none: it is
+# published for the whole release.
 build_into() {
-	local dist="$1" tmp="$2" procs="$3" root="$4" target
-	for target in $TARGETS; do
-		GOOS="${target%%/*}" GOARCH="${target##*/}" \
-			DIST="$dist" TMPDIR="$tmp" GOMAXPROCS="$procs" \
-			"$root/.github/scripts/build.sh" >/dev/null
+	local dist="$1" tmp="$2" procs="$3" root="$4" target cmd
+	for cmd in $ATLAS_COMMANDS; do
+		for target in $TARGETS; do
+			GOOS="${target%%/*}" GOARCH="${target##*/}" \
+				DIST="$dist" TMPDIR="$tmp" GOMAXPROCS="$procs" CMD="$cmd" \
+				"$root/.github/scripts/build.sh" >/dev/null
+		done
 	done
 }
 

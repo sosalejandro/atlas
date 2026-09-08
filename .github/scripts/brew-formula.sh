@@ -129,6 +129,11 @@ class Atlas < Formula
   end
 
   def install
+    # `atlas_*` and not `atlas*`: the release also ships atlas-serve, and the
+    # formula installs the CLI only. That is a decision, not an accident of
+    # globbing -- atlas-serve exists for the desktop app, which ships its own
+    # bundle, and a brew user installing a CLI has no use for a local HTTP
+    # API they did not ask for. See issue #172.
     bin.install Dir["atlas_*"].first => "atlas"
   end
 
