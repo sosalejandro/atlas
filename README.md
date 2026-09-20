@@ -1,19 +1,66 @@
 # Atlas
 
-**Code-graph + coverage + audit toolkit for polyglot codebases.**
+**Produces evidence. Everything else produces either an opinion or a link
+somebody has to maintain.**
 
-Atlas is the spiritual successor to [testreg](https://github.com/sosalejandro/testreg)
-— rebuilt as a monorepo of SRP-focused library packages with a single
-`atlas` CLI on top. Library consumers (like
-[bmad-story-runner-cli](https://github.com/sosalejandro/bmad-story-runner-cli))
-import individual packages directly; end users install one binary.
+Atlas derives feature-level traceability from your code — which capability a
+symbol implements, which tests execute it, what a change puts at risk — and
+**refuses to answer when it cannot establish the answer.**
 
-> **Status: Phase 0 — restructure in progress.** This repo carries
-> testreg's full git history (commits document the lessons being
-> applied). The legacy `cmd/`, `internal/`, `e2e/` directories are
-> being migrated into `packages/` + `cmd/atlas/` + `internal/cli/`
-> phase by phase. See `docs/architecture.md` for the target layout
-> and `docs/migration-from-testreg.md` for the cutover plan.
+```bash
+atlas onboard      # a provisional capability map, from zero annotations
+atlas cov diff --base origin/main --fail-under 80
+```
+
+## Why another one of these
+
+Every tool in this space either guesses or asks you to maintain the links
+yourself.
+
+| | What it gives you | What it cannot do |
+| --- | --- | --- |
+| **LSP** (`gopls`, `tsserver`) | Definitions, references, call hierarchy — live and type-accurate | Every query needs `file + line + character`. No persistence, no aggregate, no coverage, no exit code to gate on. |
+| **Coverage tools** | Coverage per file, on every PR | No concept of a capability, so they cannot tell you a *feature* is untested |
+| **Traceability suites** | Audit-ready matrices | The links are written by humans and maintained by humans. Manual links rot. |
+| **Diagram tools** | Beautiful architecture diagrams | Nothing connects the drawing to the code, so it is stale within a month |
+
+Atlas works **code-up** instead of requirements-down: it derives the map from
+the source, and a derived link cannot rot because there is nothing to
+maintain.
+
+## What "refuses to answer" means in practice
+
+This is the part that is unusual, so it is worth being concrete.
+
+- **Every edge states how it was resolved** — `typed`, `name_resolved`,
+  `syntactic` or `imported`. An answer built on guesses says so.
+- **A stale index is not answered from.** If a file changed since the scan,
+  the spans no longer describe it, and commands that join a diff against them
+  refuse rather than attribute a change to the wrong function.
+- **Exit codes distinguish *"I checked and it failed"* from *"I could not
+  check"*** — `0` clean, `1` a real finding, `2` bad usage, `3` undetermined.
+  Retrying on `3` is safe in a way retrying on `1` is not.
+- **The denominators are published.** Unattributed statements, unresolved
+  queries, references that lead outside the index — all counted, so an empty
+  result never looks like a clean one.
+- **Nothing leaves your machine**, enforced by a test that fails the build if
+  any first-party package can open an outbound connection.
+
+## Where it is strongest
+
+Applications — code with routes, queries and capabilities. On a pure library
+the feature concept has less to hold onto, and atlas will tell you so rather
+than invent structure that is not there.
+
+Go is type-checked end to end. TypeScript and Python are scanned natively, and
+any language with a [SCIP](https://github.com/scip-code/scip) indexer — C#, C,
+C++, Rust, Java, Scala, Kotlin, PHP, Ruby — can be read in.
+
+## Status
+
+Pre-release. The [roadmap](ROADMAP.md) says what is next and what would tell
+us to stop; [docs/strategy/positioning.md](docs/strategy/positioning.md) says
+why.
 
 ## Target structure
 
