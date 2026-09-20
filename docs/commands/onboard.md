@@ -63,9 +63,12 @@ routers it does not recognise, execution nobody gave it, history git would
 not hand over, files the scan excluded). Every limit that can be removed
 carries the command that removes it.
 
-**PROVISIONAL CAPABILITY MAP** — the proposals, split into those derived from
-HTTP routes and those derived from code structure and test names, each with
-one line of the evidence it came from.
+**PROVISIONAL CAPABILITY MAP** — the proposals, under a line saying what the
+map is for, split into those derived from HTTP routes, those derived from code
+structure and test names, and — last — the groupings atlas **refused to name**,
+each with one line of the evidence it came from. The refusal is also stated in
+WHAT ATLAS CANNOT SEE, above, with its size: a reader meets it before they meet
+the map.
 
 **NEXT / CI** — the promote commands, the command that gives atlas execution
 evidence, and a GitHub Actions snippet.
@@ -106,8 +109,8 @@ earlier stages left, so a symbol lands in exactly one proposal:
 | -------------------- | ------------------------------------------------------------------------------------------- |
 | Existing annotations | Adopted as they are. Their symbols are invisible to every grouping stage and never re-proposed. |
 | HTTP routes          | One capability per registration — `POST /measurements` → `measurements.create`.               |
-| Test names           | Two or more tests in one directory leading with the same word — `TestCheckout*` in `billing` → `billing.checkout`. |
-| Directory tree       | Everything left, named `<parent>.<dir>`. The weakest proposal, and the only one that is a fact about the tree rather than a guess. |
+| Test names           | Two or more tests in one directory leading with the same word, **and that word is the head of at least two declarations in that directory**. `TestCheckout*` in `billing` proposes `billing.checkout` only when the code contains things that ARE checkouts — not `GenBashCompletionFile`, which is a *file*, and not `NoFileCompletions`, which is *completions*. |
+| Directory tree       | Everything left, named `<parent>.<dir>` — unless the directory's own last segment is layout rather than subject (`src`, `lib`, `pkg`, `app`, …) or it is the repository root, in which case atlas refuses to name it. The weakest proposal, and the only one that is a fact about the tree rather than a guess. |
 
 The SQL inventory, git churn and any ingested coverage are **not** grouping
 sources. They are attached to whatever grouping was made, which is where each
@@ -118,6 +121,54 @@ already proposed, the directory's symbols are merged into it and the merge is
 recorded in that capability's evidence (`merged in: …`), so the reader can
 see that a symbol list under route or test-name evidence was partly filled in
 by a directory sweep.
+
+## Groupings atlas will not name
+
+A word only becomes a capability name when the production code carries that
+word as the **head** of a declaration, at least twice. English compound
+identifiers put the subject last — `GenBashCompletionFile` is a *file*,
+`HasFlags` is *flags* — so requiring the head is what separates a capability
+from a modifier somebody happened to start a test name with.
+
+Everything that fails that test is still reported. It is grouped, counted,
+broken down by file, and printed as an **unnamed grouping** under
+`groupings atlas would not name`, addressed as `provisional:unnamed:1`. Atlas
+never labels a grouping with a word it cannot point at in the code, and a
+grouping with a size and a file breakdown is something a reader can act on;
+a grouping with a misleading name is something they have to undo first.
+
+An unnamed grouping is unpromotable *by grammar*: its handle contains a
+colon, and a feature id may not (`shared.ValidFeatureIDRe`). The only way one
+acquires an id is `promote --as`, where the id is one **you** typed.
+
+Measured on [spf13/cobra](https://github.com/spf13/cobra) (269 production
+symbols, no annotations), before and after
+[#177](https://github.com/sosalejandro/atlas/issues/177):
+
+| | before | after |
+| --- | --- | --- |
+| entries in the map | 25 | 7 |
+| one-symbol "capabilities" | 10 | 0 |
+| proposals named off a test-name prefix | `root.no`, `root.bash`, `root.root`, `root.version`, `root.active`, `root.exact`, `root.arbitrary`, `root.child`, `root.valid`, `root.complete`, … | none — all refused |
+| symbols atlas declines to name | 0 (83 of them were labelled `root.root`) | 118 of 269 (44%), in 1 grouping, with an 11-file breakdown led by `command.go` (70) |
+
+What survives on cobra is `root.flag` (58 symbols, head-witnessed by
+`writeShortFlag`, `writeFlag`, `writeLocalNonPersistentFlag` and 31 more),
+`root.completion` (29), `root.command` (18), `root.help` (11),
+`root.execute` (5) and the directory `root.doc` (30). Those are capability
+names.
+
+## Applications, not libraries
+
+The feature concept maps well onto **applications** — which have routes,
+queries and capabilities — and poorly onto **libraries**, which have an API
+surface instead. The cobra run above says `routes 0 registrations` and
+`sql 0 operations` because cobra has neither, and half the report is
+correspondingly thin.
+
+That is not a defect; it is a fact about what the tool measures. Point your
+first run at an application. A reviewer who tries it on a library first will
+conclude it does not work.
 
 ## Test evidence
 
@@ -149,6 +200,7 @@ hand-written one would.
 | --------- | ---------------- | ------------------------------------------------------------------------------ |
 | `--root`  | repo root or cwd | Project root.                                                                   |
 | `--id`    | —                | Provisional capability id to promote (repeatable; the `provisional:` prefix is optional). |
+| `--as`    | —                | The feature id to write for an **unnamed grouping**. Requires exactly one `--id unnamed:N`, and is refused on a proposal atlas did name. |
 | `--all`   | off              | Promote every capability in the provisional map.                                |
 | `--apply` | off              | Write the annotations. The default is a dry run that prints the exact lines.    |
 
@@ -161,6 +213,24 @@ Notes:
   never overwritten.
 - An id that is not in the map is an error, not a silent skip, so a typo in a
   script fails instead of passing green.
+- A grouping atlas refused to name is **skipped**, with the reason and the
+  command that resolves it, so `--all` keeps working:
+
+  ```
+  skip  provisional:unnamed:1   unnamed grouping: atlas has no honest name for this.
+                                Name it yourself: atlas onboard promote --id unnamed:N --as <your.feature.id>
+  ```
+
+  Name one yourself with `--as`, which writes the id **you** chose:
+
+  ```
+  atlas onboard promote --id unnamed:1 --as mailhog.entrypoint --apply
+  ```
+
+  `--as` takes exactly one `--id`, validates the id against the annotation
+  grammar before reading or writing anything, and is an error on a named
+  proposal: silently rewriting a proposal the user is reading would make the
+  report in front of them wrong.
 - `--all` regularly lands several annotations in one file. Those writes are
   ordered per file, bottom-up, so an earlier insertion cannot shift the line
   a later one is aimed at.

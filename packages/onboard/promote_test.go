@@ -21,7 +21,7 @@ func writeFile(t *testing.T, root, rel, body string) string {
 
 func capWithAnchor(id, file string, line int) Capability {
 	return Capability{
-		ID: id, Provisional: true,
+		ID: id, Provisional: true, Named: true,
 		Anchor: &Anchor{FilePath: file, Line: line, Annotation: "@atlas:feature " + id},
 	}
 }
@@ -135,7 +135,7 @@ func TestPromote_RefusesUnanchoredAndStale(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "a.go", "package a\n")
 
-	if _, err := Promote(root, Capability{ID: "a.b", Provisional: true}, true); err == nil {
+	if _, err := Promote(root, Capability{ID: "a.b", Provisional: true, Named: true}, true); err == nil {
 		t.Error("promoted a capability with no anchor")
 	}
 	if _, err := Promote(root, capWithAnchor("a.b", "a.go", 99), true); err == nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/sosalejandro/atlas/packages/codeindex"
 	"github.com/sosalejandro/atlas/packages/contract"
 	"github.com/sosalejandro/atlas/packages/onboard"
+	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/sqlops"
 	"github.com/sosalejandro/atlas/packages/store"
 )
@@ -408,6 +409,12 @@ const coverageNextCommand = "go test ./... -coverprofile=cover.out -covermode=at
 
 // --- rendering -----------------------------------------------------------
 
+// printOnboard's section order is load-bearing and is pinned by
+// TestPrintOnboard_LimitsComeBeforeTheMap (#177): the honesty section --
+// what atlas CANNOT see, including the groupings it refused to name -- has to
+// reach the reader before the proposals do. A reader who meets the map first
+// judges the tool by its weakest entry; one who meets the limits first reads
+// the map as the bounded guess it is.
 func printOnboard(w io.Writer, r onboardResult, top int) {
 	printOnboardHeader(w, r)
 	printOnboardFindings(w, r.Findings)
@@ -437,9 +444,34 @@ func printOnboardHeader(w io.Writer, r onboardResult) {
 	// grouping is the fallback that claims whatever the stronger signals
 	// left, so that fraction is 100% by construction and would read as a
 	// measurement of something.
-	fmt.Fprintf(w, "  PROVISIONAL  %d capabilities across %d domains, over %d undeclared symbols\n",
-		st.ProvisionalCapabilities, st.Domains, st.UndeclaredSymbols)
+	fmt.Fprintf(w, "  PROVISIONAL  %s\n", provisionalHeadline(st))
 	fmt.Fprintf(w, "  total        %s\n", ms(r.Timings.Total))
+}
+
+// provisionalHeadline is the one line most readers will judge the map by, so
+// it states the refusal (#177) rather than burying it.
+//
+// "25 capabilities across 2 domains" was true of the old cobra run and still
+// read as twenty-five useful things, eleven of which were words scraped off
+// test names. Naming the split -- what atlas was willing to name, and how many
+// symbols sit in what it would not -- is the honest version of the same line,
+// and it costs nothing to print.
+func provisionalHeadline(st onboard.Stats) string {
+	over := fmt.Sprintf("over %d undeclared symbols", st.UndeclaredSymbols)
+	named := fmt.Sprintf("%s across %s",
+		plural(st.NamedCapabilities, "named proposal"), plural(st.Domains, "domain"))
+	if st.UnnamedGroupings == 0 {
+		return named + ", " + over
+	}
+	groupings := fmt.Sprintf("%s (%s)",
+		plural(st.UnnamedGroupings, "unnamed grouping"), plural(st.UnnamedSymbols, "symbol"))
+	if st.NamedCapabilities == 0 {
+		// Nothing was named at all. Saying so outright is better than a line
+		// that reads as a successful run that happens to contain a zero.
+		return "0 named proposals + " + groupings +
+			" — atlas could not name anything here honestly"
+	}
+	return named + " + " + groupings + ", " + over
 }
 
 func printOnboardFindings(w io.Writer, findings []onboard.Finding) {
@@ -483,17 +515,76 @@ func printOnboardLimits(w io.Writer, limits []onboard.Limit) {
 // reaches the packages. Splitting gives each kind of evidence its own budget
 // and keeps the section headings doing the explaining.
 func printOnboardMap(w io.Writer, r onboardResult, top int) {
-	var routes, structural []onboard.Capability
+	var routes, structural, unnamed []onboard.Capability
 	for _, c := range r.Capabilities {
-		if c.Source == onboard.SourceRoute {
+		switch {
+		case !c.Named:
+			unnamed = append(unnamed, c)
+		case c.Source == onboard.SourceRoute:
 			routes = append(routes, c)
-			continue
+		default:
+			structural = append(structural, c)
 		}
-		structural = append(structural, c)
 	}
-	fmt.Fprintf(w, "\nPROVISIONAL CAPABILITY MAP (%d proposals)\n", len(r.Capabilities))
+	fmt.Fprintf(w, "\nPROVISIONAL CAPABILITY MAP (%d entries)\n", len(r.Capabilities))
+	// The reader arrives here having just been told what atlas cannot see.
+	// This block says what the map IS, because without it a list of ids under
+	// a heading looks like a registry -- and the one thing it must not look
+	// like is a registry (#177).
+	fmt.Fprintf(w, `
+  What this is: a first guess at the capabilities in this repository, derived from
+  HTTP routes, from test names the production code corroborates, and from the
+  directory tree — in that order of strength. Nothing here is in the registry, and
+  nothing here is a name atlas is asking you to keep.
+`)
 	printCapabilitySection(w, "from HTTP routes", routes, top)
 	printCapabilitySection(w, "from code structure and test names", structural, top)
+	printUnnamedSection(w, unnamed, top)
+}
+
+// maxBreakdownFiles is how many files of an unnamed grouping are listed. Five
+// is enough to show where the mass is; the rest is a count, because the point
+// of the breakdown is to let the reader pick a file to open.
+const maxBreakdownFiles = 5
+
+// printUnnamedSection is the groupings atlas refused to name (#177).
+//
+// It prints last and it prints in full: the size, the evidence, and the file
+// breakdown. A refusal with no shape is a shrug, and the reader would be right
+// to read a shrug as the tool giving up. A refusal with 118 symbols and
+// "command.go 61" in it is a place to start.
+func printUnnamedSection(w io.Writer, caps []onboard.Capability, top int) {
+	if len(caps) == 0 {
+		return
+	}
+	shown := len(caps)
+	if top > 0 && top < shown {
+		shown = top
+	}
+	fmt.Fprintf(w, "\n  groupings atlas would not name (%d of %d)\n\n", shown, len(caps))
+	for _, c := range caps[:shown] {
+		fmt.Fprintf(w, "  %-40s %4d symbols  tests:%-16s%s\n",
+			c.Ref(), c.Symbols, c.TestEvidence, dataFootprint(c))
+		if len(c.Evidence) > 0 {
+			e := c.Evidence[0]
+			fmt.Fprintf(w, "      %s%s\n", e.Detail, position(e.File, e.Line))
+		}
+		files := c.FileCounts
+		if len(files) > maxBreakdownFiles {
+			files = files[:maxBreakdownFiles]
+		}
+		for _, f := range files {
+			fmt.Fprintf(w, "      %4d  %s\n", f.Symbols, f.Path)
+		}
+		if n := len(c.FileCounts) - len(files); n > 0 {
+			fmt.Fprintf(w, "      … +%d more files\n", n)
+		}
+		fmt.Fprintf(w, "      → atlas onboard promote --id unnamed:%d --as <your.feature.id>\n",
+			c.UnnamedIndex)
+	}
+	if shown < len(caps) {
+		fmt.Fprintf(w, "\n  … %d more\n", len(caps)-shown)
+	}
 }
 
 func printCapabilitySection(w io.Writer, heading string, caps []onboard.Capability, top int) {
@@ -571,6 +662,7 @@ func newOnboardPromoteCmd() *cobra.Command {
 	var (
 		root  string
 		ids   []string
+		as    string
 		all   bool
 		apply bool
 	)
@@ -588,15 +680,26 @@ would insert. Pass --apply to write.
 
 A declaration that already carries an @atlas:feature, @atlas:contract or
 @testreg annotation is skipped with a reason. Existing annotations are
-adopted, never overwritten.`,
+adopted, never overwritten.
+
+Some entries in the map are groupings atlas REFUSED to name — it could not
+find the word in your code, so it reported the size and the files instead of
+inventing a label. Those are addressed as 'unnamed:N' and cannot be promoted
+as they are. Name one yourself:
+
+  atlas onboard promote --id unnamed:1 --as billing.checkout --apply
+
+The id you pass is the id that gets written. Atlas is not proposing it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runOnboardPromote(cmd, root, ids, all, apply)
+			return runOnboardPromote(cmd, root, ids, as, all, apply)
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "", "project root (default: repo root or cwd)")
 	cmd.Flags().StringSliceVar(&ids, "id", nil,
 		"provisional capability id to promote (repeatable; the 'provisional:' prefix is optional)")
+	cmd.Flags().StringVar(&as, "as", "",
+		"the feature id to write for an unnamed grouping (requires exactly one --id unnamed:N)")
 	cmd.Flags().BoolVar(&all, "all", false, "promote every capability in the provisional map")
 	cmd.Flags().BoolVar(&apply, "apply", false, "write the annotations (default is a dry run)")
 	return cmd
@@ -610,12 +713,28 @@ type onboardPromoteResult struct {
 	Skipped  int                     `json:"skipped"`
 }
 
-func runOnboardPromote(cmd *cobra.Command, root string, ids []string, all, apply bool) error {
+func runOnboardPromote(cmd *cobra.Command, root string, ids []string, as string, all, apply bool) error {
 	if root == "" {
 		root = loaded.repoRoot
 	}
 	if !all && len(ids) == 0 {
 		return fmt.Errorf("onboard promote: pass --id <id> (repeatable) or --all")
+	}
+	// Validated before anything is read or written: --as is the one flag in
+	// this command whose value ends up verbatim in the user's source, and a
+	// malformed id discovered after the file has been opened is a worse
+	// failure than the same complaint made immediately.
+	if as != "" {
+		if all || len(ids) != 1 {
+			return fmt.Errorf(
+				"onboard promote: --as names exactly one grouping, so it needs exactly one --id "+
+					"(got %d ids, --all=%t)", len(ids), all)
+		}
+		if !shared.IsValidFeatureID(shared.FeatureID(as)) {
+			return fmt.Errorf(
+				"onboard promote: --as %q is not a valid feature id (want two or more "+
+					"dot-separated lowercase segments, e.g. billing.checkout)", as)
+		}
 	}
 	doc, err := onboard.Load(root)
 	if onboard.IsNotGenerated(err) {
@@ -628,6 +747,24 @@ func runOnboardPromote(cmd *cobra.Command, root string, ids []string, all, apply
 	selected, err := selectForPromotion(doc, ids, all)
 	if err != nil {
 		return err
+	}
+	if as != "" {
+		// Renaming a NAMED proposal is refused rather than honoured: the user
+		// is reading a map that says provisional:store.coverage, and silently
+		// writing a different id for it would make the report they are
+		// looking at wrong. --as exists for the groupings atlas would not
+		// name, and only for those.
+		if selected[0].Named {
+			return fmt.Errorf(
+				"onboard promote: %s is a named proposal, not an unnamed grouping — "+
+					"--as only names what atlas refused to name. Promote it as it is, or edit "+
+					"the annotation afterwards", selected[0].Ref())
+		}
+		renamed, err := selected[0].Rename(as)
+		if err != nil {
+			return err //nolint:wrapcheck // already namespaced by packages/onboard.
+		}
+		selected[0] = renamed
 	}
 
 	res := onboardPromoteResult{Mode: "dry-run"}

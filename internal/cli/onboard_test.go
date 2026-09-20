@@ -340,6 +340,11 @@ func TestOnboardPromote_TwoAnnotationsInOneFileBothLandOnTheirDeclaration(t *tes
 	// Ship, and the directory fallback claims Quote beside it. No doc
 	// comments and single blank lines between declarations, so a one-line
 	// slip is unambiguous rather than merely untidy.
+	//
+	// Ship and BulkShip both HEAD with the cluster word, which is what makes
+	// "ship" a name atlas will use at all (#177): with only Ship heading it,
+	// the cluster dissolves, everything falls to the directory grouping, and
+	// this file would carry one annotation instead of the two the bug needs.
 	shipping := filepath.Join(fix.root, "internal", "shipping")
 	if err := os.MkdirAll(shipping, 0o755); err != nil {
 		t.Fatal(err)
@@ -353,6 +358,10 @@ func Ship(id string) error {
 
 func Quote(id string) (int, error) {
 	return 0, nil
+}
+
+func BulkShip(ids []string) error {
+	return nil
 }
 `), 0o644); err != nil {
 		t.Fatal(err)

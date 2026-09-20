@@ -143,20 +143,22 @@ func TestInfer_TestNameClusters(t *testing.T) {
 	in := Input{
 		Root: "/repo",
 		Symbols: []store.SymbolRow{
-			sym(1, "billing.CheckoutSession", "internal/billing/checkout.go"),
-			sym(2, "billing.Ledger", "internal/billing/ledger.go"),
-			sym(3, "billing.TestCheckoutIdempotent", "internal/billing/checkout_test.go"),
-			sym(4, "billing.TestCheckoutRetry", "internal/billing/checkout_test.go"),
+			// Two declarations that ARE checkouts: the word is earned (#177).
+			sym(1, "billing.StartCheckout", "internal/billing/checkout.go"),
+			sym(2, "billing.RetryCheckout", "internal/billing/checkout.go"),
+			sym(3, "billing.Ledger", "internal/billing/ledger.go"),
+			sym(4, "billing.TestCheckoutIdempotent", "internal/billing/checkout_test.go"),
+			sym(5, "billing.TestCheckoutRetry", "internal/billing/checkout_test.go"),
 			// One lone test about something with no production symbol:
 			// the cluster must not survive.
-			sym(5, "billing.TestPhantomOne", "internal/billing/phantom_test.go"),
-			sym(6, "billing.TestPhantomTwo", "internal/billing/phantom_test.go"),
+			sym(6, "billing.TestPhantomOne", "internal/billing/phantom_test.go"),
+			sym(7, "billing.TestPhantomTwo", "internal/billing/phantom_test.go"),
 		},
 	}
 	res := Infer(in)
 	c := findCap(t, res, "billing.checkout")
-	if len(c.SymbolIDs) != 1 || c.SymbolIDs[0] != 1 {
-		t.Errorf("test-name cluster claimed %v, want [1]", c.SymbolIDs)
+	if len(c.SymbolIDs) != 2 || c.SymbolIDs[0] != 1 || c.SymbolIDs[1] != 2 {
+		t.Errorf("test-name cluster claimed %v, want [1 2]", c.SymbolIDs)
 	}
 	if c.Source != SourceTestName {
 		t.Errorf("cluster source = %q, want %q", c.Source, SourceTestName)
@@ -246,11 +248,51 @@ func TestInfer_EveryIDIsPromotable(t *testing.T) {
 		t.Fatal("no capabilities")
 	}
 	for _, c := range res.Capabilities {
+		if !c.Named {
+			// A grouping atlas refused to name is unpromotable on purpose
+			// (#177) -- see TestCapability_NamedAndUnnamedInvariants.
+			continue
+		}
 		if !validID(c.ID) {
 			t.Errorf("capability id %q is not promotable", c.ID)
 		}
 		if c.Anchor == nil {
 			t.Errorf("capability %s has no anchor symbol, so it cannot be promoted", c.ID)
 		}
+	}
+}
+
+// The first row of the map is the tool's claim about what a repository is
+// FOR, so it must not be the smallest thing atlas found.
+//
+// Ranking by signal type before size put `provisional:root.up` -- two
+// symbols, from a test-name cluster -- above `database.postgres` with
+// sixteen, on golang-migrate. A two-symbol bare verb at the top reads exactly
+// like the `root.no` #177 removed, only with a better provenance label. Size
+// leads; signal strength breaks ties, because between two proposals of equal
+// size a route is better evidence than a directory.
+func TestSortCapabilities_SizeOutranksSignalType(t *testing.T) {
+	caps := []Capability{
+		{ID: "root.up", Symbols: 2, Source: SourceTestName, Named: true},
+		{ID: "database.postgres", Symbols: 16, Source: SourceDirectory, Named: true},
+		{ID: "api.checkout", Symbols: 16, Source: SourceRoute, Named: true},
+		{Symbols: 99, Named: false, Dir: "."},
+	}
+	sortCapabilities(caps)
+
+	if caps[0].ID != "database.postgres" && caps[0].ID != "api.checkout" {
+		t.Errorf("first row is %q (%d symbols); a two-symbol verb must not lead the map",
+			caps[0].ID, caps[0].Symbols)
+	}
+	// Equal size: the stronger signal wins.
+	if caps[0].ID != "api.checkout" {
+		t.Errorf("at equal size the route should outrank the directory, got %q", caps[0].ID)
+	}
+	if caps[2].ID != "root.up" {
+		t.Errorf("the two-symbol proposal should sort last among named, got %q at index 2", caps[2].ID)
+	}
+	// However it is ranked, every named proposal precedes the refusal.
+	if caps[3].Named {
+		t.Error("an unnamed grouping outranked a named proposal")
 	}
 }

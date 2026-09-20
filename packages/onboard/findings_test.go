@@ -376,22 +376,24 @@ func TestInfer_DirectoryMergeIntoAnExistingCapabilityIsRecorded(t *testing.T) {
 	res := Infer(Input{
 		Root: "/repo",
 		Symbols: []store.SymbolRow{
-			// Two tests agreeing on "place" propose orders.place from the
-			// directory internal/orders, claiming only the matching symbol.
-			sym(1, "orders.PlaceOrder", "internal/orders/place.go"),
-			sym(2, "orders.TestPlaceIdempotent", "internal/orders/place_test.go"),
-			sym(3, "orders.TestPlaceRetry", "internal/orders/place_test.go"),
+			// Two tests agreeing on "checkout", corroborated by two
+			// declarations that ARE checkouts (#177), propose
+			// orders.checkout from the directory internal/orders.
+			sym(1, "orders.StartCheckout", "internal/orders/checkout.go"),
+			sym(2, "orders.RetryCheckout", "internal/orders/retry.go"),
+			sym(3, "orders.TestCheckoutIdempotent", "internal/orders/checkout_test.go"),
+			sym(4, "orders.TestCheckoutRetry", "internal/orders/checkout_test.go"),
 			// This one no cluster claims, and its directory-derived id is
-			// also "orders.place" -- so the fallback stage merges it in.
-			sym(4, "orders.Settle", "internal/orders/place/settle.go"),
+			// also "orders.checkout" -- so the fallback stage merges it in.
+			sym(5, "orders.Settle", "internal/orders/checkout/settle.go"),
 		},
 	})
-	c := findCap(t, res, "orders.place")
+	c := findCap(t, res, "orders.checkout")
 	if c.Source != SourceTestName {
 		t.Fatalf("capability source = %q, want %q (the stronger signal keeps the proposal)", c.Source, SourceTestName)
 	}
-	if c.Symbols != 2 {
-		t.Fatalf("capability holds %d symbols, want 2 (the cluster's plus the merged directory's)", c.Symbols)
+	if c.Symbols != 3 {
+		t.Fatalf("capability holds %d symbols, want 3 (the cluster's two plus the merged directory's)", c.Symbols)
 	}
 	var merged bool
 	for _, e := range c.Evidence {

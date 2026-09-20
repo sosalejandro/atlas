@@ -1,6 +1,9 @@
 package onboard
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/sosalejandro/atlas/packages/churn"
 	"github.com/sosalejandro/atlas/packages/shared"
 	"github.com/sosalejandro/atlas/packages/sqlops"
@@ -225,12 +228,27 @@ func (c *ChurnFacts) Known() bool { return c != nil && c.Status == churn.StatusK
 // Capability is one PROVISIONAL grouping. Nothing here is a declaration; see
 // the package doc for why that distinction is load-bearing.
 type Capability struct {
-	// ID is the id this capability WOULD take if promoted. It is always a
-	// valid feature id, and it is never used to address the capability --
-	// use Ref for that.
+	// ID is the id this capability WOULD take if promoted. It is a valid
+	// feature id whenever Named is true and empty otherwise, and it is never
+	// used to address the capability -- use Ref for that.
 	ID     string `json:"id"`
 	Domain string `json:"domain"`
 	Title  string `json:"title"`
+	// Named is false when atlas REFUSED to name this grouping (#177). A
+	// false here is a finding, not a failure: the symbols are real, their
+	// count is real, their file breakdown is real, and the one thing atlas
+	// will not do is label them with a word it cannot point at in the code.
+	// Naming one is the single judgement this tool leaves to the reader.
+	Named bool `json:"named"`
+	// UnnamedIndex is the 1-based handle an unnamed grouping is addressed
+	// by ("unnamed:1"). It is assigned after the display sort, so it is
+	// stable across runs on an unchanged tree.
+	UnnamedIndex int `json:"unnamed_index,omitempty"`
+	// FileCounts is the per-file breakdown, set ONLY on unnamed groupings.
+	// A named proposal has a name to stand on; an unnamed one has nothing
+	// but its size, and a size with no shape is a number the reader cannot
+	// act on. Sorted symbols descending, then path ascending.
+	FileCounts []FileCount `json:"file_counts,omitempty"`
 	// Provisional is always true. It is serialised rather than implied so
 	// that no consumer of the JSON can lose the distinction by reading a
 	// field it does not know about.
@@ -265,10 +283,55 @@ type Capability struct {
 	Churn        *ChurnFacts  `json:"churn,omitempty"`
 }
 
+// FileCount is one line of an unnamed grouping's file breakdown.
+type FileCount struct {
+	Path    string `json:"path"`
+	Symbols int    `json:"symbols"`
+}
+
 // Ref is how a provisional capability is addressed anywhere a user or
 // another tool might see it. The namespace is the guarantee: a colon cannot
 // appear in a declared feature id, so a Ref can never be confused for one.
-func (c Capability) Ref() string { return ProvisionalPrefix + c.ID }
+//
+// An unnamed grouping (#177) is addressed as "provisional:unnamed:1". That
+// form contains a colon too, and shared.ValidFeatureIDRe
+// (packages/shared/types.go:22) rejects a colon -- so an unnamed grouping is
+// unpromotable BY GRAMMAR rather than by a check somebody can forget to
+// write, which is the same guarantee ProvisionalPrefix already leans on.
+func (c Capability) Ref() string {
+	if c.Named {
+		return ProvisionalPrefix + c.ID
+	}
+	return fmt.Sprintf("%sunnamed:%d", ProvisionalPrefix, c.UnnamedIndex)
+}
+
+// Rename is the whole `promote --as` mechanism: it turns an unnamed grouping
+// into a named capability carrying the id the USER chose.
+//
+// It is a method on the value rather than an edit in the promote path
+// because promotion's insertion code should keep knowing exactly one thing --
+// write this capability's annotation above its anchor -- and a rename that
+// reached into it would be a second way to decide what gets written.
+func (c Capability) Rename(id string) (Capability, error) {
+	if !shared.IsValidFeatureID(shared.FeatureID(id)) {
+		return Capability{}, fmt.Errorf(
+			"onboard: %q is not a valid feature id (want two or more dot-separated "+
+				"lowercase segments, e.g. billing.checkout)", id)
+	}
+	out := c
+	out.Named = true
+	out.ID = id
+	out.Domain = id
+	if i := strings.Index(id, "."); i > 0 {
+		out.Domain = id[:i]
+	}
+	if c.Anchor != nil {
+		anchor := *c.Anchor
+		anchor.Annotation = "@atlas:feature " + id
+		out.Anchor = &anchor
+	}
+	return out, nil
+}
 
 // Severity orders findings for display. There are three levels because the
 // only decision the reader makes from this list is what to look at first.
@@ -310,15 +373,32 @@ type Limit struct {
 
 // Stats are the counters the report leads with.
 type Stats struct {
-	ProductionSymbols       int `json:"production_symbols"`
-	TestSymbols             int `json:"test_symbols"`
-	DeclaredFeatures        int `json:"declared_features"`
-	DeclaredSymbols         int `json:"declared_symbols"`
+	ProductionSymbols int `json:"production_symbols"`
+	TestSymbols       int `json:"test_symbols"`
+	DeclaredFeatures  int `json:"declared_features"`
+	DeclaredSymbols   int `json:"declared_symbols"`
+	// ProvisionalCapabilities is every entry in the map -- named proposals
+	// PLUS the groupings atlas refused to name (#177). It keeps its name and
+	// its meaning of "things in the map", so a consumer that was reading it
+	// as the length of the capabilities array stays right; the split is in
+	// NamedCapabilities and UnnamedGroupings below.
 	ProvisionalCapabilities int `json:"provisional_capabilities"`
-	Domains                 int `json:"domains"`
-	Routes                  int `json:"routes"`
-	SQLOperations           int `json:"sql_operations"`
-	SQLUnresolved           int `json:"sql_unresolved"`
+	// NamedCapabilities is the entries atlas was willing to name.
+	NamedCapabilities int `json:"named_capabilities"`
+	// UnnamedGroupings is the entries it refused to name, and
+	// UnnamedSymbols is how many symbols are inside them. The second number
+	// is the one that matters: a refusal without a size is a shrug, and the
+	// whole point of #177 is that atlas reports the size of what it cannot
+	// name rather than inventing a label for it.
+	UnnamedGroupings int `json:"unnamed_groupings"`
+	UnnamedSymbols   int `json:"unnamed_symbols"`
+	// Domains counts NAMED entries only: an unnamed grouping has no domain
+	// to count, and folding it into a "root" domain would re-introduce the
+	// name the refusal exists to withhold.
+	Domains       int `json:"domains"`
+	Routes        int `json:"routes"`
+	SQLOperations int `json:"sql_operations"`
+	SQLUnresolved int `json:"sql_unresolved"`
 	// UndeclaredSymbols is how many production symbols no annotation speaks
 	// for -- the denominator the map's coverage fraction is against.
 	//
