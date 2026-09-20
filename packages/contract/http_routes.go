@@ -57,6 +57,13 @@ func (e *Extractor) extractRoutes(ctx context.Context, idx *codeindex.Index, ann
 			if shouldSkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
+			// A nested git repository is a different codebase. Skipping by
+			// name cannot see that boundary, and #180 found this walk still
+			// crossing it after #166 taught four others: every SQL number
+			// doubled with a worktree in the tree.
+			if shared.IsNestedRepoRoot(path, e.opts.ProjectRoot) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !isContractGoFile(path, d.Name()) {

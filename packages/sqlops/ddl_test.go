@@ -246,3 +246,52 @@ func TestSchema_LeadingIndexFor(t *testing.T) {
 		t.Errorf("the primary key must count as an index")
 	}
 }
+
+// The measurement that found #180: every SQL number doubled when a git
+// worktree sat inside the tree.
+//
+// #166 taught four walks the repository boundary and this package has three
+// of its own, none of which knew about it. The dogfood gate caught it —
+// 290 operations against 145, 52 tables against 27, exactly 2x — which is
+// the shape of a second copy of the same repository being counted.
+//
+// Asserted as EQUALITY against a clean scan rather than "the count is
+// plausible": a nested repository must contribute exactly nothing, and a
+// tolerance would let half a copy through.
+func TestSchemaWalk_SkipsNestedRepositories(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	write("schema/001_init.sql", "CREATE TABLE orders (id INTEGER PRIMARY KEY);\n")
+	clean, err := collectSQLFiles(filepath.Join(root, "schema"))
+	if err != nil {
+		t.Fatalf("collectSQLFiles: %v", err)
+	}
+
+	// A vendored repository with its own migrations, inside the schema dir.
+	// `.git` is a FILE here, the shape a git worktree leaves behind — an
+	// IsDir() check would miss it, which is the mistake #166 documented.
+	write("schema/vendored/002_theirs.sql", "CREATE TABLE their_table (id INTEGER);\n")
+	write("schema/vendored/.git", "gitdir: /elsewhere/.git/worktrees/w\n")
+
+	withNested, err := collectSQLFiles(filepath.Join(root, "schema"))
+	if err != nil {
+		t.Fatalf("collectSQLFiles: %v", err)
+	}
+
+	if len(withNested) != len(clean) {
+		t.Errorf("schema walk found %d files with a nested repository present and %d without; "+
+			"their DDL describes another product's database, and counting it inflates "+
+			"every table and operation grunnr reports about this one.\n  clean: %v\n  with: %v",
+			len(withNested), len(clean), clean, withNested)
+	}
+}

@@ -110,6 +110,13 @@ func goDirs(root string, opts ExtractOptions) ([]string, error) {
 			if p != root && skip[d.Name()] {
 				return filepath.SkipDir
 			}
+			// A nested git repository is a different codebase. Skipping by
+			// name cannot see that boundary, and #180 found this walk still
+			// crossing it after #166 taught four others: every SQL number
+			// doubled with a worktree in the tree.
+			if shared.IsNestedRepoRoot(p, root) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if indexableGoFile(d.Name(), opts) {

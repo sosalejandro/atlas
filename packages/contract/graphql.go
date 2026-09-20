@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/sosalejandro/grunnr/packages/shared"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -42,6 +43,10 @@ func (e *Extractor) extractGraphQL(ctx context.Context) ([]ContractDef, []string
 		if d.IsDir() {
 			name := d.Name()
 			if name == "vendor" || name == "node_modules" || strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			// A nested git repository is a different codebase (#180, #166).
+			if shared.IsNestedRepoRoot(path, e.opts.ProjectRoot) {
 				return filepath.SkipDir
 			}
 			return nil

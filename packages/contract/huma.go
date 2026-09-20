@@ -62,6 +62,10 @@ func (e *Extractor) extractHuma(ctx context.Context, idx *codeindex.Index, annId
 			if shouldSkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
+			// A nested git repository is a different codebase (#180, #166).
+			if shared.IsNestedRepoRoot(path, e.opts.ProjectRoot) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !isContractGoFile(path, d.Name()) {
