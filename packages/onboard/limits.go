@@ -23,14 +23,77 @@ func limits(in Input, res Result, unresolvedRoutes int) []Limit {
 	out = appendLimit(out, routeLimit(in, unresolvedRoutes))
 	out = appendLimit(out, churnLimit(in, res))
 	out = appendLimit(out, scanLimit(in))
+	out = appendLimit(out, couldNotNameLimit(res))
 	out = append(out, Limit{
 		Code: "inference-is-not-declaration",
-		Detail: fmt.Sprintf("All %d capabilities above are inferred. Atlas did not write any of "+
-			"them to the registry; %d declared features already in the registry were adopted as they are.",
-			res.Stats.ProvisionalCapabilities, res.Stats.DeclaredFeatures),
+		// "below", not "above": this section prints BEFORE the map
+		// (internal/cli/onboard.go printOnboard), and it said "above" from
+		// the day it was written.
+		//
+		// The two counts are separate, and calling only the first half
+		// "capabilities" is the point. An earlier version summed them --
+		// "All 107 capabilities below are inferred" -- one bullet after the
+		// header had said "105 named proposals + 2 unnamed groupings". That
+		// re-inflated the exact number #177 exists to bring down, and it
+		// called a grouping atlas had just refused to name a capability, in
+		// the same breath as refusing it. A tool that contradicts itself
+		// inside twenty lines is not read carefully after that.
+		Detail: fmt.Sprintf("All %d inferred proposals below are atlas's guesses, not declarations: "+
+			"it wrote none of them to the registry, and %d declared features already there were "+
+			"adopted as they are.%s",
+			res.Stats.NamedCapabilities, res.Stats.DeclaredFeatures,
+			unnamedSuffix(res.Stats.UnnamedGroupings)),
 		Fix: "atlas onboard promote --id <id> --apply",
 	})
 	return out
+}
+
+// unnamedSuffix names the refused groupings separately from the proposals,
+// because they are a different kind of thing and summing them was how the
+// report ended up calling a refusal a capability.
+func unnamedSuffix(n int) string {
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return " One further grouping is listed that atlas would not name."
+	default:
+		return fmt.Sprintf(" A further %d groupings are listed that atlas would not name.", n)
+	}
+}
+
+// couldNotNameLimit is the refusal, stated where the reader meets it BEFORE
+// the map (#177).
+//
+// It belongs in this section and not in a footnote under the proposals
+// because it is the same kind of statement as the rest of them: a bound on
+// what this run knows. A tool that silently labels 44% of a repository with
+// words scraped off test names looks more capable than one that says it could
+// not name them -- right up to the moment somebody reads the names.
+func couldNotNameLimit(res Result) *Limit {
+	st := res.Stats
+	if st.UnnamedGroupings == 0 {
+		return nil
+	}
+	// Computed from this run's own counters. A percentage in a report that is
+	// not measured on the run printing it is the house rule this package
+	// exists to demonstrate.
+	pct := 0.0
+	if st.UndeclaredSymbols > 0 {
+		pct = 100 * float64(st.UnnamedSymbols) / float64(st.UndeclaredSymbols)
+	}
+	return &Limit{
+		Code: "could-not-name",
+		Detail: fmt.Sprintf(
+			"Atlas could not name %d of %d undeclared symbols (%.0f%%). They are in %s it "+
+				"refused to name rather than label with a word scraped off a test name or a "+
+				"directory that says nothing -- listed as \"groupings atlas would not name\" in "+
+				"the map below, with their file breakdown. Naming one is the single judgement "+
+				"this tool will not make for you.",
+			st.UnnamedSymbols, st.UndeclaredSymbols, pct,
+			plural(st.UnnamedGroupings, "grouping", "groupings")),
+		Fix: "atlas onboard promote --id unnamed:1 --as <your.feature.id>",
+	}
 }
 
 func appendLimit(out []Limit, l *Limit) []Limit {

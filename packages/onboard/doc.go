@@ -42,10 +42,27 @@
 //  1. Routes. An HTTP surface is a capability list its own clients already
 //     agree with, so a route registration claims its handler.
 //  2. Test-name clusters. Two or more tests in one package that lead with
-//     the same subject word are evidence for that subject; it claims the
-//     production symbols in the package whose names carry the same word.
+//     the same subject word are evidence for that subject -- but only when
+//     the production code corroborates the word by heading at least two
+//     declarations with it (see naming.go, #177). It then claims the
+//     production symbols in the package whose names carry that word.
 //  3. Directories. Everything left, grouped where it lives.
 //
 // Anything that resolves to no symbol is dropped before display. A proposal
 // with nothing behind it is noise the reader has to refute.
+//
+// # Refusing to name (#177)
+//
+// A grouping atlas cannot name honestly is reported UNNAMED: its size, its
+// file breakdown and its evidence, with no label. Measured on spf13/cobra,
+// the naming heuristics produced provisional:root.no, provisional:root.bash
+// and provisional:root.root -- leading words scraped off test names, and a
+// hardcoded literal over 83 symbols. Those read as naivety and cost the
+// reader the rest of the report.
+//
+// The refusal is not a gap in the output, it is the output: an unnamed
+// grouping with 118 symbols and "command.go 70" under it is something a
+// reader can act on, and naming it is the one judgement this package leaves
+// to them (Capability.Rename, reached through `promote --as`). Consistent
+// with everywhere else in atlas: refuse rather than invent.
 package onboard

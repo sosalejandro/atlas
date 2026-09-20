@@ -203,7 +203,11 @@ func hotAndUntested(res Result) *Finding {
 		if hits[i].score != hits[j].score {
 			return hits[i].score > hits[j].score
 		}
-		return hits[i].cap.ID < hits[j].cap.ID
+		// Ref, not ID: every unnamed grouping (#177) has an empty ID, so an
+		// ID tiebreak between two of them is no tiebreak at all and
+		// sort.Slice is not stable -- the finding's citation order would
+		// shuffle between runs on an unchanged tree.
+		return hits[i].cap.Ref() < hits[j].cap.Ref()
 	})
 	var ev []Evidence
 	for _, h := range hits {

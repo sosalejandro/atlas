@@ -63,7 +63,12 @@ type Document struct {
 func (d Document) Find(id string) (Capability, bool) {
 	id = strings.TrimPrefix(strings.TrimSpace(id), ProvisionalPrefix)
 	for _, c := range d.Capabilities {
-		if c.ID == id {
+		// The second arm resolves the unnamed groupings (#177), which have no
+		// ID at all and are addressed as "unnamed:1" -- both bare and with
+		// the provisional: prefix the report prints, for the same reason the
+		// first arm accepts both: users paste back what they were shown.
+		if (c.Named && c.ID == id) ||
+			(!c.Named && strings.TrimPrefix(c.Ref(), ProvisionalPrefix) == id) {
 			return c, true
 		}
 	}

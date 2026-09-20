@@ -48,6 +48,14 @@ var annotationMarkers = []string{"@atlas:feature", "@atlas:contract", "@testreg"
 // over this: Promote resolves its target by line number against the file as
 // it stands, and one insertion moves every line below it.
 func Promote(root string, c Capability, apply bool) (PromoteResult, error) {
+	// A grouping atlas refused to name has no id to write, and inventing one
+	// here would undo the refusal at the last possible moment (#177). A skip
+	// rather than an error, so `--all` still promotes everything it can and
+	// reports this per entry instead of aborting the batch.
+	if !c.Named {
+		return PromoteResult{ID: c.Ref(), Skipped: "unnamed grouping: atlas has no honest " +
+			"name for this. Name it yourself: atlas onboard promote --id unnamed:N --as <your.feature.id>"}, nil
+	}
 	if c.Anchor == nil {
 		return PromoteResult{}, fmt.Errorf(
 			"onboard promote: %s has no anchor declaration to annotate", c.Ref())

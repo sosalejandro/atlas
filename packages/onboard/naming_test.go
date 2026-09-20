@@ -87,3 +87,27 @@ func TestTestNameCluster(t *testing.T) {
 		}
 	}
 }
+
+// A Go module's major-version directory names a release, not a subject.
+//
+// database/pgx/v5 produced `provisional:pgx.v5` on golang-migrate -- a
+// capability whose name was a version number. Both halves of the id have to
+// walk past it, which is why this asserts the whole id rather than either
+// half: an earlier fix skipped it for the domain only, and the name stayed
+// "v5" with a nicer domain in front of it.
+func TestCapabilityIDFromDir_VersionSegmentsAreNotCapabilities(t *testing.T) {
+	cases := []struct{ dir, wantID, wantName string }{
+		{"database/pgx/v5", "database.pgx", "pgx"},
+		{"database/postgres", "database.postgres", "postgres"},
+		{"internal/cli", "internal.cli", "cli"},
+		{"pkg/parser", "pkg.parser", "parser"},
+		{"v2", "root.root", "root"}, // nothing but a version: nothing to name
+	}
+	for _, c := range cases {
+		gotID, gotName := capabilityIDFromDir(c.dir)
+		if gotID != c.wantID || gotName != c.wantName {
+			t.Errorf("capabilityIDFromDir(%q) = (%q, %q), want (%q, %q)",
+				c.dir, gotID, gotName, c.wantID, c.wantName)
+		}
+	}
+}

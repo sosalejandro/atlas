@@ -177,32 +177,78 @@ func (b *builder) claimTestClusters() {
 			// group anyway would be a proposal with nothing behind it.
 			continue
 		}
+		// The name has to be EARNED by the production code (#177): the word
+		// must head at least two declarations in this directory. Without
+		// this, cobra's TestNoFileCompletions and TestGenBashCompletionFile
+		// produced provisional:root.no and provisional:root.bash. Measured on
+		// cobra before and after: 19 of its 24 test-name proposals are
+		// refused, and 5 survive -- flag, completion, command, help,
+		// execute. When the word is not earned the CLUSTER DISSOLVES: no
+		// capability, no claim, and the symbols fall through to the directory
+		// stage untouched. The grouping was an artifact of the word, so the
+		// word failing means it had no existence of its own.
+		names := shortNames(members)
+		if !nameEarned(names, k.word) {
+			continue
+		}
+		witnesses := headWitnesses(names, k.word)
 		c := b.capability(id, SourceTestName)
 		c.Dir = k.dir
-		c.Title = k.word + " in " + k.dir
+		c.Title = k.word + " in " + displayDir(k.dir)
 		for _, m := range members {
 			b.attach(c, m)
 		}
 		tests := clusters[k]
 		c.Evidence = append(c.Evidence, Evidence{
 			Kind: SourceTestName,
-			Detail: fmt.Sprintf("%d tests in %s lead with %q",
-				len(tests), k.dir, strings.ToUpper(k.word[:1])+k.word[1:]),
+			// The corroboration is printed, not merely applied. A reader who
+			// is told the name is the head of HasFlags, ParseFlags and
+			// ResetFlags can check the claim in one grep; a reader told only
+			// that eighteen tests lead with "Flag" is back to trusting a
+			// prefix, which is what #177 was about.
+			Detail: fmt.Sprintf("%d tests in %s lead with %q; the name is the head of %s",
+				len(tests), displayDir(k.dir),
+				strings.ToUpper(k.word[:1])+k.word[1:], witnessList(witnesses)),
 			File: tests[0].FilePath, Line: tests[0].Line,
 			Symbol: shortName(tests[0].QualifiedName),
 		})
 	}
 }
 
+// witnessList renders up to three head witnesses. Three is enough to show the
+// convention; the rest are a count, because an evidence line nobody finishes
+// reading cites nothing.
+func witnessList(names []string) string {
+	const maxShown = 3
+	if len(names) <= maxShown {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s and %d more",
+		strings.Join(names[:maxShown], ", "), len(names)-maxShown)
+}
+
+func shortNames(rows []store.SymbolRow) []string {
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, shortName(r.QualifiedName))
+	}
+	return out
+}
+
 // unclaimedMatching returns the unclaimed production symbols in dir whose
 // name carries the cluster word -- the symbols the tests are named after.
+//
+// The match is on WORD boundaries, not substrings (#177). Substring matching
+// is how the cluster word "no" swallowed repro.Normalize: "Normalize" contains
+// the letters n-o, so a proposal called root.no claimed a function that
+// normalises things.
 func (b *builder) unclaimedMatching(dir, word string) []store.SymbolRow {
 	var out []store.SymbolRow
 	for _, s := range b.prod {
 		if b.claimed[s.ID] || dirOf(s.FilePath) != dir {
 			continue
 		}
-		if strings.Contains(strings.ToLower(shortName(s.QualifiedName)), word) {
+		if attests(shortName(s.QualifiedName), word) {
 			out = append(out, s)
 		}
 	}
@@ -229,6 +275,16 @@ func (b *builder) claimDirectories() {
 	sort.Strings(names)
 
 	for _, d := range names {
+		// A directory whose own last segment says nothing about the subject
+		// -- the repository root, or a layout segment like src/ or app/ --
+		// names nothing (#177). capabilityIDFromDir would hand back the
+		// literal "root.root", which on cobra sat over 83 symbols; on atlas
+		// itself the same shape produced "internal.app" over 67. Those become
+		// sized, file-broken-down groupings atlas declines to name.
+		if !namableDir(d) {
+			b.unnamedGrouping(d, dirs[d])
+			continue
+		}
 		id, _ := capabilityIDFromDir(d)
 		if !validID(id) {
 			continue
@@ -266,6 +322,34 @@ func (b *builder) claimDirectories() {
 	}
 }
 
+// unnamedGrouping records the leftovers of one directory atlas will not name
+// (#177).
+//
+// It is the honest answer to a grouping that is real and has no name the code
+// supports: the symbols are counted, the files are broken down, and the label
+// is withheld. It is deliberately NOT a merge target and never reachable
+// through capBy -- an unnamed grouping is by definition the leftovers of
+// exactly one directory, and merging two of them would invent the very
+// relationship the refusal says atlas cannot see.
+func (b *builder) unnamedGrouping(dir string, rows []store.SymbolRow) {
+	c := &Capability{
+		Provisional: true, Source: SourceDirectory, Dir: dir,
+		Title: "unnamed grouping in " + displayDir(dir),
+	}
+	b.caps = append(b.caps, c)
+	c.Evidence = append(c.Evidence, Evidence{
+		Kind: SourceDirectory,
+		Detail: fmt.Sprintf(
+			"%d undeclared symbols in %s that no route, no directory name and no "+
+				"corroborated test name covers. Atlas has no honest name for this one.",
+			len(rows), displayDir(dir)),
+		File: rows[0].FilePath, Line: rows[0].Line,
+	})
+	for _, s := range rows {
+		b.attach(c, s)
+	}
+}
+
 // capability returns (creating if needed) the proposal with this id.
 func (b *builder) capability(id string, src Source) *Capability {
 	if c := b.capBy[id]; c != nil {
@@ -275,7 +359,7 @@ func (b *builder) capability(id string, src Source) *Capability {
 	if i := strings.Index(id, "."); i > 0 {
 		domain = id[:i]
 	}
-	c := &Capability{ID: id, Domain: domain, Provisional: true, Source: src}
+	c := &Capability{ID: id, Domain: domain, Provisional: true, Named: true, Source: src}
 	b.capBy[id] = c
 	b.caps = append(b.caps, c)
 	return c
@@ -296,6 +380,14 @@ func (b *builder) enrich() {
 	attr := b.newAttributor()
 	for _, c := range b.caps {
 		c.Files = b.filesOf(c)
+		if !c.Named {
+			// Only the unnamed ones get the breakdown, and they get it
+			// because it is all they have: "118 symbols somewhere in the
+			// repository root" is not actionable, "61 of them in command.go"
+			// is. Derived here rather than at creation so the counts are
+			// against final membership and cannot drift from SymbolIDs.
+			c.FileCounts = b.fileCountsOf(c)
+		}
 		b.attachSQL(c, attr)
 		b.attachTestEvidence(c)
 		b.attachChurn(c)
@@ -314,6 +406,27 @@ func (b *builder) filesOf(c *Capability) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// fileCountsOf breaks a grouping down by file, heaviest first.
+func (b *builder) fileCountsOf(c *Capability) []FileCount {
+	n := map[string]int{}
+	for _, id := range c.SymbolIDs {
+		if f := b.byID[id].FilePath; f != "" {
+			n[f]++
+		}
+	}
+	out := make([]FileCount, 0, len(n))
+	for f, k := range n {
+		out = append(out, FileCount{Path: f, Symbols: k})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Symbols != out[j].Symbols {
+			return out[i].Symbols > out[j].Symbols
+		}
+		return out[i].Path < out[j].Path
+	})
 	return out
 }
 
@@ -498,6 +611,24 @@ func (b *builder) attachAnchor(c *Capability) {
 	}
 	sortSymbols(rows)
 
+	// An unnamed grouping (#177) has no name half to prefer a match against,
+	// so only the exported-first step applies -- and it carries no annotation
+	// text, because there is no id to write. The anchor is still a fact about
+	// location, and `promote --as` needs a target to write the user's own id
+	// above.
+	if !c.Named {
+		pick, why := rows[0], "first declaration in the group (atlas did not name this grouping)"
+		if s, ok := firstMatch(rows, isExported); ok {
+			pick, why = s, "first exported declaration in the group (atlas did not name this grouping)"
+		}
+		c.Anchor = &Anchor{
+			SymbolID: pick.ID, Qualified: string(pick.QualifiedName),
+			FilePath: pick.FilePath, Line: pick.Line,
+			Reasoning: why, Annotation: "",
+		}
+		return
+	}
+
 	name := c.ID
 	if i := strings.LastIndex(name, "."); i >= 0 {
 		name = name[i+1:]
@@ -525,11 +656,28 @@ func (b *builder) assemble() Result {
 		if c.Symbols == 0 {
 			continue
 		}
-		domains[c.Domain] = true
+		if c.Named {
+			domains[c.Domain] = true
+			res.Stats.NamedCapabilities++
+		} else {
+			res.Stats.UnnamedGroupings++
+			res.Stats.UnnamedSymbols += c.Symbols
+		}
 		res.Stats.SymbolsProposed += c.Symbols
 		res.Capabilities = append(res.Capabilities, *c)
 	}
 	sortCapabilities(res.Capabilities)
+	// Numbered AFTER the sort, so "unnamed:1" means the same grouping on the
+	// next run over an unchanged tree. A handle a user pastes into
+	// `promote --as` that silently points somewhere else next run is worse
+	// than no handle.
+	n := 0
+	for i := range res.Capabilities {
+		if !res.Capabilities[i].Named {
+			n++
+			res.Capabilities[i].UnnamedIndex = n
+		}
+	}
 
 	for _, s := range b.prod {
 		if !b.declared[s.ID] {
@@ -568,11 +716,34 @@ func sourceRank(s Source) int {
 func sortCapabilities(caps []Capability) {
 	sort.Slice(caps, func(i, j int) bool {
 		a, z := caps[i], caps[j]
-		if ra, rz := sourceRank(a.Source), sourceRank(z.Source); ra != rz {
-			return ra < rz
+		// Every named proposal outranks every unnamed grouping (#177). The
+		// map is read top-down and a reader who meets an unnamed grouping
+		// first learns nothing they can act on; a reader who meets it last
+		// has already seen what atlas WAS willing to name and reads the
+		// refusal as the boundary it is.
+		if a.Named != z.Named {
+			return a.Named
 		}
+		if !a.Named {
+			if a.Symbols != z.Symbols {
+				return a.Symbols > z.Symbols
+			}
+			return a.Dir < z.Dir
+		}
+		// Size before signal type, once both are named.
+		//
+		// Ranking by signal alone put `provisional:root.up` -- two symbols,
+		// from a test cluster -- above `database.postgres` with sixteen, on
+		// golang-migrate. A reader meets the map top-down, so the first row
+		// is the tool's claim about what this repository is FOR; a two-symbol
+		// verb there reads exactly like the `root.no` this issue removed,
+		// only with a passport. Signal strength still breaks ties, because
+		// between two proposals of equal size a route beats a directory.
 		if a.Symbols != z.Symbols {
 			return a.Symbols > z.Symbols
+		}
+		if ra, rz := sourceRank(a.Source), sourceRank(z.Source); ra != rz {
+			return ra < rz
 		}
 		return a.ID < z.ID
 	})

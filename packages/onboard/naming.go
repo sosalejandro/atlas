@@ -1,6 +1,7 @@
 package onboard
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -26,6 +27,25 @@ var structuralSegments = map[string]bool{
 	"modules": true, "services": true, "components": true,
 }
 
+// versionSegment matches a Go module major-version directory: v2, v5, v12.
+//
+// These are releases, not subjects. On golang-migrate the directory
+// database/pgx/v5 produced a capability whose DOMAIN was "pgx" and whose
+// NAME was "v5" -- `provisional:pgx.v5` -- which names a version number as
+// the thing the code does. Skipping it the same way a layout segment is
+// skipped walks up to the segment an author actually chose.
+//
+// This deliberately does not try to be clever about other version shapes
+// ("2.x", "beta"): the rule only has to be right about the one convention Go
+// modules enforce, and a looser pattern would start eating real names.
+var versionSegment = regexp.MustCompile(`^v[0-9]+$`)
+
+// skippableSegment reports whether a path segment describes layout or release
+// rather than subject matter, and so cannot name a capability.
+func skippableSegment(s string) bool {
+	return structuralSegments[s] || versionSegment.MatchString(s)
+}
+
 // capabilityIDFromDir names a provisional capability after the directory it
 // lives in, returning the promotable id and the short display name.
 //
@@ -46,14 +66,24 @@ func capabilityIDFromDir(dir string) (id, name string) {
 	if len(segs) == 0 {
 		return "root.root", "root"
 	}
-	name = sanitizeSegment(segs[len(segs)-1])
+	// The NAME is the deepest segment that names a subject. Taking the last
+	// one raw made database/pgx/v5 a capability called "v5" -- the release,
+	// not the thing -- so a version segment is walked past here exactly as a
+	// layout segment is walked past below.
+	nameIdx := -1
+	for i := len(segs) - 1; i >= 0; i-- {
+		if s := sanitizeSegment(segs[i]); s != "" && !skippableSegment(s) {
+			name, nameIdx = s, i
+			break
+		}
+	}
 	if name == "" {
 		return "root.root", "root"
 	}
 	domain := "root"
-	for i := len(segs) - 2; i >= 0; i-- {
+	for i := nameIdx - 1; i >= 0; i-- {
 		s := sanitizeSegment(segs[i])
-		if s == "" || structuralSegments[s] {
+		if s == "" || skippableSegment(s) {
 			continue
 		}
 		domain = s
@@ -62,8 +92,8 @@ func capabilityIDFromDir(dir string) (id, name string) {
 	// A directory whose only ancestor is structural still needs a domain,
 	// and the structural name is a truer answer than "root": "src.parser"
 	// tells the reader where to look, "root.parser" does not.
-	if domain == "root" && len(segs) >= 2 {
-		if s := sanitizeSegment(segs[len(segs)-2]); s != "" {
+	if domain == "root" && nameIdx >= 1 {
+		if s := sanitizeSegment(segs[nameIdx-1]); s != "" {
 			domain = s
 		}
 	}
@@ -292,4 +322,121 @@ func sanitizeSegment(s string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+// --- earning a name (#177) -----------------------------------------------
+//
+// Before #177 a test-name cluster became a capability as soon as two tests in
+// one directory led with the same word. Run against spf13/cobra that produced
+// twenty-five proposals, among them provisional:root.no, provisional:root.bash
+// and provisional:root.root -- leading words scraped off TestNoFileCompletions
+// and TestGenBashCompletionFile. None of them is a capability, and a reader
+// who meets root.no first stops reading before the section that says what
+// atlas cannot see.
+//
+// The rule these functions implement is: a word may name a grouping only when
+// the PRODUCTION code carries that word as the head of a declaration, at least
+// twice. Everything else is grouped, sized and reported as unnamed. Atlas
+// never labels a grouping with a word it cannot point at in the code.
+
+// wordsOf splits an identifier into lowercased words. It is the word-boundary
+// half of the fix: matching on substrings is what let the cluster word "no"
+// claim Normalize, because "Normalize" contains the letters n-o.
+func wordsOf(name string) []string {
+	parts := splitCamel(name)
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.ToLower(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// headWord is the last word of an identifier, or "" for a name with no words.
+//
+// English compound identifiers put the subject last: GenBashCompletionFile is
+// a FILE, NoFileCompletions is COMPLETIONS, HasFlags is FLAGS. "gen", "bash"
+// and "no" are modifiers, and a modifier is never the thing the code does.
+func headWord(name string) string {
+	w := wordsOf(name)
+	if len(w) == 0 {
+		return ""
+	}
+	return w[len(w)-1]
+}
+
+// wordEq compares two words, tolerating the naive English plural only.
+//
+// There is deliberately no stemmer here. A stemmer guesses -- it would fold
+// "completion" into "complete" and hand back a name no author typed -- and
+// guessing is the defect #177 exists to remove. "flag"/"flags" is a suffix
+// rule anybody can check by reading it; anything past that is a model of
+// English this package has no business carrying.
+func wordEq(a, b string) bool {
+	return a == b || a == b+"s" || a+"s" == b
+}
+
+// attests reports whether an identifier carries the word w at a WORD boundary.
+func attests(name, w string) bool {
+	for _, x := range wordsOf(name) {
+		if wordEq(x, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// headWitnesses returns the declarations whose HEAD word is w -- the ones that
+// ARE the thing rather than merely mentioning it.
+func headWitnesses(names []string, w string) []string {
+	var out []string
+	for _, n := range names {
+		if wordEq(headWord(n), w) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// nameEarned reports whether w may be used as the name of a grouping over
+// these declarations.
+//
+// Two witnesses, not one: one declaration heading with a word is a function,
+// two is a convention. Measured, by running the binary before and after:
+// requiring two costs cobra's root.usage proposal (Usage is the only
+// declaration in the repository whose head word is "usage"; UsageString is a
+// string, UsageTemplate is a template) and buys the refusal of root.read on
+// golang-migrate and cli.root on atlas's own tree.
+//
+// len(headWitnesses) >= 2 implies at least two members, so the older "a
+// cluster needs two or more symbols" rule is subsumed rather than repeated: a
+// conjunct that cannot independently fail is exactly the vacuous test this
+// repository keeps shipping.
+func nameEarned(names []string, w string) bool {
+	return len(headWitnesses(names, w)) >= 2
+}
+
+// namableDir reports whether a directory's own name is a subject atlas can
+// honestly hand to a grouping.
+//
+// Two shapes fail it. The repository root, where capabilityIDFromDir returns
+// the hardcoded literal "root.root" -- a name no author typed, and on cobra
+// the label over 83 symbols. And a directory whose last segment is layout
+// rather than subject (src, lib, pkg, app...), where the same reasoning
+// applies: "internal.app" says where the code sits, not what it does. The
+// structural list is the one the domain half already skips, reused rather than
+// copied so the two halves cannot drift apart.
+//
+// The "root" fallback in capabilityIDFromRoute (above, for the path "/") is
+// deliberately NOT covered by this and stays as it is: there "root" denotes a
+// real thing the route table names -- the API's root path -- while in a
+// directory id it denotes the absence of a name.
+func namableDir(dir string) bool {
+	segs := splitPath(dir)
+	if len(segs) == 0 {
+		return false
+	}
+	last := sanitizeSegment(segs[len(segs)-1])
+	return last != "" && !skippableSegment(last)
 }

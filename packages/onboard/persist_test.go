@@ -82,8 +82,8 @@ func TestLoad_MissingIsADistinctError(t *testing.T) {
 
 func TestDocument_Find(t *testing.T) {
 	doc := Document{Capabilities: []Capability{
-		{ID: "orders.place", Provisional: true},
-		{ID: "billing.settle", Provisional: true},
+		{ID: "orders.place", Provisional: true, Named: true},
+		{ID: "billing.settle", Provisional: true, Named: true},
 	}}
 	if _, ok := doc.Find("orders.place"); !ok {
 		t.Error("Find missed a bare id")

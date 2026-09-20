@@ -58,30 +58,36 @@ route registrations, mines git history, and derives the map from all of it.
 Output below is recorded from running `atlas onboard` on the atlas
 repository itself (which does carry annotations — the `declared` line is
 those, adopted as they are), against a state DB that did not exist yet. The
-only edit is the home directory, shortened to `/home/…/atlas`; the `…` lines
-are printed by the command itself. Every count moves with the codebase, so
-read this as a snapshot of one run rather than as numbers to expect.
+only edit is the path, shortened to `/home/…/atlas`; the `…` lines are
+printed by the command itself. Every count moves with the codebase, so read
+this as a snapshot of one run rather than as numbers to expect.
+
+Two of the entries are **groupings atlas refused to name** — see
+[`atlas onboard`](./commands/onboard.md#groupings-atlas-will-not-name). It
+reports their size and their file breakdown rather than labelling 174 symbols
+with a word it cannot point at in the code.
 
 ```
 $ atlas onboard --top 2
 
 atlas onboard — /home/…/atlas
 
-  scanned      2541 production symbols, 2133 test symbols      6.1s
-  sql          138 operations, 4 unresolved                0.1s
-  routes       23 registrations
-  declared     63 features from annotations, adopted as they are
-  PROVISIONAL  244 capabilities across 46 domains, over 2540 undeclared symbols
-  total           6.5s
+  scanned      2779 production symbols, 2552 test symbols      1.4s
+  sql          145 operations, 10 unresolved                0.1s
+  routes       28 registrations
+  declared     64 features from annotations, adopted as they are
+  PROVISIONAL  105 named proposals across 35 domains + 2 unnamed groupings (174 symbols), over 2778 undeclared symbols
+  total           1.9s
 
 WHAT ATLAS FOUND
 
-  1. [high] 1 table is written from more than one capability  [over provisional groupings]
+  1. [high] 2 tables are written from more than one capability  [over provisional groupings]
      A shared writer is coupling that no import graph shows: a schema or invariant change in one capability lands in the other's rows.
        · coverage_results is written by 2 capabilities: provisional:packages.store, provisional:store.coverage
+       · symbols is written by 2 capabilities: provisional:packages.store, provisional:store.symbols
      → atlas sql capabilities
 
-  2. [info] 25 tables have exactly one writing capability  [over provisional groupings]
+  2. [info] 24 tables have exactly one writing capability  [over provisional groupings]
      Single-writer tables are an ownership boundary the code already enforces. They are the cheapest capabilities to declare first.
        · annotations is written only by provisional:packages.store
        · audit_snapshot_runs is written only by provisional:packages.store
@@ -89,20 +95,20 @@ WHAT ATLAS FOUND
        · cfg_decision_coverage is written only by provisional:packages.store
        · cfg_edges is written only by provisional:packages.store
 
-  3. [medium] 65 SQL advisories across 3 checks
+  3. [medium] 67 SQL advisories across 3 checks
      Unbounded reads, unstable pagination, filters no index serves.
-       · sql.unbounded-list x52 -- SELECT over annotations has no LIMIT and no keyset predicate; the result set grows with the table  (packages/doctor/probe.go:179)
-       · sql.missing-index x12 -- filters annotations on kind, and no index on that table leads with any of those columns  (packages/doctor/probe.go:179)
-       · sql.possible-injection x1 -- query text is built by string formatting from a value the caller supplies  (packages/redact/inventory.go:231)
+       · sql.unbounded-list x53 -- SELECT over annotations has no LIMIT and no keyset predicate; the result set grows with the table  (packages/doctor/probe.go:184)
+       · sql.missing-index x12 -- filters annotations on kind, and no index on that table leads with any of those columns  (packages/doctor/probe.go:184)
+       · sql.possible-injection x2 -- query text is built by string formatting from a value the caller supplies  (packages/redact/inventory.go:231)
      → atlas sql advise
 
-  4. [info] 449 symbols have no incoming reference atlas can see
+  4. [info] 258 symbols have no incoming reference atlas can see
      A candidate list, not a verdict: dynamic dispatch, entry points and plugin registries all look like this to a static graph.
        · assets.python.atlas  (assets/python/atlas.py:1)
        · assets.python.atlas.T  (assets/python/atlas.py:36)
        · assets.python.atlas._identity  (assets/python/atlas.py:39)
        · assets.python.atlas._identity.wrap  (assets/python/atlas.py:44)
-       · main.main  (cmd/atlas/main.go:20)
+       · cmd/atlas-serve.main  (cmd/atlas-serve/main.go:64)
      → atlas codebase dead
 
 WHAT ATLAS CANNOT SEE
@@ -110,37 +116,61 @@ WHAT ATLAS CANNOT SEE
   · No coverage run has been ingested, so atlas cannot say what your tests actually execute. Test evidence in this report means "a test file sits in the same directory", which is a weaker claim than it looks.
     → go test ./... -coverprofile=cover.out -covermode=atomic && atlas cov sync --framework go-cover --input cover.out
 
-  · 4 of 138 queries (3%) were assembled where atlas could not read them. Every table set above is a lower bound: a table only those queries touch is missing from it.
+  · 10 of 145 queries (7%) were assembled where atlas could not read them. Every table set above is a lower bound: a table only those queries touch is missing from it.
     → atlas sql list --unresolved
 
-  · 1 of 23 route registrations point at a handler atlas could not resolve to an indexed symbol, so no capability was proposed for them.
+  · 1 of 28 route registrations point at a handler atlas could not resolve to an indexed symbol, so no capability was proposed for them.
     → atlas contract list
 
-  · The scan deliberately excluded 27 files (generated code and ignored packages); their symbols are absent from every capability above. The scan raised 24 scanner warnings. A warning is a diagnostic, not a count of files atlas could not read: some cost it a symbol and some do not, and it does not tell them apart -- so read them rather than the number.
+  · The scan deliberately excluded 28 files (generated code and ignored packages); their symbols are absent from every capability above. The scan raised 24 scanner warnings. A warning is a diagnostic, not a count of files atlas could not read: some cost it a symbol and some do not, and it does not tell them apart -- so read them rather than the number.
     → atlas doctor
 
-  · All 244 capabilities above are inferred. Atlas did not write any of them to the registry; 63 declared features already in the registry were adopted as they are.
+  · Atlas could not name 174 of 2778 undeclared symbols (6%). They are in 2 groupings it refused to name rather than label with a word scraped off a test name or a directory that says nothing -- listed as "groupings atlas would not name" in the map below, with their file breakdown. Naming one is the single judgement this tool will not make for you.
+    → atlas onboard promote --id unnamed:1 --as <your.feature.id>
+
+  · All 107 capabilities below are inferred. Atlas did not write any of them to the registry; 64 declared features already in the registry were adopted as they are.
     → atlas onboard promote --id <id> --apply
 
-PROVISIONAL CAPABILITY MAP (244 proposals)
+PROVISIONAL CAPABILITY MAP (107 entries)
 
-  from HTTP routes (2 of 14)
+  What this is: a first guess at the capabilities in this repository, derived from
+  HTTP routes, from test names the production code corroborates, and from the
+  directory tree — in that order of strength. Nothing here is in the registry, and
+  nothing here is a name atlas is asking you to keep.
+
+  from HTTP routes (2 of 19)
 
   provisional:sprint.handle                   3 symbols  tests:colocated-tests
       route ANY /sprint registered here  (internal/server/server.go:94)
   provisional:contract.handle                 2 symbols  tests:colocated-tests
       route ANY /contract registered here  (internal/server/server.go:92)
 
-  … 12 more
+  … 17 more
 
-  from code structure and test names (2 of 230)
+  from code structure and test names (2 of 86)
 
-  provisional:cli.cov                        42 symbols  tests:colocated-tests
-      26 tests in internal/cli lead with "Cov"  (internal/cli/cov_diff_test.go:227)
-  provisional:cli.trend                      18 symbols  tests:colocated-tests
-      24 tests in internal/cli lead with "Trend"  (internal/cli/trend_issue92_test.go:24)
+  provisional:cli.trend                      21 symbols  tests:colocated-tests
+      24 tests in internal/cli/ lead with "Trend"; the name is the head of runTrend, compareTrend, emitTrend  (internal/cli/trend_issue92_test.go:24)
+  provisional:store.symbols                  20 symbols  tests:colocated-tests writes symbols  (+2 unreadable queries — lower bound)
+      10 tests in packages/store/ lead with "Symbols"; the name is the head of CarriedBySymbol, writeSymbols, repositionMovedSymbols and 5 more  (packages/store/symbols_test.go:17)
 
-  … 228 more
+  … 84 more
+
+  groupings atlas would not name (2 of 2)
+
+  provisional:unnamed:1                      95 symbols  tests:colocated-tests
+      95 undeclared symbols in internal/app/ that no route, no directory name and no corroborated test name covers. Atlas has no honest name for this one.  (internal/app/audit_feature.go:30)
+        29  internal/app/audit_feature.go
+        18  internal/app/scan_tests.go
+        13  internal/app/contract_feature.go
+        10  internal/app/trace_feature.go
+         6  internal/app/get_status.go
+      … +5 more files
+      → atlas onboard promote --id unnamed:1 --as <your.feature.id>
+  provisional:unnamed:2                      79 symbols  tests:none
+      79 undeclared symbols in the repository root that no route, no directory name and no corroborated test name covers. Atlas has no honest name for this one.  (external:py:1)
+        79  external:py
+      → atlas onboard promote --id unnamed:2 --as <your.feature.id>
 
   Full map written to /home/…/atlas/.atlas/provisional/capabilities.json.
   Nothing above was added to the registry.
@@ -151,7 +181,9 @@ The run ends with the CI snippet and the three commands worth running next.
 ### How long it takes
 
 Timings are wall clock from `time`, on one developer laptop, recorded from
-the same build as the transcript above. Every `onboard` run below is cold: a
+an **earlier build** than the transcript above — that transcript's own header
+line is the measurement for its own run, and it is smaller. Both are one
+machine on one day. Every `onboard` run below is cold: a
 state DB that does not exist yet, so nothing is served from the incremental
 cache. **Your machine is not this machine** — these are one person's numbers
 on one afternoon, not a benchmark, and the point they make is the order of
@@ -306,18 +338,17 @@ recorded none of them running. The second is the more useful finding of the
 two, and it is reported as itself rather than collapsed back into "a test
 exists nearby".
 
-On the run recorded above, ingesting the profile moved 238 of the 244
-proposals to `execution` and 4 to `measured-not-executed`. One of those four,
-`provisional:adapters.terminal`, had been reading `colocated-tests` — a test
-file does sit in `internal/adapters/`, and it does not reach that code. The
-other three (`cmd.atlas`, `packages.testing`, `internal.calibrate`) went from
-`none` to a measured negative, which is the same word's worth of output
-carrying a great deal more information.
+On the run recorded above, ingesting the profile moved 101 of the 107 map
+entries to `execution`. Four went from `none` to `measured-not-executed`
+(`packages.envelope`, `cmd.atlas-serve`, `internal.calibrate`, `cmd.atlas`) —
+the same word's worth of output carrying a great deal more information,
+because a measured negative is a thing you can act on and an absence of
+signal is not.
 
 The remaining 2 stayed on `none`, and that is the point of keeping the two
-apart: they are `root.root` and `assets.python`, whose files are Python. A Go
-coverprofile said nothing at all about them, so they are not reported as
-measured and dead.
+apart: they are `assets.python` and the unnamed grouping `unnamed:2`, whose
+files are Python. A Go coverprofile said nothing at all about them, so they
+are not reported as measured and dead.
 
 ---
 
