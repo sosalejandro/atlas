@@ -31,9 +31,9 @@ func noSuch(format string, a ...any) error { return answerError{msg: fmt.Sprintf
 func noFeaturesAnnotated() *NoData {
 	return &NoData{
 		Reason: ReasonNoFeatures,
-		Detail: "the repository is indexed but no symbol carries an @atlas:feature annotation, " +
+		Detail: "the repository is indexed but no symbol carries an @grunnr:feature annotation, " +
 			"so grunnr knows the code and nothing about which capability it serves",
-		Run: "annotate an entry point with @atlas:feature <id>, then run grunnr scan",
+		Run: "annotate an entry point with @grunnr:feature <id>, then run grunnr scan",
 	}
 }
 
@@ -571,7 +571,7 @@ func (ts *toolset) mustFeature(ctx context.Context, id string) (store.Feature, e
 	feature, err := ts.graph.GetFeature(ctx, shared.FeatureID(id))
 	if errors.Is(err, shared.ErrFeatureNotFound) {
 		return store.Feature{}, noSuch(
-			"no feature %q is indexed. Use find_feature to search by name, or check the @atlas:feature "+
+			"no feature %q is indexed. Use find_feature to search by name, or check the @grunnr:feature "+
 				"annotation and re-run `grunnr scan`.", id)
 	}
 	if err != nil {

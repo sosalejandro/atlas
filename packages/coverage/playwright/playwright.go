@@ -28,7 +28,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -82,10 +81,7 @@ type errorBlock struct {
 	Message string `json:"message"`
 }
 
-var (
-	atlasFeatureRe = regexp.MustCompile(`@atlas:feature\s+([A-Za-z0-9_.-]+)`)
-	testregRe      = regexp.MustCompile(`@testreg\s+([A-Za-z0-9_.,-]+)`)
-)
+var ()
 
 // Parse reads a Playwright JSON report from r.
 func Parse(r io.Reader) (coverage.Run, []coverage.Result, error) {
@@ -180,11 +176,11 @@ func walk(s suite, inheritedFile string, out *[]coverage.Result, pass, fail, ski
 // deriveFeature pulls the FeatureID from an `@atlas:feature` or `@testreg`
 // token in the test title, falling back to a path-based heuristic.
 func deriveFeature(title, file string) *shared.FeatureID {
-	if m := atlasFeatureRe.FindStringSubmatch(title); len(m) == 2 {
+	if m := coverage.FeatureAnnotationRe.FindStringSubmatch(title); len(m) == 2 {
 		f := shared.FeatureID(strings.ToLower(m[1]))
 		return &f
 	}
-	if m := testregRe.FindStringSubmatch(title); len(m) == 2 {
+	if m := coverage.TestregAnnotationRe.FindStringSubmatch(title); len(m) == 2 {
 		first := strings.TrimSpace(strings.Split(m[1], ",")[0])
 		if first != "" {
 			f := shared.FeatureID(strings.ToLower(first))

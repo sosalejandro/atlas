@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 	"time"
 
@@ -46,10 +45,7 @@ type event struct {
 // inline-annotation grammar — matches the same `@atlas:feature <id>` and
 // `@testreg <id>` forms the codeindex/annotations parser accepts, with
 // the difference that here we read from runtime stdout, not source.
-var (
-	atlasFeatureRe = regexp.MustCompile(`@atlas:feature\s+([A-Za-z0-9_.-]+)`)
-	testregRe      = regexp.MustCompile(`@testreg\s+([A-Za-z0-9_.,-]+)`)
-)
+var ()
 
 // Parse reads `go test -json` output from r and returns a Run + Results
 // pair ready for store.Coverage().InsertRunWithResults.
@@ -154,10 +150,10 @@ func (s *parseState) applyEvent(ev event) {
 // `output` event into the accumulator.
 func applyOutput(a *accum, out string) {
 	if a.feature == nil {
-		if m := atlasFeatureRe.FindStringSubmatch(out); len(m) == 2 {
+		if m := coverage.FeatureAnnotationRe.FindStringSubmatch(out); len(m) == 2 {
 			f := shared.FeatureID(strings.ToLower(m[1]))
 			a.feature = &f
-		} else if m := testregRe.FindStringSubmatch(out); len(m) == 2 {
+		} else if m := coverage.TestregAnnotationRe.FindStringSubmatch(out); len(m) == 2 {
 			// Legacy form may be comma-separated — first ID wins.
 			first := strings.TrimSpace(strings.Split(m[1], ",")[0])
 			if first != "" {
