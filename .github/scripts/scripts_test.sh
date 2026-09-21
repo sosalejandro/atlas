@@ -1025,6 +1025,146 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# stamp-version.sh
+#
+# The stamp silently stopped working at v0.8.0 and stayed broken through five
+# releases. Nothing here is hypothetical: each case below is a shape root.go
+# has actually had, and the first one is the shape that broke it.
+# ---------------------------------------------------------------------------
+
+# rootlike writes a file with the same var block shape as internal/cli/root.go,
+# with $1 spliced in between Version and the other two.
+rootlike() {
+	local dest="$1" between="$2"
+	{
+		printf 'package cli\n\nvar (\n'
+		printf '\tVersion = "v0.1.0"\n'
+		[ -n "$between" ] && printf '%s\n' "$between"
+		printf '\tCommit    = ""\n'
+		printf '\tBuildDate = ""\n'
+		printf ')\n\nfunc f() { _ = struct{ Version string }{Version: "not this one"} }\n'
+	} >"$dest"
+}
+
+stamp() {
+	local file="$1"
+	shift
+	env FILE="$file" "$@" bash "$SCRIPT_DIR/stamp-version.sh" >"$WORK/stamp.log" 2>&1
+}
+
+it "stamp-version.sh stamps a var block a comment has split (the v0.8.0 regression)"
+# gofmt puts Version in its own alignment group when a comment separates it,
+# so it gets ONE space before `=` while Commit/BuildDate keep four and one.
+# The old sed anchored on three spaces and matched none of it.
+rootlike "$WORK/split.go" $'\t// a comment gofmt treats as a group separator'
+set +e
+stamp "$WORK/split.go" VERSION=0.15.0 COMMIT=abc1234 BUILD_DATE=2026-01-01T00:00:00Z
+split_rc=$?
+set -e
+if [ "$split_rc" -ne 0 ]; then
+	printf '%s\n' "$(cat "$WORK/stamp.log")" >&2
+	fail "exit $split_rc"
+elif ! grep -q 'Version = "v0.15.0"' "$WORK/split.go"; then
+	fail "Version not stamped: $(grep -n Version "$WORK/split.go" | tr '\n' ' ')"
+elif ! grep -q 'Commit    = "abc1234"' "$WORK/split.go"; then
+	fail "Commit not stamped"
+elif ! grep -q 'BuildDate = "2026-01-01T00:00:00Z"' "$WORK/split.go"; then
+	fail "BuildDate not stamped"
+else
+	pass
+fi
+
+it "stamp-version.sh stamps the unsplit block, where all three align together"
+rootlike "$WORK/joined.go" ""
+set +e
+stamp "$WORK/joined.go" VERSION=0.15.0 COMMIT=abc1234 BUILD_DATE=2026-01-01T00:00:00Z
+joined_rc=$?
+set -e
+if [ "$joined_rc" -ne 0 ]; then
+	printf '%s\n' "$(cat "$WORK/stamp.log")" >&2
+	fail "exit $joined_rc"
+elif ! grep -qE "^	Version[[:space:]]+= \"v0.15.0\"$" "$WORK/joined.go"; then
+	fail "Version not stamped: $(grep -n Version "$WORK/joined.go" | tr '\n' ' ')"
+else
+	pass
+fi
+
+it "stamp-version.sh is idempotent against an already-stamped file"
+rootlike "$WORK/again.go" $'\t// comment'
+set +e
+stamp "$WORK/again.go" VERSION=0.15.0 COMMIT=abc1234 BUILD_DATE=2026-01-01T00:00:00Z
+stamp "$WORK/again.go" VERSION=0.15.0 COMMIT=abc1234 BUILD_DATE=2026-01-01T00:00:00Z
+again_rc=$?
+set -e
+if [ "$again_rc" -ne 0 ]; then
+	printf '%s\n' "$(cat "$WORK/stamp.log")" >&2
+	fail "a re-run of an already-correct stamp failed with $again_rc"
+elif [ "$(grep -c 'v0.15.0' "$WORK/again.go")" != "1" ]; then
+	fail "re-running doubled the value"
+else
+	pass
+fi
+
+it "stamp-version.sh leaves a Version: field in a struct literal alone"
+rootlike "$WORK/struct.go" $'\t// comment'
+stamp "$WORK/struct.go" VERSION=0.15.0 COMMIT=abc1234 BUILD_DATE=2026-01-01T00:00:00Z || true
+if grep -q 'Version: "not this one"' "$WORK/struct.go"; then
+	pass
+else
+	fail "the struct literal was rewritten: $(grep -n 'not this one' "$WORK/struct.go")"
+fi
+
+it "stamp-version.sh fails loudly when the var it stamps is gone"
+# The failure this prevents: a refactor renames or moves the var, sed matches
+# nothing, and the release ships carrying the previous version's stamps.
+printf 'package cli\n\nvar Commit = ""\nvar BuildDate = ""\n' >"$WORK/novar.go"
+set +e
+stamp "$WORK/novar.go" VERSION=0.15.0 COMMIT=abc1234 BUILD_DATE=2026-01-01T00:00:00Z
+novar_rc=$?
+set -e
+if [ "$novar_rc" -ne 1 ]; then
+	fail "exit $novar_rc, want 1"
+elif ! grep -q 'declares no package-level' "$WORK/stamp.log"; then
+	fail "did not say which var was missing: $(cat "$WORK/stamp.log")"
+else
+	pass
+fi
+
+it "stamp-version.sh rejects a v-prefixed version"
+# release-please emits a bare semver. A leading v here yields Version="vv0.15.0".
+rootlike "$WORK/vpfx.go" $'\t// comment'
+set +e
+stamp "$WORK/vpfx.go" VERSION=v0.15.0 COMMIT=abc1234 BUILD_DATE=2026-01-01T00:00:00Z
+vpfx_rc=$?
+set -e
+assert_eq "$vpfx_rc" "2"
+
+it "stamp-version.sh rejects an empty version"
+rootlike "$WORK/empty.go" $'\t// comment'
+set +e
+stamp "$WORK/empty.go" VERSION= COMMIT=abc1234 BUILD_DATE=2026-01-01T00:00:00Z
+empty_rc=$?
+set -e
+assert_eq "$empty_rc" "2"
+
+it "stamp-version.sh stamps the real internal/cli/root.go"
+# The case CI actually runs. A fixture that drifts from the real file is how
+# this stayed green while the release job did not.
+cp "$REPO_ROOT/internal/cli/root.go" "$WORK/real_root.go"
+set +e
+stamp "$WORK/real_root.go" VERSION=9.9.9 COMMIT=abc1234 BUILD_DATE=2026-01-01T00:00:00Z
+real_rc=$?
+set -e
+if [ "$real_rc" -ne 0 ]; then
+	printf '%s\n' "$(cat "$WORK/stamp.log")" >&2
+	fail "exit $real_rc"
+elif ! grep -qE "^	Version[[:space:]]+= \"v9.9.9\"$" "$WORK/real_root.go"; then
+	fail "Version not stamped in the real file"
+else
+	pass
+fi
+
+# ---------------------------------------------------------------------------
 
 printf '\n%d test(s), %d failure(s)\n' "$TESTS_RUN" "$TESTS_FAILED"
 [ "$TESTS_FAILED" -eq 0 ]
