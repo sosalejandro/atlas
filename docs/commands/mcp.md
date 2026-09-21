@@ -29,9 +29,48 @@ one has a field:
 | The list is incomplete | `truncated` | Rows were withheld. There are more. |
 | Grunnr was never given the data | `no_data` | Not "there is none" — "nobody ran the command" |
 | The spans predate the working tree | `index_freshness` | The file moved since the scan; the line numbers are wrong |
+| The edge itself may be wrong | `resolution_tier` | How grunnr bound this call. `syntactic` is a guess. |
+| Grunnr chose between candidates | `ambiguous` | More than one symbol matched; one was picked |
 
 An agent that ignores these will confidently delete a symbol with 400 callers
 because a capped `callers()` showed it five.
+
+## Call edges carry their provenance
+
+`callers` and `callees` put a `resolution_tier` on **every** row, and a
+`provenance` block on the result:
+
+```json
+{
+  "callers": [
+    {"qualified_name": "pkg/checkout.Refund", "resolution_tier": "name_resolved",
+     "call_site": {"file": "pkg/checkout/refund.go", "line": 41}},
+    {"qualified_name": "pkg/admin.Sweep", "resolution_tier": "syntactic",
+     "ambiguous": true,
+     "call_site": {"file": "pkg/admin/sweep.go", "line": 12}}
+  ],
+  "provenance": {
+    "by_tier": {"name_resolved": 1, "syntactic": 1},
+    "ambiguous": 1,
+    "note": "1 of these are syntactic guesses and 1 were picked from more than one candidate. ..."
+  }
+}
+```
+
+The two rows above are not equally true. `name_resolved` bound the name to a
+declaration grunnr indexed. `syntactic` matched on the shape of the source:
+the symbol it names may not exist, or may be the wrong one of several sharing
+a name. `ambiguous` marks that grunnr had more than one candidate and chose.
+
+The field has no `omitempty`. An absent tier would read as "this edge is
+fine", and that is the one thing grunnr must never imply — which is why a
+result that was capped says which population its counts describe, rather than
+letting "1 of 2 are guesses" stand in for two hundred edges.
+
+This matters more for an agent than for a human. A human reading a call list
+applies judgement and notices when something looks wrong. An agent edits the
+callers it was handed, and a syntactic false positive becomes a wrong edit in
+a file nobody asked it to touch.
 
 ## Read-only, by construction
 
@@ -80,8 +119,8 @@ requires. Diagnostics go to `stderr`.
 | `find_feature(query, limit?)` | Which features match a name or title |
 | `feature_surface(feature_id, limit?)` | Which symbols implement it — **with the derivation's provenance** |
 | `symbol_info(qualified_name)` | Kind, file, line span, package, owning features, **distinct** caller/callee counts |
-| `callers(qualified_name, limit?)` | Who calls it, and from which file:line |
-| `callees(qualified_name, limit?)` | What it calls, and from which file:line |
+| `callers(qualified_name, limit?)` | Who calls it, from which file:line, and **how each edge was resolved** |
+| `callees(qualified_name, limit?)` | What it calls, from which file:line, and **how each edge was resolved** |
 | `tests_covering(qualified_name, limit?)` | Which tests actually executed it, and how many statements |
 | `coverage_for(feature_id)` | The feature's health on the current coverage frontier |
 

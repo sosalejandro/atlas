@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
+	"github.com/sosalejandro/grunnr/packages/graph"
 	"github.com/sosalejandro/grunnr/packages/store"
 )
 
@@ -113,6 +115,109 @@ type neighbour struct {
 	symbolRef
 	EdgeKind string   `json:"edge_kind"`
 	CallSite callSite `json:"call_site"`
+
+	// ResolutionTier is which mechanism established this edge, in the
+	// vocabulary of graph.ResolutionTier: typed, name_resolved, syntactic,
+	// imported.
+	//
+	// No omitempty, deliberately, for the reason store.EdgeRow.Tier gives
+	// and this projection spent #103 through #175 not honouring: an edge
+	// whose provenance is dropped when it is inconvenient is indistinguishable
+	// from a typed one, and this surface is consumed by agents that ACT on the
+	// list. A human reading a call list applies judgement and notices when
+	// something looks wrong; an agent edits the callers it was handed, and a
+	// syntactic false positive becomes a wrong edit in a file nobody asked it
+	// to touch.
+	ResolutionTier string `json:"resolution_tier"`
+
+	// Ambiguous marks an edge where the resolver saw more than one candidate
+	// and picked one. Orthogonal to the tier: a name_resolved edge can be
+	// ambiguous (two packages declare the short name) and a syntactic one can
+	// be unambiguous (one substring matched, still a guess).
+	//
+	// omitempty here and not on ResolutionTier because false is the honest
+	// default -- "we did not have to choose" -- whereas an absent tier would
+	// be a claim grunnr cannot make.
+	Ambiguous bool `json:"ambiguous,omitempty"`
+}
+
+// provenance summarises how much of a neighbour list grunnr could actually
+// establish, so a caller can weigh the answer without tallying every row.
+//
+// The per-edge field is the primary signal; this exists because an agent
+// handed forty rows will not count them, and "31 of 40 of these are guesses"
+// is the sentence that changes what it does next.
+type provenance struct {
+	// ByTier counts edges per resolution tier. A map rather than named
+	// fields: the tier vocabulary is graph's to extend (#87 moves edges to
+	// typed, #105 adds imported), and a struct here would silently drop a
+	// tier this package had not been taught about -- which is the failure
+	// mode the whole tier system exists to prevent.
+	ByTier map[string]int `json:"by_tier"`
+	// Ambiguous is how many edges the resolver picked from more than one
+	// candidate.
+	Ambiguous int `json:"ambiguous"`
+	// Note states the caveat in prose, for the same reason
+	// surface_source_note does: a caller that reads only one field should
+	// still be told what it is looking at.
+	Note string `json:"note"`
+}
+
+// tierWeakEnoughToDoubt are the tiers whose edges may simply be wrong -- not
+// incomplete, wrong: the target may not exist, or may be the wrong one of
+// several same-named candidates.
+func tierWeakEnoughToDoubt(t string) bool {
+	return t == string(graph.TierSyntactic) || t == ""
+}
+
+// summarise builds the provenance block for a neighbour list.
+//
+// t is the truncation block, or nil. It matters: the counts describe the rows
+// actually RETURNED, and on a capped result that is a subset. "2 of 40 are
+// guesses" read as a statement about all 200 edges is precisely the
+// overclaim this block exists to prevent, so when the list was capped the
+// note says which population it is describing.
+func summarise(rows []neighbour, t *Truncation) provenance {
+	p := provenance{ByTier: map[string]int{}}
+	weak := 0
+	for _, r := range rows {
+		tier := r.ResolutionTier
+		if tier == "" {
+			// An edge stored before the tier was required, or by a producer
+			// that did not say. Named rather than counted as some real tier:
+			// "unset" is information, and folding it into syntactic would
+			// invent a claim.
+			tier = "unset"
+		}
+		p.ByTier[tier]++
+		if r.Ambiguous {
+			p.Ambiguous++
+		}
+		if tierWeakEnoughToDoubt(r.ResolutionTier) {
+			weak++
+		}
+	}
+	scope := "these"
+	if t != nil {
+		scope = fmt.Sprintf("the %d shown (of %d)", t.Returned, t.Total)
+	}
+
+	switch {
+	case len(rows) == 0:
+		p.Note = "No call edges were found. That is not proof there are none: " +
+			"calls through an interface, a DI container or reflection are not in the index."
+	case weak == 0 && p.Ambiguous == 0:
+		p.Note = fmt.Sprintf(
+			"Every edge in %s was resolved by binding a name to a declaration grunnr indexed. "+
+				"Still a lower bound: dynamic dispatch is not represented.", scope)
+	default:
+		p.Note = fmt.Sprintf(
+			"%d of %s are syntactic guesses and %d were picked from more than one candidate. "+
+				"A syntactic edge may name a symbol that does not exist, or the wrong one of "+
+				"several with the same name. Verify before acting on those rows.",
+			weak, scope, p.Ambiguous)
+	}
+	return p
 }
 
 type callSite struct {
@@ -123,6 +228,7 @@ type callSite struct {
 type callersResult struct {
 	QualifiedName  string           `json:"qualified_name"`
 	Callers        []neighbour      `json:"callers"`
+	Provenance     provenance       `json:"provenance"`
 	Truncated      *Truncation      `json:"truncated,omitempty"`
 	IndexFreshness *freshnessReport `json:"index_freshness,omitempty"`
 }
@@ -130,6 +236,7 @@ type callersResult struct {
 type calleesResult struct {
 	QualifiedName  string           `json:"qualified_name"`
 	Callees        []neighbour      `json:"callees"`
+	Provenance     provenance       `json:"provenance"`
 	Truncated      *Truncation      `json:"truncated,omitempty"`
 	IndexFreshness *freshnessReport `json:"index_freshness,omitempty"`
 }

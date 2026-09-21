@@ -82,7 +82,15 @@ func (ts *toolset) graphTools() []tool {
 			Title: "Incoming call edges",
 			Description: "List the symbols that call a symbol, each with the file:line of the call site. " +
 				"This is the blast radius of a signature change. The result is capped: if it carries a " +
-				"`truncated` block, there are MORE callers than you were shown.",
+				"`truncated` block, there are MORE callers than you were shown. " +
+				"Every row carries `resolution_tier`, which is how grunnr established that edge, and you " +
+				"must read it before acting on the row: `typed` and `name_resolved` bound a name to a " +
+				"declaration grunnr indexed, but `syntactic` is a GUESS from the shape of the source -- " +
+				"the caller it names may not exist, or may be the wrong one of several with the same " +
+				"name. `ambiguous: true` means more than one candidate matched and grunnr picked one. " +
+				"Editing a syntactic or ambiguous caller without checking the file first is how you " +
+				"change code nobody asked you to touch. The `provenance` block totals this for the rows " +
+				"returned.",
 			InputSchema: objectSchema(map[string]any{
 				"qualified_name": stringProp("Fully qualified name of the symbol being called.", "pkg/checkout.Pay"),
 				"limit":          limitProp(ts.limits.MaxEdges, "call edges"),
@@ -94,7 +102,14 @@ func (ts *toolset) graphTools() []tool {
 			Title: "Outgoing call edges",
 			Description: "List the symbols a symbol calls, each with the file:line of the call site. " +
 				"Only statically resolved calls appear: anything reached through an interface, a DI container or " +
-				"reflection is missing, so treat the list as a lower bound rather than the full behaviour.",
+				"reflection is missing, so treat the list as a lower bound rather than the full behaviour. " +
+				"Every row carries `resolution_tier`, which is how grunnr established that edge, and you " +
+				"must read it before acting on the row: `typed` and `name_resolved` bound a name to a " +
+				"declaration grunnr indexed, but `syntactic` is a GUESS from the shape of the source -- " +
+				"the callee it names may not exist, or may be the wrong one of several with the same " +
+				"name. `ambiguous: true` means more than one candidate matched and grunnr picked one. " +
+				"The `provenance` block totals this for the rows returned. A list that is a lower bound " +
+				"AND partly guessed is not a basis for concluding what this symbol does.",
 			InputSchema: objectSchema(map[string]any{
 				"qualified_name": stringProp("Fully qualified name of the calling symbol.", "pkg/checkout.Pay"),
 				"limit":          limitProp(ts.limits.MaxEdges, "call edges"),

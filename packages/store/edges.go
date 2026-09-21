@@ -134,10 +134,11 @@ type EdgeRow struct {
 	//
 	// It carries a JSON tag with no omitempty so anything serialising
 	// an EdgeRow states the provenance rather than dropping it when it
-	// is inconvenient. Note that packages/mcp projects edges into its
-	// own `neighbour` shape and does NOT yet forward this, so #103's
-	// consumers cannot weigh an answer by it until that projection
-	// widens — that is a change to packages/mcp, not to this field.
+	// is inconvenient. packages/mcp projects edges into its own
+	// `neighbour` shape; that projection forwards this field, and its
+	// own tag also omits omitempty, for the same reason (#175). If a
+	// third projection appears, it inherits the obligation: an edge
+	// whose tier is dropped is indistinguishable from a typed one.
 	Tier graph.ResolutionTier `json:"resolution_tier"`
 
 	// Ambiguous is graph.Edge.Ambiguous, persisted rather than
