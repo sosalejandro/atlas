@@ -211,64 +211,19 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          FILE="internal/cli/root.go"
-
-          # Compute the commit SHA + build date. We use the release-please
-          # branch tip (which IS the commit that will become HEAD of main
-          # once the PR merges, modulo a possible merge-commit reword by
-          # GitHub on squash-merge — but release-please uses squash by
-          # default and the resulting commit SHA changes on merge anyway).
-          # We deliberately stamp with the pre-merge tip SHA: it is the
-          # most stable reference available at PR-creation time, and the
-          # version field still carries the real semver tag which is the
-          # primary correctness signal for end users.
-          COMMIT="$(git rev-parse --short=7 HEAD)"
-          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-          echo "stamping ${FILE}: Version=v${VERSION} Commit=${COMMIT} BuildDate=${DATE}"
-
-          # Rewrite the three package-level vars in root.go. The source
-          # may be in either form, depending on whether a prior release
-          # already ran the stamp step (which then squash-merged to main,
-          # leaving the stamped form in tree):
-          #   pristine:  Version   = defaultVersion
-          #   restamp:   Version   = "v0.2.0"
-          # We must support BOTH — the regression in issue #49 was that
-          # the prior sed only matched the pristine form, so every release
-          # AFTER the first stamped one (v0.2.0) silently failed validation
-          # and shipped with the prior release's stamps. The pattern below
-          # anchors on the exact "LHS-identifier + spaces + `=` + space" on
-          # the left and replaces whatever follows on the line — both the
-          # bare `defaultVersion` identifier and any prior `"v..."` literal
-          # collapse to the new literal in one rule per var. The anchoring
-          # on the precise indentation + identifier column still keeps the
-          # sed narrow enough to leave buildinfo.go's const block untouched.
-          sed -i -E \
-            -e "s|^(\tVersion   = ).*$|\1\"v${VERSION}\"|" \
-            -e "s|^(\tCommit    = ).*$|\1\"${COMMIT}\"|" \
-            -e "s|^(\tBuildDate = ).*$|\1\"${DATE}\"|" \
-            "$FILE"
-
-          # Validate that all three substitutions landed with the EXPECTED
-          # new values. The positive-equality assertion (vs. a "did the
-          # line change" check) means a future refactor that moves the
-          # vars, renames them, or alters the indentation still fails
-          # loudly here instead of silently shipping unstamped tags.
-          if ! grep -q "^	Version   = \"v${VERSION}\"$" "$FILE"; then
-            echo "stamp failed: Version line not rewritten in $FILE" >&2
-            grep -n 'Version' "$FILE" >&2 || true
-            exit 1
-          fi
-          if ! grep -q "^	Commit    = \"${COMMIT}\"$" "$FILE"; then
-            echo "stamp failed: Commit line not rewritten in $FILE" >&2
-            grep -n 'Commit' "$FILE" >&2 || true
-            exit 1
-          fi
-          if ! grep -q "^	BuildDate = \"${DATE}\"$" "$FILE"; then
-            echo "stamp failed: BuildDate line not rewritten in $FILE" >&2
-            grep -n 'BuildDate' "$FILE" >&2 || true
-            exit 1
-          fi
+          # The logic lives in a script so scripts_test.sh can exercise it.
+          # It used to be inlined here, and it silently stopped stamping at
+          # v0.8.0 when a comment added to root.go's var block made gofmt
+          # re-align the `=` the sed was anchored on. Five releases shipped
+          # before anyone ran the job that would have said so.
+          #
+          # COMMIT is the release-please branch tip: the most stable
+          # reference available at PR-creation time. The SHA changes again on
+          # squash-merge, but the version field carries the real semver tag,
+          # which is the signal end users actually read.
+          COMMIT="$(git rev-parse --short=7 HEAD)" \
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            ./.github/scripts/stamp-version.sh
 
       - name: commit + push stamped release file
         env:
