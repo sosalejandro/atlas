@@ -81,10 +81,10 @@ func TestSliceLines_Basics(t *testing.T) {
 	content := []byte("line1\nline2\nline3\nline4\n")
 
 	cases := []struct {
-		name             string
-		start, end       int
-		wantContains     string
-		wantNotContains  string
+		name            string
+		start, end      int
+		wantContains    string
+		wantNotContains string
 	}{
 		{"first line", 1, 1, "line1", "line2"},
 		{"middle", 2, 3, "line2", "line4"},

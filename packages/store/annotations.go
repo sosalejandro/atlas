@@ -51,7 +51,7 @@ var schemaAnnotationKinds = map[shared.AnnotationKind]bool{
 // accepts. `api` source maps to `grunnr` for storage parity (it's not part
 // of the @atlas grammar but the parser also emits it).
 var schemaAnnotationSources = map[shared.AnnotationSource]bool{
-	shared.SourceGrunnr:   true,
+	shared.SourceGrunnr:  true,
 	shared.SourceTestreg: true,
 }
 
