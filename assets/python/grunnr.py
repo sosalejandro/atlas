@@ -1,5 +1,8 @@
 """Grunnr Python helper — copy into your project to enable decorator-style
-``@atlas.feature("id")`` annotations.
+``@grunnr.feature("id")`` annotations.
+
+The scanner also reads ``@atlas.feature("id")``, the spelling this module had
+before the rename, so a project that already imported it keeps working.
 
 Grunnr reads these decorators statically (via the AST scanner in
 ``packages/codeindex/py/scanner.py``); at runtime they are no-ops. There

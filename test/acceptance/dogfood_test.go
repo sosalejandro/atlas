@@ -321,14 +321,23 @@ func dogfoodCovDiff(t *testing.T, env dogfoodEnv) {
 	}
 	res := runAtlas(t, "cov", "diff", "--base", env.base, "--db-path", env.db)
 	var out struct {
-		Base          string   `json:"base"`
-		ChangedFiles  int      `json:"changed_files"`
-		ChangedLines  int      `json:"changed_lines"`
-		KnownLines    float64  `json:"known_lines"`
-		UnknownLines  float64  `json:"unknown_lines"`
-		Measurable    bool     `json:"measurable"`
-		Percent       *float64 `json:"percent"`
-		StaleIndexFls []string `json:"stale_index_files"`
+		Base         string   `json:"base"`
+		ChangedFiles int      `json:"changed_files"`
+		ChangedLines int      `json:"changed_lines"`
+		KnownLines   float64  `json:"known_lines"`
+		UnknownLines float64  `json:"unknown_lines"`
+		Measurable   bool     `json:"measurable"`
+		Percent      *float64 `json:"percent"`
+		// Objects, not strings. `cov diff` emits {path, state, lines} per
+		// entry, and this declared []string from the day it was written --
+		// decoding only fails when the list is NON-EMPTY, so a scenario that
+		// never produced a stale file could not reveal it. The first branch
+		// that changed enough files to make one stale found it immediately.
+		StaleIndexFls []struct {
+			Path  string `json:"path"`
+			State string `json:"state"`
+			Lines int    `json:"lines"`
+		} `json:"stale_index_files"`
 	}
 	decodeResult(t, res, &out)
 
@@ -339,12 +348,31 @@ func dogfoodCovDiff(t *testing.T, env dogfoodEnv) {
 	t.Logf("cov diff vs %s: %d files, %d changed lines, %.0f known / %.0f unknown, measurable=%v, patch=%s",
 		out.Base, out.ChangedFiles, out.ChangedLines, out.KnownLines, out.UnknownLines, out.Measurable, pct)
 
-	// A stale index would make every line-number join meaningless (#89/#90),
-	// and the scan above ran seconds ago — so anything stale here is a bug in
-	// freshness detection, not a stale checkout.
-	if len(out.StaleIndexFls) > 0 {
-		t.Errorf("cov diff reports %d stale-index files immediately after a scan: %v",
-			len(out.StaleIndexFls), out.StaleIndexFls)
+	// A stale index makes every line-number join meaningless (#89/#90), and
+	// the scan above ran seconds ago — so a file whose spans no longer match
+	// its content is a bug in freshness detection.
+	//
+	// "absent" is NOT that, and asserting on it was wrong. packages/indexfresh
+	// is explicit that the two are different situations: stale means the
+	// spans exist and are wrong, absent means there are none to be wrong
+	// about — a file excluded from the scan, generated, or of a kind this
+	// scan does not index. This repository has exactly 2 hashed .py files, so
+	// every Python fixture in the tree is legitimately absent, and the first
+	// branch that touched one turned a correct answer into a failing gate.
+	var wrong []string
+	for _, f := range out.StaleIndexFls {
+		if f.State != "absent" {
+			wrong = append(wrong, fmt.Sprintf("%s (%s, %d lines)", f.Path, f.State, f.Lines))
+		}
+	}
+	if len(wrong) > 0 {
+		t.Errorf("cov diff reports %d file(s) whose spans do not match their content, "+
+			"immediately after a scan: %v", len(wrong), wrong)
+	}
+	if n := len(out.StaleIndexFls) - len(wrong); n > 0 {
+		// Reported, never asserted: the count moving is worth seeing, and a
+		// gate on it would fail every time somebody edits a fixture.
+		t.Logf("%d changed file(s) are outside the index's scope (state=absent)", n)
 	}
 	if !out.Measurable {
 		// Legitimate for a docs-only branch. Reported rather than asserted,
