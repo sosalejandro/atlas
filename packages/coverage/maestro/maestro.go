@@ -28,7 +28,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -92,10 +91,7 @@ type summaryJSONFlow struct {
 	Message  string  `json:"message,omitempty"`
 }
 
-var (
-	atlasFeatureRe = regexp.MustCompile(`@atlas:feature\s+([A-Za-z0-9_.-]+)`)
-	testregRe      = regexp.MustCompile(`@testreg\s+([A-Za-z0-9_.,-]+)`)
-)
+var ()
 
 // Parse reads either Maestro JUnit XML or summary JSON.
 func Parse(r io.Reader) (coverage.Run, []coverage.Result, error) {
@@ -286,11 +282,11 @@ func buildFromFlows(rep summaryJSON) coverage.Run {
 }
 
 func deriveFeature(name, file string) *shared.FeatureID {
-	if m := atlasFeatureRe.FindStringSubmatch(name); len(m) == 2 {
+	if m := coverage.FeatureAnnotationRe.FindStringSubmatch(name); len(m) == 2 {
 		f := shared.FeatureID(strings.ToLower(m[1]))
 		return &f
 	}
-	if m := testregRe.FindStringSubmatch(name); len(m) == 2 {
+	if m := coverage.TestregAnnotationRe.FindStringSubmatch(name); len(m) == 2 {
 		first := strings.TrimSpace(strings.Split(m[1], ",")[0])
 		if first != "" {
 			f := shared.FeatureID(strings.ToLower(first))

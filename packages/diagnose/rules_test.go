@@ -49,7 +49,7 @@ func TestMatchRules_SortedByConfidenceDescending(t *testing.T) {
 func TestMatchRules_MalformedPatternIgnored(t *testing.T) {
 	t.Parallel()
 	rules := []SymptomRule{
-		{Pattern: "(unclosed", Layer: "x", Confidence: 0.99},        // bad regex
+		{Pattern: "(unclosed", Layer: "x", Confidence: 0.99}, // bad regex
 		{Pattern: "good", Layer: "y", Confidence: 0.50},
 	}
 	got := matchRules("a good message", rules)

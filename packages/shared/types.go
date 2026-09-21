@@ -170,7 +170,7 @@ const (
 type AnnotationSource string
 
 const (
-	SourceGrunnr   AnnotationSource = "grunnr"
+	SourceGrunnr  AnnotationSource = "grunnr"
 	SourceTestreg AnnotationSource = "testreg"
 	SourceAPI     AnnotationSource = "api"
 )

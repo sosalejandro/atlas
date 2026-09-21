@@ -49,8 +49,8 @@ func (c featureLinkage) Run(ctx context.Context, env *Env) (Result, error) {
 		return Result{
 			Severity: SeverityNotApplicable,
 			Finding: "no features are declared in the store, so there is no linkage to check " +
-				"(nothing in this repo carries an @atlas:feature annotation yet)",
-			Remediation: "annotate a symbol with @atlas:feature <id>, then: grunnr scan",
+				"(nothing in this repo carries an @grunnr:feature annotation yet)",
+			Remediation: "annotate a symbol with @grunnr:feature <id>, then: grunnr scan",
 			Details:     map[string]any{"features": 0},
 		}, nil
 	}

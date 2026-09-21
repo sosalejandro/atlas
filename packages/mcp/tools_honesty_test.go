@@ -112,7 +112,10 @@ func TestFindFeature_IndexedButUnannotatedIsItsOwnGap(t *testing.T) {
 		t.Fatalf("no_data.reason = %v, want %q — an index-empty answer sends the agent to re-run a scan "+
 			"that would change nothing", nd["reason"], ReasonNoFeatures)
 	}
-	if run, _ := nd["run"].(string); !strings.Contains(run, "@atlas:feature") {
+	// The CANONICAL spelling. The parser still reads @atlas:, but telling a
+	// user to write it would seed a new repository with the name of a product
+	// it never used.
+	if run, _ := nd["run"].(string); !strings.Contains(run, "@grunnr:feature") {
 		t.Errorf("no_data.run = %q, want it to name the annotation that would fix this", run)
 	}
 	if _, bad := sc["features"]; bad {

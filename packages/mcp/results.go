@@ -76,7 +76,7 @@ func noFeatureLinks(id string) *NoData {
 	return &NoData{
 		Reason: ReasonNoFeatureLinks,
 		Detail: fmt.Sprintf("feature %q exists but no symbol is annotated for it, so grunnr has no implementation to name", id),
-		Run:    "annotate the implementation with @atlas:feature " + id + ", then run grunnr scan",
+		Run:    "annotate the implementation with @grunnr:feature " + id + ", then run grunnr scan",
 	}
 }
 

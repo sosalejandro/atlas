@@ -50,9 +50,10 @@ type matchedRule struct {
 // before returning. The list is kept in approximate confidence order
 // purely for readability.
 //
-//nolint:funlen // this is a static table, not a logical function;
 // splitting it into helper builders adds boilerplate without making the
 // rules easier to read or audit.
+//
+//nolint:funlen // this is a static table, not a logical function;
 func DefaultSymptomRules() []SymptomRule {
 	return []SymptomRule{
 		// --- High confidence: specific error patterns ---

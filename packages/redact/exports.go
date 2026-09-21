@@ -203,10 +203,10 @@ var exports = []Export{
 	},
 	{
 		Verb:        "onboard promote",
-		Surface:     "the promoted @atlas:feature annotation",
+		Surface:     "the promoted @grunnr:feature annotation",
 		Destination: "the repository's own files, in place, with --apply",
 		Classes:     []Class{ClassIdentifier},
-		Note: "writes one `@atlas:feature <id>` comment above the anchor " +
+		Note: "writes one `@grunnr:feature <id>` comment above the anchor " +
 			"declaration. The id is inferred from the index, so this is the " +
 			"one repository write that puts something grunnr derived into " +
 			"your source -- an identifier, and only an identifier. Without " +

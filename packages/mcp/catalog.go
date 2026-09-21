@@ -58,7 +58,7 @@ func (ts *toolset) featureTools() []tool {
 				"`direct-links` is only what a human annotated. A surface read without its source will be over-trusted.",
 			InputSchema: objectSchema(map[string]any{
 				"feature_id": stringProp(
-					"Exact feature id, as it appears in an @atlas:feature annotation. Use find_feature to get one.",
+					"Exact feature id, as it appears in an @grunnr:feature annotation. Use find_feature to get one.",
 					"checkout.pay"),
 				"limit": limitProp(ts.limits.MaxSymbols, "symbols"),
 			}, "feature_id"),

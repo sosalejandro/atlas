@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -53,10 +52,7 @@ type assertionResult struct {
 	FailureMessages []string `json:"failureMessages"`
 }
 
-var (
-	atlasFeatureRe = regexp.MustCompile(`@atlas:feature\s+([A-Za-z0-9_.-]+)`)
-	testregRe      = regexp.MustCompile(`@testreg\s+([A-Za-z0-9_.,-]+)`)
-)
+var ()
 
 // Parse reads a Vitest JSON report.
 func Parse(r io.Reader) (coverage.Run, []coverage.Result, error) {
@@ -155,11 +151,11 @@ func FlattenReport(jsonBytes []byte) ([]coverage.Result, int, int, int, error) {
 }
 
 func deriveFeature(title, file string) *shared.FeatureID {
-	if m := atlasFeatureRe.FindStringSubmatch(title); len(m) == 2 {
+	if m := coverage.FeatureAnnotationRe.FindStringSubmatch(title); len(m) == 2 {
 		f := shared.FeatureID(strings.ToLower(m[1]))
 		return &f
 	}
-	if m := testregRe.FindStringSubmatch(title); len(m) == 2 {
+	if m := coverage.TestregAnnotationRe.FindStringSubmatch(title); len(m) == 2 {
 		first := strings.TrimSpace(strings.Split(m[1], ",")[0])
 		if first != "" {
 			f := shared.FeatureID(strings.ToLower(first))
