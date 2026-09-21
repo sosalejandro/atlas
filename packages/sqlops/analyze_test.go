@@ -158,9 +158,9 @@ import (
 
 type Queries struct{ db *sql.DB }
 
-const listUsers = ` + "`" + `-- name: ListUsers :many
+const listUsers = `+"`"+`-- name: ListUsers :many
 SELECT id FROM users WHERE tenant_id = $1
-` + "`" + `
+`+"`"+`
 
 func (q *Queries) ListUsers(ctx context.Context, tenantID int64) ([]int64, error) {
 	rows, err := q.db.QueryContext(ctx, listUsers, tenantID)
@@ -176,9 +176,9 @@ func (q *Queries) ListUsers(ctx context.Context, tenantID int64) ([]int64, error
 	return out, nil
 }
 
-const getUser = ` + "`" + `-- name: GetUser :one
+const getUser = `+"`"+`-- name: GetUser :one
 SELECT id FROM users WHERE id = $1
-` + "`" + `
+`+"`"+`
 
 func (q *Queries) GetUser(ctx context.Context, id int64) (int64, error) {
 	row := q.db.QueryRowContext(ctx, getUser, id)

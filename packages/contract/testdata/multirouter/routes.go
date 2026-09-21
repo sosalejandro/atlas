@@ -11,8 +11,8 @@ func (r *chiRouter) Route(string, func(r *chiRouter)) {}
 
 type echoRouter struct{}
 
-func (e *echoRouter) GET(string, http.HandlerFunc)         {}
-func (e *echoRouter) POST(string, http.HandlerFunc)        {}
+func (e *echoRouter) GET(string, http.HandlerFunc)             {}
+func (e *echoRouter) POST(string, http.HandlerFunc)            {}
 func (e *echoRouter) Group(string, ...interface{}) *echoRouter { return e }
 
 type h struct{}

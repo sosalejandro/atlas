@@ -2,6 +2,7 @@ package sqlops
 
 import (
 	"fmt"
+	"github.com/sosalejandro/grunnr/packages/shared"
 	"os"
 	"path/filepath"
 	"sort"
@@ -44,6 +45,10 @@ func discoverSQLCPaths(root string, skip map[string]bool) (schemaDirs, queryDirs
 		}
 		if d.IsDir() {
 			if p != root && skip[d.Name()] {
+				return filepath.SkipDir
+			}
+			// A nested git repository is a different codebase (#180, #166).
+			if shared.IsNestedRepoRoot(p, root) {
 				return filepath.SkipDir
 			}
 			return nil

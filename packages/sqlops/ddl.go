@@ -613,8 +613,18 @@ func collectSQLFiles(dir string) ([]string, error) {
 	}
 	var files []string
 	walkErr := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return nil //nolint:nilerr // an unreadable subtree is skipped, not fatal.
+		}
+		if d.IsDir() {
+			// A schema directory can contain a nested repository -- a vendored
+			// migration set, a submodule -- and its DDL describes another
+			// product's database. Counting those tables inflates every SQL
+			// number this package reports (#180).
+			if shared.IsNestedRepoRoot(p, dir) {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if strings.HasSuffix(p, ".sql") {
 			files = append(files, p)

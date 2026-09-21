@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/sosalejandro/grunnr/packages/shared"
 	"io"
 	"io/fs"
 	"os"
@@ -205,6 +206,28 @@ func sha256File(abs string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// skipUnindexedDir decides whether the unindexed sweep descends into a
+// directory.
+//
+// Extracted rather than inlined because the nested-repository arm pushed
+// unindexedSources past the complexity limit, and because the decision is
+// worth naming: two of these reasons are about grunnr's own conventions
+// (vendor, node_modules, dot-directories) and the third is about somebody
+// else's repository living inside this one.
+//
+// The boundary check is last: it costs an Lstat and the name checks are free.
+func skipUnindexedDir(abs, root, name string, skip map[string]bool) bool {
+	if skip[name] || strings.HasPrefix(name, ".") {
+		return true
+	}
+	// A nested git repository is a different codebase. Skipping by name
+	// cannot see that boundary, and #180 found this walk still crossing it
+	// after #166 taught four others -- the sweep would report another
+	// product's files as unindexed, and be right about a tree that is not
+	// this one.
+	return shared.IsNestedRepoRoot(abs, root)
+}
+
 // unindexedSources walks the tree for Go files grunnr has no record of.
 //
 // Restricted to .go on purpose. codeindex hashes every .go file it walks
@@ -248,7 +271,7 @@ func unindexedSources(ctx context.Context, env *Env, rows []store.FileHashRow) (
 			return ctx.Err()
 		}
 		if d.IsDir() {
-			if skip[d.Name()] || strings.HasPrefix(d.Name(), ".") {
+			if skipUnindexedDir(abs, env.Root, d.Name(), skip) {
 				return filepath.SkipDir
 			}
 			return nil
