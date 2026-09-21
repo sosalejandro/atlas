@@ -40,7 +40,7 @@ Effort: moderate. The shapes are stable in nutrition-v2-go's
 ### LSP-style annotation suggestions
 
 When a recogniser identifies a struct as an aggregate root structurally
-but the struct has no `@atlas:feature` annotation, surface a suggested
+but the struct has no `@grunnr:feature` annotation, surface a suggested
 annotation diff. This is the natural sibling to Phase 6e's
 annotation-driven awareness — Phase 6f detects, Horizon 3 fixes.
 

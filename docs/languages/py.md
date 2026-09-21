@@ -31,12 +31,12 @@ listed below) and surfaces:
 | What                                                        | Symbol kind      | Notes                                                                          |
 | ----------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------ |
 | Module-level functions (`def foo(): ...`)                   | `function`       | Qualified name = `<module-path>.<func>` (e.g. `py.billing.create_subscription`). |
-| Class declarations (`class Foo: ...`)                       | `type`           | Carry `@atlas:aggregate` annotations when applicable.                          |
+| Class declarations (`class Foo: ...`)                       | `type`           | Carry `@grunnr:aggregate` annotations when applicable.                          |
 | Methods on a class                                          | `method`         | Qualified name = `<module-path>.<class>.<method>`.                              |
 | `__init__` constructors                                     | `method`         | Indexed; not specially marked.                                                  |
 | Decorator names applied to a function/class                 | `call`           | Surfaced as edges with the decorator as `to`.                                  |
-| `@atlas:*` annotation comments                              | (annotation)     | Comment-form `# @atlas:...` parsed by the shared Go-side annotations parser.    |
-| `@atlas.feature("id")` decorator annotations                | (annotation)     | Decorator-form parsed by `scanner.py`; class-level decorators propagate to methods. |
+| `@grunnr:*` annotation comments                              | (annotation)     | Comment-form `# @grunnr:...` parsed by the shared Go-side annotations parser.    |
+| `@grunnr.feature("id")` decorator annotations                | (annotation)     | Decorator-form parsed by `scanner.py`; class-level decorators propagate to methods. |
 
 The scanner skips by default:
 
@@ -58,10 +58,10 @@ my-svc/
 ├── pyproject.toml
 ├── billing/
 │   ├── __init__.py
-│   ├── handler.py         ← @atlas:feature billing.subscribe
-│   └── service.py         ← @atlas:aggregate billing.subscription
+│   ├── handler.py         ← @grunnr:feature billing.subscribe
+│   └── service.py         ← @grunnr:aggregate billing.subscription
 └── tests/
-    └── test_billing.py    ← @atlas:feature billing.subscribe + #real
+    └── test_billing.py    ← @grunnr:feature billing.subscribe + #real
 ```
 
 After `grunnr init` this materialises into roughly:
@@ -70,7 +70,7 @@ After `grunnr init` this materialises into roughly:
 features:        1 (billing.subscribe)
 aggregates:      1 (billing.subscription)
 symbols:         6 (3 functions, 2 classes, 1 method)
-annotations:     3 (the @atlas:feature / @atlas:aggregate sites)
+annotations:     3 (the @grunnr:feature / @grunnr:aggregate sites)
 ```
 
 Symbols are stored with the `py.` namespace prefix so they don't collide
@@ -78,23 +78,23 @@ with Go symbols of the same short name in cross-language queries.
 
 ## Tagging Python code for feature-level grouping (optional)
 
-Grunnr associates symbols with features through `@atlas:<kind> <id>`
+Grunnr associates symbols with features through `@grunnr:<kind> <id>`
 annotations — the same grammar used in Go and TypeScript. For Python,
 two recognition modes are supported and may be mixed freely within a
 project.
 
 ### Mode 1 — comment-style (no runtime dependency)
 
-A `# @atlas:<kind> <id>` comment on the line immediately above a `def`
+A `# @grunnr:<kind> <id>` comment on the line immediately above a `def`
 or `class` declaration attaches that annotation to the symbol below.
-Mirrors Go's `// @atlas:feature ...` convention.
+Mirrors Go's `// @grunnr:feature ...` convention.
 
 ```python
-# @atlas:feature ingest-csv-imports
+# @grunnr:feature ingest-csv-imports
 def parse_csv_file(path: str) -> list[dict]:
     ...
 
-# @atlas:contract ingest-csv-imports.parse-row
+# @grunnr:contract ingest-csv-imports.parse-row
 def parse_row(line: str) -> dict:
     ...
 ```
@@ -104,7 +104,7 @@ the canonical grammar in [`docs/annotations.md`](../annotations.md).
 
 ### Mode 2 — decorator-style (idiomatic Python)
 
-A `@atlas.feature("id")` decorator (or `@feature("id")` when imported
+A `@grunnr.feature("id")` decorator (or `@feature("id")` when imported
 as `from grunnr import feature`) is functionally equivalent to the
 comment form. Grunnr reads the decorator name and its first string
 argument statically; at runtime the decorator is a no-op.
@@ -143,13 +143,13 @@ form for those.
 
 ### Class-level annotations propagate to methods
 
-A `@atlas:feature` annotation on a `class` propagates to every method
+A `@grunnr:feature` annotation on a `class` propagates to every method
 defined inside the class body — one `feature_symbols` link per
 method, anchored at the method's own source line. So a single
 annotation at the class declaration covers the entire class surface:
 
 ```python
-@atlas.feature("ship-orders.batch")
+@grunnr.feature("ship-orders.batch")
 class BatchShipper:
     def enqueue(self, order_id: str) -> None:
         ...  # inherits ship-orders.batch
@@ -160,7 +160,7 @@ class BatchShipper:
 
 `grunnr chain ship-orders.batch` then returns the call chains of the
 methods, not just the class declaration line. This works with both
-the comment form (`# @atlas:feature ...` above the `class`) and the
+the comment form (`# @grunnr:feature ...` above the `class`) and the
 decorator form.
 
 ### Verifying the linkage
@@ -212,7 +212,7 @@ $ grunnr diagnose "create_subscription" --min-confidence 0.1
 ```
 
 The `[feature=-]` tag means the symbol isn't linked to a feature — the
-fixture's `BillingHandler` carries `@atlas:feature billing.subscribe`
+fixture's `BillingHandler` carries `@grunnr:feature billing.subscribe`
 only at the class level, and grunnr doesn't propagate that linkage to
 nested methods (see Gotcha #1 below).
 
@@ -239,7 +239,7 @@ handlers, a class registry, or `getattr(obj, name)()` will look like a
 dead-end node in the trace.
 
 **Workaround**: when you know the dispatch table, annotate each
-destination with `@atlas:contract <feature>` so the audit picks up the
+destination with `@grunnr:contract <feature>` so the audit picks up the
 linkage even though the trace doesn't reach it.
 
 ### 2. Decorators surface as `call` edges, not as their target
@@ -266,7 +266,7 @@ Python services, open an issue at
 
 ### 3. Annotations on a class auto-propagate to methods (RESOLVED in v0.4.0)
 
-**Resolved in v0.4.0 (issue #53).** A class-level `@atlas:feature` (or
+**Resolved in v0.4.0 (issue #53).** A class-level `@grunnr:feature` (or
 any id-shaped kind) now propagates to every method defined inside the
 class. The Python AST walker emits one `feature_symbols` link per
 method, anchored at the method's own source line.
@@ -274,7 +274,7 @@ method, anchored at the method's own source line.
 So this single annotation covers every method:
 
 ```python
-# @atlas:feature billing.subscribe
+# @grunnr:feature billing.subscribe
 class BillingHandler:
     def subscribe(self, user_id, plan):
         ...  # inherits billing.subscribe
@@ -338,8 +338,8 @@ the graph (preserving the depth-1 reachability set).
 ### 5. Annotation parsing is split across two layers
 
 As of v0.4.0 (issue #53) the Python scanner is annotation-aware:
-`scanner.py` extracts both comment-form (`# @atlas:...`) and
-decorator-form (`@atlas.feature("...")`) hits, including class-level
+`scanner.py` extracts both comment-form (`# @grunnr:...`) and
+decorator-form (`@grunnr.feature("...")`) hits, including class-level
 propagation to methods.
 
 The Go-side comment parser
@@ -349,7 +349,7 @@ independently. Both paths land in the same `feature_symbols` table;
 the store's idempotent upsert collapses any duplicates so dual
 emission is harmless.
 
-The practical consequence: registering a new id-shaped `@atlas:<kind>`
+The practical consequence: registering a new id-shaped `@grunnr:<kind>`
 in `annotations.Kinds` automatically lights up the comment-form path
 in every language. To support the new kind via the **decorator-form**
 in Python, also add it to the `decoratable` map in

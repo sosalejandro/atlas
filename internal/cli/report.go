@@ -398,7 +398,7 @@ func (b *reportBundle) collectAudit(ctx context.Context, s *store.Store, opts *r
 		// "grunnr found nothing" and "grunnr had nowhere to put it".
 		b.warnings = append(b.warnings, fmt.Sprintf(
 			"%d low-scoring features have no linked symbol to anchor an annotation to; "+
-				"they appear in no format. Add an @atlas:feature annotation to their implementation",
+				"they appear in no format. Add an @grunnr:feature annotation to their implementation",
 			unanchored))
 	}
 	return nil

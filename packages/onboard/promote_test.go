@@ -22,7 +22,7 @@ func writeFile(t *testing.T, root, rel, body string) string {
 func capWithAnchor(id, file string, line int) Capability {
 	return Capability{
 		ID: id, Provisional: true, Named: true,
-		Anchor: &Anchor{FilePath: file, Line: line, Annotation: "@atlas:feature " + id},
+		Anchor: &Anchor{FilePath: file, Line: line, Annotation: "@grunnr:feature " + id},
 	}
 }
 
@@ -47,7 +47,7 @@ func TestPromote_InsertsAnnotationAboveTheDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "package orders\n\n// Place records an order.\n// @atlas:feature orders.place\nfunc Place() {}\n"
+	want := "package orders\n\n// Place records an order.\n// @grunnr:feature orders.place\nfunc Place() {}\n"
 	if string(got) != want {
 		t.Errorf("file after promote:\n%q\nwant:\n%q", got, want)
 	}
@@ -67,7 +67,7 @@ func TestPromote_DryRunTouchesNothing(t *testing.T) {
 	if res.Applied {
 		t.Error("a dry run reported itself applied")
 	}
-	if !strings.Contains(res.Text, "@atlas:feature orders.place") {
+	if !strings.Contains(res.Text, "@grunnr:feature orders.place") {
 		t.Errorf("dry run did not show the line it would write: %q", res.Text)
 	}
 	after, _ := os.ReadFile(abs)
@@ -79,21 +79,61 @@ func TestPromote_DryRunTouchesNothing(t *testing.T) {
 // Existing annotations are adopted, never overwritten or duplicated. A
 // second promote of the same anchor must be a no-op with a reason, not a
 // second annotation.
+//
+// Every spelling the PARSER accepts has to be recognised here, not just the
+// one Promote writes. The two drifted apart when the rename landed: Promote
+// emitted @atlas:feature and annotationMarkers listed only @atlas:*, so a
+// declaration a user had annotated `@grunnr:feature` by hand read as
+// unclaimed and promotion stacked a second annotation on top of it. The bug
+// was invisible to a test that used the same spelling on both sides, which
+// is why this is a table over all of them.
 func TestPromote_SkipsAlreadyAnnotated(t *testing.T) {
-	root := t.TempDir()
-	body := "package orders\n\n// @atlas:feature orders.other\nfunc Place() {}\n"
-	abs := writeFile(t, root, "internal/orders/place.go", body)
+	for _, marker := range []string{"@grunnr:feature", "@atlas:feature", "@testreg"} {
+		t.Run(marker, func(t *testing.T) {
+			root := t.TempDir()
+			body := "package orders\n\n// " + marker + " orders.other\nfunc Place() {}\n"
+			abs := writeFile(t, root, "internal/orders/place.go", body)
 
-	res, err := Promote(root, capWithAnchor("orders.place", "internal/orders/place.go", 4), true)
+			res, err := Promote(root, capWithAnchor("orders.place", "internal/orders/place.go", 4), true)
+			if err != nil {
+				t.Fatalf("Promote: %v", err)
+			}
+			if res.Applied || res.Skipped == "" {
+				t.Errorf("expected a skip with a reason, got %+v", res)
+			}
+			after, _ := os.ReadFile(abs)
+			if string(after) != body {
+				t.Errorf("an already-annotated declaration was rewritten:\n%q", after)
+			}
+		})
+	}
+}
+
+// What Promote writes must be a form the parser reads back, and the two are
+// declared in different packages with nothing but this test between them. A
+// prefix typo here produces annotations that scan as ordinary comments --
+// promotion appears to work, the registry stays empty, and nothing errors.
+func TestPromote_WritesAFormTheParserAccepts(t *testing.T) {
+	root := t.TempDir()
+	abs := writeFile(t, root, "internal/orders/place.go",
+		"package orders\n\nfunc Place() {}\n")
+
+	res, err := Promote(root, capWithAnchor("orders.place", "internal/orders/place.go", 3), true)
 	if err != nil {
 		t.Fatalf("Promote: %v", err)
 	}
-	if res.Applied || res.Skipped == "" {
-		t.Errorf("expected a skip with a reason, got %+v", res)
+	if !res.Applied {
+		t.Fatalf("promote did not apply: %+v", res)
 	}
 	after, _ := os.ReadFile(abs)
-	if string(after) != body {
-		t.Errorf("an already-annotated declaration was rewritten:\n%q", after)
+	if !strings.Contains(string(after), "@grunnr:feature orders.place") {
+		t.Errorf("promote wrote a non-canonical annotation:\n%s", after)
+	}
+	// The legacy prefix stays readable, but it is not what we emit: writing
+	// it would mean every repository grunnr onboards starts out carrying the
+	// name of a product it never used.
+	if strings.Contains(string(after), "@atlas:") {
+		t.Errorf("promote emitted the legacy prefix:\n%s", after)
 	}
 }
 
@@ -122,7 +162,7 @@ func TestPromote_PreservesIndentation(t *testing.T) {
 		t.Fatalf("Promote: %v", err)
 	}
 	got, _ := os.ReadFile(abs)
-	want := "class Orders:\n    # @atlas:feature orders.place\n    def place(self):\n        pass\n"
+	want := "class Orders:\n    # @grunnr:feature orders.place\n    def place(self):\n        pass\n"
 	if string(got) != want {
 		t.Errorf("file after promote:\n%q\nwant:\n%q", got, want)
 	}
@@ -201,9 +241,9 @@ func TestPromoteAll_SeveralAnnotationsInOneFileEachLandOnTheirOwnDeclaration(t *
 		t.Fatal(err)
 	}
 	want := "package orders\n\n" +
-		"// @atlas:feature orders.alpha\nfunc Alpha() {}\n\n" +
-		"// @atlas:feature orders.beta\nfunc Beta() {}\n\n" +
-		"// @atlas:feature orders.gamma\nfunc Gamma() {}\n"
+		"// @grunnr:feature orders.alpha\nfunc Alpha() {}\n\n" +
+		"// @grunnr:feature orders.beta\nfunc Beta() {}\n\n" +
+		"// @grunnr:feature orders.gamma\nfunc Gamma() {}\n"
 	if string(got) != want {
 		t.Errorf("file after promoting three capabilities:\n%q\nwant:\n%q", got, want)
 	}
@@ -240,12 +280,12 @@ func TestPromoteAll_SpansFilesAndHonoursDryRun(t *testing.T) {
 		t.Fatalf("PromoteAll apply: %v", err)
 	}
 	gotA, _ := os.ReadFile(absA)
-	wantA := "package a\n\n// @atlas:feature a.one\nfunc One() {}\n\n// @atlas:feature a.two\nfunc Two() {}\n"
+	wantA := "package a\n\n// @grunnr:feature a.one\nfunc One() {}\n\n// @grunnr:feature a.two\nfunc Two() {}\n"
 	if string(gotA) != wantA {
 		t.Errorf("a/a.go after promote:\n%q\nwant:\n%q", gotA, wantA)
 	}
 	gotB, _ := os.ReadFile(absB)
-	wantB := "package b\n\n// @atlas:feature b.three\nfunc Three() {}\n"
+	wantB := "package b\n\n// @grunnr:feature b.three\nfunc Three() {}\n"
 	if string(gotB) != wantB {
 		t.Errorf("b/b.go after promote:\n%q\nwant:\n%q", gotB, wantB)
 	}

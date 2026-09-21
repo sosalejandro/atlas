@@ -292,7 +292,7 @@ func TestOnboardPromote_DryRunByDefaultThenApplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("promote --all: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "@atlas:feature") {
+	if !strings.Contains(out, "@grunnr:feature") {
 		t.Errorf("dry run did not show the annotations it would write:\n%s", out)
 	}
 	after, _ := os.ReadFile(src)
@@ -304,7 +304,7 @@ func TestOnboardPromote_DryRunByDefaultThenApplies(t *testing.T) {
 		t.Fatalf("promote --all --apply: %v\n%s", err, out)
 	}
 	applied, _ := os.ReadFile(src)
-	if !strings.Contains(string(applied), "@atlas:feature") {
+	if !strings.Contains(string(applied), "@grunnr:feature") {
 		t.Fatalf("promote --apply wrote no annotation:\n%s", applied)
 	}
 
@@ -399,7 +399,7 @@ func TestShipTwice(t *testing.T) { _ = Ship }
 	lines := strings.Split(string(body), "\n")
 	annotated := 0
 	for i, line := range lines {
-		if !strings.Contains(line, "@atlas:feature") {
+		if !strings.Contains(line, "@grunnr:feature") {
 			continue
 		}
 		annotated++

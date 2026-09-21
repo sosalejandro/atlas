@@ -71,7 +71,7 @@ packages/                 # SRP libraries — each importable from external Go p
 │   ├── go/               # Go AST scanner
 │   ├── ts/               # TS scanner (embedded scanner.ts; requires `node` on PATH)
 │   ├── py/               # Python scanner (embedded scanner.py; requires `python3` on PATH)
-│   └── annotations/      # @atlas / @testreg parser
+│   └── annotations/      # @grunnr / @testreg parser
 ├── graph/                # Node / Edge model + adjacency
 ├── resolver/             # Wire + Fx DI introspection
 ├── sqlcmap/              # SQLC method ↔ SQL file mapper
@@ -103,7 +103,7 @@ grunnr onboard
 
 `grunnr onboard` scans the project, builds the SQL inventory, reads the HTTP
 route registrations and mines git history, then derives a **provisional
-capability map** from all of it — no `@atlas:feature` annotations required.
+capability map** from all of it — no `@grunnr:feature` annotations required.
 It reports what that map made visible (endpoints nothing tests, tables
 written from more than one capability, code under active change with no test
 reaching it, SQL advisories, dead-code candidates), states plainly what it
@@ -122,7 +122,7 @@ so you can take the measurement on yours. See
 under `provisional:`, written to `.grunnr/provisional/capabilities.json`, and
 absent from the features table — grunnr's registry is worth something only
 because a human wrote every row in it. The single path in is
-`grunnr onboard promote`, which writes an `@atlas:feature` annotation into
+`grunnr onboard promote`, which writes an `@grunnr:feature` annotation into
 your source (dry run by default) and lets the ordinary scan pick it up.
 Annotations you already have are adopted as-is and never re-proposed.
 
@@ -141,7 +141,7 @@ Annotations you already have are adopted as-is and never re-proposed.
   `diff`, `snapshot`, `sprint`, `diagnose`, `contract`, `sql`, `hotspots`,
   `migrate-annotations`)
 - [Architecture](./docs/architecture.md) — package boundaries + dependency direction
-- [Annotations](./docs/annotations.md) — `@atlas:<kind> <id>` grammar
+- [Annotations](./docs/annotations.md) — `@grunnr:<kind> <id>` grammar
 - [Schema v1](./docs/schema-v1.md) — SQLite schema reference
 - [Migration from testreg](./docs/migration-from-testreg.md) — cutover guide for testreg users
 

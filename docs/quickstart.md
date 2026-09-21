@@ -4,7 +4,7 @@ Grunnr indexes Go, TypeScript and Python into a per-project SQLite store and
 answers questions about capabilities, coverage, drift and impact.
 
 Most of what it can tell you is keyed to a **capability registry** — the set
-of `@atlas:feature` annotations somebody wrote in the source. On a codebase
+of `@grunnr:feature` annotations somebody wrote in the source. On a codebase
 where nobody has written any yet, that is a chicken-and-egg problem, and it
 is the reason a tool like this usually dies in evaluation: you are asked to
 annotate before you have any evidence that annotating is worth it.
@@ -268,7 +268,7 @@ from.
 ## 4. Accepting a proposal — `grunnr onboard promote`
 
 Promotion is the only path from a proposal into the registry, and it does
-**not** write the database. It writes the `@atlas:feature` annotation into
+**not** write the database. It writes the `@grunnr:feature` annotation into
 your source, above the anchor declaration the proposal cites; the annotation
 then reaches the features table through the ordinary scan, exactly as a
 hand-written one would.
@@ -281,7 +281,7 @@ $ grunnr onboard promote --id provisional:cli.cov
 grunnr onboard promote (dry-run) — 1 capability
 
   would write internal/cli/cov.go:27
-              // @atlas:feature cli.cov
+              // @grunnr:feature cli.cov
 
   Nothing was written. Re-run with --apply to accept these.
 ```
@@ -297,7 +297,7 @@ grunnr scan                                               # materialise them
 repeatable. An id that is not in the map is an error rather than a silent
 no-op, so a typo in a script fails instead of passing green.
 
-A declaration that already carries an `@atlas:feature`, `@atlas:contract` or
+A declaration that already carries an `@grunnr:feature`, `@grunnr:contract` or
 `@testreg` annotation is skipped with a reason. Promotion never overwrites a
 human's annotation.
 
@@ -374,7 +374,7 @@ Every verb takes `--json` for a stable envelope. See
 
 ## Where to go next
 
-- **Annotation grammar** — the `@atlas:<kind> <id>` syntax promotion writes
+- **Annotation grammar** — the `@grunnr:<kind> <id>` syntax promotion writes
   and the scanner reads: [`docs/annotations.md`](./annotations.md).
 - **Per-language guides** — prerequisites, what gets indexed, gotchas:
   [Go](./languages/go.md) / [TypeScript](./languages/ts.md) /

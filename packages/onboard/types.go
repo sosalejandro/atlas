@@ -198,7 +198,7 @@ type Evidence struct {
 }
 
 // Anchor is the symbol a promotion would annotate: the declaration whose doc
-// comment gets the @atlas:feature line. Promotion seeds membership at one
+// comment gets the @grunnr:feature line. Promotion seeds membership at one
 // symbol rather than spraying the whole group, because an annotation is a
 // claim a human is making and a hundred of them written at once is not.
 type Anchor struct {
@@ -327,7 +327,7 @@ func (c Capability) Rename(id string) (Capability, error) {
 	}
 	if c.Anchor != nil {
 		anchor := *c.Anchor
-		anchor.Annotation = "@atlas:feature " + id
+		anchor.Annotation = "@grunnr:feature " + id
 		out.Anchor = &anchor
 	}
 	return out, nil

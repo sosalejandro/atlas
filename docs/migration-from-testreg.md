@@ -53,14 +53,14 @@ grammars:
 
 | Form                            | Status                | Notes                          |
 | ------------------------------- | --------------------- | ------------------------------ |
-| `// @testreg <id>`              | Supported (legacy)    | Read as `@atlas:feature <id>`. |
+| `// @testreg <id>`              | Supported (legacy)    | Read as `@grunnr:feature <id>`. |
 | `// @testreg <id> #tag`         | Supported (legacy)    | Tag preserved.                 |
-| `// @atlas:feature <id> [tags]` | Preferred (canonical) | Recommended for new code.      |
-| `// @atlas:contract <id>`       | Preferred             | New kind, not in testreg.      |
-| `// @atlas:owner <team>`        | Preferred             | New kind, not in testreg.      |
+| `// @grunnr:feature <id> [tags]` | Preferred (canonical) | Recommended for new code.      |
+| `// @grunnr:contract <id>`       | Preferred             | New kind, not in testreg.      |
+| `// @grunnr:owner <team>`        | Preferred             | New kind, not in testreg.      |
 
-The `@atlas:<kind> <id>` form is namespaced. It reserves grammar for
-future kinds (`@atlas:deprecated`, `@atlas:since`, etc.) without breaking
+The `@grunnr:<kind> <id>` form is namespaced. It reserves grammar for
+future kinds (`@grunnr:deprecated`, `@grunnr:since`, etc.) without breaking
 the parser. The 9-character cost per annotation is paid once.
 
 ### Bulk renaming when ready (opt-in)
@@ -73,7 +73,7 @@ grunnr migrate-annotations --apply --path src/contexts/identity
 
 Renaming is **not required** at any phase. Defer it if you're mid-refactor or
 want a clean blame; do it when you want the new namespaced kinds
-(`@atlas:contract`, `@atlas:owner`) or grep-consistency. Both forms are
+(`@grunnr:contract`, `@grunnr:owner`) or grep-consistency. Both forms are
 first-class through v0 and v1.
 
 ---
@@ -88,7 +88,7 @@ This was the dominant drift source.
 **Grunnr does not use the YAML registry as source of truth.** Feature
 membership is re-derived from code annotations on every `grunnr scan`. In
 Phase 9 the source of truth is in-code annotations; the legacy YAML files
-contain no data Grunnr doesn't already pick up from `@testreg` / `@atlas:*`
+contain no data Grunnr doesn't already pick up from `@testreg` / `@grunnr:*`
 comments on the symbols themselves.
 
 There is no YAML import step. Run a normal scan and the SQLite store
@@ -377,7 +377,7 @@ half-migrated state on `main`.
    In Phase 9 the source of truth is in-code annotations. There is no YAML
    import step — the 40-ish YAML files under `docs/testing/registry/`
    contain no data grunnr doesn't already pick up from the `@testreg` /
-   `@atlas:*` comments on the symbols themselves. First scan takes
+   `@grunnr:*` comments on the symbols themselves. First scan takes
    ~30–60s on a 1k-feature codebase; subsequent runs are incremental (~5s).
 
 5. **Archive the YAML registry:**
@@ -483,7 +483,7 @@ contract is in scope and treated as a public API. Breaking-change rules:
 **Q. What about my 1,000+ existing `@testreg` annotations?**
 
 Grunnr reads them. No forced rename. They behave identically to
-`@atlas:feature <id>` — same id resolution, same graph membership, same
+`@grunnr:feature <id>` — same id resolution, same graph membership, same
 audit weight. Run `grunnr migrate-annotations --apply` on your own
 schedule, or never. Both grammars are first-class for v0 and v1.
 
@@ -561,6 +561,6 @@ unchanged.
 ## 11. See also
 
 - [`docs/architecture.md`](./architecture.md) — package boundaries + dependency direction
-- [`docs/annotations.md`](./annotations.md) — `@atlas:<kind> <id>` grammar in full
+- [`docs/annotations.md`](./annotations.md) — `@grunnr:<kind> <id>` grammar in full
 - [`docs/schema-v1.md`](./schema-v1.md) — SQLite schema reference (what gets persisted)
 - [`docs/api/`](./api/) — per-subcommand JSON output contract

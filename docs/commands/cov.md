@@ -339,7 +339,7 @@ usually a sync that ran before `grunnr scan` indexed the code it measured.
 #### Example: a build whose second job never landed
 
 The fixture is a two-package Go project (`billing/charge.go`,
-`shipping/ship.go`), both annotated `@atlas:feature billing.charge`. Build 1
+`shipping/ship.go`), both annotated `@grunnr:feature billing.charge`. Build 1
 synced a coverprofile for each package under `--run-group build-1`; build 2
 synced only the shipping profile under `--run-group build-2`, standing in for
 a Go job that crashed.
@@ -445,8 +445,8 @@ run 1 carries no attribution metadata (ingested before schema 0011, or by a fram
 
 `<unassigned>` is the bucket for tests that didn't link to a feature —
 the fixture's `TestLogin` and `TestIssueToken` carry no
-`@atlas:feature` annotation, so they fall here. On a real codebase tests
-annotated with `// @atlas:feature auth.login` would group under
+`@grunnr:feature` annotation, so they fall here. On a real codebase tests
+annotated with `// @grunnr:feature auth.login` would group under
 `auth.login` instead of `<unassigned>`.
 
 ## How it works
@@ -456,7 +456,7 @@ annotated with `// @atlas:feature auth.login` would group under
    row per test into `coverage_tests`.
 2. The test → feature linkage is harvested from the persisted
    `annotations` table — grunnr joins the test's source file against the
-   `@atlas:feature` annotations declared there.
+   `@grunnr:feature` annotations declared there.
 3. `cov status` pulls the highest `run_id` from `coverage_runs`, joins
    `coverage_tests` against `feature_symbols`, and emits the pass / fail /
    skip rollup per feature.

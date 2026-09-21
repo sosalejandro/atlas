@@ -316,7 +316,7 @@ capabilities *are*, and inventing that taxonomy inside a testing change would
 produce a feature map nobody reviewed and a per-capability floor derived from
 whatever it happened to measure on the day. Once `.grunnr/features/` exists,
 `dogfood_test.go` gains a per-capability assertion beside the repo-wide one;
-the harness for it (`runAtlas` + `grunnr health --json`) is already in that file.
+the harness for it (`runGrunnr` + `grunnr health --json`) is already in that file.
 
 ### 4. The README shows grunnr's own feature matrix, regenerated on release — **not started**
 

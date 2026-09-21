@@ -94,7 +94,7 @@ pattern outbox-append: 12 symbols
 grunnr codebase emit <event-name> [flags]
 ```
 
-Groups every `@atlas:event-emit` and `@atlas:outbox-publish` annotation
+Groups every `@grunnr:event-emit` and `@grunnr:outbox-publish` annotation
 for the given event name. Useful for "where does this event fire from"
 and "is it published to the bus, or staged in the outbox":
 
@@ -113,7 +113,7 @@ event conversation.message_sent (3 sites)
 grunnr codebase agg <id> [flags]
 ```
 
-Returns the `@atlas:aggregate` declaration for an aggregate id plus its
+Returns the `@grunnr:aggregate` declaration for an aggregate id plus its
 linked canonical-service site (when one exists).
 
 ```
@@ -124,7 +124,7 @@ aggregate identity.auth
   service: (none)
 ```
 
-`service: (none)` means no `@atlas:aggregate-service` annotation is
+`service: (none)` means no `@grunnr:aggregate-service` annotation is
 linked. That's not an error — many aggregates carry only the declaration.
 
 ### `bc`
@@ -133,7 +133,7 @@ linked. That's not an error — many aggregates carry only the declaration.
 grunnr codebase bc <bc-name> [flags]
 ```
 
-Returns every annotation row inside files that declare `@atlas:bc <name>`.
+Returns every annotation row inside files that declare `@grunnr:bc <name>`.
 Useful for "what's in this BC" inventories.
 
 ```
@@ -144,7 +144,7 @@ bc identity: 1 annotations
 ```
 
 On a real codebase the row count climbs into the hundreds — every
-`@atlas:feature`, `@atlas:contract`, `@atlas:aggregate` inside the BC's
+`@grunnr:feature`, `@grunnr:contract`, `@grunnr:aggregate` inside the BC's
 files surfaces here.
 
 ### `consumer`
@@ -153,7 +153,7 @@ files surfaces here.
 grunnr codebase consumer [<stream>] [flags]
 ```
 
-Lists `@atlas:consumer` subscriptions, optionally filtered by stream
+Lists `@grunnr:consumer` subscriptions, optionally filtered by stream
 name. With no argument, every consumer in the store is listed.
 
 ```
@@ -222,7 +222,7 @@ All `codebase` verbs are pure SQL lookups against the persisted store:
   and groups by `event_name`.
 - `agg` joins `annotations` (kind=`aggregate`) with `annotations` (kind=
   `aggregate-service`) on the aggregate id.
-- `bc` finds files containing an `@atlas:bc <name>` row and returns every
+- `bc` finds files containing an `@grunnr:bc <name>` row and returns every
   annotation in those files.
 - `consumer` filters `annotations` by `kind='consumer'` and (optionally)
   `stream_name`.

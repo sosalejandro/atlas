@@ -10,8 +10,8 @@ After `init`, every other read-only verb (`audit`, `chain`, `codebase find`,
 [`grunnr scan`](./scan.md) when source files change; the cache is file-hash
 keyed and incremental.
 
-Feature membership is materialised directly from `@atlas:feature`,
-`@atlas:contract`, and legacy `@testreg` annotations during ingest. There is
+Feature membership is materialised directly from `@grunnr:feature`,
+`@grunnr:contract`, and legacy `@testreg` annotations during ingest. There is
 no separate "import YAML" step — the code is the registry.
 
 ## Usage
@@ -49,10 +49,10 @@ Grunnr initialised /tmp/grunnr-fixture/.grunnr/grunnr.db (root: /tmp/grunnr-fixt
 
 The summary line covers the four index slices written to the store: symbols
 (functions, methods, classes), edges (call-graph + DI bindings), annotations
-(`@atlas:*` markers), and the file-hash table that powers incremental
+(`@grunnr:*` markers), and the file-hash table that powers incremental
 re-scans. `features=3` is the count of distinct feature IDs harvested from
-`@atlas:feature` annotations. `orphan_annotations=1` flags annotations
-the parser couldn't attach to a symbol (often a stray `@atlas:bc` at file
+`@grunnr:feature` annotations. `orphan_annotations=1` flags annotations
+the parser couldn't attach to a symbol (often a stray `@grunnr:bc` at file
 top-level, which is the intended shape).
 
 A `no router signal detected` warning is normal on backend-only or

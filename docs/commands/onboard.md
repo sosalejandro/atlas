@@ -3,7 +3,7 @@
 `grunnr onboard` is the first run on a repository nobody has annotated.
 
 Every other verb in this tool is gated behind somebody having written
-`@atlas:feature` annotations first, which makes the very first run a symbol
+`@grunnr:feature` annotations first, which makes the very first run a symbol
 count and a shrug. `onboard` runs the whole chain — scan, ingest, SQL
 inventory, HTTP route extraction, git churn — and ends on a **provisional
 capability map** plus the findings that map made visible, followed by an
@@ -191,7 +191,7 @@ rather than being reported as measured and dead.
 ## `grunnr onboard promote`
 
 Promotion is the only path from a proposal into the registry, and it does
-**not** write the database. It writes an `@atlas:feature <id>` annotation
+**not** write the database. It writes an `@grunnr:feature <id>` annotation
 into your source, above the anchor declaration the proposal cites; the
 annotation reaches the features table through the ordinary scan, exactly as a
 hand-written one would.
@@ -208,7 +208,7 @@ Notes:
 
 - The default is a dry run. A verb that edits source because somebody typed
   it once is a verb people stop typing.
-- A declaration that already carries `@atlas:feature`, `@atlas:contract` or
+- A declaration that already carries `@grunnr:feature`, `@grunnr:contract` or
   `@testreg` is skipped with a reason. Existing annotations are adopted,
   never overwritten.
 - An id that is not in the map is an error, not a silent skip, so a typo in a

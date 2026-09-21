@@ -2,12 +2,12 @@
 
 `grunnr migrate-annotations` walks every source file under `--root` and
 rewrites each `// @testreg <id> [#tag ...]` comment in place to the
-canonical `// @atlas:feature <id> [tag ...]` form, preserving trailing tags
+canonical `// @grunnr:feature <id> [tag ...]` form, preserving trailing tags
 verbatim (the leading `#` is dropped per the new grammar's tag convention).
 
 It's the one-shot bulk-rewrite verb used during the testreg → grunnr
 cutover. After running it, every annotation is the canonical
-`@atlas:feature` form and the legacy reader path goes idle.
+`@grunnr:feature` form and the legacy reader path goes idle.
 
 The verb refuses to touch:
 
@@ -48,7 +48,7 @@ migrate-annotations: dry-run mode
   files_scanned=5  files_touched=0  candidates=1
   legacy.go:3
     - // @testreg auth.legacy #real
-    + // @atlas:feature auth.legacy real
+    + // @grunnr:feature auth.legacy real
 ```
 
 Header summary line shows files walked, files that *would* be touched
@@ -69,7 +69,7 @@ migrate-annotations: apply mode
   files_scanned=5  files_touched=1  candidates=1
   legacy.go:3
     - // @testreg auth.legacy #real
-    + // @atlas:feature auth.legacy real
+    + // @grunnr:feature auth.legacy real
 ```
 
 Same diff, `files_touched=1`. The rewrite is atomic — grunnr writes to a
@@ -88,7 +88,7 @@ migrate-annotations: dry-run mode
 ```
 
 `candidates=0` means no `@testreg ` comment was found — the regex matches
-only `@testreg ` (with the trailing space), never `@atlas:`, so
+only `@testreg ` (with the trailing space), never `@grunnr:`, so
 subsequent runs find nothing.
 
 ### Suppressing per-file rewrites
@@ -116,7 +116,7 @@ text exactly.
 3. For each remaining file:
    - Find every `// @testreg ` comment via regex.
    - Construct the rewritten form: drop the leading `#` from each tag,
-     prepend `@atlas:feature`, preserve the rest verbatim.
+     prepend `@grunnr:feature`, preserve the rest verbatim.
    - In `--dry-run` mode, print the diff hunk. In `--apply` mode, write
      a temp file with the rewrites applied, then atomically rename over
      the original.

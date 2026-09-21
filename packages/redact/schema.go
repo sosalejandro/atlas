@@ -91,7 +91,7 @@ func Columns() []Column { return columns }
 var tables = []Table{
 	{"schema_migrations", "golang-migrate's bookkeeping: applied version and dirty flag"},
 	{"config", "runtime knobs written by grunnr itself"},
-	{"features", "one row per @atlas:feature / @atlas:contract id found in the source"},
+	{"features", "one row per @grunnr:feature / @grunnr:contract id found in the source"},
 	{"symbols", "one row per indexed declaration: name, kind, file and line span"},
 	{"edges", "call, implement, embed, import and inheritance relations between symbols"},
 	{"feature_symbols", "which symbols implement or test which feature"},
@@ -171,10 +171,10 @@ var columns = []Column{
 
 	{"features", "id", ClassIdentifier, "the feature id as written in the annotation", false},
 	{"features", "title", ClassSourceText, "the feature's human title, taken from the source", true},
-	{"features", "owner", ClassIdentifier, "the owner handle from an @atlas:owner annotation", false},
+	{"features", "owner", ClassIdentifier, "the owner handle from an @grunnr:owner annotation", false},
 	{"features", "kind", ClassEnum, "feature or contract", false},
-	{"features", "deprecated_since", ClassIdentifier, "version string from an @atlas:deprecated annotation", false},
-	{"features", "introduced_in", ClassIdentifier, "version string from an @atlas:since annotation", false},
+	{"features", "deprecated_since", ClassIdentifier, "version string from an @grunnr:deprecated annotation", false},
+	{"features", "introduced_in", ClassIdentifier, "version string from an @grunnr:since annotation", false},
 
 	{"file_hashes", "file_path", ClassPath, "repo-relative path of a scanned file", false},
 	{"file_hashes", "content_hash", ClassDigest, "SHA-256 of the file content at scan time", false},

@@ -89,7 +89,7 @@ It deliberately carries the hazards we have been bitten by:
 | Interface with two implementations | `persistence.OrderRepository`, implemented by the memory and postgres repositories |
 | Two handler types sharing a method name | `OrderHandler.Get` and `AdminHandler.Get` |
 | Generated code, both shapes | `internal/persistence/queries_gen.go` (scanned) and `internal/persistence/generated/` (skipped) |
-| Feature annotations on tests | three `_test.go` files carrying `@atlas:feature` |
+| Feature annotations on tests | three `_test.go` files carrying `@grunnr:feature` |
 
 Nothing in it compiles, and it is not supposed to. The scanner is AST-only
 (no `go/types`, no module resolution), so the import paths are fictional.

@@ -31,7 +31,7 @@ const (
 const documentNote = "These capabilities were INFERRED by `grunnr onboard`. They are NOT " +
 	"declarations and grunnr does not treat them as any part of its registry. " +
 	"Promote one with `grunnr onboard promote --id <id> --apply`, which writes an " +
-	"@atlas:feature annotation into your source; everything else ignores this file."
+	"@grunnr:feature annotation into your source; everything else ignores this file."
 
 // ErrNotGenerated is returned by Load when no provisional map exists yet.
 // It is a distinct error because "run onboard first" and "your map is

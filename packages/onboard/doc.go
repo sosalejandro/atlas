@@ -1,5 +1,5 @@
 // Package onboard derives a PROVISIONAL capability map from a repository
-// that carries no @atlas:feature annotations, and turns it into a first-run
+// that carries no @grunnr:feature annotations, and turns it into a first-run
 // report whose first line is something the reader did not already know.
 //
 // # Why it exists
