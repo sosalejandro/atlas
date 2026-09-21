@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/doctor"
 	"github.com/sosalejandro/grunnr/packages/shared"
 	"github.com/sosalejandro/grunnr/packages/store"
 )
@@ -56,6 +57,20 @@ type Scorer interface {
 // the store and the repo root; nil disables freshness reporting, which is what
 // tests use.
 type FreshnessFunc func(ctx context.Context, paths []string) (map[string]string, error)
+
+// DoctorFunc runs the diagnostic check set and returns its report.
+//
+// A function for the same reason FreshnessFunc is one: doctor.Env carries the
+// opened store, the repo root and the scan's exclusion config, and threading
+// all of that through this package would drag the write path back into the
+// one place that exists to keep it out. The CLI closes over an Env it has
+// already built for `grunnr doctor`, so the MCP answer and the CLI answer come
+// from the same checks on the same inputs.
+//
+// nil means the server was started without repo context. The tool then reports
+// that it cannot look, rather than an empty report -- "no findings" and "I did
+// not run" must never render alike.
+type DoctorFunc func(ctx context.Context) (doctor.Report, error)
 
 // StoreIndex adapts *store.Store to the read-only interfaces above.
 //

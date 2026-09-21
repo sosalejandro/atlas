@@ -30,6 +30,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Severity is a check's verdict. The zero value is deliberately not a
@@ -101,6 +102,41 @@ func ParseSeverity(s string) (Severity, error) {
 	}
 }
 
+// Fix is a remediation a caller can execute without parsing English.
+//
+// Remediation has always had the right instinct -- "a concrete command, not
+// advice" -- and the wrong type for a machine. An agent handed
+// "grunnr scan  # opening the store applies pending migrations" has to pull a
+// command out of a sentence, and the first thing it will get wrong is the
+// comment.
+//
+// A Fix is offered ONLY when grunnr knows the command addresses the finding.
+// Where the remedy is a judgement call ("upgrade grunnr to the version that
+// wrote this store"), or a shell construct with a destructive `rm` in it, no
+// Fix is emitted and the prose stands alone. An empty Fixes is information:
+// it says this finding is not mechanically fixable, which is exactly what an
+// agent needs to know before it starts trying.
+type Fix struct {
+	// ID is stable, like Check.Name, so a caller can remember that it has
+	// already tried this one.
+	ID string `json:"id"`
+
+	// Argv is the command, already split. Not a string: a caller that has to
+	// re-split "grunnr cov sync --framework go-cover --input coverage.out"
+	// will eventually do it with strings.Split and break on a quoted path.
+	Argv []string `json:"argv"`
+
+	// MutatesIndex says whether running this rewrites grunnr's state.
+	// A caller that is only allowed to observe needs to know before it runs
+	// anything, and "does this write" is not inferable from the argv by
+	// anyone who does not already know the CLI.
+	MutatesIndex bool `json:"mutates_index"`
+}
+
+// Command renders the Fix as the prose Remediation carries, so the two
+// cannot drift: everything a caller sees comes from one declaration.
+func (f Fix) Command() string { return strings.Join(f.Argv, " ") }
+
 // Result is one check's verdict, in the shape both the human output and
 // the --json envelope render directly.
 //
@@ -113,6 +149,10 @@ type Result struct {
 	Severity    Severity `json:"severity"`
 	Finding     string   `json:"finding"`
 	Remediation string   `json:"remediation,omitempty"`
+
+	// Fixes are the machine-actionable form of Remediation, when there is
+	// one. See Fix: absent is a statement, not an omission.
+	Fixes []Fix `json:"fixes,omitempty"`
 
 	// Details carries the numbers behind Finding so a JSON consumer can
 	// gate on them without parsing prose. Sample path lists in here are
@@ -269,4 +309,77 @@ func samples(paths []string) []string {
 		out = out[:maxSamples]
 	}
 	return out
+}
+
+// Stable Fix ids. They are constants for the reason Check.Name is: a caller
+// that remembers "I already ran index.scan and the finding did not move" is
+// keying off this string, and a rename would silently reset that memory.
+const (
+	FixInit          = "store.init"
+	FixScan          = "index.scan"
+	FixScanHashFiles = "index.scan-hash-files"
+	FixCovSyncGo     = "coverage.sync-go-cover"
+	FixCovGaps       = "coverage.show-gaps"
+	FixDoctor        = "doctor.rerun"
+)
+
+// fixCatalog is every mechanically-applicable remedy grunnr offers, declared
+// once.
+//
+// One table rather than a Fix built at each call site, because the prose and
+// the argv must not be able to disagree: the prose is what a reviewer reads in
+// a diff, the argv is what an agent runs, and a divergence between them is
+// invisible until something executes the wrong command. Both are rendered from
+// the entry below.
+//
+// A remedy appears here only when grunnr knows the command addresses the
+// finding. The ones that are absent are absent on purpose:
+//
+//   - "rm <db> && grunnr init" is a shell construct with a destructive verb in
+//     it. Handing an agent an argv that deletes a file, on a finding it may
+//     have misread, is not a convenience.
+//   - "upgrade grunnr to the version that wrote this store" is a judgement
+//     call about which version, made by a person.
+//   - "annotate a symbol, then scan" requires writing code first; the scan
+//     alone fixes nothing.
+//
+// Those keep their prose and carry no Fix, which is the honest answer to "can
+// you fix this for me": no.
+var fixCatalog = map[string]Fix{
+	FixInit:          {ID: FixInit, Argv: []string{"grunnr", "init"}, MutatesIndex: true},
+	FixScan:          {ID: FixScan, Argv: []string{"grunnr", "scan"}, MutatesIndex: true},
+	FixScanHashFiles: {ID: FixScanHashFiles, Argv: []string{"grunnr", "scan", "--hash-files"}, MutatesIndex: true},
+	FixCovSyncGo: {ID: FixCovSyncGo, MutatesIndex: true, Argv: []string{
+		"grunnr", "cov", "sync", "--framework", "go-cover", "--input", "coverage.out"}},
+	// Read-only: it shows the gaps, it does not close them. Marked so a
+	// caller restricted to observation can still run it.
+	FixCovGaps: {ID: FixCovGaps, Argv: []string{"grunnr", "cov", "status", "--gaps"}, MutatesIndex: false},
+	FixDoctor:  {ID: FixDoctor, Argv: []string{"grunnr", "doctor"}, MutatesIndex: false},
+}
+
+// fixesFor returns the single-element Fix list for a catalogued id.
+func fixesFor(id string) []Fix {
+	f, ok := fixCatalog[id]
+	if !ok {
+		// A check naming a fix that does not exist is a programming error,
+		// and returning nil would hide it as "this finding is not fixable" --
+		// a statement grunnr would then be making falsely.
+		panic("doctor: no fix registered for id " + id)
+	}
+	return []Fix{f}
+}
+
+// remedyText is the prose form of the same entry.
+func remedyText(id string) string { return fixesFor(id)[0].Command() }
+
+// Fixable reports whether any finding in the report carries a Fix. A caller
+// with nothing to apply must stop rather than re-run the same command hoping
+// the diagnosis changes.
+func (r Report) Fixable() bool {
+	for _, c := range r.Checks {
+		if len(c.Fixes) > 0 {
+			return true
+		}
+	}
+	return false
 }

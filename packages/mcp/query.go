@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sosalejandro/grunnr/packages/doctor"
 	"github.com/sosalejandro/grunnr/packages/shared"
 	"github.com/sosalejandro/grunnr/packages/store"
 )
@@ -600,4 +601,62 @@ func (ts *toolset) mustSymbol(ctx context.Context, name string) (*symbolTable, s
 				"symbol is newer than the index.", name)
 	}
 	return table, row, nil
+}
+
+// doctorResult is the diagnostic report plus the one instruction an agent
+// needs that the report itself does not carry: whether there is anything it
+// can actually do.
+type doctorResult struct {
+	doctor.Report
+	// Fixable is true when at least one finding carries a Fix. Precomputed
+	// rather than left to the caller, because the caller deriving it wrongly
+	// is the failure this whole tool is meant to prevent -- an agent burning
+	// a session re-running `scan` against a diagnosis no scan can fix.
+	Fixable bool `json:"fixable"`
+	// Note states the loop in the payload as well as the tool description.
+	// A description is read once when the catalogue loads; the result is read
+	// every round, which is when the stopping rule actually matters.
+	Note string `json:"note"`
+}
+
+// doctorReport exposes the check set an agent should run before trusting any
+// other answer.
+func (ts *toolset) doctorReport(ctx context.Context, _ *toolArgs) (any, error) {
+	if ts.doctor == nil {
+		// No repo context. An empty report would read as a clean bill of
+		// health, which is the one thing this tool must never fake.
+		return NoData{
+			Reason: ReasonNoRepo,
+			Detail: "this grunnr MCP server was started without a repository to diagnose. doctor " +
+				"compares the index against the working tree, so it needs a repo root. Nothing " +
+				"here is a statement about the health of any index -- treat every other tool's " +
+				"answer as unverified.",
+			Run: "grunnr mcp  # started from inside the repository",
+		}, nil
+	}
+	rep, err := ts.doctor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return doctorResult{
+		Report:  rep,
+		Fixable: rep.Fixable(),
+		Note:    doctorLoopNote(rep),
+	}, nil
+}
+
+func doctorLoopNote(rep doctor.Report) string {
+	switch {
+	case !rep.Worst.AtLeast(doctor.SeverityWarn):
+		return "Nothing is wrong with the index. Answers from the other tools are as good as " +
+			"grunnr can make them -- which is still bounded by what it could resolve, not by this check."
+	case !rep.Fixable():
+		return "There are findings and grunnr has no command that addresses any of them. Do not " +
+			"run a scan hoping the diagnosis moves; read each `remediation` and decide, or say " +
+			"that the index cannot answer the question you were asked."
+	default:
+		return "Apply only the commands in `fixes`, then call doctor again. Stop after two rounds " +
+			"that do not reduce the finding count: a diagnosis that does not move means the " +
+			"remedy is not one grunnr has."
+	}
 }

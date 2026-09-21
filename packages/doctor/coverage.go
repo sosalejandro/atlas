@@ -17,9 +17,9 @@ import (
 // doctor exists to prevent.
 func noCoverageIngested() Result {
 	return Result{
-		Severity:    SeverityNotApplicable,
-		Finding:     "no coverage run has been ingested, so there is nothing to assess",
-		Remediation: "grunnr cov sync --framework go-cover --input coverage.out",
+		Severity: SeverityNotApplicable,
+		Finding:  "no coverage run has been ingested, so there is nothing to assess",
+		Fixes:    fixesFor(FixCovSyncGo), Remediation: remedyText(FixCovSyncGo),
 	}
 }
 
@@ -130,8 +130,8 @@ func coverageFreshnessVerdict(
 			Severity: SeverityWarn,
 			Finding: "the coverage frontier no longer tracks the working tree: " +
 				strings.Join(complaints, "; "),
-			Remediation: "grunnr cov sync --framework go-cover --input coverage.out",
-			Details:     details,
+			Fixes: fixesFor(FixCovSyncGo), Remediation: remedyText(FixCovSyncGo),
+			Details: details,
 		}
 	}
 	if predates == predatesUnknown {
@@ -146,8 +146,8 @@ func coverageFreshnessVerdict(
 					"it could not be determined: the store records no file hashes to date its "+
 					"indexed content from",
 				len(frontier.Runs), roundDuration(age)),
-			Remediation: "grunnr scan --hash-files",
-			Details:     details,
+			Fixes: fixesFor(FixScanHashFiles), Remediation: remedyText(FixScanHashFiles),
+			Details: details,
 		}
 	}
 	return Result{
@@ -278,8 +278,8 @@ func (c coverageAttribution) Run(ctx context.Context, env *Env) (Result, error) 
 			Severity: SeverityNotApplicable,
 			Finding: "the frontier's runs recorded no attribution accounting " +
 				"(a pass/fail framework, or an ingest predating schema 0011)",
-			Remediation: "grunnr cov sync --framework go-cover --input coverage.out",
-			Details:     details,
+			Fixes: fixesFor(FixCovSyncGo), Remediation: remedyText(FixCovSyncGo),
+			Details: details,
 		}, nil
 	}
 
@@ -295,17 +295,17 @@ func (c coverageAttribution) Run(ctx context.Context, env *Env) (Result, error) 
 	switch {
 	case frac >= env.UnattributedFail:
 		return Result{
-			Severity:    SeverityFail,
-			Finding:     finding,
-			Remediation: "grunnr cov status --gaps",
-			Details:     details,
+			Severity: SeverityFail,
+			Finding:  finding,
+			Fixes:    fixesFor(FixCovGaps), Remediation: remedyText(FixCovGaps),
+			Details: details,
 		}, nil
 	case frac >= env.UnattributedWarn:
 		return Result{
-			Severity:    SeverityWarn,
-			Finding:     finding,
-			Remediation: "grunnr cov status --gaps",
-			Details:     details,
+			Severity: SeverityWarn,
+			Finding:  finding,
+			Fixes:    fixesFor(FixCovGaps), Remediation: remedyText(FixCovGaps),
+			Details: details,
 		}, nil
 	default:
 		return Result{

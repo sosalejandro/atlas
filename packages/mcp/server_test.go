@@ -104,6 +104,11 @@ func TestPingIsAllowedBeforeInitialize(t *testing.T) {
 	}
 }
 
+// zeroArgTools take no arguments at all. Listed explicitly rather than
+// inferred from an empty schema, so that a tool which LOST its arguments to a
+// refactor still fails the check above instead of quietly joining this set.
+var zeroArgTools = map[string]bool{"doctor": true}
+
 func TestToolsList_EveryToolCarriesAUsableInputSchema(t *testing.T) {
 	w := startWire(t, newProtocolServer(t))
 	w.handshake()
@@ -115,6 +120,7 @@ func TestToolsList_EveryToolCarriesAUsableInputSchema(t *testing.T) {
 		t.Fatalf("tools/list returned no tools: %v", res)
 	}
 	want := map[string]bool{
+		"doctor":       false,
 		"find_feature": false, "feature_surface": false, "symbol_info": false,
 		"callers": false, "callees": false, "tests_covering": false, "coverage_for": false,
 	}
@@ -136,8 +142,17 @@ func TestToolsList_EveryToolCarriesAUsableInputSchema(t *testing.T) {
 		if schema["type"] != "object" {
 			t.Errorf("%s: inputSchema.type = %v, want \"object\"", name, schema["type"])
 		}
+		// A zero-argument tool is a real shape, not a defect: `doctor` asks
+		// one fixed question and narrowing it would mean letting a caller
+		// choose which parts of "is this trustworthy" to hear. Such a tool
+		// must still declare `properties: {}` rather than omit the key --
+		// an absent properties block leaves a client guessing whether
+		// arguments exist and were simply undocumented.
 		props, ok := schema["properties"].(map[string]any)
-		if !ok || len(props) == 0 {
+		if !ok {
+			t.Fatalf("%s: inputSchema has no properties key at all", name)
+		}
+		if len(props) == 0 && !zeroArgTools[name] {
 			t.Fatalf("%s: inputSchema declares no properties", name)
 		}
 		for pname, praw := range props {
@@ -149,9 +164,11 @@ func TestToolsList_EveryToolCarriesAUsableInputSchema(t *testing.T) {
 				t.Errorf("%s.%s: property has no description", name, pname)
 			}
 		}
-		req, ok := schema["required"].([]any)
-		if !ok || len(req) == 0 {
-			t.Errorf("%s: inputSchema names no required argument", name)
+		if !zeroArgTools[name] {
+			req, ok := schema["required"].([]any)
+			if !ok || len(req) == 0 {
+				t.Errorf("%s: inputSchema names no required argument", name)
+			}
 		}
 		// Read-only is a property of this whole surface; the hint is how a
 		// client learns it without calling anything.

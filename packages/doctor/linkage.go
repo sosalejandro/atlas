@@ -102,10 +102,10 @@ func linkageVerdict(features int, unlinked []string, sweep annotationSweep, deta
 	}
 	if len(complaints) > 0 {
 		return Result{
-			Severity:    SeverityWarn,
-			Finding:     strings.Join(complaints, "; "),
-			Remediation: "grunnr scan",
-			Details:     details,
+			Severity: SeverityWarn,
+			Finding:  strings.Join(complaints, "; "),
+			Fixes:    fixesFor(FixScan), Remediation: remedyText(FixScan),
+			Details: details,
 		}, nil
 	}
 	if !sweep.ran {

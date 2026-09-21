@@ -35,6 +35,7 @@ type Options struct {
 	Coverage  CoverageIndex
 	Scorer    Scorer
 	Freshness FreshnessFunc
+	Doctor    DoctorFunc
 	Limits    Limits
 }
 
@@ -70,6 +71,7 @@ func New(opts Options) (*Server, error) {
 		coverage:  opts.Coverage,
 		scorer:    opts.Scorer,
 		freshness: opts.Freshness,
+		doctor:    opts.Doctor,
 		limits:    opts.Limits.withDefaults(),
 	}
 	s := &Server{
