@@ -302,6 +302,7 @@ func (ts *toolset) callers(ctx context.Context, a *toolArgs) (any, error) {
 	return callersResult{
 		QualifiedName:  name,
 		Callers:        rows,
+		Provenance:     summarise(rows, truncated),
 		Truncated:      truncated,
 		IndexFreshness: checkFreshness(ctx, ts.freshness, filesOfNeighbours(rows)),
 	}, nil
@@ -315,6 +316,7 @@ func (ts *toolset) callees(ctx context.Context, a *toolArgs) (any, error) {
 	return calleesResult{
 		QualifiedName:  name,
 		Callees:        rows,
+		Provenance:     summarise(rows, truncated),
 		Truncated:      truncated,
 		IndexFreshness: checkFreshness(ctx, ts.freshness, filesOfNeighbours(rows)),
 	}, nil
@@ -375,9 +377,11 @@ func toNeighbours(table *symbolTable, edges []store.EdgeRow, dir direction) []ne
 			ref = refOf(row)
 		}
 		out = append(out, neighbour{
-			symbolRef: ref,
-			EdgeKind:  string(e.Kind),
-			CallSite:  callSite{File: e.FilePath, Line: e.Line},
+			symbolRef:      ref,
+			EdgeKind:       string(e.Kind),
+			CallSite:       callSite{File: e.FilePath, Line: e.Line},
+			ResolutionTier: string(e.Tier),
+			Ambiguous:      e.Ambiguous,
 		})
 	}
 	// Deterministic order: the same question must produce the same answer, or
