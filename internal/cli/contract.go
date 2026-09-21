@@ -6,11 +6,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/contract"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/contract"
 )
 
-// newContractCmd builds the `atlas contract` command group.
+// newContractCmd builds the `grunnr contract` command group.
 func newContractCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "contract",
@@ -20,7 +20,7 @@ func newContractCmd() *cobra.Command {
 	return cmd
 }
 
-// newContractListCmd implements `atlas contract list [--kind <k>]`.
+// newContractListCmd implements `grunnr contract list [--kind <k>]`.
 func newContractListCmd() *cobra.Command {
 	var (
 		kind    string
@@ -46,7 +46,7 @@ Filter with --kind {huma-op|route|func|graphql}.`,
 	return cmd
 }
 
-// contractListResult is the JSON payload for `atlas contract list`.
+// contractListResult is the JSON payload for `grunnr contract list`.
 type contractListResult struct {
 	Contracts []contract.ContractDef `json:"contracts"`
 }

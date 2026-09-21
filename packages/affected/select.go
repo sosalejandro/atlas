@@ -7,9 +7,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/indexfresh"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/indexfresh"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // SymbolSource is the read side of the `symbols` table. Satisfied by
@@ -236,11 +236,11 @@ func (s *selector) readEvidence(ctx context.Context) error {
 func (s *selector) checkRepoWidePreconditions() {
 	if s.in.Frontier.Empty() || s.sel.Evidence.TestsWithEvidence == 0 {
 		s.bail(ReasonNoEvidence, "",
-			"no per-test coverage evidence for the current frontier; run `atlas cov sync --per-test` before expecting a subset")
+			"no per-test coverage evidence for the current frontier; run `grunnr cov sync --per-test` before expecting a subset")
 	}
 	if len(s.idx.tests) == 0 {
 		s.bail(ReasonNoTestsIndexed, "",
-			"atlas has indexed no test symbols, so there is no suite to take a subset of; run `atlas scan`")
+			"grunnr has indexed no test symbols, so there is no suite to take a subset of; run `grunnr scan`")
 	}
 }
 
@@ -269,13 +269,13 @@ func (s *selector) mapFilesToSymbols(files []string, lines map[string][]LineRang
 // symbol (select those); some range landed outside every symbol (widen to the
 // package, because a package-level declaration, an import or a build tag can
 // change how everything around it behaves); the file's spans cannot be trusted
-// at all (widen to the package WITHOUT looking at a line number); atlas holds
+// at all (widen to the package WITHOUT looking at a line number); grunnr holds
 // no symbols for the file (bail — there is nothing to reason with).
 func (s *selector) mapSourceFile(filePath string, ranges []LineRange) {
 	rows := s.idx.byFile[filePath]
 	if len(rows) == 0 {
 		s.bail(ReasonUnindexedFile, filePath,
-			"atlas holds no symbols for this file; it may be an unscanned language, generated output, or newer than the last `atlas scan`")
+			"grunnr holds no symbols for this file; it may be an unscanned language, generated output, or newer than the last `grunnr scan`")
 		return
 	}
 	// The freshness gate comes FIRST, ahead of every line-number read below:
@@ -312,19 +312,19 @@ func (s *selector) widenUnverifiable(filePath string, state indexfresh.State) {
 	switch state {
 	case indexfresh.StateStale:
 		s.widenPackage(filePath, WideningStaleIndex,
-			"this file changed since the last `atlas scan`, so its stored line spans describe a version that no longer exists; the diff's line numbers cannot name a symbol and the whole package is treated as changed. Re-run `atlas scan` to recover the reduction")
+			"this file changed since the last `grunnr scan`, so its stored line spans describe a version that no longer exists; the diff's line numbers cannot name a symbol and the whole package is treated as changed. Re-run `grunnr scan` to recover the reduction")
 	case indexfresh.StateDeleted:
 		s.widenPackage(filePath, WideningDeletedFile,
 			"this file is gone from the working tree but the index still holds symbols for it, so its spans describe nothing; the whole package is treated as changed")
 	case indexfresh.StateAbsent:
 		s.widenPackage(filePath, WideningUnverifiableSpans,
-			"atlas holds symbols for this file but no content hash to corroborate them (a `scan --hash-files=false`), so their freshness cannot be established; the whole package is treated as changed")
+			"grunnr holds symbols for this file but no content hash to corroborate them (a `scan --hash-files=false`), so their freshness cannot be established; the whole package is treated as changed")
 	default:
 		// StateUnreadable, or a path the freshness pass never classified: the
 		// check itself could not run, which is a strictly weaker position than
 		// knowing the spans are stale. Refuse to narrow at all.
 		s.bail(ReasonUnverifiableSpans, filePath, fmt.Sprintf(
-			"atlas could not check whether its stored spans still describe this file (state %q), so no line number in it can be resolved to a symbol", state))
+			"grunnr could not check whether its stored spans still describe this file (state %q), so no line number in it can be resolved to a symbol", state))
 	}
 }
 

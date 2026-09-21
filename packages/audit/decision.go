@@ -5,23 +5,23 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // ---------------------------------------------------------------------------
 // Decision coverage signal (issue #140)
 // ---------------------------------------------------------------------------
 //
-// #127 built the CFG, taught `atlas flow` to decide branch outcomes from a
+// #127 built the CFG, taught `grunnr flow` to decide branch outcomes from a
 // statement profile, and stored the verdicts in `cfg_decision_coverage`. The
 // audit went on scoring from statement coverage alone, so the strongest
-// evidence atlas collects never reached the number anyone reads.
+// evidence grunnr collects never reached the number anyone reads.
 //
 // Wiring it in is not mechanical, because scoreFromFeature re-normalises its
 // weighted average over whichever signals are AVAILABLE. A signal that
 // reports 0 when it has no data does not add a component — it lowers the score
-// of every feature it cannot see, the moment anybody runs `atlas flow` once.
+// of every feature it cannot see, the moment anybody runs `grunnr flow` once.
 // Everything below exists to keep "unmeasured" and "measured badly" apart:
 //
 //   - no `cfg_decision_coverage` row on any surface symbol -> the signal is
@@ -55,7 +55,7 @@ func (a *auditImpl) decisionCoverageSignal(
 	if surface == nil {
 		// The coverage signal never ran (no frontier, so nothing to resolve it
 		// against). Decision coverage does not need a coverage run to exist —
-		// `atlas flow measure` reads a profile straight off disk — so resolve
+		// `grunnr flow measure` reads a profile straight off disk — so resolve
 		// the surface against the empty frontier, which drops to the static
 		// call-edge walk without touching the per-test tables.
 		//
@@ -83,7 +83,7 @@ func (a *auditImpl) decisionCoverageSignal(
 		}
 		if !measured {
 			// Never analysed. Not "no branch was taken" — an absent row is a
-			// statement about `atlas flow`'s reach, not about the tests.
+			// statement about `grunnr flow`'s reach, not about the tests.
 			rep.SymbolsUnmeasured++
 			continue
 		}
@@ -98,13 +98,13 @@ func (a *auditImpl) decisionCoverageSignal(
 	case rep.SymbolsMeasured == 0:
 		// Nothing on this surface has ever been measured. No report either:
 		// emitting one here would put a `decision_coverage` object into the
-		// JSON of every feature in every store that has never run `atlas
+		// JSON of every feature in every store that has never run `grunnr
 		// flow`, which is a schema change for readers who gained no fact.
 		return signalResult{}, nil, false, nil
 	case rep.OutcomesDecidable == 0:
 		// Measured, and unjudgeable. Unavailable, so the weighted average
 		// re-normalises past it exactly as if the rows were absent — but the
-		// report goes out, because an operator who just ran `atlas flow` over
+		// report goes out, because an operator who just ran `grunnr flow` over
 		// this feature needs to see that it ran and found nothing to decide.
 		return signalResult{}, &rep, false, nil
 	}
@@ -172,9 +172,9 @@ func decisionCoverageNote(rep DecisionCoverageReport) signalNote {
 // OWN.
 //
 // Statement and decision coverage answer the same question — is this feature's
-// behaviour exercised? — at two resolutions, and in atlas they are derived
-// from the SAME artefact: `atlas flow` decides a branch outcome by asking
-// whether the statements on either side of it ran, using the counters `atlas
+// behaviour exercised? — at two resolutions, and in grunnr they are derived
+// from the SAME artefact: `grunnr flow` decides a branch outcome by asking
+// whether the statements on either side of it ran, using the counters `grunnr
 // cov` already ingested. They are not two independent witnesses. Adding
 // decision coverage at its own full weight would give one measurement, counted
 // twice, roughly 57% of a score that also has to carry pattern compliance and
@@ -221,7 +221,7 @@ func decisionCoverageNote(rep DecisionCoverageReport) signalNote {
 //
 // This is the property that decides whether the signal survives contact with a
 // real repo. A feature with no decision-coverage rows must blend exactly the
-// weights it always did, so that adopting `atlas flow` cannot move the score of
+// weights it always did, so that adopting `grunnr flow` cannot move the score of
 // anything it has not measured. Availability, not zero — the split only ever
 // applies to features the signal can actually see.
 func (a *auditImpl) blendWeights(available map[string]bool, rep *DecisionCoverageReport) map[string]float64 {
@@ -243,7 +243,7 @@ func (a *auditImpl) blendWeights(available map[string]bool, rep *DecisionCoverag
 		out[k] = v
 	}
 	if !available[SignalVerification] {
-		// `atlas flow` ran against a profile `atlas cov` never ingested. The
+		// `grunnr flow` ran against a profile `grunnr cov` never ingested. The
 		// budget belongs to the question, not to either half of it, so the
 		// half that CAN answer holds it — but only in proportion to the
 		// surface it actually read. There is no other half to hand the

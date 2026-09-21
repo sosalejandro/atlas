@@ -1,10 +1,13 @@
-"""Atlas Python helper — copy into your project to enable decorator-style
-``@atlas.feature("id")`` annotations.
+"""Grunnr Python helper — copy into your project to enable decorator-style
+``@grunnr.feature("id")`` annotations.
 
-Atlas reads these decorators statically (via the AST scanner in
+The scanner also reads ``@atlas.feature("id")``, the spelling this module had
+before the rename, so a project that already imported it keeps working.
+
+Grunnr reads these decorators statically (via the AST scanner in
 ``packages/codeindex/py/scanner.py``); at runtime they are no-ops. There
 is no pip install — drop this file into your project (e.g. as
-``atlas.py`` at a package root) and import the names you want.
+``grunnr.py`` at a package root) and import the names you want.
 
 Mirror set of the comment-form kinds in
 ``packages/codeindex/annotations/parser.go`` that take a single string id
@@ -15,7 +18,7 @@ deprecation reason; use the comment form for those.
 
 Usage::
 
-    from atlas import feature, contract, aggregate
+    from grunnr import feature, contract, aggregate
 
     @feature("billing.subscribe")
     def subscribe(user_id, plan):
@@ -38,7 +41,7 @@ T = TypeVar("T", bound=Callable[..., Any] | type)
 
 def _identity(_id: str) -> Callable[[T], T]:
     """Return a no-op decorator that ignores its argument and returns the
-    wrapped object unchanged. The id is read statically by atlas; at
+    wrapped object unchanged. The id is read statically by grunnr; at
     runtime it has no effect."""
 
     def wrap(obj: T) -> T:

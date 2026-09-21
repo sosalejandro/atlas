@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// mcpFixture is a tempdir repo root plus .atlas/atlas.db, with the package
+// mcpFixture is a tempdir repo root plus .grunnr/grunnr.db, with the package
 // singletons pointed at it. Mirrors reportFixture; the singletons make
 // t.Parallel() unsafe here (see NewRootCmd's note).
 type mcpFixture struct {
@@ -28,10 +28,10 @@ type mcpFixture struct {
 func newMCPFixture(t *testing.T) *mcpFixture {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".atlas"), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".grunnr"), 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
-	dbPath := filepath.Join(dir, ".atlas", "atlas.db")
+	dbPath := filepath.Join(dir, ".grunnr", "grunnr.db")
 	loaded = Config{repoRoot: dir, DBPath: dbPath}
 	flags = globalFlags{DBPath: dbPath}
 	return &mcpFixture{root: dir, dbPath: dbPath}
@@ -69,7 +69,7 @@ func (f *mcpFixture) seed(t *testing.T) {
 	}
 }
 
-// runMCPSession drives `atlas mcp` end to end: framed requests on the
+// runMCPSession drives `grunnr mcp` end to end: framed requests on the
 // command's stdin, framed responses on its stdout. This is the only test that
 // proves the CLI wiring — a server that works in packages/mcp and is not
 // reachable from the binary is not delivered.
@@ -98,7 +98,7 @@ func runMCPSession(t *testing.T, fix *mcpFixture, requests ...any) []map[string]
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if err := root.ExecuteContext(ctx); err != nil {
-		t.Fatalf("atlas mcp: %v (stderr %q)", err, stderr.String())
+		t.Fatalf("grunnr mcp: %v (stderr %q)", err, stderr.String())
 	}
 
 	var out []map[string]any
@@ -125,7 +125,7 @@ func TestMCP_Registered(t *testing.T) {
 			return
 		}
 	}
-	t.Fatal("atlas mcp is not registered on the root command")
+	t.Fatal("grunnr mcp is not registered on the root command")
 }
 
 func TestMCP_ServesAHandshakeAndAToolCallOverStdio(t *testing.T) {
@@ -241,7 +241,7 @@ func TestMCP_ReportsIndexFreshnessAgainstTheWorkingTree(t *testing.T) {
 	fix := newMCPFixture(t)
 	// PersistentPreRunE re-loads the config on every Execute, and its repoRoot
 	// comes from findRepoRoot() — the process's working directory. Without this
-	// the freshness hook would resolve the fixture's paths against the atlas
+	// the freshness hook would resolve the fixture's paths against the grunnr
 	// checkout, where they do not exist, and every file would classify the same
 	// way whatever the fixture holds.
 	t.Chdir(fix.root)
@@ -271,12 +271,12 @@ func TestMCP_ReportsIndexFreshnessAgainstTheWorkingTree(t *testing.T) {
 	if entry, _ := bad[0].(string); !strings.Contains(entry, path) || !strings.Contains(entry, "stale") {
 		t.Errorf("untrustworthy_files[0] = %q, want %s reported as stale", entry, path)
 	}
-	if note, _ := stale["note"].(string); !strings.Contains(note, "atlas scan") {
+	if note, _ := stale["note"].(string); !strings.Contains(note, "grunnr scan") {
 		t.Errorf("note = %q, want it to name the command that repairs the index", note)
 	}
 }
 
-// `atlas mcp` never serves under --json: stdout IS the protocol stream, and a
+// `grunnr mcp` never serves under --json: stdout IS the protocol stream, and a
 // JSON envelope on it is exactly the "anything that is not a valid MCP
 // message" the spec forbids. The flag describes the server instead.
 func TestMCP_JSONDescribesTheServerWithoutServing(t *testing.T) {
@@ -294,7 +294,7 @@ func TestMCP_JSONDescribesTheServerWithoutServing(t *testing.T) {
 	root.SetErr(&stderr)
 	root.SetArgs([]string{"mcp", "--json", "--db-path", fix.dbPath})
 	if err := root.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("atlas mcp --json: %v (stderr %q)", err, stderr.String())
+		t.Fatalf("grunnr mcp --json: %v (stderr %q)", err, stderr.String())
 	}
 
 	var env struct {

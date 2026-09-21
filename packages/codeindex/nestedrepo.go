@@ -5,13 +5,13 @@ import (
 	"sort"
 	"strings"
 
-	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
-	"github.com/sosalejandro/atlas/packages/shared"
+	goscan "github.com/sosalejandro/grunnr/packages/codeindex/go"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // A git repository nested inside the scanned tree is not part of it.
 //
-// Atlas's walk skipped by NAME -- vendor, node_modules, anything starting
+// Grunnr's walk skipped by NAME -- vendor, node_modules, anything starting
 // with a dot, plus whatever .atlas.yaml added. Nothing detected a repository
 // BOUNDARY, so a clone, submodule or worktree sitting under the scan root
 // was indexed as though its files belonged to this codebase.
@@ -36,7 +36,7 @@ import (
 //     worktree has (it holds `gitdir: ...`), and it is the case that
 //     produced the report above. os.Lstat accepts both; an IsDir() check
 //     would have missed the very instance this exists for.
-//   - The scan root is exempt. Atlas is nearly always run at the top of a
+//   - The scan root is exempt. Grunnr is nearly always run at the top of a
 //     repository, which by definition contains .git, so skipping the root
 //     would make every scan return nothing -- the same bug, spectacularly,
 //     in the other direction. TestNestedRepo_ScanRootIsNeverSkipped pins it.
@@ -109,7 +109,7 @@ func nestedRepoWarning(n *nestedRepos) string {
 // goScanOptions forwards the caller's Go sub-scanner options with the
 // nested-repo boundary applied.
 //
-// The boundary is ONE decision, taken by the caller, and atlas has four
+// The boundary is ONE decision, taken by the caller, and grunnr has four
 // independent walks -- the annotation walk, the Go scanner, and the Python
 // and TypeScript sub-scanners in their own languages. Every one of them has
 // to honour it: the first version of this fix taught only the annotation

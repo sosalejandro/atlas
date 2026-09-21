@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/churn"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/sqlops"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/churn"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/sqlops"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // fakeChurn returns a fixed score for every file set, so the ranking can be
@@ -306,7 +306,7 @@ func TestInfer_UnmeasuredSymbolsAreNotReportedAsNotExecuted(t *testing.T) {
 
 // A route the coverage run measured and found dead belongs in the untested
 // finding, and it is the strongest entry in it. Filtering on "none" alone
-// dropped exactly the endpoints atlas had a measurement for.
+// dropped exactly the endpoints grunnr had a measurement for.
 func TestFindings_UntestedRoutesIncludeMeasuredNonExecution(t *testing.T) {
 	res := Infer(Input{
 		Root: "/repo",
@@ -340,7 +340,7 @@ func TestFindings_UntestedRoutesIncludeMeasuredNonExecution(t *testing.T) {
 // The scan reports two different things and must not add them together. A
 // scanner warning is a diagnostic -- on this repository most of them are
 // name-collision notices about symbols that WERE indexed -- and presenting
-// the warning count as "files atlas could not read" states a number nothing
+// the warning count as "files grunnr could not read" states a number nothing
 // measured.
 func TestLimits_ScannerWarningsAreNotReportedAsUnreadFiles(t *testing.T) {
 	res := Infer(Input{

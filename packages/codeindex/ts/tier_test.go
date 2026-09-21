@@ -3,7 +3,7 @@ package tsscan
 import (
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/graph"
 )
 
 // The TypeScript scanner reaches tier C and no further, and the reason

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Scope tag constants — duplicated from packages/store/edges.go to
@@ -28,21 +28,21 @@ const (
 // nesting depth, tagged with the lexical scope it was found in.
 //
 // Pre-fix the walker only descended through module.body, so anything
-// inside a function body, ``if`` block, or ``try`` got silently
+// inside a function body, “if“ block, or “try“ got silently
 // dropped — producing systematic dead-code false positives.
 //
 // The fixture exercises every supported scope:
 //
-//   - module        plain ``import os`` at module scope
-//   - function      ``from urllib.request import urlopen`` inside def
-//   - type_checking ``from collections.abc import Iterator`` inside
-//                   ``if TYPE_CHECKING:`` (priority over conditional)
-//   - try_guard     ``from greenlet import greenlet`` inside
-//                   ``try/except ImportError:``
-//   - conditional   ``import json`` inside a plain ``if`` block
+//   - module        plain “import os“ at module scope
+//   - function      “from urllib.request import urlopen“ inside def
+//   - type_checking “from collections.abc import Iterator“ inside
+//     “if TYPE_CHECKING:“ (priority over conditional)
+//   - try_guard     “from greenlet import greenlet“ inside
+//     “try/except ImportError:“
+//   - conditional   “import json“ inside a plain “if“ block
 //
-// Counter-fixture: an ``import sys`` inside ``except OSError:`` MUST
-// NOT promote to try_guard — only ``ImportError`` / ``ModuleNotFoundError``
+// Counter-fixture: an “import sys“ inside “except OSError:“ MUST
+// NOT promote to try_guard — only “ImportError“ / “ModuleNotFoundError“
 // handlers qualify (those are the runtime exceptions that signal a
 // missing-optional-dependency pattern).
 func TestScanner_DeferredImports_AllScopesCaptured(t *testing.T) {
@@ -117,7 +117,7 @@ func TestScanner_DeferredImports_AllScopesCaptured(t *testing.T) {
 
 // TestScanner_DeferredImports_BackCompatJSON guards the JSON wire
 // contract: edges without a scope tag (every non-import edge today)
-// MUST NOT include a "scope" key, so legacy atlas binaries that do
+// MUST NOT include a "scope" key, so legacy grunnr binaries that do
 // strict-mode JSON decoding don't reject the envelope.
 func TestScanner_DeferredImports_BackCompatJSON(t *testing.T) {
 	t.Parallel()
@@ -154,7 +154,7 @@ func TestScanner_DeferredImports_BackCompatJSON(t *testing.T) {
 
 // deferredImportsFixture is the issue #16 reproducer. The shape
 // mirrors the verification script in the issue body so a manual
-// "rerun atlas init against this file" smoke test matches the
+// "rerun grunnr init against this file" smoke test matches the
 // CI assertions byte-for-byte.
 const deferredImportsFixture = `# Module-level import - scope=module
 import os

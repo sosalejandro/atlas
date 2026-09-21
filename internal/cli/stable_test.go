@@ -10,7 +10,7 @@ import (
 )
 
 // The property #111 and #161 both need: the same command over the same code
-// produces the same bytes. Atlas had never had it, and the way that went
+// produces the same bytes. Grunnr had never had it, and the way that went
 // unnoticed is worth pinning as much as the property itself -- `generated_at`
 // has second granularity, so a quick loop of runs lands inside one second and
 // looks stable. Every test here that compares two runs therefore puts a real
@@ -147,7 +147,7 @@ func TestStripVolatile_RecursesIntoNestedStructures(t *testing.T) {
 		"checks": []any{
 			map[string]any{"name": "index.freshness", "duration_ms": 12, "severity": "ok"},
 		},
-		"nested": map[string]any{"db_path": "/home/someone/.atlas/atlas.db", "count": 3},
+		"nested": map[string]any{"db_path": "/home/someone/.grunnr/grunnr.db", "count": 3},
 	}
 	out, err := stripVolatile(in)
 	if err != nil {

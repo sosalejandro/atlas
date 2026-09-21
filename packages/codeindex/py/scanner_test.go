@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // skipIfNoPython short-circuits when python3 isn't on PATH. scanner.go
@@ -95,7 +95,7 @@ func TestScanner_SampleProject(t *testing.T) {
 	}
 
 	// Kind-mapping spot checks (the SymbolKind enum is the contract surface
-	// callers like `atlas codebase find` rely on).
+	// callers like `grunnr codebase find` rely on).
 	wantKinds := map[string]shared.SymbolKind{
 		"main.helper":      shared.KindFunc,
 		"main.MyClass":     shared.KindType,
@@ -287,8 +287,8 @@ func keysOf(m map[string]bool) []string {
 
 // TestScanner_ImportEdgeLines is the regression test for the bug where
 // every Python import edge reported line=1 regardless of where the
-// import statement actually appeared (atlas-internal #17 / sosalejandro/
-// atlas fix branch). The root cause was that scanner.py emitted import
+// import statement actually appeared (grunnr-internal #17 / sosalejandro/
+// grunnr fix branch). The root cause was that scanner.py emitted import
 // edges without a per-edge line, and the Go ingestor defaulted to the
 // FROM symbol's declaration line — which is line 1 for every module.
 //
@@ -350,7 +350,7 @@ func TestScanner_ImportEdgeLines(t *testing.T) {
 	for to, line := range gotImports {
 		if line <= 1 {
 			t.Errorf("import edge main->%s: line = %d (≤ 1) — "+
-				"regression of atlas-internal #17 (all import edges "+
+				"regression of grunnr-internal #17 (all import edges "+
 				"reporting line=1)", to, line)
 		}
 	}
@@ -436,11 +436,11 @@ func TestScanner_Annotations_BothModes(t *testing.T) {
 	}
 
 	// Source attribution: every annotation surfaced by the AST walker
-	// must carry SourceAtlas so the materialise step treats it as a
+	// must carry SourceGrunnr so the materialise step treats it as a
 	// real annotation (testreg's legacy path is for `@testreg` only).
 	for _, a := range res.Annotations {
-		if a.Source != shared.SourceAtlas {
-			t.Errorf("annotation %+v has Source=%q; want SourceAtlas",
+		if a.Source != shared.SourceGrunnr {
+			t.Errorf("annotation %+v has Source=%q; want SourceGrunnr",
 				a, a.Source)
 		}
 	}

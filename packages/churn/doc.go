@@ -46,7 +46,7 @@
 //
 // This package does not classify generated code and must not: the scanner
 // already made that determination (issue #96) and duplicating its rules
-// would let the two drift. Callers roll churn up over the file paths Atlas
+// would let the two drift. Callers roll churn up over the file paths Grunnr
 // has indexed — a set that excludes generated files precisely because the
 // scanner declined them — so a generated file's constant churn never
 // reaches a score. See Report.ForFiles.

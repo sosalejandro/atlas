@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 const realNutritionRoot = "/home/alejandrososa/Documents/startup-projects/nutrition-v2-go"
@@ -22,7 +22,7 @@ const realNutritionRoot = "/home/alejandrososa/Documents/startup-projects/nutrit
 // Skips cleanly when:
 //   - testing.Short() is set
 //   - the nutrition checkout isn't present
-//   - ATLAS_INTEGRATION isn't set (CI default; full integration runs are
+//   - GRUNNR_INTEGRATION isn't set (CI default; full integration runs are
 //     opt-in because they index the whole repo and balloon under -race)
 //
 // The assertion is intentionally observational: the top-5 must each carry
@@ -31,8 +31,8 @@ func TestIntegration_SprintplanRanksTopFiveAgainstNutrition(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration in short mode")
 	}
-	if os.Getenv("ATLAS_INTEGRATION") == "" {
-		t.Skip("set ATLAS_INTEGRATION=1 to run nutrition-codebase integration")
+	if os.Getenv("GRUNNR_INTEGRATION") == "" {
+		t.Skip("set GRUNNR_INTEGRATION=1 to run nutrition-codebase integration")
 	}
 	if _, err := os.Stat(realNutritionRoot); err != nil {
 		t.Skipf("nutrition checkout missing at %s; skipping", realNutritionRoot)

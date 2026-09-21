@@ -4,16 +4,16 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sosalejandro/atlas/packages/indexfresh"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/indexfresh"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // FreshnessSource answers the question every line-number join in this package
-// depends on: do the spans atlas stored for this file still describe the file
+// depends on: do the spans grunnr stored for this file still describe the file
 // git is diffing?
 //
 // It is a required input, not an optional one. The line numbers come from the
-// working tree at HEAD; symbols.line/end_line come from whenever `atlas scan`
+// working tree at HEAD; symbols.line/end_line come from whenever `grunnr scan`
 // last ran. If an earlier hunk shifted a file since that scan, a changed line
 // resolves to whichever symbol USED to occupy those lines — so `affected`
 // selects that symbol's tests and omits the tests of the symbol the diff

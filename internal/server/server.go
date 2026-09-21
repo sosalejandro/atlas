@@ -7,11 +7,11 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/domain"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
-	"github.com/sosalejandro/atlas/internal/app"
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/app"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 //go:embed templates/* static/*
@@ -137,7 +137,12 @@ func parseTemplates() (*template.Template, error) {
 		"layerLabelClass":  layerLabelClass,
 		"dec":              func(a int) int { return a - 1 },
 		"inc":              func(a int) int { return a + 1 },
-		"div":              func(a, b int) int { if b == 0 { return 0 }; return a / b },
+		"div": func(a, b int) int {
+			if b == 0 {
+				return 0
+			}
+			return a / b
+		},
 	}
 
 	tmpl := template.New("").Funcs(funcMap)

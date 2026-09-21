@@ -1,6 +1,6 @@
-# atlas trend
+# grunnr trend
 
-`atlas trend` reads the per-commit measurement series that `atlas trend
+`grunnr trend` reads the per-commit measurement series that `grunnr trend
 record` writes, and answers the question a snapshot cannot: **is this
 getting better or worse?**
 
@@ -51,11 +51,11 @@ average stays. `--max-regression 0` gives an exact zero-tolerance gate.
 ## Usage
 
 ```
-atlas trend [flags]
-atlas trend record [flags]
+grunnr trend [flags]
+grunnr trend record [flags]
 ```
 
-## Flags — `atlas trend`
+## Flags — `grunnr trend`
 
 | Flag                            | Default              | Description                                                                                     |
 | ------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------- |
@@ -68,7 +68,7 @@ atlas trend record [flags]
 | `--max-regression <points>`     | `0.5`                | Score drop tolerated before `--compare-to` fails. `0` = exact gate.                             |
 | `--denominator-tolerance <frac>`| `0.02`               | Fractional surface change before a comparison is flagged as not like-for-like.                  |
 | `--json` *(global)*             | off                  | Emit the stable JSON envelope.                                                                  |
-| `--db-path` *(global)*          | `.atlas/atlas.db`    | Override the SQLite state path.                                                                 |
+| `--db-path` *(global)*          | `.grunnr/grunnr.db`    | Override the SQLite state path.                                                                 |
 
 `--since`, `--limit` and `--feature` shape what a **human reads**. They never
 narrow the gate: `--compare-to` resolves **both** sides against the full
@@ -93,7 +93,7 @@ A commit with no recorded point of its own is a **loud error**, not a pass:
 
 ```
 trend: no measurement recorded for 4444444444, the commit under test;
-run `atlas trend record` on this commit before gating
+run `grunnr trend record` on this commit before gating
 ```
 
 ### Truncation
@@ -111,7 +111,7 @@ read from, so it is never silent.
 point; or an unambiguous prefix of a recorded sha. An ambiguous prefix is an
 error, never a guess.
 
-## Flags — `atlas trend record`
+## Flags — `grunnr trend record`
 
 | Flag                  | Default        | Description                                                                    |
 | --------------------- | -------------- | ------------------------------------------------------------------------------ |
@@ -126,12 +126,12 @@ a second one, so a CI retry leaves the series intact.
 
 | Written by                      | When                                                                                 |
 | ------------------------------- | ------------------------------------------------------------------------------------ |
-| `atlas trend record`            | Only when you run it. This is the accurate point — it scores through the audit.      |
-| `atlas trend` (backfill)        | Every run, for coverage runs that have no point yet. Opt out with `--no-backfill`.   |
-| `atlas cov sync`, `atlas health` | **Never.** They write `coverage_runs` / `audit_snapshot_runs`, not the series.       |
+| `grunnr trend record`            | Only when you run it. This is the accurate point — it scores through the audit.      |
+| `grunnr trend` (backfill)        | Every run, for coverage runs that have no point yet. Opt out with `--no-backfill`.   |
+| `grunnr cov sync`, `grunnr health` | **Never.** They write `coverage_runs` / `audit_snapshot_runs`, not the series.       |
 
 **Backfill.** Issue #92 asked for a series over tables that already exist, so
-`atlas trend` derives the points it can from `coverage_runs` before reading:
+`grunnr trend` derives the points it can from `coverage_runs` before reading:
 one point per run *group* (runs sharing a `run_group` are one logical
 measurement, per issue #86), keyed by that group — which CI is encouraged to
 set to the commit sha — or by `coverage-run:<id>` when there is none. Without
@@ -149,9 +149,9 @@ derivations describe the code as it is *now*, and applying today's derivation
 to a year-old run would date-stamp a measurement nobody took. A backfilled
 point is therefore the narrow, direct-link measurement, and its `note` reads
 `backfilled from coverage run <ids>` so a reader can tell the two apart.
-Backfill never overwrites a point `atlas trend record` wrote, and running it
+Backfill never overwrites a point `grunnr trend record` wrote, and running it
 twice is a no-op. It considers the newest 200 run groups: it runs on every
-`atlas trend`, and an unbounded scan would pay a query per group on every
+`grunnr trend`, and an unbounded scan would pay a query per group on every
 read of the series to discover there is nothing to do.
 
 A point keyed `coverage-run:<id>` is deliberately not resolvable by
@@ -163,11 +163,11 @@ against.
 ### Record a point, then read the series
 
 ```
-$ atlas cov sync --framework go-cover --input coverage.out
-$ atlas trend record --note "ci-run-4821"
+$ grunnr cov sync --framework go-cover --input coverage.out
+$ grunnr trend record --note "ci-run-4821"
 trend point recorded  id=4 commit=4444444444 score=63.10 surface=1002 features=3
 
-$ atlas trend
+$ grunnr trend
 trend  scope=project  points=4
 
 COMMIT          MEASURED             SCORE   SURFACE         DELTA
@@ -184,7 +184,7 @@ gap, not a zero, and the `+2.70` on the next row is computed against the last
 ### Gate a PR against its merge base
 
 ```
-$ atlas trend --compare-to origin/main
+$ grunnr trend --compare-to origin/main
 ...
 compare 3333333333333333333333333333333333333333 -> 4444444444444444444444444444444444444444
   score    66.90    -> 63.10          -3.80  REGRESSED
@@ -208,7 +208,7 @@ regressed.
 The other way to fail is a measurement that vanished:
 
 ```
-$ atlas trend --compare-to origin/main
+$ grunnr trend --compare-to origin/main
 compare 3333333333333333333333333333333333333333 -> 4444444444444444444444444444444444444444
   score    66.90    -> -                  -  UNMEASURED  the baseline was measured and this commit was not; the measurement was lost, not the coverage
 
@@ -222,7 +222,7 @@ gate: FAIL  (max regression 0.50 points)
 ### Read one feature's series
 
 ```
-$ atlas trend --feature search.index --since 720h
+$ grunnr trend --feature search.index --since 720h
 ```
 
 A commit whose breakdown has no row for the feature still appears, as a gap.
@@ -232,7 +232,7 @@ being measured* look continuous.
 ### JSON
 
 ```
-$ atlas trend --json --compare-to main
+$ grunnr trend --json --compare-to main
 ```
 
 `result.series.points[]` carries `commit_sha`, `measured_at`, `score`
@@ -253,7 +253,7 @@ fail the gate.
 ## Retention
 
 `--retain` is a hard prune of points older than the window; the per-feature
-breakdown goes with them. Atlas does **not** roll old points up into daily
+breakdown goes with them. Grunnr does **not** roll old points up into daily
 aggregates — a rollup would have to pick a representative score per day, and
 every choice (first / last / mean) makes the retained series disagree with
 the raw one it replaced. Pruning is lossy in a way a reader can see; a rollup
@@ -261,8 +261,8 @@ is lossy in a way they cannot.
 
 ## Why `--compare-to` lives on `trend` and not on `audit`
 
-Issue #92 sketched the gate as `atlas health --compare-to`. It landed on
-`atlas trend` instead, for one substantive reason and one practical one.
+Issue #92 sketched the gate as `grunnr health --compare-to`. It landed on
+`grunnr trend` instead, for one substantive reason and one practical one.
 
 The substantive one: `audit` scores whatever the store holds *right now*,
 blending coverage with pattern compliance, contract drift and annotation
@@ -273,21 +273,21 @@ series deliberately records only the coverage-backed component (see *Where
 the numbers come from*), and the flag belongs on the command that owns that
 distinction.
 
-The practical one: `atlas health`'s flag surface was owned by a concurrent
+The practical one: `grunnr health`'s flag surface was owned by a concurrent
 change. If a future release wants `audit --compare-to` as an alias, it can
 delegate to `runTrend` — the comparison logic is entirely in
 `packages/trend`, which takes two `store.HistoryPoint`s and no CLI state.
 
-## Relationship to `snapshots` / `atlas diff`
+## Relationship to `snapshots` / `grunnr diff`
 
-[`atlas diff`](./diff.md) compares two *structural* snapshots: which symbols,
-edges and features changed. `atlas trend` compares *measurements* over many
+[`grunnr diff`](./diff.md) compares two *structural* snapshots: which symbols,
+edges and features changed. `grunnr trend` compares *measurements* over many
 commits. They answer different questions and share no tables.
 
 ## Where the numbers come from
 
-`atlas trend record` scores every feature via the same path as
-[`atlas health`](./health.md), then keeps only what rests on real coverage
+`grunnr trend record` scores every feature via the same path as
+[`grunnr health`](./health.md), then keeps only what rests on real coverage
 evidence:
 
 - A feature is **measured** only when the audit produced a `coverage`
@@ -309,7 +309,7 @@ evidence:
   (non-test-role) linked symbols, falling back to the count of those symbols
   when no statement data exists anywhere for the feature. The surface counted
   is the *linked* one — *not* the audit's derived impl surface, which can
-  change between releases of Atlas itself. A denominator that moved on a tool
+  change between releases of Grunnr itself. A denominator that moved on a tool
   upgrade would flag every comparison across that upgrade as incomparable.
 
 Storage: migration `0013`, tables `coverage_history` and

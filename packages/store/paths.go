@@ -9,7 +9,7 @@ import (
 // path, or "" if the file does not live under src/contexts/<name>/.
 //
 // The convention is fixed by docs/architecture.md §3.7 + schema-v1.md §5.4.
-// Atlas treats anything matching `src/contexts/<name>/` as living in that
+// Grunnr treats anything matching `src/contexts/<name>/` as living in that
 // domain. Issue #112 renamed the column (and this helper) from bc_path:
 // "bounded context" is one architecture's word for the idea, and a repo
 // that has never heard of DDD still has product areas. The DERIVATION is
@@ -105,7 +105,7 @@ func implFileForTestFile(relPath string) string {
 			if dotIdx < 0 {
 				continue
 			}
-			ext := suffix[dotIdx:]                // e.g. ".tsx"
+			ext := suffix[dotIdx:]                         // e.g. ".tsx"
 			implBase := base[:len(base)-len(suffix)] + ext // e.g. "LoginPage.tsx"
 
 			// If this file lives in a test directory, the impl lives one level up.

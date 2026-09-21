@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // The acceptance suite for the batched ingest (issue #109).
@@ -150,7 +150,7 @@ func buildBatchIndex(fx batchFixture) *codeindex.Index {
 			Kind:     shared.AnnFeature,
 			IDs:      []string{fmt.Sprintf("batch.feature%03d", i%11)},
 			Raw:      fmt.Sprintf("batch.feature%03d", i%11),
-			Source:   shared.SourceAtlas,
+			Source:   shared.SourceGrunnr,
 			Position: shared.FilePosition{Path: fmt.Sprintf("src/pkg%02d/file%03d.go", f/8, f), Line: 1},
 		})
 	}
@@ -279,7 +279,7 @@ func TestIngestBatch_AssignsTheSameSurrogateIDs(t *testing.T) {
 	assertSameCounts(t, refStats, batchStats)
 }
 
-// TestIngestBatch_RescanAssignsTheSameSurrogateIDs covers the path `atlas
+// TestIngestBatch_RescanAssignsTheSameSurrogateIDs covers the path `grunnr
 // scan` actually takes: every row already exists and every file changed, so
 // the batched writer has to split the index into "insert these" and
 // "reposition those" without disturbing the ids the first pass handed out.
@@ -707,9 +707,9 @@ func TestIngestBatch_AnnotationLastValueWins(t *testing.T) {
 		Root: "/x", Graph: g, Symbols: []shared.Symbol{sym},
 		Annotations: []shared.Annotation{
 			{Kind: shared.AnnFeature, IDs: []string{"a.first"}, Raw: "a.first",
-				Source: shared.SourceAtlas, Position: shared.FilePosition{Path: "app/f.go", Line: 1}},
+				Source: shared.SourceGrunnr, Position: shared.FilePosition{Path: "app/f.go", Line: 1}},
 			{Kind: shared.AnnFeature, IDs: []string{"a.second"}, Raw: "a.second",
-				Source: shared.SourceAtlas, Position: shared.FilePosition{Path: "app/f.go", Line: 1}},
+				Source: shared.SourceGrunnr, Position: shared.FilePosition{Path: "app/f.go", Line: 1}},
 		},
 		FileHashes:  map[string]codeindex.FileHash{},
 		SymbolLangs: map[shared.SymbolID]string{},

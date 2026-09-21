@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// A hand-written TestMain: the thing `atlas cov shim init` must never
+// A hand-written TestMain: the thing `grunnr cov shim init` must never
 // silently rewrite.
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())

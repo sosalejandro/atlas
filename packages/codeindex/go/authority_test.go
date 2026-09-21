@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // The #87 defect suite: the claims from typed_test.go that nothing was
@@ -106,14 +106,14 @@ func TestTypedResolution_NameLadderWouldHaveInventedTheseEdges(t *testing.T) {
 
 const unseenCandidatesDir = "testdata/unseencandidates"
 
-// Ambiguity is a count of the candidates CHA found, not of the ones atlas
+// Ambiguity is a count of the candidates CHA found, not of the ones grunnr
 // happens to have indexed.
 //
 // The fixture is one interface with two implementations, one of them in a
 // generated file the exclusion ledger drops, so the scan emits exactly one
 // edge. Counting after the indexed filter (`len(ids) > 1`) records that
 // edge as unambiguous: a claim to know which implementation ran, made
-// precisely where atlas can see the least. Fewer visible alternatives is
+// precisely where grunnr can see the least. Fewer visible alternatives is
 // less evidence, not more.
 func TestTypedResolution_AmbiguityCountsCandidatesItCannotSee(t *testing.T) {
 	res := scanOrFail(t, unseenCandidatesDir, Options{})
@@ -143,7 +143,7 @@ func TestTypedResolution_AmbiguityCountsCandidatesItCannotSee(t *testing.T) {
 
 // The counterfactual. Index the generated file and both candidates become
 // visible: two edges, both ambiguous. Nothing about which implementation
-// runs changed -- only what atlas could see -- so the flag must read the
+// runs changed -- only what grunnr could see -- so the flag must read the
 // same either way.
 func TestTypedResolution_AmbiguityIsUnchangedByWhatIsIndexed(t *testing.T) {
 	res := scanOrFail(t, unseenCandidatesDir, Options{IncludeGenerated: true})
@@ -166,7 +166,7 @@ func TestTypedResolution_AmbiguityIsUnchangedByWhatIsIndexed(t *testing.T) {
 // scanned files warns on its own. The common case -- SOME packages red,
 // which is the case this whole design exists for -- said nothing, so a
 // reader saw syntactic edges in the tier histogram with no hint that a
-// package had failed to compile. Result.Warnings is what `atlas scan`
+// package had failed to compile. Result.Warnings is what `grunnr scan`
 // prints to stderr, so it is the channel that reaches a user who never
 // opens the JSON.
 func TestTypedResolution_PartialDegradationReachesTheWarnings(t *testing.T) {

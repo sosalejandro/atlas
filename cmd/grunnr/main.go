@@ -1,4 +1,4 @@
-// Command atlas is the single-binary CLI entry point for the Atlas toolkit.
+// Command grunnr is the single-binary CLI entry point for the Grunnr toolkit.
 //
 // Per docs/architecture.md §5, every subcommand is a ~50 LOC adapter that
 // parses flags, calls into a packages/<x>/ library, and formats the result.
@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sosalejandro/atlas/internal/cli"
+	"github.com/sosalejandro/grunnr/internal/cli"
 )
 
 func main() {

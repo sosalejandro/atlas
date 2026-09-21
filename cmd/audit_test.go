@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/domain"
 )
 
 func TestPriorityScore_CriticalAt0Health(t *testing.T) {
@@ -62,9 +62,9 @@ func TestPriorityScore_UnknownPriority(t *testing.T) {
 
 func TestBuildAuditSummary_MixedInput(t *testing.T) {
 	results := []*domain.AuditOutput{
-		{Priority: "critical", HealthScore: 1.0},  // at target (1.0)
-		{Priority: "critical", HealthScore: 0.5},  // below target
-		{Priority: "high", HealthScore: 0.9},       // at target (0.8)
+		{Priority: "critical", HealthScore: 1.0},                             // at target (1.0)
+		{Priority: "critical", HealthScore: 0.5},                             // below target
+		{Priority: "high", HealthScore: 0.9},                                 // at target (0.8)
 		{Priority: "low", HealthScore: 0.1, Gaps: []domain.AuditGap{{}, {}}}, // below target, 2 gaps
 	}
 

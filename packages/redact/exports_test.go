@@ -114,8 +114,8 @@ func TestExports_MCPDeclaresTheSourceTextItReturns(t *testing.T) {
 
 // TestExports_EveryRepositoryWriterIsListed.
 //
-// `atlas cov shim init` writes a generated source file into the working tree
-// via runner.InitDir, and `atlas onboard promote --apply` writes an
+// `grunnr cov shim init` writes a generated source file into the working tree
+// via runner.InitDir, and `grunnr onboard promote --apply` writes an
 // annotation into a source file, so "migrate-annotations is the only command
 // that writes to the working tree" was false twice over. A data-handling
 // statement that under-reports what a tool writes is a liability, and this
@@ -131,7 +131,7 @@ func TestExports_EveryRepositoryWriterIsListed(t *testing.T) {
 	if cls := exportFor(t, "cov shim init").Classes; len(cls) != 0 {
 		t.Errorf("cov shim init classes = %v; the generated file carries no indexed content", cls)
 	}
-	// The promoted annotation carries an id atlas inferred, so unlike the
+	// The promoted annotation carries an id grunnr inferred, so unlike the
 	// other two this write does put something derived into your source.
 	promote := exportFor(t, "onboard promote")
 	if len(promote.Classes) != 1 || promote.Classes[0] != ClassIdentifier {

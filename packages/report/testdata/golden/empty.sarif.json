@@ -5,8 +5,8 @@
     {
       "tool": {
         "driver": {
-          "name": "atlas",
-          "informationUri": "https://github.com/sosalejandro/atlas",
+          "name": "grunnr",
+          "informationUri": "https://github.com/sosalejandro/grunnr",
           "semanticVersion": "0.13.0",
           "rules": []
         }

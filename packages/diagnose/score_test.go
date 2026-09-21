@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 func TestKindMatches_DirectKindEquality(t *testing.T) {

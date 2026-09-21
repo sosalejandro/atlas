@@ -73,7 +73,7 @@ type SprintConfig struct {
 // `.atlas.yaml` is present. Keep in sync with docs/onboarding.md.
 func defaultConfig() Config {
 	return Config{
-		DBPath: filepath.Join(".atlas", "atlas.db"),
+		DBPath: filepath.Join(stateDir, "grunnr.db"),
 		Scan: ScanConfig{
 			SkipDirs: []string{"vendor", "node_modules", "dist", "build"},
 			SkipTS:   false,
@@ -88,7 +88,7 @@ func defaultConfig() Config {
 	}
 }
 
-// loadConfig resolves the Atlas configuration from disk. The lookup order:
+// loadConfig resolves the Grunnr configuration from disk. The lookup order:
 //
 //  1. If --config (configPath) is non-empty, that file must exist; an
 //     I/O error is fatal.
@@ -112,16 +112,38 @@ func loadConfig(configPath string) (Config, error) {
 		return cfg, nil
 	}
 
-	// Implicit: try `.atlas.yaml` at the repo root.
-	candidate := filepath.Join(cfg.repoRoot, ".atlas.yaml")
-	if err := readConfigFile(candidate, &cfg); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
+	// Implicit: `.grunnr.yaml` at the repo root, falling back to the name
+	// this tool used before it was renamed.
+	//
+	// Both are tried because the config file lives in the USER'S repository.
+	// Reading only the new name would make a working project silently lose
+	// its skip_dirs and generated globs -- and the symptom would be "grunnr
+	// suddenly indexes vendor/", which nobody would connect to a rename.
+	// First match wins, so a project that has migrated is unaffected by a
+	// leftover file.
+	for _, name := range configNames {
+		candidate := filepath.Join(cfg.repoRoot, name)
+		err := readConfigFile(candidate, &cfg)
+		if err == nil {
 			return cfg, nil
 		}
-		return Config{}, fmt.Errorf("load config %s: %w", candidate, err)
+		if !errors.Is(err, fs.ErrNotExist) {
+			return Config{}, fmt.Errorf("load config %s: %w", candidate, err)
+		}
 	}
 	return cfg, nil
 }
+
+// configNames are the config filenames tried at the repo root, in order.
+// `.atlas.yaml` is the pre-rename name and is read indefinitely, for the same
+// reason the parser still reads `@atlas:` annotations: it is in somebody
+// else's repository and they did nothing wrong.
+var configNames = []string{".grunnr.yaml", ".atlas.yaml"}
+
+// stateDir is the per-project directory holding the index and everything
+// derived from it. It is created fresh by `grunnr init`, so unlike the config
+// file and the annotation prefix there is nothing of the user's to preserve.
+const stateDir = ".grunnr"
 
 // readConfigFile parses path into cfg. Existing fields on cfg act as the
 // defaults — yaml.Unmarshal only sets fields the file explicitly mentions.
@@ -154,7 +176,7 @@ func findRepoRoot() string {
 	return "."
 }
 
-// resolveDBPath returns the absolute on-disk path to the Atlas SQLite
+// resolveDBPath returns the absolute on-disk path to the Grunnr SQLite
 // state file. The lookup order:
 //
 //  1. --db-path flag override (cliOverride), if non-empty.
@@ -168,7 +190,7 @@ func resolveDBPath(cfg Config, cliOverride string) (string, error) {
 		path = cfg.DBPath
 	}
 	if path == "" {
-		path = filepath.Join(".atlas", "atlas.db")
+		path = filepath.Join(stateDir, "grunnr.db")
 	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(cfg.repoRoot, path)

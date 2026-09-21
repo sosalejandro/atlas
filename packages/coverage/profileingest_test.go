@@ -3,8 +3,8 @@ package coverage
 import (
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage/gocover"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage/gocover"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 func ip(i int) *int { return &i }

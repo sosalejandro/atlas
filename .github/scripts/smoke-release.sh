@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Run a RELEASED atlas binary on the OS it was built for.
+# Run a RELEASED grunnr binary on the OS it was built for.
 #
 # Everything else in this pipeline proves the artifacts exist, are signed,
 # and were reproducibly built. None of it proves they START. The
 # cross-compile happens on one Linux runner for six targets; until this
-# script ran, no darwin or windows binary atlas published had ever been
+# script ran, no darwin or windows binary grunnr published had ever been
 # executed by anything.
 #
 # So the bar here is deliberately low and end-to-end rather than deep: the
@@ -16,7 +16,7 @@
 # No toolchain is assumed. This runs against the downloaded artifact with
 # nothing installed, because that is the situation a user is in.
 #
-# Usage: smoke-release.sh <path-to-atlas-binary>
+# Usage: smoke-release.sh <path-to-grunnr-binary>
 # Exit codes:
 #   0    the binary ran and produced a coherent index
 #   1    it did not
@@ -26,7 +26,7 @@ set -euo pipefail
 
 ATLAS="${1:-}"
 if [ -z "$ATLAS" ]; then
-	echo "usage: smoke-release.sh <path-to-atlas-binary>" >&2
+	echo "usage: smoke-release.sh <path-to-grunnr-binary>" >&2
 	exit 2
 fi
 if [ ! -f "$ATLAS" ]; then
@@ -54,7 +54,7 @@ package billing
 
 // Pay settles an order.
 //
-// @atlas:feature billing.pay
+// @grunnr:feature billing.pay
 func Pay(cents int) int {
 	if cents < 0 {
 		return 0
@@ -75,11 +75,11 @@ func TestPay(t *testing.T) {
 EOF
 
 cd "$work"
-# A git repo, because atlas resolves its root and its .atlas/ location from
+# A git repo, because grunnr resolves its root and its .grunnr/ location from
 # one and several commands diff against refs.
 git init -q -b main .
-git config user.email "smoke@atlas.test"
-git config user.name "atlas smoke"
+git config user.email "smoke@grunnr.test"
+git config user.name "grunnr smoke"
 git add -A
 git -c commit.gpgsign=false commit -q -m "smoke fixture"
 
@@ -93,28 +93,28 @@ fail() {
 	exit 1
 }
 
-echo "── atlas --version"
+echo "── grunnr --version"
 "$ATLAS" --version || fail "--version did not run"
 
-echo "── atlas init"
+echo "── grunnr init"
 "$ATLAS" init || fail "init did not complete"
 
-# The index has to exist on disk under the path atlas chose for itself.
-[ -f ".atlas/atlas.db" ] || fail "init reported success but wrote no .atlas/atlas.db"
+# The index has to exist on disk under the path grunnr chose for itself.
+[ -f ".grunnr/grunnr.db" ] || fail "init reported success but wrote no .grunnr/grunnr.db"
 
-echo "── atlas scan"
+echo "── grunnr scan"
 "$ATLAS" scan || fail "scan did not complete"
 
 # doctor is the assertion that matters: it is the command whose whole job is
 # to notice an index that disagrees with the tree. Passing here means the
 # scan on THIS os produced spans that still describe these files.
-echo "── atlas doctor"
+echo "── grunnr doctor"
 "$ATLAS" doctor || fail "doctor found the freshly-built index incoherent"
 
 # And the honesty check on the check: doctor must actually have examined
 # something. A report of zero checks exits 0 and means nothing -- the same
 # vacuous-success shape that made `make secret-scan` pass for eight batches.
-echo "── atlas doctor --json (must have examined something)"
+echo "── grunnr doctor --json (must have examined something)"
 "$ATLAS" doctor --json > doctor.json || fail "doctor --json did not run"
 if ! grep -q '"checks"' doctor.json; then
 	fail "doctor --json emitted no checks array"

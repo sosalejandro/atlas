@@ -12,17 +12,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/coverage/gotest"
-	"github.com/sosalejandro/atlas/packages/coverage/jest"
-	"github.com/sosalejandro/atlas/packages/coverage/maestro"
-	"github.com/sosalejandro/atlas/packages/coverage/playwright"
-	"github.com/sosalejandro/atlas/packages/coverage/vitest"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/coverage/gotest"
+	"github.com/sosalejandro/grunnr/packages/coverage/jest"
+	"github.com/sosalejandro/grunnr/packages/coverage/maestro"
+	"github.com/sosalejandro/grunnr/packages/coverage/playwright"
+	"github.com/sosalejandro/grunnr/packages/coverage/vitest"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newCovCmd builds the `atlas cov` command group with sync, status and diff
+// newCovCmd builds the `grunnr cov` command group with sync, status and diff
 // subcommands.
 func newCovCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -37,7 +37,7 @@ func newCovCmd() *cobra.Command {
 	return cmd
 }
 
-// newCovSyncCmd implements `atlas cov sync` — ingest one framework's test
+// newCovSyncCmd implements `grunnr cov sync` — ingest one framework's test
 // output into the SQLite store.
 func newCovSyncCmd() *cobra.Command {
 	var (
@@ -48,7 +48,7 @@ func newCovSyncCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Ingest a test framework's report into the Atlas store",
+		Short: "Ingest a test framework's report into the Grunnr store",
 		Long: `cov sync parses a test-framework report and writes the resulting
 run + per-test rows through the Coverage port.
 
@@ -181,19 +181,19 @@ func runCovSyncPerTest(cmd *cobra.Command, framework, dir, runGroup string) erro
 	return nil
 }
 
-// covSyncResult is the JSON payload for `atlas cov sync`.
+// covSyncResult is the JSON payload for `grunnr cov sync`.
 type covSyncResult struct {
 	RunID     int64  `json:"run_id"`
 	Framework string `json:"framework"`
 	Input     string `json:"input,omitempty"`
 
 	// Attribution is populated for the statement-coverage frameworks
-	// (go-cover, istanbul). It answers "how much of what ran did atlas
+	// (go-cover, istanbul). It answers "how much of what ran did grunnr
 	// actually attribute?" — the question issue #85 was filed about.
 	Attribution *covAttribution `json:"attribution,omitempty"`
 }
 
-// covAttribution reports how much of the ingested profile atlas could place
+// covAttribution reports how much of the ingested profile grunnr could place
 // on a symbol, and enumerates what it could not.
 type covAttribution struct {
 	FilesInProfile    int                `json:"files_in_profile"`
@@ -422,7 +422,7 @@ func sniffFramework(path string) string {
 
 // --- cov status -----------------------------------------------------------
 
-// newCovStatusCmd implements `atlas cov status [--feature <id>]` — show
+// newCovStatusCmd implements `grunnr cov status [--feature <id>]` — show
 // per-feature coverage counts from the latest coverage run.
 func newCovStatusCmd() *cobra.Command {
 	var opts covStatusOpts
@@ -444,7 +444,7 @@ how you check that every framework in a build actually landed under the
 same key.
 
 --gaps additionally reports the frontier's ATTRIBUTION accounting: how
-much of the coverage reports atlas could charge to a symbol, and which
+much of the coverage reports grunnr could charge to a symbol, and which
 files it could not. That is read back from the store, so the blind spot
 is inspectable long after the ingest that measured it.
 
@@ -487,7 +487,7 @@ type covStatusOpts struct {
 	carryMaxAge time.Duration
 }
 
-// covStatusResult is the JSON payload for `atlas cov status`.
+// covStatusResult is the JSON payload for `grunnr cov status`.
 type covStatusResult struct {
 	// RunID is the run the frontier was resolved FROM -- the newest in the
 	// store. It stays for compatibility with readers written before run
@@ -554,7 +554,7 @@ type covStatusCarrySource struct {
 }
 
 // covStatusAttribution is the persisted answer to "how much of what ran can
-// atlas actually see?" — the run-level counters plus the per-file enumeration
+// grunnr actually see?" — the run-level counters plus the per-file enumeration
 // behind them. This is what a CI gate ("fail if unattributed > 10%") reads.
 type covStatusAttribution struct {
 	Recorded          bool `json:"recorded"`
@@ -623,7 +623,7 @@ func runCovStatus(cmd *cobra.Command, opts covStatusOpts) error {
 		return fmt.Errorf("cov status: resolve frontier: %w", err)
 	}
 	if frontier.Empty() {
-		return fmt.Errorf("cov status: no coverage runs in the store yet - run 'atlas cov sync' first")
+		return fmt.Errorf("cov status: no coverage runs in the store yet - run 'grunnr cov sync' first")
 	}
 
 	// Resolve through the carry port, not ListFrontierResults, for the same
@@ -796,7 +796,7 @@ func covCarrySkipExplanation(reason string) string {
 	switch store.CarrySkipReason(reason) {
 	case store.CarrySkippedUngrouped:
 		return "this frontier has no run group, so \"the previous build\" is undefined; " +
-			"tag the syncs of one build with 'atlas cov sync --run-group <id>' to enable it"
+			"tag the syncs of one build with 'grunnr cov sync --run-group <id>' to enable it"
 	case store.CarrySkippedNoFrontier:
 		return "no coverage runs in the store"
 	case store.CarrySkippedDisabled:

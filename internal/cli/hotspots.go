@@ -7,13 +7,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/churn"
-	"github.com/sosalejandro/atlas/packages/sprintplan"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/churn"
+	"github.com/sosalejandro/grunnr/packages/sprintplan"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// hotspotsFlags holds the cobra-bound state for `atlas hotspots`. A struct
+// hotspotsFlags holds the cobra-bound state for `grunnr hotspots`. A struct
 // rather than file-scope vars so repeat invocations in tests cannot bleed
 // values into one another.
 type hotspotsFlags struct {
@@ -26,7 +26,7 @@ type hotspotsFlags struct {
 	NoAuthorDiversity   bool
 }
 
-// newHotspotsCmd implements `atlas hotspots`.
+// newHotspotsCmd implements `grunnr hotspots`.
 func newHotspotsCmd() *cobra.Command {
 	hf := &hotspotsFlags{}
 	cmd := &cobra.Command{
@@ -36,7 +36,7 @@ func newHotspotsCmd() *cobra.Command {
 how unhealthy it is, rather than by the gap alone.
 
 A gap in code nobody has touched in two years and a gap in the file three
-people edited last week score the same under 'atlas health'. Only the
+people edited last week score the same under 'grunnr health'. Only the
 second is worth a sprint. Change frequency is what separates them, and it
 is already in git.
 
@@ -64,7 +64,7 @@ newest code in the repository out of the backlog.`,
 	return cmd
 }
 
-// churnFlagNames are the mining flags `atlas hotspots` and `atlas sprint
+// churnFlagNames are the mining flags `grunnr hotspots` and `grunnr sprint
 // --rank churn` share. Named once so the "you set a mining flag but did
 // not ask for the churn ranking" check cannot drift from the registration.
 var churnFlagNames = []string{
@@ -74,7 +74,7 @@ var churnFlagNames = []string{
 
 // registerChurnFlags binds the mining flags onto cmd.
 //
-// Shared with `atlas sprint` because the two commands document themselves
+// Shared with `grunnr sprint` because the two commands document themselves
 // as running the IDENTICAL weighting: a tuning flag that changes the
 // ranking under one verb and is silently unavailable under the other makes
 // that claim false.
@@ -153,7 +153,7 @@ func (hf *hotspotsFlags) churnOptions(repoRoot string) churn.Options {
 	return opts
 }
 
-// hotspotsResult is the JSON payload for `atlas hotspots`.
+// hotspotsResult is the JSON payload for `grunnr hotspots`.
 type hotspotsResult struct {
 	Items []sprintplan.Hotspot `json:"items"`
 	Churn churnMeta            `json:"churn"`
@@ -230,7 +230,7 @@ func runHotspots(cmd *cobra.Command, hf *hotspotsFlags) error {
 }
 
 // openPlanner opens the store and wires an audit + churn-aware planner.
-// Shared with `atlas sprint --rank churn`, which needs the identical
+// Shared with `grunnr sprint --rank churn`, which needs the identical
 // wiring — the point of the flag is that it is the SAME ranking.
 //
 // The returned report is the one the planner was given: alignChurn may
@@ -266,7 +266,7 @@ func openPlanner(
 // alignChurn reconciles the two path namespaces the roll-up joins.
 //
 // Churn is mined at the git top level, so its paths are relative to that.
-// Symbol file_path is relative to the SCAN root, and `atlas scan --root
+// Symbol file_path is relative to the SCAN root, and `grunnr scan --root
 // <subdir>` makes those two different directories. Joining them by string
 // equality then misses every file and the ranking degrades to "every
 // feature's churn is unknown" without ever saying why.
@@ -302,7 +302,7 @@ func alignChurn(ctx context.Context, s *store.Store, rep *churn.Report) (*churn.
 		rep.Warnings = append(rep.Warnings, fmt.Sprintf(
 			"churn cannot be joined to the index: none of the %d indexed file paths are "+
 				"tracked by git under %s, and no single sub-directory maps them there. "+
-				"Every churn factor below is UNKNOWN, not measured — re-run 'atlas scan' "+
+				"Every churn factor below is UNKNOWN, not measured — re-run 'grunnr scan' "+
 				"from the repository root for a real ranking.", len(paths), loaded.repoRoot))
 		return rep, nil
 	}
@@ -333,7 +333,7 @@ func printHotspotsText(cmd *cobra.Command, res hotspotsResult, warnings []string
 		res.Churn.WindowDays, res.Churn.HalfLifeDays, res.Churn.CommitsScanned,
 		res.Churn.CommitsSkippedBulk, res.Churn.CommitsSkippedMessage)
 	if len(res.Items) == 0 {
-		fmt.Fprintln(out, "  no hotspots (run 'atlas init' / 'atlas scan' first)")
+		fmt.Fprintln(out, "  no hotspots (run 'grunnr init' / 'grunnr scan' first)")
 		return
 	}
 	for i, h := range res.Items {

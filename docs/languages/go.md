@@ -1,6 +1,6 @@
 # Go language guide
 
-The Go scanner is atlas's reference implementation. It's always on (no
+The Go scanner is grunnr's reference implementation. It's always on (no
 runtime dependency), reads from
 [`packages/codeindex/go/`](../../packages/codeindex/go/), and produces
 the canonical `shared.Symbol` + `graph.Edge` shape every other scanner
@@ -8,16 +8,16 @@ mirrors.
 
 ## Prerequisites
 
-- Atlas itself (`go install github.com/sosalejandro/atlas/cmd/atlas@latest`).
+- Grunnr itself (`go install github.com/sosalejandro/grunnr/cmd/grunnr@latest`).
 - The Go toolchain is **recommended but not required**. With `go` on
-  PATH and a module that compiles, atlas resolves calls with
+  PATH and a module that compiles, grunnr resolves calls with
   `go/packages` + `go/types` and every call edge is exact. Without it —
-  no toolchain, no `go.mod`, or a build that is red — atlas falls back to
+  no toolchain, no `go.mod`, or a build that is red — grunnr falls back to
   parsing `.go` files with `go/ast` alone and resolving calls by name.
-  The scan succeeds either way; what changes is how much of it atlas can
+  The scan succeeds either way; what changes is how much of it grunnr can
   vouch for. See [How calls are resolved](#how-calls-are-resolved).
 
-There is no hard `go.mod` requirement; atlas indexes loose `.go` files in
+There is no hard `go.mod` requirement; grunnr indexes loose `.go` files in
 any layout, at the fallback fidelity.
 
 ## What gets indexed
@@ -35,12 +35,12 @@ The Go scanner walks every `.go` file under the project root (including
 | Call-graph edges from one function to another         | `call`          | Type-resolved when the package compiles, including interface dispatch and generics; name-matched otherwise. Each edge records which. |
 | Wire / Fx DI bindings                                 | `dep_inject`    | Wire `wire.Build` sets + Fx `fx.Provide` calls.                              |
 | SQLC method ↔ SQL file mappings                       | `sql_query`     | Joins generated `*.sql.go` methods to their `*.sql` files.                   |
-| HTTP route declarations (Chi, Echo, stdlib, Huma)     | (extracted by `atlas contract list`) | Surfaces as `route` contracts, not raw symbols. |
+| HTTP route declarations (Chi, Echo, stdlib, Huma)     | (extracted by `grunnr contract list`) | Surfaces as `route` contracts, not raw symbols. |
 
 The scanner skips by default:
 
 - Directories named `vendor/`, `node_modules/`, or starting with `.`
-  (`.git/`, `.atlas/`, etc.).
+  (`.git/`, `.grunnr/`, etc.).
 - Generated code — see [Generated code](#generated-code) below.
 
 `_test.go` files are **included** by default — they're where
@@ -50,7 +50,7 @@ needs production-only indexing.
 
 Package-private functions are **included** by default too. They carry no
 annotations and rarely matter to a trace, but they do carry statements: a
-helper atlas hasn't indexed has no source span, so `atlas cov sync
+helper grunnr hasn't indexed has no source span, so `grunnr cov sync
 --framework go-cover` cannot charge its executed statements to anything.
 Pass `codeindex/go.Options.SkipUnexportedFuncs = true` for a graph-only
 audit where they are noise — accepting that coverage attribution then
@@ -58,7 +58,7 @@ under-reports.
 
 ## How calls are resolved
 
-Everything atlas claims — impact of a change, a feature's implementation
+Everything grunnr claims — impact of a change, a feature's implementation
 surface, which test covers which handler — rests on one question: when
 this function calls something, WHAT does it call? Until issue #87 the Go
 scanner answered it by matching names. It rendered the call site as a
@@ -72,7 +72,7 @@ whichever was walked first. A call through an interface-typed field names
 no receiver type at all, so it resolved to nothing. A method on a generic
 type is declared once and instantiated N times, so it fragmented.
 
-Atlas now loads the tree with
+Grunnr now loads the tree with
 [`golang.org/x/tools/go/packages`](https://pkg.go.dev/golang.org/x/tools/go/packages)
 and resolves each call site through `go/types`, with class-hierarchy
 analysis (`callgraph/cha`) for interface dispatch. The implementation is
@@ -86,17 +86,17 @@ vocabulary is closed:
 
 | Tier            | What it means                                                                 |
 | --------------- | ----------------------------------------------------------------------------- |
-| `typed`         | The type checker resolved it. Exact across packages, through embedding, through generic instantiation. Interface dispatch is typed too, and marked ambiguous when class-hierarchy analysis named more than one implementation — counted over every candidate CHA found, including the ones atlas did not index, because an alternative it cannot see is still an alternative. |
-| `name_resolved` | A name was bound to a declaration atlas indexed, using scope rules. No types were consulted. Produced only by the AST fallback. |
+| `typed`         | The type checker resolved it. Exact across packages, through embedding, through generic instantiation. Interface dispatch is typed too, and marked ambiguous when class-hierarchy analysis named more than one implementation — counted over every candidate CHA found, including the ones grunnr did not index, because an alternative it cannot see is still an alternative. |
+| `name_resolved` | A name was bound to a declaration grunnr indexed, using scope rules. No types were consulted. Produced only by the AST fallback. |
 | `syntactic`     | The shape of the source suggested it and nothing was bound: a substring match, a DI-binding guess, an `@api` comment sitting above a declaration, a sqlc query node picked by bare method name. The target may not exist. |
 | `imported`      | Someone else's indexer said so (SCIP; not yet produced).                       |
 
-`atlas resolve` prints the histogram, and `--ast` re-runs the same scan
+`grunnr resolve` prints the histogram, and `--ast` re-runs the same scan
 with type checking off so the two are side by side:
 
 ```
 # Run from: this repository's root
-$ atlas resolve --root . --ast
+$ grunnr resolve --root . --ast
 Go call resolution for .
   packages: 100 type-checked, 0 degraded (of 100)
   files:    543 of 613 indexed files resolved with types
@@ -114,7 +114,7 @@ Go call resolution for .
 
 Read that as: of the 11,465 call edges the name resolver produced over
 this repository, 3,611 were guesses. 12,361 edges are now type-checked
-and 69 guesses remain — the edges atlas cannot vouch for fell by 98%,
+and 69 guesses remain — the edges grunnr cannot vouch for fell by 98%,
 against a 9% growth in the edge count (11,465 → 12,522). The extra 1,057
 are edges the name resolver could not see at all: interface dispatch,
 methods called on the result of a call, calls through a generic field.
@@ -127,19 +127,19 @@ produce a name-matched call edge.
 
 ### It degrades, per package, and says so
 
-`go/packages` needs a build that succeeds. Atlas runs mid-edit, so a red
+`go/packages` needs a build that succeeds. Grunnr runs mid-edit, so a red
 build must not fail a scan: type checking is attempted per package, and
 any package the type checker rejects has its files resolved by the AST
 ladder instead, with the tier saying so. Nothing is silently upgraded.
 
-`atlas resolve` names every degraded package with its first type error.
+`grunnr resolve` names every degraded package with its first type error.
 The fixture at `packages/codeindex/go/testdata/brokencorpus` is a module
 with one package that compiles and one that does not, and it exists to
 pin exactly this:
 
 ```
 # Run from: this repository's root
-$ atlas resolve --root packages/codeindex/go/testdata/brokencorpus
+$ grunnr resolve --root packages/codeindex/go/testdata/brokencorpus
 Go call resolution for packages/codeindex/go/testdata/brokencorpus
   packages: 1 type-checked, 1 degraded (of 2)
   files:    1 of 2 indexed files resolved with types
@@ -161,7 +161,7 @@ Both packages were scanned; both produced their call edge. One edge is
 `typed` and one is `name_resolved`, and the tiers are the only thing
 distinguishing them.
 
-Partial degradation also reaches the scan warnings, which is what `atlas
+Partial degradation also reaches the scan warnings, which is what `grunnr
 scan` prints to stderr — so a reader who never opens the report still
 learns why syntactic edges are in the histogram:
 
@@ -203,7 +203,7 @@ The load mode is `NeedName | NeedFiles | NeedCompiledGoFiles |
 NeedImports | NeedTypes | NeedSyntax | NeedTypesInfo`. `NeedDeps` is
 deliberately absent: with it, every dependency's source is parsed and
 type-checked; without it, dependencies come from compiled export data and
-the packages you asked for are still fully type-checked. Nothing atlas
+the packages you asked for are still fully type-checked. Nothing grunnr
 asks needs dependency syntax.
 
 Measured on this repository — `packages.Load(./..., Tests: true)`, 145
@@ -212,17 +212,17 @@ of each mode:
 
 | Load mode                            | `packages.Load`  |
 | ------------------------------------ | ---------------- |
-| without `NeedDeps` (what atlas uses) | 0.39 – 0.42 s    |
+| without `NeedDeps` (what grunnr uses) | 0.39 – 0.42 s    |
 | with `NeedDeps`                      | 2.70 – 2.80 s    |
 
 SSA construction plus class-hierarchy analysis costs a further 0.21 –
-0.24 s on the same machine. End to end, repeated `atlas resolve --ast`
+0.24 s on the same machine. End to end, repeated `grunnr resolve --ast`
 runs on this repository measured **5.6 – 5.9 s** for a whole scan without
 type checking and **6.9 – 7.4 s** with it. The wall-clock
 difference is smaller than the load duration alone would suggest, because
 the typed path also skips a second parse of every file it adopts.
 
-These are one machine's numbers under variable load. Run `atlas resolve
+These are one machine's numbers under variable load. Run `grunnr resolve
 --root . --ast` to get yours; the tier columns are exact and
 reproducible, the millisecond columns are not.
 
@@ -232,8 +232,8 @@ best absorbed.
 ### Turning it off
 
 ```
-atlas scan --skip-typed-resolution
-atlas init --skip-typed-resolution
+grunnr scan --skip-typed-resolution
+grunnr init --skip-typed-resolution
 ```
 
 Both scan Go with the name resolver alone. Reach for the flag when the
@@ -268,11 +268,11 @@ path never does: it offers only callees it has already matched to an
 indexed declaration, so a call into the standard library or into a
 dependency produces no node and no edge.
 
-That is the right answer — the stub was a guess about a symbol atlas had
+That is the right answer — the stub was a guess about a symbol grunnr had
 never scanned, with no span and no owner — but it is a real difference in
 what a caller can query. Turning typed resolution on removes those nodes
 from `Result.Symbols`; turning it off brings them back. Every node for a
-declaration atlas actually indexed is identical either way, which
+declaration grunnr actually indexed is identical either way, which
 `TestTypedResolution_DropsOnlyExternalStubsFromTheSymbolSet` pins.
 
 ### What is still not typed
@@ -287,7 +287,7 @@ declaration atlas actually indexed is identical either way, which
   signatures across the whole program — which for a common signature is a
   fan-out, not a resolution.
 - **Calls into dependencies and into skipped generated files** produce no
-  edge. The type checker names the callee exactly; atlas has no symbol,
+  edge. The type checker names the callee exactly; grunnr has no symbol,
   no span and no owner for it, so there is nothing to point an edge at.
 - **`init()` and package-level variable initialisers** are not walked as
   callers, same as before.
@@ -347,7 +347,7 @@ my-go-svc/
     └── service.go
 ```
 
-After `atlas init` this materialises into roughly:
+After `grunnr init` this materialises into roughly:
 
 ```
 features:      2 (auth.login, billing.subscribe)
@@ -362,8 +362,8 @@ edges:         3 (handler -> service call chain)
 ### Where is this handler?
 
 ```
-# Run from: a Go-only project root, after `atlas init`
-$ atlas codebase find AuthHandler.Login
+# Run from: a Go-only project root, after `grunnr init`
+$ grunnr codebase find AuthHandler.Login
 AuthHandler.Login  auth/handler.go:14  [func]
 ```
 
@@ -371,7 +371,7 @@ AuthHandler.Login  auth/handler.go:14  [func]
 
 ```
 # Run from: project root
-$ atlas chain auth.login
+$ grunnr chain auth.login
 trace feature auth.login (3 nodes)
 AuthHandler.Login  [func] auth/handler.go:14
   AuthService.Authenticate  [func] auth/service.go:26
@@ -382,7 +382,7 @@ AuthHandler.Login  [func] auth/handler.go:14
 
 ```
 # Run from: project root
-$ atlas codebase agg identity.auth
+$ grunnr codebase agg identity.auth
 aggregate identity.auth
   decl: auth/service.go:23  identity.auth
   service: (none)
@@ -396,7 +396,7 @@ becomes `service: <file>:<line>` instead.
 
 ```
 # Run from: project root
-$ atlas codebase emit user.signed_up
+$ grunnr codebase emit user.signed_up
 event user.signed_up (2 sites)
   auth/service.go:48   [event-emit]
   auth/outbox.go:12    [outbox-publish]
@@ -415,21 +415,21 @@ resolve exactly now — see
 [How calls are resolved](#how-calls-are-resolved). What the type checker
 cannot follow is dispatch that is not written in the types at all. If your
 service calls `container.Resolve("AuthService").(*AuthService).Login(...)`,
-the receiver is produced by a runtime string lookup, and atlas sees a type
+the receiver is produced by a runtime string lookup, and grunnr sees a type
 assertion on an `any`. The edge will be absent from
-`atlas chain auth.login`.
+`grunnr chain auth.login`.
 
 The same holds for a call through a function VALUE (`f := s.Do; f()`, a
 `http.HandlerFunc` struct field): the type checker reports a variable, not
-a function, and atlas emits nothing rather than guessing.
+a function, and grunnr emits nothing rather than guessing.
 
 Workaround unchanged: annotate the explicit call site with
 `@atlas:contract auth.login` so the audit picks it up even if the trace
 chain doesn't reach it.
 
-The one thing that has changed is how you find out. `atlas chain` showing
+The one thing that has changed is how you find out. `grunnr chain` showing
 fewer hops than you expected used to be indistinguishable from a resolver
-that guessed wrong; run `atlas resolve --root .` and, if the packages
+that guessed wrong; run `grunnr resolve --root .` and, if the packages
 involved type-checked, a missing edge is a genuine gap in what the types
 say rather than a name that failed to match.
 
@@ -451,7 +451,7 @@ rather than inferring it from a symbol count.
 ### 3. Duplicated type names across packages get package-qualified ids
 
 Symbol ids are short by design (`Chat.MarkLoaded`, not the full import
-path) because that is what annotations and `atlas chain` arguments use. In a
+path) because that is what annotations and `grunnr chain` arguments use. In a
 monorepo where several bounded contexts each declare a `Chat`, only one
 declaration can own the short id: the first in lexical walk order. The others
 are indexed under `<packageDir>.<Type>.<Method>`, e.g.
@@ -461,7 +461,7 @@ Chat.MarkLoaded                                    src/contexts/messaging/domain
 src/contexts/ai-chat/domain/aggregates.Chat.MarkLoaded   src/contexts/ai-chat/domain/aggregates/chat.go
 ```
 
-`atlas scan` prints a warning for every collision. If a feature annotation
+`grunnr scan` prints a warning for every collision. If a feature annotation
 resolves to the wrong context's symbol, that warning is why — reference the
 package-qualified id explicitly, or rename the type.
 
@@ -475,8 +475,8 @@ the ai-chat symbol even though messaging owns the short id. The golden
 corpus pins exactly this: `config.Load` used to produce an edge into
 `internal/persistence`'s `Config.Validate`, a package it does not import.
 
-What is still affected is anything you type by hand: annotations, `atlas
-trace <id>` arguments, `atlas codebase find`. Those still take the id, and
+What is still affected is anything you type by hand: annotations, `grunnr
+trace <id>` arguments, `grunnr codebase find`. Those still take the id, and
 the id is still short.
 
 ### 4. Receivers vs free functions in qualified names
@@ -491,8 +491,8 @@ disambiguate with `symbol:<pkg>.<name>` when both exist.
 ### 5. `init()` and `main()` are indexed but rarely useful in traces
 
 `init()` functions don't link cleanly into the call graph — they fire
-implicitly. They're stored as symbols so `atlas codebase find init`
-works, but `atlas chain` won't follow into them. Same for `main()`:
+implicitly. They're stored as symbols so `grunnr codebase find init`
+works, but `grunnr chain` won't follow into them. Same for `main()`:
 it's the entry point, but most call-graphs of interest start one level
 deeper (handler / service).
 
@@ -503,7 +503,7 @@ deeper (handler / service).
 - TypeScript scanner: [`docs/languages/ts.md`](./ts.md).
 - Python scanner: [`docs/languages/py.md`](./py.md).
 - Per-command reference: [`docs/commands/`](../commands/).
-- `atlas resolve` — the tier histogram and per-package type-check report
+- `grunnr resolve` — the tier histogram and per-package type-check report
   described in [How calls are resolved](#how-calls-are-resolved). It has no
-  page under `docs/commands/` yet; `atlas resolve --help` carries the flag
+  page under `docs/commands/` yet; `grunnr resolve --help` carries the flag
   reference.

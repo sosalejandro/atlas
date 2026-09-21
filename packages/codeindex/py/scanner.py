@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Atlas Python AST Scanner.
+"""Grunnr Python AST Scanner.
 
 Mirror of packages/codeindex/ts/scanner.ts but driven by Python's stdlib
-`ast` module. The Atlas Go orchestrator (packages/codeindex/py/scanner.go)
+`ast` module. The Grunnr Go orchestrator (packages/codeindex/py/scanner.go)
 embeds this file via //go:embed, writes it to a tempfile at runtime, and
 shells out to python3.
 
@@ -28,8 +28,8 @@ Annotations come in two recognition modes (both supported):
   IMMEDIATELY above a ``def`` / ``class`` declaration. Mirrors Go's
   ``// @atlas:feature ...`` convention.
 * **Decorator-style** — ``@atlas.feature("id")`` (or ``@feature("id")``
-  when the helper is imported as ``from atlas import feature``).
-  Atlas treats the decorator as no-op runtime sugar and reads the
+  when the helper is imported as ``from grunnr import feature``).
+  Grunnr treats the decorator as no-op runtime sugar and reads the
   feature id statically.
 
 Class-level annotations PROPAGATE to every method defined inside the
@@ -52,7 +52,7 @@ directories listed in ``DEFAULT_SKIP_DIRS``.
 Constraints:
     * Pure stdlib (``ast``, ``json``, ``sys``, ``os``, ``re``,
       ``argparse``).
-    * No pip dependencies — atlas's value prop is "just works once
+    * No pip dependencies — grunnr's value prop is "just works once
       python3 is on PATH".
     * Comment-style annotations are also surfaced by the Go-side
       ``packages/codeindex/annotations`` parser (which sees every ``#``
@@ -77,7 +77,7 @@ from typing import Iterable
 
 # Directories never walked. Mirrors the TS scanner's DEFAULT_SKIP_DIRS but
 # tuned for Python ecosystems: venv folders, bytecode caches, packager
-# outputs, common JS-monorepo subtrees (atlas is polyglot).
+# outputs, common JS-monorepo subtrees (grunnr is polyglot).
 DEFAULT_SKIP_DIRS: frozenset[str] = frozenset(
     {
         ".git",
@@ -131,7 +131,7 @@ class _Edge:
     #
     # Allowed values: "module", "function", "conditional",
     # "type_checking", "try_guard". Empty string is wire-omitted so
-    # the JSON envelope stays back-compat with pre-#16 atlas binaries
+    # the JSON envelope stays back-compat with pre-#16 grunnr binaries
     # reading the same scanner output.
     scope: str = ""
 
@@ -207,7 +207,7 @@ class _Output:
 # line (id + optional tags). The scanner forwards group 2 verbatim as the
 # annotation record's ``raw`` field and extracts the first whitespace-
 # separated token as the id.
-_ATLAS_COMMENT_RE = re.compile(
+_GRUNNR_COMMENT_RE = re.compile(
     r"^\s*#\s*@atlas:([a-zA-Z][a-zA-Z0-9_-]*)\s+(.+?)\s*$"
 )
 
@@ -249,7 +249,7 @@ def _extract_comment_annotation(
     idx = anchor_line - 2  # source_lines is 0-indexed; line N is index N-1
     if idx < 0 or idx >= len(source_lines):
         return None
-    m = _ATLAS_COMMENT_RE.match(source_lines[idx])
+    m = _GRUNNR_COMMENT_RE.match(source_lines[idx])
     if not m:
         return None
     kind = m.group(1)
@@ -267,7 +267,7 @@ def _extract_decorator_annotation(
     rel_path: str,
 ) -> _Annotation | None:
     """Inspect ``node.decorator_list`` for a ``@atlas.feature("id")`` or
-    ``@feature("id")`` (when imported as ``from atlas import feature``)
+    ``@feature("id")`` (when imported as ``from grunnr import feature``)
     decorator.
 
     Returns the annotation on the first match and stops. Multiple
@@ -298,8 +298,8 @@ def _extract_decorator_annotation(
 
 
 def _decorator_atlas_kind(func: ast.expr) -> str | None:
-    """Match ``atlas.<kind>`` and ``<kind>`` decorator call shapes against
-    the closed set of atlas annotation kinds.
+    """Match ``grunnr.<kind>`` and ``<kind>`` decorator call shapes against
+    the closed set of grunnr annotation kinds.
 
     Returns the canonical kind string on match (``feature``, ``bc``,
     ``aggregate-service`` etc.), ``None`` otherwise. Only kinds that
@@ -313,7 +313,7 @@ def _decorator_atlas_kind(func: ast.expr) -> str | None:
     (``aggregate-service``, ``event-emit``, ``outbox-publish``) are
     reached through their snake_case Python aliases
     (``aggregate_service`` etc.). The mapping mirrors the helper module
-    shipped at ``assets/python/atlas.py``.
+    shipped at ``assets/python/grunnr.py``.
     """
     # Python-attribute name -> canonical wire kind.
     decoratable = {
@@ -328,13 +328,17 @@ def _decorator_atlas_kind(func: ast.expr) -> str | None:
         "outbox_publish": "outbox-publish",
     }
     if isinstance(func, ast.Attribute):
-        # @atlas.feature(...) — value must be ast.Name(id='atlas').
-        if isinstance(func.value, ast.Name) and func.value.id == "atlas":
+        # @atlas.feature(...) — value must be ast.Name(id='grunnr').
+        # "atlas" is accepted alongside "grunnr" for the same reason the Go
+        # parser still reads `@atlas:` -- the decorator is imported into the
+        # USER'S code, and dropping it would silently unlink every annotated
+        # Python symbol in a project that did nothing wrong.
+        if isinstance(func.value, ast.Name) and func.value.id in ("grunnr", "atlas"):
             return decoratable.get(func.attr)
         return None
     if isinstance(func, ast.Name):
         # @feature(...) — valid when imported as
-        # `from atlas import feature`. We can't always prove the import
+        # `from grunnr import feature`. We can't always prove the import
         # statically (a project could shadow the name), but accepting
         # the bare name is the documented convention.
         return decoratable.get(func.id)
@@ -603,7 +607,7 @@ def _module_id_from_relpath(rel_path: str) -> str:
     ``pkg/sub/mod.py``      -> ``"pkg.sub.mod"``
     ``pkg/sub/__init__.py`` -> ``"pkg.sub"``
 
-    This mirrors Python's own import semantics so atlas's cross-file
+    This mirrors Python's own import semantics so grunnr's cross-file
     resolution stays consistent with what an interpreter would see.
     """
     rel = rel_path.replace("\\", "/")
@@ -960,7 +964,7 @@ def _emit_call_edges(
 
 
 # AST node types that introduce a new *named* scope (a symbol that ends
-# up in the Atlas symbol table). Recursion stops at these — they get
+# up in the Grunnr symbol table). Recursion stops at these — they get
 # their own ``_emit_call_edges`` invocation via ``_walk_body`` and must
 # not double-count calls under the enclosing scope.
 #
@@ -1171,7 +1175,7 @@ def _scan_file(abs_path: str, rel_path: str, out: _Output) -> None:
         return
 
     module_id = _module_id_from_relpath(rel_path)
-    # Module-level node so atlas codebase find <module> resolves.
+    # Module-level node so grunnr codebase find <module> resolves.
     doc = _docstring(tree)
     out.nodes.append(
         _Node(

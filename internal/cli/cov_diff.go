@@ -9,13 +9,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/coverage/patch"
-	"github.com/sosalejandro/atlas/packages/indexfresh"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage/patch"
+	"github.com/sosalejandro/grunnr/packages/indexfresh"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newCovDiffCmd implements `atlas cov diff --base <ref> [--fail-under N]` —
+// newCovDiffCmd implements `grunnr cov diff --base <ref> [--fail-under N]` —
 // patch coverage, and the exit code a CI gate is built on.
 func newCovDiffCmd() *cobra.Command {
 	var (
@@ -35,7 +35,7 @@ The changed lines come from 'git diff --unified=0 <base>...HEAD' -- the
 merge-base form, so commits that landed on the base branch after you forked
 are not charged to you. Only COMMITTED work is visible. Those lines are then
 intersected with the indexed symbol spans and scored against the current
-coverage frontier (the same runs 'atlas cov status' and 'atlas health' read).
+coverage frontier (the same runs 'grunnr cov status' and 'grunnr health' read).
 
 Every changed line lands in one of THREE buckets, and the third one is the
 point:
@@ -43,11 +43,11 @@ point:
   covered / uncovered  lines inside a symbol the frontier measured. These
                        are the known fraction, and the only thing
                        --fail-under decides on.
-  unknown              lines atlas cannot score: a file it has no symbol
+  unknown              lines grunnr cannot score: a file it has no symbol
                        for, a line outside every indexed span, a symbol
                        no run carried statement counts for, or a file whose
                        indexed spans no longer describe what is on disk.
-                       This is NOT 0% covered -- gating on files atlas
+                       This is NOT 0% covered -- gating on files grunnr
                        cannot see teaches teams to switch the gate off --
                        so it is reported separately and loudly, and never
                        enters the denominator.
@@ -80,7 +80,7 @@ fail every docs-only and config-only pull request.
 	return cmd
 }
 
-// covDiffResult is the JSON payload for `atlas cov diff`. It embeds the
+// covDiffResult is the JSON payload for `grunnr cov diff`. It embeds the
 // scorer's own result so the bucket names are identical in the library and on
 // the wire — a consumer reading the JSON is reading patch.Result.
 type covDiffResult struct {
@@ -156,7 +156,7 @@ func runCovDiff(cmd *cobra.Command, base string, target *float64) error {
 		return undeterminedf(
 			"cov diff: %d of %d changed file(s) have moved since the index was built, "+
 				"so the %d line(s) inside their stale spans cannot be attributed to a "+
-				"symbol; patch coverage is not a measurement here. Run `atlas scan` and "+
+				"symbol; patch coverage is not a measurement here. Run `grunnr scan` and "+
 				"retry, or drop --fail-under to see the report without the gate",
 			len(res.StaleIndexFiles), res.ChangedFiles, res.StaleIndexLines)
 	}
@@ -181,7 +181,7 @@ func covDiffInput(ctx context.Context, s *store.Store, changes []patch.FileChang
 	// command whose job is to fail builds.
 	if frontier.Empty() {
 		return patch.Input{}, fmt.Errorf(
-			"cov diff: no coverage runs in the store yet - run 'atlas cov sync' first")
+			"cov diff: no coverage runs in the store yet - run 'grunnr cov sync' first")
 	}
 	results, err := s.Coverage().ListFrontierResults(ctx, frontier)
 	if err != nil {
@@ -212,7 +212,7 @@ func covDiffInput(ctx context.Context, s *store.Store, changes []patch.FileChang
 // what the scanner recorded.
 //
 // This is the join's precondition, not a nicety. The line numbers come from
-// the working tree at HEAD; the spans come from whenever `atlas scan` last
+// the working tree at HEAD; the spans come from whenever `grunnr scan` last
 // ran. When they disagree the failure is silent and directional: insert
 // twenty lines near the top of a file and every span below it shifts, so a
 // changed line lands inside whichever symbol NOW occupies that range and is
@@ -330,7 +330,7 @@ func printCovDiff(cmd *cobra.Command, res covDiffResult) {
 	printCovDiffFeatures(cmd, res)
 	printCovDiffSpans(cmd, "uncovered changed lines", res.Uncovered, false)
 	printCovDiffSpans(cmd,
-		"partially covered - atlas knows the symbol's ratio, not which of its lines ran",
+		"partially covered - grunnr knows the symbol's ratio, not which of its lines ran",
 		res.Partial, true)
 	printCovDiffUnknownSpans(cmd, res)
 	printCovDiffVerdict(cmd, res)
@@ -377,7 +377,7 @@ func printCovDiffStaleIndex(cmd *cobra.Command, res covDiffResult) {
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out,
 		"\n  STALE INDEX: %d of %d changed files are not described by the current index;\n"+
-			"               their %d changed lines are unscored. Re-run 'atlas scan' at HEAD.\n",
+			"               their %d changed lines are unscored. Re-run 'grunnr scan' at HEAD.\n",
 		len(res.StaleIndexFiles), res.ChangedFiles, res.StaleIndexLines)
 	for i, sf := range res.StaleIndexFiles {
 		if i == maxGapLines {

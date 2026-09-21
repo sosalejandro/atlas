@@ -5,33 +5,33 @@
     {
       "tool": {
         "driver": {
-          "name": "atlas",
-          "informationUri": "https://github.com/sosalejandro/atlas",
+          "name": "grunnr",
+          "informationUri": "https://github.com/sosalejandro/grunnr",
           "semanticVersion": "0.13.0",
           "rules": [
             {
-              "id": "atlas/coverage-unattributed",
+              "id": "grunnr/coverage-unattributed",
               "name": "CoverageUnattributed",
               "shortDescription": {
-                "text": "Executed statements atlas could not charge to any indexed symbol"
+                "text": "Executed statements grunnr could not charge to any indexed symbol"
               },
               "fullDescription": {
-                "text": "The coverage report says these statements ran, but atlas has no indexed symbol covering them, so they contribute to no feature's score. This is a blind spot in the measurement rather than a defect in the code: usually the file was excluded from the scan, or the coverage report names it by an import path atlas cannot map to the checkout."
+                "text": "The coverage report says these statements ran, but grunnr has no indexed symbol covering them, so they contribute to no feature's score. This is a blind spot in the measurement rather than a defect in the code: usually the file was excluded from the scan, or the coverage report names it by an import path grunnr cannot map to the checkout."
               },
-              "helpUri": "https://github.com/sosalejandro/atlas/blob/main/docs/commands/report.md#atlascoverage-unattributed",
+              "helpUri": "https://github.com/sosalejandro/grunnr/blob/main/docs/commands/report.md#grunnrcoverage-unattributed",
               "defaultConfiguration": {
                 "level": "note"
               },
               "properties": {
                 "tags": [
-                  "atlas",
+                  "grunnr",
                   "coverage",
                   "measurement"
                 ]
               }
             },
             {
-              "id": "atlas/dead-code",
+              "id": "grunnr/dead-code",
               "name": "DeadCode",
               "shortDescription": {
                 "text": "A symbol with no qualifying incoming edges"
@@ -39,34 +39,34 @@
               "fullDescription": {
                 "text": "Nothing in the indexed graph references this symbol. Treat it as a triage candidate, not a verdict: dynamic dispatch, plugin entry points and re-export chains are invisible to static analysis and surface here even when the symbol is live at runtime."
               },
-              "helpUri": "https://github.com/sosalejandro/atlas/blob/main/docs/commands/report.md#atlasdead-code",
+              "helpUri": "https://github.com/sosalejandro/grunnr/blob/main/docs/commands/report.md#grunnrdead-code",
               "defaultConfiguration": {
                 "level": "note"
               },
               "properties": {
                 "tags": [
-                  "atlas",
+                  "grunnr",
                   "dead-code",
                   "maintainability"
                 ]
               }
             },
             {
-              "id": "atlas/feature-uncovered",
+              "id": "grunnr/feature-uncovered",
               "name": "FeatureUncovered",
               "shortDescription": {
                 "text": "A feature's health score is below the configured floor"
               },
               "fullDescription": {
-                "text": "atlas scored this feature from its statement coverage, decision coverage, annotation freshness, pattern compliance and contract drift signals, and the result is below the floor the repository gates on. The score's components name which signal dragged it down."
+                "text": "grunnr scored this feature from its statement coverage, decision coverage, annotation freshness, pattern compliance and contract drift signals, and the result is below the floor the repository gates on. The score's components name which signal dragged it down."
               },
-              "helpUri": "https://github.com/sosalejandro/atlas/blob/main/docs/commands/report.md#atlasfeature-uncovered",
+              "helpUri": "https://github.com/sosalejandro/grunnr/blob/main/docs/commands/report.md#grunnrfeature-uncovered",
               "defaultConfiguration": {
                 "level": "warning"
               },
               "properties": {
                 "tags": [
-                  "atlas",
+                  "grunnr",
                   "coverage",
                   "maintainability"
                 ]
@@ -77,7 +77,7 @@
       },
       "results": [
         {
-          "ruleId": "atlas/feature-uncovered",
+          "ruleId": "grunnr/feature-uncovered",
           "ruleIndex": 2,
           "level": "error",
           "message": {
@@ -97,11 +97,11 @@
             }
           ],
           "partialFingerprints": {
-            "atlasFindingV1": "b9b25a80b8fc5ec5"
+            "grunnrFindingV1": "e12de2775da54712"
           }
         },
         {
-          "ruleId": "atlas/dead-code",
+          "ruleId": "grunnr/dead-code",
           "ruleIndex": 1,
           "level": "warning",
           "message": {
@@ -120,11 +120,11 @@
             }
           ],
           "partialFingerprints": {
-            "atlasFindingV1": "4e685010680098f3"
+            "grunnrFindingV1": "2bac11c95234d2a6"
           }
         },
         {
-          "ruleId": "atlas/coverage-unattributed",
+          "ruleId": "grunnr/coverage-unattributed",
           "ruleIndex": 0,
           "level": "note",
           "message": {
@@ -143,7 +143,7 @@
             }
           ],
           "partialFingerprints": {
-            "atlasFindingV1": "a20db1bf4482bcf1"
+            "grunnrFindingV1": "cd97bb715ce460bc"
           }
         }
       ],

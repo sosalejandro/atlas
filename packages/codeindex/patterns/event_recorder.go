@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // matchEventRecorderEmbed reports every struct whose field list embeds a

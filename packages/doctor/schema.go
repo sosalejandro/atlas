@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // schemaVersion reports what migration level the store is actually at,
@@ -15,7 +15,7 @@ import (
 // This is the one check written to work with no *store.Store, because
 // the states it exists to report are precisely the states in which
 // store.Open refuses: golang-migrate will not advance a dirty schema, so
-// the moment the dirty flag matters is the moment every other atlas
+// the moment the dirty flag matters is the moment every other grunnr
 // command dies in a wall of migrate output with no suggestion of what to
 // do about it.
 type schemaVersion struct{}
@@ -56,7 +56,7 @@ func (c schemaVersion) Run(ctx context.Context, env *Env) (Result, error) {
 			Finding: fmt.Sprintf(
 				"migration %d is marked dirty: it died part-way through, and no further "+
 					"migration will run until that is cleared", applied),
-			Remediation: fmt.Sprintf("rm %s && atlas init  # the state DB is a rebuildable cache", env.DBPath),
+			Remediation: fmt.Sprintf("rm %s && grunnr init  # the state DB is a rebuildable cache", env.DBPath),
 			Details:     details,
 		}, nil
 	}
@@ -74,8 +74,8 @@ func (c schemaVersion) Run(ctx context.Context, env *Env) (Result, error) {
 	case applied == 0:
 		return Result{
 			Severity:    SeverityFail,
-			Finding:     fmt.Sprintf("%s carries no applied migrations: it is not an atlas store", env.DBPath),
-			Remediation: "atlas init",
+			Finding:     fmt.Sprintf("%s carries no applied migrations: it is not an grunnr store", env.DBPath),
+			Remediation: "grunnr init",
 			Details:     details,
 		}, nil
 	case applied > expected:
@@ -86,9 +86,9 @@ func (c schemaVersion) Run(ctx context.Context, env *Env) (Result, error) {
 		return Result{
 			Severity: SeverityFail,
 			Finding: fmt.Sprintf(
-				"the store was migrated by a newer atlas (schema %d) than this binary understands (schema %d)",
+				"the store was migrated by a newer grunnr (schema %d) than this binary understands (schema %d)",
 				applied, expected),
-			Remediation: "upgrade atlas to the version that wrote this store",
+			Remediation: "upgrade grunnr to the version that wrote this store",
 			Details:     details,
 		}, nil
 	case applied < expected:
@@ -97,7 +97,7 @@ func (c schemaVersion) Run(ctx context.Context, env *Env) (Result, error) {
 			Finding: fmt.Sprintf(
 				"the store is at schema %d but this binary expects %d: pending migrations have not been applied",
 				applied, expected),
-			Remediation: "atlas scan  # opening the store applies pending migrations",
+			Remediation: "grunnr scan  # opening the store applies pending migrations",
 			Details:     details,
 		}, nil
 	default:
@@ -113,11 +113,11 @@ func (c schemaVersion) Run(ctx context.Context, env *Env) (Result, error) {
 // unreadable is the verdict when doctor's own read-only handle would not
 // attach to the database file.
 //
-// The severity turns on whether atlas can use the store at all. With a
+// The severity turns on whether grunnr can use the store at all. With a
 // working *store.Store the repo is fine and only doctor's second handle
 // failed -- that is a limitation of the diagnostic, not a finding about
 // the repo, so it reports not-applicable. With no store either, nothing
-// in atlas can read this database, and reporting that as "cannot check"
+// in grunnr can read this database, and reporting that as "cannot check"
 // would let a corrupt or absent state file exit zero -- the silence is
 // worse than the lie.
 func (c schemaVersion) unreadable(env *Env) Result {
@@ -132,7 +132,7 @@ func (c schemaVersion) unreadable(env *Env) Result {
 	if env.Store != nil {
 		return Result{
 			Severity: SeverityNotApplicable,
-			Finding: reason + " -- atlas itself opened the store, so this is a limit of the " +
+			Finding: reason + " -- grunnr itself opened the store, so this is a limit of the " +
 				"check, not a finding about the repo",
 			Details: details,
 		}
@@ -144,8 +144,8 @@ func (c schemaVersion) unreadable(env *Env) Result {
 	if _, statErr := os.Stat(env.DBPath); os.IsNotExist(statErr) {
 		return Result{
 			Severity:    SeverityFail,
-			Finding:     fmt.Sprintf("there is no atlas state database at %s: this repo has never been scanned", env.DBPath),
-			Remediation: "atlas init",
+			Finding:     fmt.Sprintf("there is no grunnr state database at %s: this repo has never been scanned", env.DBPath),
+			Remediation: "grunnr init",
 			Details:     details,
 		}
 	}
@@ -156,7 +156,7 @@ func (c schemaVersion) unreadable(env *Env) Result {
 	return Result{
 		Severity:    SeverityFail,
 		Finding:     finding,
-		Remediation: fmt.Sprintf("rm -f %s* && atlas init  # the state DB is a rebuildable cache", env.DBPath),
+		Remediation: fmt.Sprintf("rm -f %s* && grunnr init  # the state DB is a rebuildable cache", env.DBPath),
 		Details:     details,
 	}
 }
@@ -173,7 +173,7 @@ func (c schemaVersion) unreadable(env *Env) Result {
 // temp file and a dozen small DDL statements, which is nothing beside the
 // tree walk the index check already pays for.
 func expectedSchemaVersion(ctx context.Context) (int, error) {
-	dir, err := os.MkdirTemp("", "atlas-doctor-schema-")
+	dir, err := os.MkdirTemp("", "grunnr-doctor-schema-")
 	if err != nil {
 		return 0, fmt.Errorf("doctor: temp dir for schema probe: %w", err)
 	}

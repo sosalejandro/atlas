@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // extractHuma walks every .go file under the project root and emits one
@@ -418,12 +418,11 @@ func sliceStringLit(expr ast.Expr) []string {
 }
 
 // operationDisplayName picks the best human-readable name for a Huma op:
-//   1. OperationID (the explicit stable id)
-//   2. "METHOD /path" fallback
+//  1. OperationID (the explicit stable id)
+//  2. "METHOD /path" fallback
 func operationDisplayName(op humaOperation) string {
 	if op.OperationID != "" {
 		return op.OperationID
 	}
 	return strings.TrimSpace(op.Method + " " + op.Path)
 }
-

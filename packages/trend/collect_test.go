@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // stubScorer stands in for packages/audit so Collect can be tested on the
@@ -26,7 +26,7 @@ func (s stubScorer) ScoreAll(context.Context) ([]audit.FeatureHealth, error) {
 
 func openStore(t *testing.T) *store.Store {
 	t.Helper()
-	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "atlas.db"))
+	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "grunnr.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

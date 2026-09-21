@@ -1,6 +1,6 @@
-// Package pyscan is the Atlas Python scanner. It orchestrates the embedded
+// Package pyscan is the Grunnr Python scanner. It orchestrates the embedded
 // scanner.py (a stdlib `ast`-based walker) via a python3 subprocess and
-// returns its discoveries in Atlas's canonical shared.Symbol + graph.Edge
+// returns its discoveries in Grunnr's canonical shared.Symbol + graph.Edge
 // shapes.
 //
 // Design rules (mirror packages/codeindex/ts/):
@@ -44,9 +44,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex/annotations"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // ScannerSource is the embedded Python scanner. It ships as a string so
@@ -82,7 +82,7 @@ type Options struct {
 	// Timeout, when > 0, bounds a single Scan call. The caller's ctx is
 	// wrapped with context.WithTimeout(ctx, Timeout) before the Python
 	// subprocess is started, so a deadlocked scanner.py (pathological
-	// input) cannot hang atlas forever even when the caller passes
+	// input) cannot hang grunnr forever even when the caller passes
 	// context.Background().
 	//
 	// Zero value (the default) means no package-internal timeout — the
@@ -93,7 +93,7 @@ type Options struct {
 	Logger shared.Logger
 }
 
-// Scanner is the long-lived orchestrator. Hold one per atlas process; it
+// Scanner is the long-lived orchestrator. Hold one per grunnr process; it
 // caches the extracted scanner.py tempfile across Scan calls.
 type Scanner struct {
 	Options Options
@@ -163,7 +163,7 @@ func (s *Scanner) Scan(ctx context.Context, rootDir string) (*Result, error) {
 		ctx = context.Background()
 	}
 	// Apply package-internal timeout so a deadlocked scanner.py can't hang
-	// atlas forever when the caller passed context.Background(). Zero =
+	// grunnr forever when the caller passed context.Background(). Zero =
 	// opt-out (defer to caller ctx).
 	if s.Options.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -179,7 +179,7 @@ func (s *Scanner) Scan(ctx context.Context, rootDir string) (*Result, error) {
 	if !ok {
 		return &Result{
 			Warnings: []string{fmt.Sprintf(
-				"pyscan: %q not found in PATH (atlas py scanner requires Python 3.8+); install via your package manager or skip py files via --skip-py",
+				"pyscan: %q not found in PATH (grunnr py scanner requires Python 3.8+); install via your package manager or skip py files via --skip-py",
 				fallbackPythonBin(s.Options.PythonBin))},
 		}, nil
 	}
@@ -362,7 +362,7 @@ func (s *Scanner) ensureScript() (string, error) {
 			s.scriptErr = errors.New("pyscan: embedded scanner.py is empty")
 			return
 		}
-		dir, err := os.MkdirTemp("", "atlas-pyscan-*")
+		dir, err := os.MkdirTemp("", "grunnr-pyscan-*")
 		if err != nil {
 			s.scriptErr = err
 			return
@@ -390,7 +390,7 @@ func decodeOutput(b []byte) (*rawScannerOutput, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&out); err != nil {
 		// Retry without strict mode so a future additive scanner.py field
-		// doesn't break older atlas binaries.
+		// doesn't break older grunnr binaries.
 		out = rawScannerOutput{}
 		if err2 := json.Unmarshal(b, &out); err2 != nil {
 			// Include a bounded prefix of the raw payload so a caller
@@ -417,7 +417,7 @@ func decodeOutput(b []byte) (*rawScannerOutput, error) {
 // that shape. When one exists, that is a plausible coincidence and not
 // a resolution — nothing checked that `obj` is an instance of the class
 // declaring `m`, and nothing could without types. Recording those as
-// name_resolved would put the least reliable edges atlas produces in
+// name_resolved would put the least reliable edges grunnr produces in
 // the same bucket as a Go package-scope hit, which is exactly the
 // conflation the tier column exists to end.
 //
@@ -439,15 +439,15 @@ func pythonEdgeTier(kind string, targetIsIndexed bool) graph.ResolutionTier {
 	return graph.TierSyntactic
 }
 
-// mapToResult converts the JSON envelope into Atlas's canonical types.
+// mapToResult converts the JSON envelope into Grunnr's canonical types.
 //
 // Syntax-error files surface as Warnings AND as FileMeta entries with
 // SyntaxError set, so callers that care can drill in (e.g. the future
-// `atlas lint` verb) without re-walking the result.
+// `grunnr lint` verb) without re-walking the result.
 //
 // Annotations are mapped through annotations.Kinds so an unknown kind
 // from a future scanner.py degrades into a counted warning rather than
-// a crash. Records flagged Source=SourceAtlas so the materialise step
+// a crash. Records flagged Source=SourceGrunnr so the materialise step
 // treats them identically to comment-grammar hits found by the Go-side
 // parser; the store's idempotent upserts collapse any duplicates that
 // arise when a project annotates with both forms simultaneously.
@@ -514,7 +514,7 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 			// Meta carries the import-scope tag scanner.py computes
 			// for each import edge (issue #16). Empty for every
 			// non-import edge, which keeps the wire payload
-			// back-compat with pre-#16 atlas binaries.
+			// back-compat with pre-#16 grunnr binaries.
 			Meta: e.Scope,
 			// Tier records which mechanism produced this edge
 			// (issue #146). See pythonEdgeTier.
@@ -538,7 +538,7 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 				Path: filepath.ToSlash(a.File),
 				Line: a.Line,
 			},
-			Source: shared.SourceAtlas,
+			Source: shared.SourceGrunnr,
 			Raw:    a.Raw,
 		})
 	}

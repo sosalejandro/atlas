@@ -10,14 +10,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/affected"
+	"github.com/sosalejandro/grunnr/packages/affected"
 )
 
 // newAffectedGit and affectedExit are the two seams this verb needs to be
 // testable end-to-end.
 //
 // The exit seam exists because `--fallback-exit-code` has to produce an
-// arbitrary process status, and cmd/atlas/main.go maps every RunE error to
+// arbitrary process status, and cmd/grunnr/main.go maps every RunE error to
 // exit 1. Returning an error would collapse "I bailed, run everything" onto
 // the same code as "the command failed", which is precisely the distinction
 // the flag exists to draw.
@@ -60,10 +60,10 @@ func newAffectedCmd() *cobra.Command {
 		Use:   "affected --since <ref>",
 		Short: "Select the tests a diff can actually affect",
 		Long: `affected maps the changes between <ref> and HEAD onto the symbols
-atlas has indexed, then names the tests that recorded executing those
-symbols (the per-test coverage evidence written by ` + "`atlas cov sync --per-test`" + `).
+grunnr has indexed, then names the tests that recorded executing those
+symbols (the per-test coverage evidence written by ` + "`grunnr cov sync --per-test`" + `).
 
-The selection is only ever a subset when atlas can justify one. A changed
+The selection is only ever a subset when grunnr can justify one. A changed
 file it holds no symbols for, a dependency or CI input, shared test
 scaffolding, or a coverage frontier with no per-test rows all produce
 "run everything" as an EXPLICIT outcome -- never as an empty list, which a
@@ -200,7 +200,7 @@ func runAffected(cmd *cobra.Command, args affectedArgs) error {
 func affectedWarnings(sel affected.Selection) []string {
 	var out []string
 	if sel.RunAll() {
-		out = append(out, "atlas could not narrow this diff; run the whole suite")
+		out = append(out, "grunnr could not narrow this diff; run the whole suite")
 	}
 	if emptySelection(sel) {
 		// The quiet catastrophe: outcome="selected" with nothing in it. A
@@ -212,14 +212,14 @@ func affectedWarnings(sel affected.Selection) []string {
 	}
 	if stale := staleWidenings(sel); len(stale) > 0 {
 		out = append(out, fmt.Sprintf(
-			"the symbol index is out of date for %s, so the selection was widened; run `atlas scan` to recover the reduction",
+			"the symbol index is out of date for %s, so the selection was widened; run `grunnr scan` to recover the reduction",
 			strings.Join(stale, ", ")))
 	}
 	return out
 }
 
 // emptySelection reports the case a CI recipe must branch on separately: the
-// diff changed code, atlas did not bail, and yet nothing is selected. Running
+// diff changed code, grunnr did not bail, and yet nothing is selected. Running
 // the empty pattern tests none of the change and exits 0.
 func emptySelection(sel affected.Selection) bool {
 	return sel.Outcome == affected.OutcomeSelected && len(sel.SelectedTests) == 0
@@ -227,7 +227,7 @@ func emptySelection(sel affected.Selection) bool {
 
 // staleWidenings names the files whose stored spans could not be trusted. It
 // is reported separately from other widenings because the remedy is different:
-// `atlas scan` restores what a stale index cost.
+// `grunnr scan` restores what a stale index cost.
 func staleWidenings(sel affected.Selection) []string {
 	var out []string
 	for _, w := range sel.Widenings {
@@ -250,7 +250,7 @@ func renderAffectedHuman(w io.Writer, r affectedResult, kind affectedKind) {
 }
 
 func renderAffectedFallback(w io.Writer, r affectedResult) {
-	fmt.Fprintf(w, "  RUN EVERYTHING — atlas could not narrow this diff (%s)\n\n",
+	fmt.Fprintf(w, "  RUN EVERYTHING — grunnr could not narrow this diff (%s)\n\n",
 		plural(len(r.ChangedFiles), "changed file"))
 	fmt.Fprintln(w, "  why:")
 	for _, f := range r.Fallbacks {
@@ -266,7 +266,7 @@ func renderAffectedFallback(w io.Writer, r affectedResult) {
 	// longer changes what runs: the reader's next `affected` will keep paying
 	// for it until they scan.
 	if stale := staleWidenings(r.Selection); len(stale) > 0 {
-		fmt.Fprintf(w, "  also: the index no longer describes %s — run `atlas scan`\n\n",
+		fmt.Fprintf(w, "  also: the index no longer describes %s — run `grunnr scan`\n\n",
 			strings.Join(stale, ", "))
 	}
 }
@@ -296,7 +296,7 @@ func renderAffectedSelection(w io.Writer, r affectedResult, kind affectedKind) {
 		label := "widened"
 		if wd.StaleIndex() {
 			// Not a property of the diff but of the index: the reader's next
-			// action is `atlas scan`, so say which files forced it and why.
+			// action is `grunnr scan`, so say which files forced it and why.
 			label = "WARN  widened (the index no longer describes this file)"
 		}
 		fmt.Fprintf(w, "  %s to the %s of %s [%s]:\n    %s\n\n", label, wd.Scope, wd.Path, wd.Reason, wd.Detail)

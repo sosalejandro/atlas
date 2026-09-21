@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
-	"github.com/sosalejandro/atlas/internal/app"
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/app"
+	"github.com/sosalejandro/grunnr/internal/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -70,11 +70,11 @@ func init() {
 
 // diagnoseJSONOutput is the JSON-serializable representation of a diagnosis.
 type diagnoseJSONOutput struct {
-	FeatureID  string              `json:"feature_id"`
-	Symptom    string              `json:"symptom"`
-	BestMatch  *diagnoseRuleJSON   `json:"best_match,omitempty"`
-	AllMatches []diagnoseRuleJSON  `json:"all_matches,omitempty"`
-	CheckFiles []string            `json:"check_files,omitempty"`
+	FeatureID  string             `json:"feature_id"`
+	Symptom    string             `json:"symptom"`
+	BestMatch  *diagnoseRuleJSON  `json:"best_match,omitempty"`
+	AllMatches []diagnoseRuleJSON `json:"all_matches,omitempty"`
+	CheckFiles []string           `json:"check_files,omitempty"`
 }
 
 type diagnoseRuleJSON struct {

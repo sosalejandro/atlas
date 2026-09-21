@@ -1,4 +1,4 @@
-// Package audit computes per-feature health scores over the indexed Atlas
+// Package audit computes per-feature health scores over the indexed Grunnr
 // state. The scoring algorithm is a weighted blend of five signals:
 //
 //   - Coverage (default 40%) — statement coverage over the feature's
@@ -7,7 +7,7 @@
 //     of surface symbols with at least one `pass` result.
 //   - Decision coverage — branch outcomes taken over branch outcomes a
 //     statement profile could JUDGE, read from the cfg_* tables that
-//     `atlas flow` writes. It has no weight of its own: when available it
+//     `grunnr flow` writes. It has no weight of its own: when available it
 //     splits the coverage weight with statement coverage (0.6 of it by
 //     default), because the two are two resolutions of one question derived
 //     from one profile rather than two independent witnesses. See

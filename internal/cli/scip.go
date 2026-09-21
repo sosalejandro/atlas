@@ -6,8 +6,8 @@ import (
 	"os"
 	"sort"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/scip"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/scip"
 	"github.com/spf13/cobra"
 )
 
@@ -17,10 +17,10 @@ func newSCIPCmd() *cobra.Command {
 		Short: "Read an index produced by somebody else's indexer (SCIP)",
 		Long: `scip reads an index.scip -- the interchange format produced by scip-java,
 scip-python, scip-ruby, scip-dotnet, rust-analyzer and others -- and reports
-what atlas would take from it.
+what grunnr would take from it.
 
-This is how atlas covers a language it has no scanner for. What it is NOT is
-a claim that atlas verified any of it: every edge from this path is recorded
+This is how grunnr covers a language it has no scanner for. What it is NOT is
+a claim that grunnr verified any of it: every edge from this path is recorded
 at the "imported" tier, because "scip-java said so" and "we type-checked it"
 are different claims even when they usually agree. The tier histogram then
 tells you exactly how much of your graph rests on someone else's work.
@@ -38,7 +38,7 @@ func newSCIPInspectCmd() *cobra.Command {
 	var input string
 	cmd := &cobra.Command{
 		Use:   "inspect",
-		Short: "Report what atlas would import from an index.scip",
+		Short: "Report what grunnr would import from an index.scip",
 		Long: `inspect parses an index.scip and reports the symbols, edges and -- most
 usefully -- what it could NOT attribute, without writing anything.
 
@@ -103,7 +103,7 @@ func printSCIPInspect(w io.Writer, res scip.Result) {
 	if tool == "" {
 		tool = "(the index names no tool)"
 	}
-	fmt.Fprintf(w, "atlas scip inspect — %s\n\n", tool)
+	fmt.Fprintf(w, "grunnr scip inspect — %s\n\n", tool)
 	if res.ProjectRoot != "" {
 		fmt.Fprintf(w, "  project root  %s\n", res.ProjectRoot)
 	}
@@ -143,13 +143,13 @@ func printSCIPInspect(w io.Writer, res scip.Result) {
 		"to attribute them to\n", st.ReferencesOutsideDefinition)
 
 	if !st.Reconciles() {
-		// Arithmetic that does not add up is a bug in atlas, not a property
+		// Arithmetic that does not add up is a bug in grunnr, not a property
 		// of the input, and saying so is cheaper than a user wondering.
-		fmt.Fprintf(w, "\n  WARNING: these do not sum to %d. That is an atlas bug; "+
+		fmt.Fprintf(w, "\n  WARNING: these do not sum to %d. That is an grunnr bug; "+
 			"please report it with the index that produced it.\n", st.References)
 	}
 	if len(res.Edges) == 0 && st.References > 0 {
-		fmt.Fprintln(w, "\n  No edges. This index defines symbols but atlas could attribute")
+		fmt.Fprintln(w, "\n  No edges. This index defines symbols but grunnr could attribute")
 		fmt.Fprintln(w, "  no call between them — most often because the indexer emits no")
 		fmt.Fprintln(w, "  enclosing ranges. The symbols are still worth importing; the")
 		fmt.Fprintln(w, "  call graph is not there to import.")

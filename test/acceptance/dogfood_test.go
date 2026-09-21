@@ -1,6 +1,6 @@
 //go:build dogfood
 
-// Atlas gating atlas.
+// Grunnr gating grunnr.
 //
 // Behind a build tag because it needs a coverprofile for this whole
 // repository, and producing one means running the suite that would be running
@@ -36,7 +36,7 @@ import (
 //	go test ./packages/... ./internal/... -coverprofile=... \
 //	        -coverpkg=./packages/...,./internal/...
 //
-// Re-measure with `ATLAS_DOGFOOD_KEEP=1 ./test/acceptance/run.sh -v`, which
+// Re-measure with `GRUNNR_DOGFOOD_KEEP=1 ./test/acceptance/run.sh -v`, which
 // prints every observed value next to its baseline.
 const (
 	// minAttributedFraction is the share of executed statements the ingest
@@ -50,10 +50,10 @@ const (
 	// from the index by design.
 	minAttributedFraction = 0.95
 
-	// minSQLResolvedFraction is the share of SQL operations `atlas sql`
+	// minSQLResolvedFraction is the share of SQL operations `grunnr sql`
 	// resolves to a known table set. Observed 135 of 145 = 0.9310.
 	//
-	// An unresolvable operation is a query atlas cannot advise on, so adding
+	// An unresolvable operation is a query grunnr cannot advise on, so adding
 	// one should be a deliberate act. This constant has been lowered exactly
 	// once, deliberately, and the reason is recorded here rather than in a
 	// commit message nobody will find:
@@ -78,7 +78,7 @@ const (
 	//
 	// A fraction floor is satisfiable by adding resolvable queries, so a
 	// codebase can accumulate unresolvable ones indefinitely while the ratio
-	// improves. The count cannot be gamed that way: every new query atlas
+	// improves. The count cannot be gamed that way: every new query grunnr
 	// cannot read has to be argued for here, which is the "deliberate act"
 	// the paragraph above asks for.
 	maxSQLUnresolved = 10
@@ -111,14 +111,14 @@ type dogfoodEnv struct {
 
 func setupDogfood(t *testing.T) dogfoodEnv {
 	t.Helper()
-	profile := os.Getenv("ATLAS_DOGFOOD_PROFILE")
+	profile := os.Getenv("GRUNNR_DOGFOOD_PROFILE")
 	if profile == "" {
-		t.Fatal("ATLAS_DOGFOOD_PROFILE is unset. This layer needs a coverprofile for " +
+		t.Fatal("GRUNNR_DOGFOOD_PROFILE is unset. This layer needs a coverprofile for " +
 			"the whole repo; run it through ./test/acceptance/run.sh, which either " +
 			"reuses CI's profile or generates one.")
 	}
 	if _, err := os.Stat(profile); err != nil {
-		t.Fatalf("ATLAS_DOGFOOD_PROFILE=%s: %v", profile, err)
+		t.Fatalf("GRUNNR_DOGFOOD_PROFILE=%s: %v", profile, err)
 	}
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -126,9 +126,9 @@ func setupDogfood(t *testing.T) dogfoodEnv {
 	}
 	return dogfoodEnv{
 		repoRoot: root,
-		db:       filepath.Join(t.TempDir(), "atlas.db"),
+		db:       filepath.Join(t.TempDir(), "grunnr.db"),
 		profile:  profile,
-		base:     os.Getenv("ATLAS_DOGFOOD_BASE"),
+		base:     os.Getenv("GRUNNR_DOGFOOD_BASE"),
 	}
 }
 
@@ -171,9 +171,9 @@ func dogfoodScan(t *testing.T, env dogfoodEnv) {
 }
 
 // dogfoodCovSync ingests the repo's own coverprofile and gates the share of
-// execution atlas can actually place.
+// execution grunnr can actually place.
 //
-// This is the number the whole product rests on. Coverage atlas cannot charge
+// This is the number the whole product rests on. Coverage grunnr cannot charge
 // to a symbol is coverage it cannot charge to a FEATURE, so it silently
 // shrinks every per-feature figure the audit reports (issues #85 / #100).
 func dogfoodCovSync(t *testing.T, env dogfoodEnv) {
@@ -218,12 +218,12 @@ func dogfoodCovSync(t *testing.T, env dogfoodEnv) {
 	}
 }
 
-// dogfoodDoctor is the plainest claim in this file: atlas's own self-check,
-// run against atlas, must pass.
+// dogfoodDoctor is the plainest claim in this file: grunnr's own self-check,
+// run against grunnr, must pass.
 //
 // The index was written from this working tree moments ago and the coverage
 // frontier from a profile of the same tree, so every check has the inputs it
-// needs. A failure here means atlas is reporting that its picture of this repo
+// needs. A failure here means grunnr is reporting that its picture of this repo
 // is not true — which is the one thing it must never be wrong about, because
 // every other verb answers from that picture.
 func dogfoodDoctor(t *testing.T, env dogfoodEnv) {
@@ -261,13 +261,13 @@ func dogfoodDoctor(t *testing.T, env dogfoodEnv) {
 		}
 	}
 	if out.Worst == "fail" {
-		t.Errorf("atlas doctor reports %q against atlas's own repo", out.Worst)
+		t.Errorf("grunnr doctor reports %q against grunnr's own repo", out.Worst)
 	}
 }
 
-// dogfoodSQL gates the share of this repo's SQL that `atlas sql` can resolve.
+// dogfoodSQL gates the share of this repo's SQL that `grunnr sql` can resolve.
 //
-// Atlas's queries live in packages/store/queries/*.sql against a schema in
+// Grunnr's queries live in packages/store/queries/*.sql against a schema in
 // packages/store/schema/*.sql, which is precisely the shape the verb claims to
 // understand. If it cannot resolve its own, the claim does not survive its
 // first customer.
@@ -286,7 +286,7 @@ func dogfoodSQL(t *testing.T, env dogfoodEnv) {
 		minSQLResolvedFraction, out.Tables)
 
 	if out.Operations == 0 {
-		t.Fatal("atlas sql found no operations in a repo whose queries are all in .sql files; " +
+		t.Fatal("grunnr sql found no operations in a repo whose queries are all in .sql files; " +
 			"the scan found nothing rather than resolving everything")
 	}
 	if out.ResolvedFraction < minSQLResolvedFraction {
@@ -298,13 +298,13 @@ func dogfoodSQL(t *testing.T, env dogfoodEnv) {
 	// unresolvable ones pile up beside them.
 	if out.Unresolved > maxSQLUnresolved {
 		t.Errorf("sql left %d operations unresolvable, above the committed ceiling of %d; "+
-			"a query atlas cannot read is a query it cannot advise on, so raising this "+
+			"a query grunnr cannot read is a query it cannot advise on, so raising this "+
 			"ceiling should come with a reason in the constant's comment",
 			out.Unresolved, maxSQLUnresolved)
 	}
 }
 
-// dogfoodCovDiff asserts `atlas cov diff` reports a REAL number for this
+// dogfoodCovDiff asserts `grunnr cov diff` reports a REAL number for this
 // branch — not a target, a number.
 //
 // The honest gate here is narrow on purpose. Patch coverage on any given
@@ -321,14 +321,23 @@ func dogfoodCovDiff(t *testing.T, env dogfoodEnv) {
 	}
 	res := runAtlas(t, "cov", "diff", "--base", env.base, "--db-path", env.db)
 	var out struct {
-		Base          string   `json:"base"`
-		ChangedFiles  int      `json:"changed_files"`
-		ChangedLines  int      `json:"changed_lines"`
-		KnownLines    float64  `json:"known_lines"`
-		UnknownLines  float64  `json:"unknown_lines"`
-		Measurable    bool     `json:"measurable"`
-		Percent       *float64 `json:"percent"`
-		StaleIndexFls []string `json:"stale_index_files"`
+		Base         string   `json:"base"`
+		ChangedFiles int      `json:"changed_files"`
+		ChangedLines int      `json:"changed_lines"`
+		KnownLines   float64  `json:"known_lines"`
+		UnknownLines float64  `json:"unknown_lines"`
+		Measurable   bool     `json:"measurable"`
+		Percent      *float64 `json:"percent"`
+		// Objects, not strings. `cov diff` emits {path, state, lines} per
+		// entry, and this declared []string from the day it was written --
+		// decoding only fails when the list is NON-EMPTY, so a scenario that
+		// never produced a stale file could not reveal it. The first branch
+		// that changed enough files to make one stale found it immediately.
+		StaleIndexFls []struct {
+			Path  string `json:"path"`
+			State string `json:"state"`
+			Lines int    `json:"lines"`
+		} `json:"stale_index_files"`
 	}
 	decodeResult(t, res, &out)
 
@@ -339,12 +348,31 @@ func dogfoodCovDiff(t *testing.T, env dogfoodEnv) {
 	t.Logf("cov diff vs %s: %d files, %d changed lines, %.0f known / %.0f unknown, measurable=%v, patch=%s",
 		out.Base, out.ChangedFiles, out.ChangedLines, out.KnownLines, out.UnknownLines, out.Measurable, pct)
 
-	// A stale index would make every line-number join meaningless (#89/#90),
-	// and the scan above ran seconds ago — so anything stale here is a bug in
-	// freshness detection, not a stale checkout.
-	if len(out.StaleIndexFls) > 0 {
-		t.Errorf("cov diff reports %d stale-index files immediately after a scan: %v",
-			len(out.StaleIndexFls), out.StaleIndexFls)
+	// A stale index makes every line-number join meaningless (#89/#90), and
+	// the scan above ran seconds ago — so a file whose spans no longer match
+	// its content is a bug in freshness detection.
+	//
+	// "absent" is NOT that, and asserting on it was wrong. packages/indexfresh
+	// is explicit that the two are different situations: stale means the
+	// spans exist and are wrong, absent means there are none to be wrong
+	// about — a file excluded from the scan, generated, or of a kind this
+	// scan does not index. This repository has exactly 2 hashed .py files, so
+	// every Python fixture in the tree is legitimately absent, and the first
+	// branch that touched one turned a correct answer into a failing gate.
+	var wrong []string
+	for _, f := range out.StaleIndexFls {
+		if f.State != "absent" {
+			wrong = append(wrong, fmt.Sprintf("%s (%s, %d lines)", f.Path, f.State, f.Lines))
+		}
+	}
+	if len(wrong) > 0 {
+		t.Errorf("cov diff reports %d file(s) whose spans do not match their content, "+
+			"immediately after a scan: %v", len(wrong), wrong)
+	}
+	if n := len(out.StaleIndexFls) - len(wrong); n > 0 {
+		// Reported, never asserted: the count moving is worth seeing, and a
+		// gate on it would fail every time somebody edits a fixture.
+		t.Logf("%d changed file(s) are outside the index's scope (state=absent)", n)
 	}
 	if !out.Measurable {
 		// Legitimate for a docs-only branch. Reported rather than asserted,

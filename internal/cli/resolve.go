@@ -7,14 +7,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
-	"github.com/sosalejandro/atlas/packages/graph"
+	goscan "github.com/sosalejandro/grunnr/packages/codeindex/go"
+	"github.com/sosalejandro/grunnr/packages/graph"
 )
 
-// newResolveCmd implements `atlas resolve` — the instrument for issue #87.
+// newResolveCmd implements `grunnr resolve` — the instrument for issue #87.
 //
 // Every other verb reports WHAT the call graph says. This one reports how
-// atlas arrived at it: which Go packages type-checked, which fell back to
+// grunnr arrived at it: which Go packages type-checked, which fell back to
 // name matching and why, and the resulting edges split by resolution tier
 // (issue #146). Those are different questions, and conflating them is
 // what let two years of name-heuristic call resolution look like an
@@ -22,7 +22,7 @@ import (
 // change-impact numbers taken over it are guesses stacked on guesses, and
 // nothing else in the CLI would say so.
 //
-// It does not touch the store. The tier histogram in `atlas doctor` reads
+// It does not touch the store. The tier histogram in `grunnr doctor` reads
 // what the last scan PERSISTED; this reads what a scan of the working
 // tree would produce right now, which is the number you want while you
 // are fixing the build that made half the repo degrade.
@@ -38,7 +38,7 @@ func newResolveCmd() *cobra.Command {
 		Long: `resolve scans the Go tree and reports the MECHANISM behind every
 call edge rather than the edges themselves.
 
-Atlas resolves Go calls with go/packages and go/types, falling back per
+Grunnr resolves Go calls with go/packages and go/types, falling back per
 package to AST name matching when a package does not type-check. That
 fallback is silent by design -- a scan of a half-refactored repo has to
 succeed -- so this verb is how you find out it happened:
@@ -54,7 +54,7 @@ succeed -- so this verb is how you find out it happened:
 --ast re-runs the same scan with typed resolution disabled and prints
 both histograms side by side. That is the diff worth reading before
 trusting a change to the resolver, and the one number that must never
-move the wrong way: the count of edges atlas is guessing about.`,
+move the wrong way: the count of edges grunnr is guessing about.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runResolve(cmd, root, ast)

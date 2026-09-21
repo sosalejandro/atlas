@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/churn"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/churn"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Hotspot is one entry in the churn x gap ranking.

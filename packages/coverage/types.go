@@ -3,7 +3,7 @@ package coverage
 import (
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Status mirrors store.CoverageStatus but lives in the parser layer so

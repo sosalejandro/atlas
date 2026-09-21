@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
-	"github.com/sosalejandro/atlas/packages/codeindex/patterns"
-	pyscan "github.com/sosalejandro/atlas/packages/codeindex/py"
-	tsscan "github.com/sosalejandro/atlas/packages/codeindex/ts"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	goscan "github.com/sosalejandro/grunnr/packages/codeindex/go"
+	"github.com/sosalejandro/grunnr/packages/codeindex/patterns"
+	pyscan "github.com/sosalejandro/grunnr/packages/codeindex/py"
+	tsscan "github.com/sosalejandro/grunnr/packages/codeindex/ts"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Index is the merged output of a single IndexProject run.
@@ -39,7 +39,7 @@ import (
 //     code, ignored packages). Carried through so `doctor` / `cov sync`
 //     can attribute otherwise-unexplained executed statements to policy
 //     rather than reporting them as unattributable.
-//   - Warnings       → surfaced by `atlas scan` to stderr
+//   - Warnings       → surfaced by `grunnr scan` to stderr
 type Index struct {
 	Root           string                               `json:"root"`
 	GeneratedAt    time.Time                            `json:"generated_at"`
@@ -115,7 +115,7 @@ type Options struct {
 
 	// HashFiles, when true, computes a SHA-256 of every annotation-bearing
 	// or Go source file scanned. Disabled by default in tests; the future
-	// `atlas scan` CLI defaults this to true.
+	// `grunnr scan` CLI defaults this to true.
 	HashFiles bool
 
 	// SkipPatternRecognizers disables the Phase 6f parser-based EDA pattern
@@ -306,7 +306,7 @@ func runPythonScanPhase(
 //     fixtures, partial monorepos, repos where someone dropped a stray .ts
 //     file alongside Go code. Pre-fix this case silently bypassed the TS
 //     scanner entirely (no warning, no symbols) — see
-//     sosalejandro/atlas-internal#19 for the Minca-AI bug report.
+//     sosalejandro/grunnr-internal#19 for the Minca-AI bug report.
 //
 // The walk honours node_modules / vendor / .git / hidden-dir skips so a
 // pure-Go project with deps doesn't pay the cost of descending into a 100k-
@@ -446,7 +446,7 @@ func mergeGoResult(idx *Index, goRes *goscan.Result) {
 // idx.Graph.Nodes and the denormalised idx.Symbols list.
 //
 // Edges are appended verbatim. This may create cross-language edges
-// (TS hook → endpoint → Go handler) which is exactly what `atlas chain`
+// (TS hook → endpoint → Go handler) which is exactly what `grunnr chain`
 // needs to render a frontend-to-backend chain.
 func mergeTSResult(idx *Index, res *tsscan.Result) {
 	for _, sym := range res.Symbols {
@@ -497,7 +497,7 @@ func mergeTSResult(idx *Index, res *tsscan.Result) {
 // guarantees about source-of-truth for symbols in their own language.
 // New symbols are appended to both idx.Graph.Nodes and the denormalised
 // idx.Symbols list, tagged with SymbolLangs["py"] for cross-language
-// `atlas chain`.
+// `grunnr chain`.
 //
 // Edges are appended verbatim, which may create cross-language edges
 // (a Python integration calling out to a Go binary via subprocess, for

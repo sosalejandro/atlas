@@ -3,7 +3,7 @@ package redact
 // This file is the machine-readable half of docs/security.md.
 //
 // The data-handling statement makes a specific promise -- "here is every
-// table atlas writes and here is what goes in it" -- and a promise like that
+// table grunnr writes and here is what goes in it" -- and a promise like that
 // rots the moment a migration lands. So the enumeration lives here, next to
 // the code that acts on it, and schema_test.go compares it against the
 // schema a migrated store actually has. A new table or a new TEXT column
@@ -15,10 +15,10 @@ package redact
 //   Class      -- what the column holds, which is what the reviewer is
 //                 asking about. The distinction that carries the weight is
 //                 ClassSourceText: those columns hold text copied verbatim
-//                 out of the repository, so "atlas stores only structure"
+//                 out of the repository, so "grunnr stores only structure"
 //                 is false and this list is the proof.
 //
-//   Redactable -- whether `atlas security redact` may rewrite the column in
+//   Redactable -- whether `grunnr security redact` may rewrite the column in
 //                 place. Only free text qualifies. Rewriting an identifier
 //                 or a path would not remove a disclosure, it would change
 //                 what the index means, and a secret that ended up in a
@@ -50,7 +50,7 @@ const (
 	// by a human and therefore capable of holding anything.
 	ClassUserText Class = "user-text"
 
-	// ClassEnum is a value from a closed vocabulary atlas assigns itself.
+	// ClassEnum is a value from a closed vocabulary grunnr assigns itself.
 	// It cannot carry content out of the repository.
 	ClassEnum Class = "enum"
 
@@ -59,7 +59,7 @@ const (
 	ClassDigest Class = "digest"
 )
 
-// Table describes one table of the atlas state database.
+// Table describes one table of the grunnr state database.
 type Table struct {
 	Name    string `json:"name"`
 	Purpose string `json:"purpose"`
@@ -74,11 +74,11 @@ type Column struct {
 	Name  string `json:"name"`
 	Class Class  `json:"class"`
 
-	// Holds is the one-line description printed by `atlas security` and
+	// Holds is the one-line description printed by `grunnr security` and
 	// reproduced in docs/security.md. Required.
 	Holds string `json:"holds"`
 
-	// Redactable allows `atlas security redact` to rewrite this column.
+	// Redactable allows `grunnr security redact` to rewrite this column.
 	Redactable bool `json:"redactable"`
 }
 
@@ -90,7 +90,7 @@ func Columns() []Column { return columns }
 
 var tables = []Table{
 	{"schema_migrations", "golang-migrate's bookkeeping: applied version and dirty flag"},
-	{"config", "runtime knobs written by atlas itself"},
+	{"config", "runtime knobs written by grunnr itself"},
 	{"features", "one row per @atlas:feature / @atlas:contract id found in the source"},
 	{"symbols", "one row per indexed declaration: name, kind, file and line span"},
 	{"edges", "call, implement, embed, import and inheritance relations between symbols"},
@@ -101,17 +101,17 @@ var tables = []Table{
 	{"coverage_runs", "one row per ingested test/coverage report, with attribution counters"},
 	{"coverage_symbol_spans", "the [line, end_line] span each measured symbol occupied at the time of a run, so a later carry can tell whether the symbol it would carry is still the symbol that was measured (#136)"},
 	{"coverage_results", "per-symbol coverage outcome and statement counts for a run"},
-	{"coverage_run_gaps", "files in a coverage report atlas could not attribute to a symbol"},
+	{"coverage_run_gaps", "files in a coverage report grunnr could not attribute to a symbol"},
 	{"test_coverage", "which production symbols each individual test executed"},
-	{"coverage_history", "the per-commit score series behind `atlas trend`"},
+	{"coverage_history", "the per-commit score series behind `grunnr trend`"},
 	{"coverage_history_features", "the per-feature breakdown of one history point"},
-	{"snapshots", "a whole serialised index at a git ref, for `atlas diff`"},
+	{"snapshots", "a whole serialised index at a git ref, for `grunnr diff`"},
 	{"audit_snapshot_runs", "a whole-project audit score blob, per computation"},
 	{"sql_operations", "every SQL operation found in the source, including its query text"},
 	{"sql_operation_tables", "which tables each operation reads and writes"},
 	{"sql_operation_predicates", "the columns each operation filters and joins on"},
-	{"sql_tables", "tables atlas read out of the DDL in the repository"},
-	{"sql_indexes", "indexes atlas read out of the DDL in the repository"},
+	{"sql_tables", "tables grunnr read out of the DDL in the repository"},
+	{"sql_indexes", "indexes grunnr read out of the DDL in the repository"},
 	{"cfg_blocks", "control-flow graph nodes per symbol"},
 	{"cfg_edges", "control-flow graph edges, carrying the source text of each condition"},
 	{"cfg_symbols", "per-symbol structural metrics: complexity, decisions, conditions"},
@@ -124,7 +124,7 @@ var columns = []Column{
 	{"annotations", "file_path", ClassPath, "repo-relative path the annotation was found in", false},
 	{"annotations", "kind", ClassEnum, "annotation kind (feature, contract, owner, bc, saga, ...)", false},
 	{"annotations", "value", ClassSourceText, "the annotation's argument text, verbatim from the comment", true},
-	{"annotations", "source", ClassEnum, "which grammar produced it (atlas, testreg)", false},
+	{"annotations", "source", ClassEnum, "which grammar produced it (grunnr, testreg)", false},
 
 	{"audit_snapshot_runs", "score_json", ClassSourceText, "serialised audit scores; carries feature ids and titles", true},
 
@@ -139,11 +139,11 @@ var columns = []Column{
 	{"cfg_findings", "confidence", ClassEnum, "high, medium or low", false},
 	{"cfg_findings", "detail", ClassSourceText, "the finding's explanation, which quotes source constructs", true},
 
-	{"config", "key", ClassIdentifier, "config key atlas set", false},
-	{"config", "value", ClassUserText, "config value atlas set", true},
+	{"config", "key", ClassIdentifier, "config key grunnr set", false},
+	{"config", "value", ClassUserText, "config value grunnr set", true},
 
 	{"coverage_history", "commit_sha", ClassIdentifier, "the commit (or tag) a measurement was taken at", false},
-	{"coverage_history", "note", ClassUserText, "free-form note passed to `atlas trend record`", true},
+	{"coverage_history", "note", ClassUserText, "free-form note passed to `grunnr trend record`", true},
 
 	{"coverage_history_features", "feature_id", ClassIdentifier, "the feature this breakdown row scores", false},
 
@@ -151,7 +151,7 @@ var columns = []Column{
 	{"coverage_results", "status", ClassEnum, "pass, fail or skip", false},
 	{"coverage_results", "message", ClassSourceText, "the test framework's message; failure output can quote data", true},
 
-	{"coverage_run_gaps", "path", ClassPath, "a file in the coverage report atlas could not attribute", false},
+	{"coverage_run_gaps", "path", ClassPath, "a file in the coverage report grunnr could not attribute", false},
 	{"coverage_run_gaps", "reason", ClassEnum, "why the file could not be attributed", false},
 
 	{"coverage_runs", "framework", ClassEnum, "go-test, playwright, vitest, jest or maestro", false},
@@ -186,7 +186,7 @@ var columns = []Column{
 	{"snapshots", "git_ref", ClassIdentifier, "the git ref the snapshot was captured at", false},
 	{"snapshots", "index_json", ClassSourceText, "THE WHOLE SERIALISED INDEX: symbol DOC COMMENTS and SIGNATURES included", true},
 	{"snapshots", "audit_json", ClassSourceText, "the audit slice at that ref", true},
-	{"snapshots", "notes", ClassUserText, "free-form note passed to `atlas snapshot --note`", true},
+	{"snapshots", "notes", ClassUserText, "free-form note passed to `grunnr snapshot --note`", true},
 
 	{"sql_indexes", "table_name", ClassIdentifier, "the table the index is declared on", false},
 	{"sql_indexes", "name", ClassIdentifier, "the index name", false},
@@ -214,7 +214,7 @@ var columns = []Column{
 	{"sql_operations", "row_scan", ClassEnum, "slice, single, exec or unknown", false},
 	{"sql_operations", "interpolation", ClassSourceText, "the interpolated fragment, verbatim, when the query is built by concatenation", true},
 	{"sql_operations", "offset_bound", ClassEnum, "none, parameter, literal or expression", false},
-	{"sql_operations", "suppressions", ClassSourceText, "the atlas directives found on the enclosing declaration", true},
+	{"sql_operations", "suppressions", ClassSourceText, "the grunnr directives found on the enclosing declaration", true},
 
 	{"sql_tables", "name", ClassIdentifier, "a table name read out of the DDL", false},
 	{"sql_tables", "file_path", ClassPath, "repo-relative path of the DDL file", false},

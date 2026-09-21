@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 func openSQLOpsStore(t *testing.T) (*Store, context.Context) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "atlas.db"))
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "grunnr.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -38,7 +38,7 @@ func sampleOps() []SQLOperationRecord {
 			Ref: "go:repo.go:40:UserRepo.Dynamic", Source: "go",
 			FilePath: "repo.go", Line: 40, SymbolName: "UserRepo.Dynamic",
 			Kind: "unknown", Resolved: false,
-			UnresolvedReason: "query text is an expression atlas cannot statically resolve",
+			UnresolvedReason: "query text is an expression grunnr cannot statically resolve",
 			RowScan:          "unknown", OffsetBound: "none",
 		},
 	}
@@ -116,7 +116,7 @@ func TestSQLOps_LinksToSymbolsByQualifiedName(t *testing.T) {
 	if rows[0].SymbolID == nil || *rows[0].SymbolID != symID {
 		t.Fatalf("operation was not linked to symbol %d: %+v", symID, rows[0].SymbolID)
 	}
-	// An operation whose symbol atlas never indexed keeps its name and gets a
+	// An operation whose symbol grunnr never indexed keeps its name and gets a
 	// NULL link, rather than being dropped.
 	if rows[1].SymbolID != nil {
 		t.Errorf("unknown symbol name produced a link: %+v", rows[1])
@@ -200,7 +200,7 @@ func TestSQLOps_CapabilityTables(t *testing.T) {
 		t.Error("users.list resolved fully; its footprint is not a lower bound")
 	}
 
-	// The capability whose only query atlas could not read keeps its row, with
+	// The capability whose only query grunnr could not read keeps its row, with
 	// an empty table set and the unresolved count that explains it. Dropping
 	// the row would read as "this capability touches no data", which is the
 	// confident wrong answer.

@@ -3,8 +3,8 @@ package contract
 import (
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // extractTSFuncs walks idx.Symbols and emits one KindFunc ContractDef per

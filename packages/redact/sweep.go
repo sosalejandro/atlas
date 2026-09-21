@@ -27,7 +27,7 @@ type Hit struct {
 	// operator can act on.
 	Row string `json:"row"`
 
-	// Redactable mirrors the column registry: false means atlas found the
+	// Redactable mirrors the column registry: false means grunnr found the
 	// secret but will not rewrite the column, because doing so would change
 	// what the index means rather than what it discloses.
 	Redactable bool `json:"redactable"`
@@ -60,7 +60,7 @@ type SweepReport struct {
 	// whether the database was actually written.
 	ValuesRewritten int `json:"values_rewritten"`
 
-	// Unredactable counts hits in columns atlas will not rewrite. These are
+	// Unredactable counts hits in columns grunnr will not rewrite. These are
 	// the ones that need a source change, and they are the ones a report
 	// that only counted successful redactions would hide.
 	Unredactable int `json:"unredactable"`
@@ -96,7 +96,7 @@ func (r SweepReport) Clean() bool { return len(r.Hits) == 0 }
 //
 // Within that set every registered column is read, not only the ones
 // expected to carry source text. A credential in a file path or a symbol
-// name is a real disclosure even though it is not one atlas can fix.
+// name is a real disclosure even though it is not one grunnr can fix.
 func Sweep(ctx context.Context, db *sql.DB, opts SweepOptions) (SweepReport, error) {
 	live, err := liveSchema(ctx, db)
 	if err != nil {

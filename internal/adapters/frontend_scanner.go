@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/domain"
 )
 
 // embeddedScanner holds the ts-scanner.ts source, embedded at compile time.

@@ -10,7 +10,7 @@
 
 ## The sentence
 
-**Atlas produces evidence. Everything else produces either an opinion or a
+**Grunnr produces evidence. Everything else produces either an opinion or a
 link somebody has to maintain.**
 
 That is the only positioning found that survives all four competitors at
@@ -56,7 +56,7 @@ one problem open-source distribution is good at reducing.
 
 **So: give away the gate, sell the evidence.**
 
-A developer adopts `atlas cov diff --fail-under` because it catches untested
+A developer adopts `grunnr cov diff --fail-under` because it catches untested
 code in their pull request — a problem they already know they have. Later
 their company needs an audit trail, and the tool producing it is already in
 their CI. That is bottom-up adoption triggering a top-down conversation, which

@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// hotspotsFixture is a real git repository with a real Atlas state file.
+// hotspotsFixture is a real git repository with a real Grunnr state file.
 // It has to be real git: the churn factor exists to be mined from history,
 // and a fixture that stubs the mining would leave the one thing this
 // command does untested.
@@ -23,7 +23,7 @@ type hotspotsFixture struct {
 	dbPath string
 	// prefix is the sub-directory the source files live in, relative to
 	// the git top level. Empty for the common case; set by
-	// newHotspotsSubdirFixture to reproduce `atlas scan --root <subdir>`,
+	// newHotspotsSubdirFixture to reproduce `grunnr scan --root <subdir>`,
 	// where the churn namespace and the index namespace differ.
 	prefix string
 }
@@ -34,7 +34,7 @@ func newHotspotsFixture(t *testing.T) *hotspotsFixture {
 }
 
 // newHotspotsSubdirFixture puts the source under a sub-directory while the
-// git history stays at the repository root — the layout `atlas scan --root
+// git history stays at the repository root — the layout `grunnr scan --root
 // svc` produces, where indexed file paths are relative to `svc` and mined
 // churn paths are relative to the top level.
 func newHotspotsSubdirFixture(t *testing.T) *hotspotsFixture {
@@ -53,16 +53,16 @@ func newHotspotsFixtureUnder(t *testing.T, prefix string) *hotspotsFixture {
 	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
 		dir = resolved
 	}
-	if err := os.MkdirAll(filepath.Join(dir, ".atlas"), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".grunnr"), 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
 	f := &hotspotsFixture{
 		root:   dir,
-		dbPath: filepath.Join(dir, ".atlas", "atlas.db"),
+		dbPath: filepath.Join(dir, ".grunnr", "grunnr.db"),
 		prefix: prefix,
 	}
 	f.initRepo(t)
-	t.Chdir(dir) // so findRepoRoot() resolves to the fixture, not the atlas checkout
+	t.Chdir(dir) // so findRepoRoot() resolves to the fixture, not the grunnr checkout
 	return f
 }
 
@@ -167,7 +167,7 @@ func TestHotspots_FlagsWired(t *testing.T) {
 		"exclude-message", "no-default-exclusions", "no-author-diversity",
 	} {
 		if c.Flags().Lookup(name) == nil {
-			t.Errorf("atlas hotspots is missing --%s", name)
+			t.Errorf("grunnr hotspots is missing --%s", name)
 		}
 	}
 }
@@ -346,22 +346,22 @@ func shallowCloneOf(t *testing.T, f *hotspotsFixture) *hotspotsFixture {
 	if out, err := clone.CombinedOutput(); err != nil {
 		t.Skipf("shallow clone unavailable in this environment: %v\n%s", err, out)
 	}
-	if err := os.MkdirAll(filepath.Join(shallow, ".atlas"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(shallow, ".grunnr"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.Rename(f.dbPath, filepath.Join(shallow, ".atlas", "atlas.db")); err != nil {
+	if err := os.Rename(f.dbPath, filepath.Join(shallow, ".grunnr", "grunnr.db")); err != nil {
 		t.Fatalf("move db: %v", err)
 	}
 	t.Chdir(shallow)
 	return &hotspotsFixture{
 		root:   shallow,
-		dbPath: filepath.Join(shallow, ".atlas", "atlas.db"),
+		dbPath: filepath.Join(shallow, ".grunnr", "grunnr.db"),
 		prefix: f.prefix,
 	}
 }
 
 // Churn is mined at the git top level; symbol file_path is relative to the
-// scan root. `atlas scan --root svc` makes those different namespaces, and
+// scan root. `grunnr scan --root svc` makes those different namespaces, and
 // joining them by string equality misses every file — which does not look
 // like a failure, it looks like a repository where nothing ever changes.
 func TestHotspots_SubdirectoryScanRootStillRanks(t *testing.T) {
@@ -478,7 +478,7 @@ func TestHotspots_EmptyBacklogIsNotAnError(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// `atlas sprint --rank churn`
+// `grunnr sprint --rank churn`
 // -----------------------------------------------------------------------------
 
 func runSprintCmd(t *testing.T, f *hotspotsFixture, args ...string) (string, error) {
@@ -538,7 +538,7 @@ func TestSprint_ChurnTuningFlagsAreWiredAndApply(t *testing.T) {
 
 	for _, name := range churnFlagNames {
 		if newSprintCmd().Flags().Lookup(name) == nil {
-			t.Errorf("atlas sprint is missing --%s, so --rank churn cannot be tuned", name)
+			t.Errorf("grunnr sprint is missing --%s, so --rank churn cannot be tuned", name)
 		}
 	}
 

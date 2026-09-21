@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // ---------------------------------------------------------------------------
-// Regression tests for the confirmed defects in `atlas trend` (issue #92).
+// Regression tests for the confirmed defects in `grunnr trend` (issue #92).
 // ---------------------------------------------------------------------------
 
 // --- Finding 3 -------------------------------------------------------------
@@ -52,7 +52,7 @@ func TestTrend_UnmeasuredBaselineStillPasses(t *testing.T) {
 
 // --- Finding 4 -------------------------------------------------------------
 
-// `atlas trend --compare-to origin/main` must gate THIS checkout. Taking the
+// `grunnr trend --compare-to origin/main` must gate THIS checkout. Taking the
 // head side as the most recently RECORDED point means a CI runner sharing a
 // store gates whatever another branch wrote last.
 func TestTrend_CompareToGatesTheCommitUnderTestNotTheNewestPoint(t *testing.T) {
@@ -96,7 +96,7 @@ func TestTrend_CompareToFailsWhenTheCommitUnderTestHasNoPoint(t *testing.T) {
 
 // --- Finding 5 -------------------------------------------------------------
 
-// Only `atlas trend record` writes the series, so a repo that has been
+// Only `grunnr trend record` writes the series, so a repo that has been
 // ingesting coverage for a year prints "no history recorded" on first run.
 // The points are derivable from coverage_runs, so derive them.
 func TestTrend_BackfillsTheSeriesFromExistingCoverageRuns(t *testing.T) {
@@ -267,7 +267,7 @@ func TestTrend_UnknownFeatureIDIsAnError(t *testing.T) {
 }
 
 // coverageRun seeds one feature, one linked impl symbol and a coverage run
-// carrying statement counts for it, so `atlas trend` has something to
+// carrying statement counts for it, so `grunnr trend` has something to
 // backfill from.
 func (f *trendFixture) coverageRun(t *testing.T, group string, finished time.Time, covered, total int) {
 	t.Helper()

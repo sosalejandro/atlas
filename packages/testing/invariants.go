@@ -82,7 +82,7 @@ func CheckSpansWellNested(spans []SymbolSpan) error {
 // Bug class: issue #85. Attribution walked the profile, charged what it could
 // to symbols, and dropped the rest on the floor — no counter, no log line, no
 // gap row. The reported coverage was arithmetically fine and semantically a
-// lie, because its denominator was "statements atlas could place" while the
+// lie, because its denominator was "statements grunnr could place" while the
 // header said "statements". Conservation is the one assertion that cannot be
 // satisfied by dropping input: everything measured is either charged to a
 // symbol or named as a gap, and the two sum to the whole.
@@ -100,7 +100,7 @@ func CheckConservation(attributed, unattributed, total int) error {
 //
 // Bug class: issue #97 — LastInsertId returned a neighbouring row's id, so
 // edges were persisted pointing at symbols that were not their endpoints.
-// The counts printed by `atlas scan` (symbols: N edges: M) were unchanged,
+// The counts printed by `grunnr scan` (symbols: N edges: M) were unchanged,
 // which is why it survived review: the graph was the right SIZE and the wrong
 // SHAPE. Anything that walks the graph — trace, affected, the impl-surface
 // derivation feeding coverage — then answers confidently about a call chain

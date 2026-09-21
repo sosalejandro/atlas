@@ -1,18 +1,18 @@
-# atlas report
+# grunnr report
 
-`atlas report` renders the findings atlas already has into the three formats a
-pull request actually displays. Without it, atlas's output is a terminal report
-or a JSON envelope, and every team that wants atlas as a gate has to write the
+`grunnr report` renders the findings grunnr already has into the three formats a
+pull request actually displays. Without it, grunnr's output is a terminal report
+or a JSON envelope, and every team that wants grunnr as a gate has to write the
 same glue: parse the envelope, decide what fails, map findings back to lines,
 render a comment.
 
 | Subcommand           | Output                                            | What consumes it                                          |
 | -------------------- | ------------------------------------------------- | --------------------------------------------------------- |
-| `atlas report sarif` | SARIF 2.1.0                                       | `github/codeql-action/upload-sarif`, Azure DevOps, VS Code |
-| `atlas report github`| `::warning file=...,line=...::` workflow commands | The Actions runner, straight off stdout                    |
-| `atlas report pr`    | Sticky-comment markdown + its HTML marker         | `gh pr comment --body-file -`                              |
+| `grunnr report sarif` | SARIF 2.1.0                                       | `github/codeql-action/upload-sarif`, Azure DevOps, VS Code |
+| `grunnr report github`| `::warning file=...,line=...::` workflow commands | The Actions runner, straight off stdout                    |
+| `grunnr report pr`    | Sticky-comment markdown + its HTML marker         | `gh pr comment --body-file -`                              |
 
-**atlas never calls the GitHub API.** `report pr` emits the comment body and the
+**grunnr never calls the GitHub API.** `report pr` emits the comment body and the
 marker a workflow greps for to find the comment it should update; posting and
 editing stay with `gh`. That keeps the renderers pure functions over a finding
 list — which is why they are covered by golden files
@@ -21,9 +21,9 @@ list — which is why they are covered by golden files
 ## Usage
 
 ```
-atlas report sarif  [flags]
-atlas report github [flags]
-atlas report pr     [--base <ref>] [--head <ref>] [flags]
+grunnr report sarif  [flags]
+grunnr report github [flags]
+grunnr report pr     [--base <ref>] [--head <ref>] [flags]
 ```
 
 ## Flags
@@ -38,19 +38,19 @@ Shared by every subcommand:
 | `--min-gap-stmts`        | `10`                 | Ignore coverage gaps smaller than this many unattributed statements.                        |
 | `--out`                  | *(stdout)*           | Write the rendering to this file instead of stdout.                                         |
 | `--json` *(global)*      | off                  | Wrap the rendering in the v1 envelope; the rendering itself is `result.body`.                |
-| `--db-path` *(global)*   | `.atlas/atlas.db`    | Override the SQLite state path.                                                             |
+| `--db-path` *(global)*   | `.grunnr/grunnr.db`    | Override the SQLite state path.                                                             |
 | `--config` *(global)*    | `.atlas.yaml` lookup | Explicit config path.                                                                       |
 
-`atlas report pr` adds:
+`grunnr report pr` adds:
 
 | Flag         | Default         | Description                                                                          |
 | ------------ | --------------- | ------------------------------------------------------------------------------------ |
 | `--base`     | *(none)*        | Git ref or snapshot id to compare against. Omit for a comment with no delta section.  |
 | `--head`     | newest snapshot | Git ref or snapshot id for the current side.                                          |
-| `--title`    | `Atlas report`  | The comment's heading.                                                                |
+| `--title`    | `Grunnr report`  | The comment's heading.                                                                |
 | `--max-rows` | `10`            | Findings listed per rule before the section collapses into a count.                   |
 
-`dead` is deliberately not in the default `--include` set: `atlas codebase dead`
+`dead` is deliberately not in the default `--include` set: `grunnr codebase dead`
 documents its own output as a *candidate* list with known false positives
 (dynamic dispatch, plugin entry points, re-export chains), and putting candidates
 on a PR as if they were findings is how a team learns to ignore the bot.
@@ -58,7 +58,7 @@ on a PR as if they were findings is how a team learns to ignore the bot.
 ## Ready-to-copy workflow
 
 ```yaml
-name: atlas
+name: grunnr
 on: pull_request
 
 permissions:
@@ -67,33 +67,33 @@ permissions:
   pull-requests: write     # required by the sticky comment
 
 jobs:
-  atlas:
+  grunnr:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # atlas snapshot resolves --base by git ref
+          fetch-depth: 0   # grunnr snapshot resolves --base by git ref
 
       - uses: actions/setup-go@v5
         with: { go-version: stable }
 
-      - run: go install github.com/sosalejandro/atlas/cmd/atlas@latest
+      - run: go install github.com/sosalejandro/grunnr/cmd/grunnr@latest
 
-      - run: atlas init
+      - run: grunnr init
       - run: go test ./... -coverprofile=cover.out
-      - run: atlas cov sync --framework go-test --input cover.out
+      - run: grunnr cov sync --framework go-test --input cover.out
 
       # 1. Inline annotations on the Files view, deduped across pushes.
-      - run: atlas report sarif --out atlas.sarif
+      - run: grunnr report sarif --out grunnr.sarif
       - uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: atlas.sarif
+          sarif_file: grunnr.sarif
 
       # 2. The cheap path — annotations without any upload step.
-      - run: atlas report github
+      - run: grunnr report github
 
       # 3. One comment, updated in place on every push.
-      - run: atlas report pr --base ${{ github.event.pull_request.base.ref }} > comment.md
+      - run: grunnr report pr --base ${{ github.event.pull_request.base.ref }} > comment.md
       - run: gh pr comment ${{ github.event.pull_request.number }} --body-file comment.md --edit-last --create-if-none
         env:
           GH_TOKEN: ${{ github.token }}
@@ -105,10 +105,10 @@ comment whose body contains the marker (see below) and `PATCH` it.
 
 ## The sticky marker
 
-Every `atlas report pr` body starts with:
+Every `grunnr report pr` body starts with:
 
 ```
-<!-- atlas-report:sticky -->
+<!-- grunnr-report:sticky -->
 ```
 
 The marker is invisible in rendered markdown, appears exactly once, and never
@@ -123,7 +123,7 @@ fails *silently* — the upload succeeds, the check goes green, and the finding 
 simply not there:
 
 1. **Every result's `ruleId` is declared in `tool.driver.rules`.** GitHub drops a
-   result whose rule is undeclared without logging anything. `atlas report sarif`
+   result whose rule is undeclared without logging anything. `grunnr report sarif`
    returns an error rather than emitting such a result, so the failure is a red
    build instead of a quiet omission.
 2. **Paths are repo-relative, forward-slashed, with no leading `./`.** An
@@ -141,14 +141,14 @@ simply not there:
    `defaultConfiguration.level` is only the fallback for a producer with no
    opinion; the per-result `level` is what GitHub colours the annotation with and
    what a `fail-on: error` gate reads. A feature scoring below `--error-below` is
-   an `error` even though `atlas/feature-uncovered` defaults to `warning`.
+   an `error` even though `grunnr/feature-uncovered` defaults to `warning`.
    `properties.security-severity` carries the second half of the encoding — it
    drives the alert list's ordering, and an alert without one sinks below every
-   scored alert regardless of level. No rule atlas ships today sets it: they are
+   scored alert regardless of level. No rule grunnr ships today sets it: they are
    all hygiene rules, and inventing a CVSS number for a dead-code candidate would
    sort it above real vulnerabilities.
 
-The tool's `semanticVersion` is atlas's version with the `v` stripped — a leading
+The tool's `semanticVersion` is grunnr's version with the `v` stripped — a leading
 `v` is not semver and some ingests reject the whole document over it.
 
 ## Rules
@@ -162,7 +162,7 @@ that is documented but cannot fire is worse than an unused one: a team writes a
 policy against it, and the policy then passes forever — which looks exactly like
 the rule never finding anything.
 
-### `atlas/feature-uncovered`
+### `grunnr/feature-uncovered`
 
 **warning** (error below `--error-below`)
 
@@ -174,54 +174,54 @@ Features with no linked symbol produce no finding — there is no line to hang t
 annotation on — and are reported instead as a warning naming how many were
 skipped. Fix by adding an `@atlas:feature` annotation to the implementation.
 
-### `atlas/coverage-unattributed`
+### `grunnr/coverage-unattributed`
 
 **note**
 
-Statements the coverage report says ran, but which atlas could charge to no
+Statements the coverage report says ran, but which grunnr could charge to no
 indexed symbol, so they contribute to no feature's score. This is a blind spot in
 the *measurement*, not a defect in the code.
 
 These paths frequently cannot be made repo-relative — a Go coverprofile names
-files by import path, which is often exactly why atlas could not map them — so
+files by import path, which is often exactly why grunnr could not map them — so
 they survive in the PR comment (which needs no line anchor) and not in SARIF
 (which does).
 
-### `atlas/dead-code`
+### `grunnr/dead-code`
 
 **note**, opt in with `--include dead`
 
 A symbol with no qualifying incoming edges, using the same defaults as
-`atlas codebase dead` (import edges; `module` + `conditional` scopes). A triage
+`grunnr codebase dead` (import edges; `module` + `conditional` scopes). A triage
 candidate, not a verdict — see that command's caveats block.
 
-### `atlas/diagnosis`
+### `grunnr/diagnosis`
 
 **note**
 
-A symbol atlas ranks as a likely source of a reported symptom. Produced by the
-`packages/report` adapter over `atlas diagnose` results; not collected by the
-`atlas report` subcommands, which have no symptom string to work from.
+A symbol grunnr ranks as a likely source of a reported symptom. Produced by the
+`packages/report` adapter over `grunnr diagnose` results; not collected by the
+`grunnr report` subcommands, which have no symptom string to work from.
 
 ## Examples
 
 ### SARIF to a file
 
 ```
-$ atlas report sarif --out atlas.sarif
-atlas report sarif: wrote 7 findings to atlas.sarif
+$ grunnr report sarif --out grunnr.sarif
+grunnr report sarif: wrote 7 findings to grunnr.sarif
 ```
 
-The status line goes to **stderr**. Stdout stays clean so `atlas report github`
+The status line goes to **stderr**. Stdout stays clean so `grunnr report github`
 can be piped straight into the runner's log without a stray line being echoed as
 build output.
 
 ### Workflow annotations
 
 ```
-$ atlas report github
-::error file=internal/billing/invoice.go,line=42,endLine=87,title=atlas/feature-uncovered::feature billing.invoice scores 0.0/100 (weakest signal: coverage 0.0)
-::notice file=internal/worker/queue.go,line=1,title=atlas/coverage-unattributed::118 statements executed but charged to no indexed symbol (reason: no-indexed-symbol)
+$ grunnr report github
+::error file=internal/billing/invoice.go,line=42,endLine=87,title=grunnr/feature-uncovered::feature billing.invoice scores 0.0/100 (weakest signal: coverage 0.0)
+::notice file=internal/worker/queue.go,line=1,title=grunnr/coverage-unattributed::118 statements executed but charged to no indexed symbol (reason: no-indexed-symbol)
 ```
 
 Message payloads escape `%`, CR and LF; property values additionally escape `:`
@@ -231,9 +231,9 @@ and hang the finding on the wrong file.
 ### Sticky PR comment with a delta
 
 ```
-$ atlas report pr --base origin/main
-<!-- atlas-report:sticky -->
-## Atlas report
+$ grunnr report pr --base origin/main
+<!-- grunnr-report:sticky -->
+## Grunnr report
 
 | Metric | Value |
 | --- | --- |
@@ -258,19 +258,19 @@ $ atlas report pr --base origin/main
 no linked symbol has no line to hang a finding on, so it is below the floor and
 still absent from the Findings section — which is why the shortfall gets its own
 row instead of being folded into the headline. Three numbers on that page mean
-three different things: features under the floor, of those the ones atlas could
+three different things: features under the floor, of those the ones grunnr could
 not place, and the findings actually rendered. Reporting the last one under the
 first one's label under-states a compliance number on a PR, which is the failure
 this command exists to avoid.
 
-The delta needs a snapshot for the base ref (`atlas snapshot --audit` on the
+The delta needs a snapshot for the base ref (`grunnr snapshot --audit` on the
 default branch). When there is none, the comment still renders — without the
 delta section, and with a warning on stderr. A first push on a new branch has
 nothing to compare against, and failing there would break the workflow on exactly
 the commit that introduces it.
 
 A delta can also be *partial*: when a feature has an audit score on only one
-side, `atlas diff` reports it as missing rather than as a change, and it appears
+side, `grunnr diff` reports it as missing rather than as a change, and it appears
 in no row of the table. Those features are named in the warnings, because an
 empty delta table otherwise reads as "nothing regressed" when it means "there was
 nothing on the base side to compare against".
@@ -278,7 +278,7 @@ nothing on the base side to compare against".
 ## JSON envelope
 
 ```
-$ atlas report sarif --json
+$ grunnr report sarif --json
 {
   "schema_version": "v1",
   "command": "report.sarif",
@@ -287,7 +287,7 @@ $ atlas report sarif --json
     "format": "sarif",
     "body": "{\n  \"$schema\": ...",
     "finding_count": 7,
-    "rules": ["atlas/coverage-unattributed", "atlas/feature-uncovered"]
+    "rules": ["grunnr/coverage-unattributed", "grunnr/feature-uncovered"]
   },
   "warnings": ["..."],
   "generated_at": "2026-05-24T01:31:52Z"
@@ -296,7 +296,7 @@ $ atlas report sarif --json
 
 `result.body` is the rendering verbatim, not a re-modelled finding list: the
 point of the command is the exact bytes CI consumes, and a consumer that
-re-serialised a structured form would not be uploading what atlas rendered.
+re-serialised a structured form would not be uploading what grunnr rendered.
 `report.pr` additionally returns `result.marker`.
 
 Warnings are the honest half of the output. They report what did *not* make it
@@ -307,10 +307,10 @@ features one side of the delta could not score — so that "no findings" and
 
 ## See also
 
-- [`atlas health`](health.md) — the scores `atlas/feature-uncovered` reports on.
-- [`atlas cov`](cov.md) — `cov status --gaps` is the interactive view of
-  `atlas/coverage-unattributed`.
-- [`atlas codebase`](codebase.md) — `codebase dead` and its false-positive
+- [`grunnr health`](health.md) — the scores `grunnr/feature-uncovered` reports on.
+- [`grunnr cov`](cov.md) — `cov status --gaps` is the interactive view of
+  `grunnr/coverage-unattributed`.
+- [`grunnr codebase`](codebase.md) — `codebase dead` and its false-positive
   caveats.
-- [`atlas snapshot`](snapshot.md) / [`atlas diff`](diff.md) — how `--base` gets
+- [`grunnr snapshot`](snapshot.md) / [`grunnr diff`](diff.md) — how `--base` gets
   something to compare against.

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/cfg"
+	"github.com/sosalejandro/grunnr/packages/cfg"
 )
 
 // fixture parses the golden fixture once and returns the graphs by function

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // FeatureSymbolRole matches the CHECK constraint on `feature_symbols.role`.

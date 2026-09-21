@@ -9,7 +9,7 @@ import (
 
 // renamedVerbs maps a retired verb name to the verb that replaced it
 // (issue #112). Both names dispatch to the same command; the old one is a
-// cobra alias, so scripts that already say `atlas trace` keep working.
+// cobra alias, so scripts that already say `grunnr trace` keep working.
 //
 // Why the old names survive at all: docs/annotations.md already promises
 // that an unknown annotation kind degrades to a one-time advisory warning
@@ -22,7 +22,7 @@ import (
 // Why the renames were worth making anyway:
 //
 //   - trace -> chain. "Trace" means a distributed trace to every engineer
-//     who has ever opened Jaeger, and atlas is about to ingest real OTel
+//     who has ever opened Jaeger, and grunnr is about to ingest real OTel
 //     spans (#94). Two things called trace, one of them static and one of
 //     them runtime, is a permanent tax on every conversation about either.
 //     "Chain" is what the command actually walks; "trace" is now reserved
@@ -66,6 +66,6 @@ func noteIfRenamed(cmd *cobra.Command) {
 		return
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(),
-		"note: `atlas %s` has been renamed to `atlas %s`; %s keeps working for one minor version\n",
+		"note: `grunnr %s` has been renamed to `grunnr %s`; %s keeps working for one minor version\n",
 		calledAs, canonical, calledAs)
 }

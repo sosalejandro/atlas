@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // openTestStore mirrors packages/store's test helper. We can't import the
@@ -16,7 +16,7 @@ import (
 func openTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "atlas-state.db")
+	path := filepath.Join(dir, "grunnr-state.db")
 	s, err := store.Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -282,7 +282,7 @@ func TestFreshnessSignal_AllFresh(t *testing.T) {
 	})
 	if err := s.Annotations().Upsert(ctx, store.AnnotationRow{
 		FilePath: "billing/invoice.go", Line: 5, Kind: shared.AnnFeature,
-		Value: "billing.invoice", Source: shared.SourceAtlas,
+		Value: "billing.invoice", Source: shared.SourceGrunnr,
 	}); err != nil {
 		t.Fatalf("Upsert annotation: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestFreshnessSignal_AllStale(t *testing.T) {
 	})
 	_ = s.Annotations().Upsert(ctx, store.AnnotationRow{
 		FilePath: "billing/invoice.go", Line: 5, Kind: shared.AnnFeature,
-		Value: "billing.invoice", Source: shared.SourceAtlas,
+		Value: "billing.invoice", Source: shared.SourceGrunnr,
 	})
 	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	a := New(s, Options{
@@ -332,7 +332,7 @@ func TestFreshnessSignal_NoBlameSourceUnavailable(t *testing.T) {
 	})
 	_ = s.Annotations().Upsert(ctx, store.AnnotationRow{
 		FilePath: "x/y.go", Line: 1, Kind: shared.AnnFeature, Value: "x",
-		Source: shared.SourceAtlas,
+		Source: shared.SourceGrunnr,
 	})
 	a := New(s, Options{})
 	got, err := a.ScoreFeature(ctx, "x")
@@ -356,7 +356,7 @@ func TestPatternSignal_FullMatch(t *testing.T) {
 	})
 	_ = s.Annotations().Upsert(ctx, store.AnnotationRow{
 		FilePath: "cart/service.go", Line: 1, Kind: shared.AnnAggregateService,
-		Value: "cart", Source: shared.SourceAtlas,
+		Value: "cart", Source: shared.SourceGrunnr,
 	})
 	// Pattern match: a symbol in the same file flagged canonical-service.
 	sid, _ := s.Symbols().Insert(ctx, store.SymbolRow{
@@ -436,11 +436,11 @@ func TestScoreFeature_AllSignalsAvailable(t *testing.T) {
 	})
 	_ = s.Annotations().Upsert(ctx, store.AnnotationRow{
 		FilePath: "cart/service.go", Line: 1, Kind: shared.AnnAggregateService,
-		Value: "cart", Source: shared.SourceAtlas,
+		Value: "cart", Source: shared.SourceGrunnr,
 	})
 	_ = s.Annotations().Upsert(ctx, store.AnnotationRow{
 		FilePath: "cart/service.go", Line: 2, Kind: shared.AnnFeature,
-		Value: "agg.cart", Source: shared.SourceAtlas,
+		Value: "agg.cart", Source: shared.SourceGrunnr,
 	})
 	_, _ = s.Symbols().Insert(ctx, store.SymbolRow{
 		QualifiedName: "CartService.Update", Kind: shared.KindMethod,
@@ -507,7 +507,7 @@ func TestScoreFeature_PatternHighCoverageZero(t *testing.T) {
 	})
 	_ = s.Annotations().Upsert(ctx, store.AnnotationRow{
 		FilePath: "cart/svc.go", Line: 1, Kind: shared.AnnAggregateService,
-		Value: "cart", Source: shared.SourceAtlas,
+		Value: "cart", Source: shared.SourceGrunnr,
 	})
 	_, _ = s.Symbols().Insert(ctx, store.SymbolRow{
 		QualifiedName: "CartSvc.Update", Kind: shared.KindMethod,
@@ -564,7 +564,7 @@ func TestScoreFeature_NoSymbolsLinked(t *testing.T) {
 // chain for it".
 //
 // When a feature has linked symbols in feature_symbols (the same table that
-// atlas chain feature:<id> consults), audit must produce Score > 0 — even
+// grunnr chain feature:<id> consults), audit must produce Score > 0 — even
 // without a coverage run, git blame, aggregate-service annotations, or
 // contracts. Before the fix, all four signals were unavailable for such
 // features and the score fell to 0 with "no annotation source".

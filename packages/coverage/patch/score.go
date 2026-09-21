@@ -3,8 +3,8 @@ package patch
 import (
 	"sort"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Reasons a changed line lands in the UNKNOWN bucket. Each one is a distinct
@@ -12,7 +12,7 @@ import (
 // the first is fixed by indexing the file, the second by re-scanning, the
 // third by measuring the language at all.
 const (
-	// ReasonFileNotIndexed: atlas holds no symbol for this file. A docs
+	// ReasonFileNotIndexed: grunnr holds no symbol for this file. A docs
 	// edit, a config file, a language no scanner covers, or a source file
 	// that was never scanned.
 	ReasonFileNotIndexed = "file-not-indexed"
@@ -26,7 +26,7 @@ const (
 	// declaration with nothing to execute, or a framework that reports only
 	// pass/fail. Nothing measured it, so nothing can be concluded.
 	ReasonNoCoverageData = "no-coverage-data"
-	// ReasonIndexStale: the file IS indexed, but the spans atlas holds for it
+	// ReasonIndexStale: the file IS indexed, but the spans grunnr holds for it
 	// describe a version of the file that is no longer on disk (or cannot be
 	// corroborated at all). Joining post-image line numbers against them
 	// would charge the changed lines to whichever symbol has since drifted
@@ -44,7 +44,7 @@ const (
 // compiler saw. Patch coverage has no such guarantee -- a diff routinely adds
 // code past the end of everything the last scan indexed, and charging it to
 // whatever symbol happened to precede it would invent a coverage verdict for
-// source atlas has never seen. A bounded horizon keeps the common case (a
+// source grunnr has never seen. A bounded horizon keeps the common case (a
 // scanner that emits no end_line, such as the TypeScript one) measurable
 // while leaving the genuinely-new tail in the honest UNKNOWN bucket.
 const UnboundedSpanHorizon = 80
@@ -119,7 +119,7 @@ type SymbolSpan struct {
 	Features []shared.FeatureID `json:"features,omitempty"`
 }
 
-// UnknownSpan is a run of changed lines atlas cannot score, and why.
+// UnknownSpan is a run of changed lines grunnr cannot score, and why.
 type UnknownSpan struct {
 	Path   string      `json:"path"`
 	Ranges []LineRange `json:"ranges"`
@@ -164,7 +164,7 @@ type FeatureRow struct {
 
 // Result is the full patch-coverage accounting.
 //
-// CoveredLines is a line-EQUIVALENT and is deliberately fractional: atlas
+// CoveredLines is a line-EQUIVALENT and is deliberately fractional: grunnr
 // knows a symbol's covered/total statement ratio, not which of its individual
 // lines ran, so a changed line in a 3-of-4 symbol contributes 0.75. Rounding
 // it to a whole line at this layer would make the reported percentage
@@ -497,10 +497,10 @@ func (a *accumulator) result() Result {
 	return out
 }
 
-// classify splits the touched symbols by what atlas can actually assert.
+// classify splits the touched symbols by what grunnr can actually assert.
 //
 // A zero-covered symbol's changed lines are provably uncovered, so they are
-// named to the line. A partially covered one is NOT listed among them: atlas
+// named to the line. A partially covered one is NOT listed among them: grunnr
 // knows the ratio, not which lines it came from, and printing lines it cannot
 // vouch for is worse than printing none.
 func (a *accumulator) classify() (uncovered, partial, covered []SymbolSpan) {

@@ -4,8 +4,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // ScopeProject names the whole-project series, as opposed to a series named

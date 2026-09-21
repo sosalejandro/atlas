@@ -331,7 +331,7 @@ func (r *Report) File(path string) (FileChurn, bool) {
 // explainable — HotFile names the file the score came from, so the ranking
 // can be argued with rather than merely believed.
 //
-// Paths are expected to be the file paths Atlas indexed. That is the reuse
+// Paths are expected to be the file paths Grunnr indexed. That is the reuse
 // of the scanner's generated-code determination: a generated file is absent
 // from the index because the scanner declined it, so its constant churn
 // never reaches this function.

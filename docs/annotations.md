@@ -1,12 +1,12 @@
-# Atlas Annotations — Grammar Reference
+# Grunnr Annotations — Grammar Reference
 
-Annotations are how code declares its membership in a **feature**. Atlas derives
+Annotations are how code declares its membership in a **feature**. Grunnr derives
 the entire feature registry from annotations alone — there is no parallel YAML
 file to maintain, no out-of-band index to sync, and no separate "registry
 owner" role. The code is the registry.
 
 This shift removes the single largest source of drift in the old `testreg`
-workflow: the hand-edited YAML files in `docs/testing/registry/`. With Atlas,
+workflow: the hand-edited YAML files in `docs/testing/registry/`. With Grunnr,
 when you delete an annotated test, the feature instance is automatically
 dropped from the next scan. When you rename a feature ID, a single grep
 captures every site. When you onboard a new contributor, the rule is
@@ -28,7 +28,7 @@ support — see the [Legacy reader](#legacy-reader-testreg) section).
 
 Both are parsed. Both produce the same internal record. The new form reserves
 namespace for future kinds (`contract`, `owner`, `deprecated`, `since`, ...)
-without grammar ambiguity. The `atlas migrate-annotations` command bulk-renames
+without grammar ambiguity. The `grunnr migrate-annotations` command bulk-renames
 legacy → new when you're ready.
 
 ---
@@ -125,7 +125,7 @@ unique unknown kind) until a handler is registered. See
 ## Per-language comment syntax
 
 The annotation lives inside any line the language treats as a comment. The
-`@atlas:` token must follow a `@`, so prose mentions of "atlas:feature" outside
+`@atlas:` token must follow a `@`, so prose mentions of "grunnr:feature" outside
 a `@` prefix are safely ignored.
 
 ### Go
@@ -173,7 +173,7 @@ export function Dashboard() { /* ... */ }
 
 ### Python (future)
 
-Python scanner is **dropped from v0** of Atlas, but the grammar is reserved:
+Python scanner is **dropped from v0** of Grunnr, but the grammar is reserved:
 
 ```py
 # @atlas:feature analytics.daily_rollup
@@ -243,14 +243,14 @@ Anything starting with `#` is captured. Examples a team might add:
 func TestExportPII_RealDB(t *testing.T) { /* ... */ }
 ```
 
-`atlas lint --tags` lists tag usage across the codebase and flags any tag
+`grunnr lint --tags` lists tag usage across the codebase and flags any tag
 that appears fewer than 3 times (a common typo signal — `#mockd` vs `#mocked`).
 
 ---
 
 ## Legacy reader — `@testreg`
 
-The old grammar continues to parse correctly. Atlas maps every legacy
+The old grammar continues to parse correctly. Grunnr maps every legacy
 annotation to the `feature` kind internally — no behavior difference at scan
 time.
 
@@ -271,12 +271,12 @@ parser tolerated) are also still accepted:
 There is **no plan to remove legacy support**. The 1,110 existing annotations
 in nutrition-v2-go are expected to live alongside new `@atlas:` annotations
 indefinitely, until the team chooses to run the migration. The legacy reader
-is part of Atlas v1 and v2 — removal would be a v3-or-later breaking change
+is part of Grunnr v1 and v2 — removal would be a v3-or-later breaking change
 preceded by deprecation cycles.
 
 ---
 
-## `atlas migrate-annotations`
+## `grunnr migrate-annotations`
 
 Bulk-renames legacy `@testreg` annotations to the new `@atlas:feature` form.
 Sed-based and language-aware: respects per-language comment delimiters, never
@@ -285,7 +285,7 @@ crosses file boundaries, idempotent on already-migrated code.
 ### Usage
 
 ```bash
-atlas migrate-annotations [--apply] [--scope <path>] [--keep-tags]
+grunnr migrate-annotations [--apply] [--scope <path>] [--keep-tags]
 ```
 
 | Flag           | Default       | Description                                                                  |
@@ -298,7 +298,7 @@ atlas migrate-annotations [--apply] [--scope <path>] [--keep-tags]
 ### Example: dry-run
 
 ```
-$ atlas migrate-annotations
+$ grunnr migrate-annotations
 Scanning 2,320 Go + 2,139 TS files for @testreg annotations...
 
 Found 1,110 legacy annotations across 890 files:
@@ -324,7 +324,7 @@ Run with --apply to perform the rewrite.
 ### Example: apply
 
 ```
-$ atlas migrate-annotations --apply --scope src/contexts/auth
+$ grunnr migrate-annotations --apply --scope src/contexts/auth
 Migrating @testreg → @atlas:feature in src/contexts/auth/...
 
 Rewrote 87 annotations in 41 files.
@@ -334,12 +334,12 @@ Done.
 
 ### Idempotency
 
-Re-running `atlas migrate-annotations --apply` on already-migrated code is a
+Re-running `grunnr migrate-annotations --apply` on already-migrated code is a
 no-op. The regex matches only `@testreg ` (with the trailing space), never
 `@atlas:` — so subsequent runs find zero matches and report:
 
 ```
-$ atlas migrate-annotations
+$ grunnr migrate-annotations
 Scanning... no legacy annotations found. Nothing to do.
 ```
 
@@ -350,7 +350,7 @@ Scanning... no legacy annotations found. Nothing to do.
 - Annotation tags are preserved verbatim under `--keep-tags=true` (default)
 - The rewrite operates strictly on the annotation token; surrounding comment
   text is untouched
-- Atlas validates each rewritten file with the new parser before moving to the
+- Grunnr validates each rewritten file with the new parser before moving to the
   next file; any parse failure aborts the run with the offending file:line
 
 ---
@@ -388,23 +388,23 @@ errors. Examples:
 ### Not an annotation (silently ignored)
 
 ```go
-// Things like atlas:feature in prose      ← no leading @, ignored
+// Things like grunnr:feature in prose      ← no leading @, ignored
 // see @atlasfeature for details           ← no colon, no space, ignored
 // TODO: write @atlas annotations later    ← no kind after colon, ignored
 ```
 
 The leading `@` is the anchor. Without it, the parser does not engage —
-prose mentions of "atlas" or "atlas:feature" are safe.
+prose mentions of "grunnr" or "grunnr:feature" are safe.
 
 ---
 
 ## Forward compatibility
 
-Adding a new `<kind>` later is **non-breaking** for code already on Atlas:
+Adding a new `<kind>` later is **non-breaking** for code already on Grunnr:
 
-1. Older Atlas versions encounter the unknown kind, emit a one-time advisory
+1. Older Grunnr versions encounter the unknown kind, emit a one-time advisory
    warning, and skip the annotation
-2. Newer Atlas versions handle the kind natively
+2. Newer Grunnr versions handle the kind natively
 3. No grammar change is required — the parser already accepts any
    `@atlas:<word>` shape
 
@@ -429,7 +429,7 @@ var Kinds = map[string]KindHandler{
 
 A KindHandler receives the parsed payload (ids + tags + position) and decides
 what to do with it. Most kinds produce a database row in the per-project
-`atlas-state.db` SQLite store; some (like `owner`, `since`) are pure metadata
+`grunnr-state.db` SQLite store; some (like `owner`, `since`) are pure metadata
 attached to the enclosing feature.
 
 ---
@@ -443,7 +443,7 @@ attached to the enclosing feature.
   are excluded from the scan regardless.
 - **Don't put annotations in CSS, HTML, or JSON files.** Markdown is the only
   non-code exception (runbooks, ADRs, etc.). CSS/HTML carry no testable
-  behavior — nothing meaningful for Atlas to track.
+  behavior — nothing meaningful for Grunnr to track.
 - **Don't use annotations as comments.** Treat `@atlas:feature` the way you
   treat a `//go:build` tag — machine-readable contract, not narrative.
 - **Don't invent new kinds without registering them.** Unknown kinds parse but
@@ -469,6 +469,6 @@ The extensions on top of the legacy parser:
   annotations parse the same as line comments
 
 The legacy fields (`AnnotatedTest`, `ExtractedFunction`, `APIAnnotation`) are
-preserved verbatim — Atlas's storage layer reads the same in-memory shape the
+preserved verbatim — Grunnr's storage layer reads the same in-memory shape the
 testreg scanner produced, so downstream code (`packages/audit`, `packages/sprintplan`,
 etc.) compiles unchanged against the new parser.

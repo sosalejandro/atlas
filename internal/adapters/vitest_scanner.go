@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 // VitestScanner discovers Vitest test files (*.test.ts, *.test.tsx).

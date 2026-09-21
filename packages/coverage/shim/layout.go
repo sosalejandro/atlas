@@ -13,16 +13,16 @@ import (
 )
 
 // Environment variables the shim reads. They are the whole interface between
-// `atlas cov run` and a test binary it does not link against: a shim built
-// into someone's repo at version N has to keep working with an atlas binary
+// `grunnr cov run` and a test binary it does not link against: a shim built
+// into someone's repo at version N has to keep working with an grunnr binary
 // at version N+1, so this contract stays small and additive.
 const (
 	// EnvDir names the output root. Unset means "do nothing" — the shim is
 	// opt-in per invocation, not just per package.
-	EnvDir = "ATLAS_COV_DIR"
+	EnvDir = "GRUNNR_COV_DIR"
 	// EnvPlan names a JSON plan file (see Plan). Optional; without it every
 	// package is collected per test.
-	EnvPlan = "ATLAS_COV_PLAN"
+	EnvPlan = "GRUNNR_COV_PLAN"
 )
 
 // Mode is the granularity one package's coverage was collected at.
@@ -98,7 +98,7 @@ func ReportPath(root, pkg string) string {
 }
 
 // Plan tells the shim, per package, how coverage may be collected. It is
-// written by `atlas cov run` from a static read of the test sources — the
+// written by `grunnr cov run` from a static read of the test sources — the
 // test binary itself cannot see that a test calls t.Parallel() until it is
 // too late to matter.
 type Plan struct {

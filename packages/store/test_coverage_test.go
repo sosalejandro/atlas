@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // seedSymbols ingests a handful of symbols and returns qualified name -> id.

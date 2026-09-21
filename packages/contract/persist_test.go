@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 func openContractStore(t *testing.T) *store.Store {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "atlas-state.db")
+	path := filepath.Join(t.TempDir(), "grunnr-state.db")
 	s, err := store.Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)

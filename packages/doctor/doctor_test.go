@@ -47,7 +47,7 @@ func TestRun_ReportsEveryCheckIncludingThePassingOnes(t *testing.T) {
 }
 
 // A check that blows up must not be silently absent from the report, and
-// must not read as healthy: atlas failing to verify its own state is
+// must not read as healthy: grunnr failing to verify its own state is
 // indistinguishable, from the user's seat, from a broken state.
 func TestRun_ErroredCheckIsReportedAsFail(t *testing.T) {
 	env := &Env{Root: t.TempDir()}

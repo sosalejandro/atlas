@@ -6,16 +6,16 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // The acceptance bar for statement-coverage attribution, end to end:
 //
 //	GIVEN a repo where two packages declare the same type name (billing.Order
 //	      and shipping.Order) and each has a package-private helper,
-//	 WHEN atlas indexes it and ingests a REAL `go test -coverprofile` profile,
+//	 WHEN grunnr indexes it and ingests a REAL `go test -coverprofile` profile,
 //	 THEN every symbol's covered/total matches `go tool cover -func` exactly,
 //	  AND no statement in the profile is left unattributed.
 //
@@ -39,7 +39,7 @@ func TestAttribution_MatchesGoToolCover(t *testing.T) {
 		t.Fatalf("IndexProject: %v", err)
 	}
 
-	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "atlas.db"))
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "grunnr.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

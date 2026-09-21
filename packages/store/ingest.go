@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
-	"github.com/sosalejandro/atlas/packages/redact"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/codeindex/annotations"
+	"github.com/sosalejandro/grunnr/packages/redact"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
-// IngestStats records what Ingest wrote. Useful for the `atlas scan`
+// IngestStats records what Ingest wrote. Useful for the `grunnr scan`
 // command's terminal summary line ("symbols: 1342  edges: 4571 ...") and
 // for tests that need to assert on side-effect shape.
 type IngestStats struct {
@@ -41,7 +41,7 @@ type IngestStats struct {
 	// placeholder before writing it. Empty on a clean scan.
 	//
 	// It is a list rather than a count because a count answers the wrong
-	// question: "atlas changed 3 of your values" is not actionable, and the
+	// question: "grunnr changed 3 of your values" is not actionable, and the
 	// operator needs to know WHICH file the credential is still sitting in.
 	Redactions []Redaction `json:"redactions,omitempty"`
 }
@@ -51,7 +51,7 @@ type IngestStats struct {
 //
 // Everything here is safe to print and to put in a JSON envelope: the rule
 // that fired and a digest, never the secret. It is the same evidence
-// `atlas security` reports for a credential already stored, which is
+// `grunnr security` reports for a credential already stored, which is
 // deliberate -- an operator should not have to learn two vocabularies for
 // "there is a credential in your source".
 type Redaction struct {
@@ -380,7 +380,7 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index, opts ...Ingest
 		}
 		src := ann.Source
 		if !schemaAnnotationSources[src] {
-			src = shared.SourceAtlas
+			src = shared.SourceGrunnr
 		}
 		value := ann.Raw
 		if value == "" && len(ann.IDs) > 0 {
@@ -445,7 +445,7 @@ func (s *Store) Ingest(ctx context.Context, idx *codeindex.Index, opts ...Ingest
 	// 4.6. Materialize features from feature/contract annotations.
 	//
 	// Annotations are the SINGLE source of truth for feature membership in
-	// Atlas v1 — the legacy testreg YAML registries are reference-only
+	// Grunnr v1 — the legacy testreg YAML registries are reference-only
 	// post-Phase-9. Each `@atlas:feature <id>` or `@testreg <id>` annotation
 	// upserts an `features` row (id-as-title default; pre-seeded titles are
 	// preserved by INSERT OR IGNORE) and links it to the symbol whose
@@ -1196,7 +1196,7 @@ func storedContentHashesMatch(
 // — renamed, deleted, or moved to another file — and its row is stale. Left
 // in place it keeps a [line, end_line] span that no longer holds any code,
 // which the coverage ingest happily attributes executed statements to, and
-// which `atlas codebase dead` reports as a live-but-uncalled symbol.
+// which `grunnr codebase dead` reports as a live-but-uncalled symbol.
 //
 // Deleting cascades to that symbol's edges, feature links and coverage rows —
 // all of which describe a declaration that no longer exists.

@@ -38,7 +38,7 @@ func TestSchema_FreshStore_OK(t *testing.T) {
 }
 
 // A half-applied migration leaves the schema in a state golang-migrate
-// will not advance past. Every other atlas command dies on open, so this
+// will not advance past. Every other grunnr command dies on open, so this
 // is the check that has to survive without a Store.
 func TestSchema_DirtyFlag_FailsWithoutAStore(t *testing.T) {
 	f := newFixture(t)
@@ -61,7 +61,7 @@ func TestSchema_DirtyFlag_FailsWithoutAStore(t *testing.T) {
 	}
 }
 
-// A store written by a newer atlas is the dangerous direction: Up() is a
+// A store written by a newer grunnr is the dangerous direction: Up() is a
 // no-op so the open succeeds, and this binary then reads a schema it was
 // never built against.
 func TestSchema_StoreAheadOfBinary_Fails(t *testing.T) {
@@ -78,12 +78,12 @@ func TestSchema_StoreAheadOfBinary_Fails(t *testing.T) {
 	assertSeverity(t, res, SeverityFail)
 }
 
-// No database file at all, and no store either: nothing in atlas can
+// No database file at all, and no store either: nothing in grunnr can
 // read this path. Reporting "cannot check" would let an absent state
 // file exit zero, so this is a failure with a way out.
 func TestSchema_MissingDatabase_Fails(t *testing.T) {
 	f := newFixture(t)
-	env := (&Env{DBPath: filepath.Join(f.root, "nope", "atlas.db"), Root: f.root}).withDefaults()
+	env := (&Env{DBPath: filepath.Join(f.root, "nope", "grunnr.db"), Root: f.root}).withDefaults()
 	env.probeErr = env.openProbe()
 	defer env.closeProbe()
 
@@ -95,14 +95,14 @@ func TestSchema_MissingDatabase_Fails(t *testing.T) {
 	}
 }
 
-// The mirror case: atlas opened the store fine and only doctor's own
+// The mirror case: grunnr opened the store fine and only doctor's own
 // second handle failed. That is a limit of the diagnostic, not a finding
 // about the repo, so it must not red-light a build.
 func TestSchema_ProbeFailedButStoreOpened_NotApplicable(t *testing.T) {
 	f := newFixture(t)
 	env := (&Env{
 		Store:  f.store,
-		DBPath: filepath.Join(f.root, "nope", "atlas.db"),
+		DBPath: filepath.Join(f.root, "nope", "grunnr.db"),
 		Root:   f.root,
 	}).withDefaults()
 	env.probeErr = env.openProbe()

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // TestScanner_TSFilesButNoTypescript is the regression test for
-// sosalejandro/atlas-internal#19 — the Minca-AI silent-skip bug. When a
+// sosalejandro/grunnr-internal#19 — the Minca-AI silent-skip bug. When a
 // project has .ts/.tsx files but the `typescript` npm package is not
 // reachable (no node_modules, no caller-supplied path), the scanner MUST:
 //
@@ -67,7 +67,7 @@ func TestScanner_TSFilesButNoTypescript_EmitsActionableWarning(t *testing.T) {
 // TestScanner_NoTSFiles_NoWarning confirms the silent-skip path — when there
 // is no typescript module AND no .ts/.tsx files to scan, the scanner emits
 // no warning (because emitting one would be noise for a Go-only project that
-// happens to live next to atlas's "scan everything" entry point).
+// happens to live next to grunnr's "scan everything" entry point).
 func TestScanner_NoTSFiles_NoWarning(t *testing.T) {
 	t.Parallel()
 	skipIfNoNode(t)
@@ -149,7 +149,7 @@ func TestCountTSSourceFiles_SkipsDTSAndNodeModules(t *testing.T) {
 	mustWriteFile(t, filepath.Join(root, "b.tsx"), "")
 	mustWriteFile(t, filepath.Join(root, "c.mts"), "")
 	mustWriteFile(t, filepath.Join(root, "d.cts"), "")
-	mustWriteFile(t, filepath.Join(root, "types.d.ts"), "")        // excluded
+	mustWriteFile(t, filepath.Join(root, "types.d.ts"), "") // excluded
 	mustMkdirAll(t, filepath.Join(root, "node_modules"))
 	mustWriteFile(t, filepath.Join(root, "node_modules", "x.ts"), "") // skipped
 

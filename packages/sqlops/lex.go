@@ -81,7 +81,7 @@ var rangeOps = map[string]bool{"<": true, ">": true, "<=": true, ">=": true}
 
 // lex tokenises src. It never fails: an unterminated string or comment simply
 // consumes the rest of the input, because a malformed fragment must degrade to
-// "Atlas saw less than it hoped", never to a hard error that drops the
+// "Grunnr saw less than it hoped", never to a hard error that drops the
 // operation from the inventory entirely.
 func lex(src string) []sqlToken {
 	var out []sqlToken
@@ -124,7 +124,7 @@ func isSpace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
 }
 
-// skipComment consumes the three comment spellings Atlas meets: `--` and `#`
+// skipComment consumes the three comment spellings Grunnr meets: `--` and `#`
 // to end of line, and `/* */` blocks.
 func skipComment(src string, i int) (int, bool) {
 	if i+1 >= len(src) {
@@ -150,7 +150,7 @@ func skipComment(src string, i int) (int, bool) {
 }
 
 // scanQuoted handles string literals and every quoted-identifier spelling
-// Atlas is likely to meet: "ansi", `mysql`, [tsql].
+// Grunnr is likely to meet: "ansi", `mysql`, [tsql].
 func scanQuoted(src string, i int) (sqlToken, int, bool) {
 	switch c := src[i]; c {
 	case '\'':
@@ -263,7 +263,7 @@ func skipTo(src string, i int, term string) int {
 
 // skipQuoted returns the index just past the closing q, treating a doubled
 // quote as an escaped one (the SQL standard's escape, and the only one that
-// works across every dialect Atlas is likely to meet). A backslash escape is
+// works across every dialect Grunnr is likely to meet). A backslash escape is
 // honoured inside single quotes for MySQL's benefit.
 func skipQuoted(src string, i int, q byte) int {
 	for j := i + 1; j < len(src); {

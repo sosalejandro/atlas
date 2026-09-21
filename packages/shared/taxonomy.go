@@ -3,9 +3,9 @@ package shared
 import "strings"
 
 // NodeClass says whether an indexed node is code someone wrote or a marker
-// Atlas invented to hang a graph edge on.
+// Grunnr invented to hang a graph edge on.
 //
-// Atlas has always had both. A Go function and the string `route:/login`
+// Grunnr has always had both. A Go function and the string `route:/login`
 // both land in the `symbols` table, because the call-graph walk needs a
 // vertex for an HTTP route the same way it needs one for a function. The
 // difference has never been recorded: it was re-derived, at every call
@@ -29,7 +29,7 @@ const (
 	// file position. "Real code only" queries mean this.
 	NodeClassDeclaration NodeClass = "declaration"
 
-	// NodeClassAnchor is a synthetic vertex Atlas minted so an edge has
+	// NodeClassAnchor is a synthetic vertex Grunnr minted so an edge has
 	// somewhere to land — an HTTP route, a named SQL query, an API
 	// endpoint, an unresolved import target outside the repo. An anchor is
 	// a fact about the graph, never a fact about the source, so it must
@@ -39,7 +39,7 @@ const (
 )
 
 // AnchorPrefixes is the closed set of reserved id prefixes that mark a
-// synthetic vertex. The colon is what makes them safe: Atlas file paths are
+// synthetic vertex. The colon is what makes them safe: Grunnr file paths are
 // always repo-relative with forward slashes, and every scanner's qualified
 // name is built from language identifiers and dots, so no real declaration
 // can collide.
@@ -58,7 +58,7 @@ var AnchorPrefixes = []string{
 // ClassifyNode returns the NodeClass for a node, given its qualified name
 // and the file path it was recorded under.
 //
-// Both are consulted because Atlas marks anchors in two different places
+// Both are consulted because Grunnr marks anchors in two different places
 // and always has: the sqlc mapper puts the marker in the id (`sql:GetUser`,
 // pointing at a real .sql file), while pyscan puts it in the position
 // (`external:py`, under a real-looking dotted module id). Checking one and

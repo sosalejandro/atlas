@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex/annotations"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 func TestScan_SampleProject_BuildsCallGraph(t *testing.T) {
@@ -164,11 +164,11 @@ func TestScan_PreSuppliedRoute_CreatesEndpoint(t *testing.T) {
 }
 
 // TestScan_IndexesTestFilesByDefault asserts the load-bearing default
-// behaviour Atlas's feature-attribution workflow depends on: `_test.go`
+// behaviour Grunnr's feature-attribution workflow depends on: `_test.go`
 // files contribute their top-level test funcs to the graph alongside
 // production sources unless the caller explicitly opts out.
 //
-// This is the regression guard for atlas#26: Phase 9's nutrition dogfood
+// This is the regression guard for grunnr#26: Phase 9's nutrition dogfood
 // reported FeaturesMaterialized=0 because the Go scanner was silently
 // skipping every `_test.go` and therefore every test-attached
 // `@atlas:feature` / `@testreg` annotation had no symbol to link to.

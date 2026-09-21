@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 func TestIndexProject_GoSampleProject(t *testing.T) {

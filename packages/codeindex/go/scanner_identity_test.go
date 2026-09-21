@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Two packages declaring the same receiver+method short name must BOTH be

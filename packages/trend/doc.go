@@ -2,7 +2,7 @@
 // `coverage_history` into a series a human can read and a gate CI can fail
 // on (issue #92).
 //
-// Atlas otherwise reports a snapshot. The question a team actually asks is
+// Grunnr otherwise reports a snapshot. The question a team actually asks is
 // "is this getting better or worse", and the gate that matters is "did this
 // PR make it worse" — answerable without ever agreeing an absolute
 // threshold, which is what makes it adoptable on a legacy codebase where an

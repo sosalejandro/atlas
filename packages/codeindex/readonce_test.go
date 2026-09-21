@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
+	goscan "github.com/sosalejandro/grunnr/packages/codeindex/go"
 )
 
 // ONE READ PER FILE PER PASS — AND WHY THE NUMBER IS NOT ONE.
@@ -29,7 +29,7 @@ import (
 //   - Phase A.5, the pattern recognisers. They walk different AST shapes —
 //     struct embeds, closures — than the call-graph builder
 //     (runPatternRecognizers' godoc).
-//   - Phase B, the annotation walk. It covers every language atlas reads,
+//   - Phase B, the annotation walk. It covers every language grunnr reads,
 //     not just Go, and its output ORDER is load-bearing for feature
 //     attribution (walkAnnotations' godoc).
 //
@@ -39,7 +39,7 @@ import (
 // one #156 is making: three passes each holding one file per worker is
 // bounded by `jobs × MaxSourceBytes`, while one cache is bounded by the
 // repository. On a tree the size of this one that is ~9 MB and would look
-// free; on the trees atlas is meant to scan it is not, and a ceiling that
+// free; on the trees grunnr is meant to scan it is not, and a ceiling that
 // scales with the input is what issue #152 was opened about.
 //
 // So: three passes, three reads, and the number to attack is the number of

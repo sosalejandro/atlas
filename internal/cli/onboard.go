@@ -9,16 +9,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/churn"
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/contract"
-	"github.com/sosalejandro/atlas/packages/onboard"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/sqlops"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/churn"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/contract"
+	"github.com/sosalejandro/grunnr/packages/onboard"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/sqlops"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newOnboardCmd implements `atlas onboard` — the first run on a repository
+// newOnboardCmd implements `grunnr onboard` — the first run on a repository
 // nobody has annotated.
 //
 // It exists because every other verb in this tool is gated behind somebody
@@ -40,14 +40,14 @@ without requiring a single @atlas:feature annotation.
 It then reports what that map made visible: endpoints nothing tests, tables
 written from more than one capability, code under active change with no test
 reaching it, SQL advisories, dead-code candidates. The run ends with an
-explicit account of what atlas could NOT see, and the CI snippet that turns
+explicit account of what grunnr could NOT see, and the CI snippet that turns
 the whole thing into a gate.
 
 INFERRED IS NOT DECLARED. Everything onboard proposes is namespaced under
-"provisional:", is written to .atlas/provisional/capabilities.json, and is
-absent from the features table. Atlas's registry is worth something only
+"provisional:", is written to .grunnr/provisional/capabilities.json, and is
+absent from the features table. Grunnr's registry is worth something only
 because a human wrote every row in it, so the only path from a proposal into
-the registry is 'atlas onboard promote', which writes an @atlas:feature
+the registry is 'grunnr onboard promote', which writes an @atlas:feature
 annotation into your source and lets the normal ingest pick it up.
 
 Existing annotations are adopted as they are: a symbol that already belongs
@@ -177,7 +177,7 @@ func onboardScan(ctx context.Context, root string) (
 //
 // Deliberately NOT IngestStats.FilesSkipped, which counts files whose hash
 // was unchanged since the last scan. Those files ARE fully indexed; calling
-// them "what atlas cannot see" would report a warm incremental cache as a
+// them "what grunnr cannot see" would report a warm incremental cache as a
 // coverage hole that grows every run.
 func countExcludedFiles(ctx context.Context, s *store.Store) int {
 	rows, err := s.SkippedFiles().List(ctx)
@@ -264,7 +264,7 @@ func collectRoutes(ctx context.Context, idx *codeindex.Index, root string, symbo
 	})
 	res, err := ext.Extract(ctx, idx)
 	if err != nil || res == nil {
-		// A router atlas cannot parse is reported as a limit by the
+		// A router grunnr cannot parse is reported as a limit by the
 		// inference (no routes found), which is the honest outcome; failing
 		// the whole first run over it would be the wrong trade.
 		return nil
@@ -371,7 +371,7 @@ func collectCoverage(ctx context.Context, s *store.Store) (onboard.CoverageEvide
 // collectDead asks the strictest question the store can answer: symbols with
 // no incoming edge of ANY kind.
 //
-// This is deliberately narrower than `atlas codebase dead`'s --kind=import
+// This is deliberately narrower than `grunnr codebase dead`'s --kind=import
 // default. In Go, imports are module-level, so almost no function has an
 // incoming import edge and the import view flags most of the codebase — a
 // true statement that is useless as a first-run finding, because a list
@@ -391,27 +391,27 @@ func collectDead(ctx context.Context, s *store.Store) []store.DeadCodeCandidate 
 // no snippet, because it is discovered in CI.
 // It ingests coverage through `go test -coverprofile` + `cov sync` rather
 // than through `cov run`, which is the richer per-test path but needs the
-// shim armed first (`atlas cov shim init`). Without that, `cov run` exits 0
+// shim armed first (`grunnr cov shim init`). Without that, `cov run` exits 0
 // having ingested nothing — a CI step that silently does nothing is the
 // worst thing a starter snippet can contain.
-const ciSnippet = `      - run: atlas init
+const ciSnippet = `      - run: grunnr init
       - run: go test ./... -coverprofile=cover.out -covermode=atomic
-      - run: atlas cov sync --framework go-cover --input cover.out
-      - run: atlas cov diff --base origin/main --fail-under 70
-      - run: atlas health --worst 10`
+      - run: grunnr cov sync --framework go-cover --input cover.out
+      - run: grunnr cov diff --base origin/main --fail-under 70
+      - run: grunnr health --worst 10`
 
 // coverageNextCommand is the shortest command sequence that actually gives
-// atlas execution evidence. It is one string because it is printed as one
+// grunnr execution evidence. It is one string because it is printed as one
 // "run this next" line, and splitting it would leave a reader holding half
 // of a step.
 const coverageNextCommand = "go test ./... -coverprofile=cover.out -covermode=atomic && " +
-	"atlas cov sync --framework go-cover --input cover.out"
+	"grunnr cov sync --framework go-cover --input cover.out"
 
 // --- rendering -----------------------------------------------------------
 
 // printOnboard's section order is load-bearing and is pinned by
 // TestPrintOnboard_LimitsComeBeforeTheMap (#177): the honesty section --
-// what atlas CANNOT see, including the groupings it refused to name -- has to
+// what grunnr CANNOT see, including the groupings it refused to name -- has to
 // reach the reader before the proposals do. A reader who meets the map first
 // judges the tool by its weakest entry; one who meets the limits first reads
 // the map as the bounded guess it is.
@@ -453,7 +453,7 @@ func printOnboardHeader(w io.Writer, r onboardResult) {
 //
 // "25 capabilities across 2 domains" was true of the old cobra run and still
 // read as twenty-five useful things, eleven of which were words scraped off
-// test names. Naming the split -- what atlas was willing to name, and how many
+// test names. Naming the split -- what grunnr was willing to name, and how many
 // symbols sit in what it would not -- is the honest version of the same line,
 // and it costs nothing to print.
 func provisionalHeadline(st onboard.Stats) string {
@@ -469,13 +469,13 @@ func provisionalHeadline(st onboard.Stats) string {
 		// Nothing was named at all. Saying so outright is better than a line
 		// that reads as a successful run that happens to contain a zero.
 		return "0 named proposals + " + groupings +
-			" — atlas could not name anything here honestly"
+			" — grunnr could not name anything here honestly"
 	}
 	return named + " + " + groupings + ", " + over
 }
 
 func printOnboardFindings(w io.Writer, findings []onboard.Finding) {
-	fmt.Fprintf(w, "\nWHAT ATLAS FOUND\n")
+	fmt.Fprintf(w, "\nWHAT GRUNNR FOUND\n")
 	if len(findings) == 0 {
 		fmt.Fprintf(w, "  Nothing worth flagging from the signals available on this run.\n")
 		return
@@ -497,7 +497,7 @@ func printOnboardFindings(w io.Writer, findings []onboard.Finding) {
 }
 
 func printOnboardLimits(w io.Writer, limits []onboard.Limit) {
-	fmt.Fprintf(w, "\nWHAT ATLAS CANNOT SEE\n")
+	fmt.Fprintf(w, "\nWHAT GRUNNR CANNOT SEE\n")
 	for _, l := range limits {
 		fmt.Fprintf(w, "\n  · %s\n", l.Detail)
 		if l.Fix != "" {
@@ -527,7 +527,7 @@ func printOnboardMap(w io.Writer, r onboardResult, top int) {
 		}
 	}
 	fmt.Fprintf(w, "\nPROVISIONAL CAPABILITY MAP (%d entries)\n", len(r.Capabilities))
-	// The reader arrives here having just been told what atlas cannot see.
+	// The reader arrives here having just been told what grunnr cannot see.
 	// This block says what the map IS, because without it a list of ids under
 	// a heading looks like a registry -- and the one thing it must not look
 	// like is a registry (#177).
@@ -535,7 +535,7 @@ func printOnboardMap(w io.Writer, r onboardResult, top int) {
   What this is: a first guess at the capabilities in this repository, derived from
   HTTP routes, from test names the production code corroborates, and from the
   directory tree — in that order of strength. Nothing here is in the registry, and
-  nothing here is a name atlas is asking you to keep.
+  nothing here is a name grunnr is asking you to keep.
 `)
 	printCapabilitySection(w, "from HTTP routes", routes, top)
 	printCapabilitySection(w, "from code structure and test names", structural, top)
@@ -547,7 +547,7 @@ func printOnboardMap(w io.Writer, r onboardResult, top int) {
 // of the breakdown is to let the reader pick a file to open.
 const maxBreakdownFiles = 5
 
-// printUnnamedSection is the groupings atlas refused to name (#177).
+// printUnnamedSection is the groupings grunnr refused to name (#177).
 //
 // It prints last and it prints in full: the size, the evidence, and the file
 // breakdown. A refusal with no shape is a shrug, and the reader would be right
@@ -561,7 +561,7 @@ func printUnnamedSection(w io.Writer, caps []onboard.Capability, top int) {
 	if top > 0 && top < shown {
 		shown = top
 	}
-	fmt.Fprintf(w, "\n  groupings atlas would not name (%d of %d)\n\n", shown, len(caps))
+	fmt.Fprintf(w, "\n  groupings grunnr would not name (%d of %d)\n\n", shown, len(caps))
 	for _, c := range caps[:shown] {
 		fmt.Fprintf(w, "  %-40s %4d symbols  tests:%-16s%s\n",
 			c.Ref(), c.Symbols, c.TestEvidence, dataFootprint(c))
@@ -579,7 +579,7 @@ func printUnnamedSection(w io.Writer, caps []onboard.Capability, top int) {
 		if n := len(c.FileCounts) - len(files); n > 0 {
 			fmt.Fprintf(w, "      … +%d more files\n", n)
 		}
-		fmt.Fprintf(w, "      → atlas onboard promote --id unnamed:%d --as <your.feature.id>\n",
+		fmt.Fprintf(w, "      → grunnr onboard promote --id unnamed:%d --as <your.feature.id>\n",
 			c.UnnamedIndex)
 	}
 	if shown < len(caps) {
@@ -613,10 +613,10 @@ func printOnboardNext(w io.Writer, r onboardResult) {
 	fmt.Fprintf(w, "\n  Full map written to %s.\n", r.MapPath)
 	fmt.Fprintf(w, "  Nothing above was added to the registry.\n")
 	fmt.Fprintf(w, "\nNEXT\n")
-	fmt.Fprintf(w, "  atlas onboard promote --all              # preview the annotations that would make these real\n")
-	fmt.Fprintf(w, "  atlas onboard promote --id <id> --apply  # accept one proposal\n")
+	fmt.Fprintf(w, "  grunnr onboard promote --all              # preview the annotations that would make these real\n")
+	fmt.Fprintf(w, "  grunnr onboard promote --id <id> --apply  # accept one proposal\n")
 	fmt.Fprintf(w, "  %s\n", coverageNextCommand)
-	fmt.Fprintf(w, "                                          # ^ give atlas execution evidence\n")
+	fmt.Fprintf(w, "                                          # ^ give grunnr execution evidence\n")
 	fmt.Fprintf(w, "\nCI (GitHub Actions steps):\n\n%s\n\n", r.CISnippet)
 }
 
@@ -653,7 +653,7 @@ func ms(v int64) string { return fmt.Sprintf("%6.1fs", float64(v)/1000) }
 
 // --- promote -------------------------------------------------------------
 
-// newOnboardPromoteCmd implements `atlas onboard promote` — the explicit
+// newOnboardPromoteCmd implements `grunnr onboard promote` — the explicit
 // user action that turns a proposal into a declaration.
 //
 // The default is a dry run. Promotion edits source files, and a verb that
@@ -682,14 +682,14 @@ A declaration that already carries an @atlas:feature, @atlas:contract or
 @testreg annotation is skipped with a reason. Existing annotations are
 adopted, never overwritten.
 
-Some entries in the map are groupings atlas REFUSED to name — it could not
+Some entries in the map are groupings grunnr REFUSED to name — it could not
 find the word in your code, so it reported the size and the files instead of
 inventing a label. Those are addressed as 'unnamed:N' and cannot be promoted
 as they are. Name one yourself:
 
-  atlas onboard promote --id unnamed:1 --as billing.checkout --apply
+  grunnr onboard promote --id unnamed:1 --as billing.checkout --apply
 
-The id you pass is the id that gets written. Atlas is not proposing it.`,
+The id you pass is the id that gets written. Grunnr is not proposing it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runOnboardPromote(cmd, root, ids, as, all, apply)
@@ -705,7 +705,7 @@ The id you pass is the id that gets written. Atlas is not proposing it.`,
 	return cmd
 }
 
-// onboardPromoteResult is the --json payload for `atlas onboard promote`.
+// onboardPromoteResult is the --json payload for `grunnr onboard promote`.
 type onboardPromoteResult struct {
 	Mode     string                  `json:"mode"` // "dry-run" | "apply"
 	Promoted []onboard.PromoteResult `json:"promoted"`
@@ -738,7 +738,7 @@ func runOnboardPromote(cmd *cobra.Command, root string, ids []string, as string,
 	}
 	doc, err := onboard.Load(root)
 	if onboard.IsNotGenerated(err) {
-		return fmt.Errorf("%w — run `atlas onboard` first", err)
+		return fmt.Errorf("%w — run `grunnr onboard` first", err)
 	}
 	if err != nil {
 		return err //nolint:wrapcheck // already namespaced by packages/onboard.
@@ -752,12 +752,12 @@ func runOnboardPromote(cmd *cobra.Command, root string, ids []string, as string,
 		// Renaming a NAMED proposal is refused rather than honoured: the user
 		// is reading a map that says provisional:store.coverage, and silently
 		// writing a different id for it would make the report they are
-		// looking at wrong. --as exists for the groupings atlas would not
+		// looking at wrong. --as exists for the groupings grunnr would not
 		// name, and only for those.
 		if selected[0].Named {
 			return fmt.Errorf(
 				"onboard promote: %s is a named proposal, not an unnamed grouping — "+
-					"--as only names what atlas refused to name. Promote it as it is, or edit "+
+					"--as only names what grunnr refused to name. Promote it as it is, or edit "+
 					"the annotation afterwards", selected[0].Ref())
 		}
 		renamed, err := selected[0].Rename(as)
@@ -807,7 +807,7 @@ func selectForPromotion(doc onboard.Document, ids []string, all bool) ([]onboard
 		c, ok := doc.Find(id)
 		if !ok {
 			return nil, fmt.Errorf(
-				"onboard promote: %q is not in the provisional map (%d capabilities); re-run `atlas onboard` if it is stale",
+				"onboard promote: %q is not in the provisional map (%d capabilities); re-run `grunnr onboard` if it is stale",
 				id, len(doc.Capabilities))
 		}
 		out = append(out, c)
@@ -837,6 +837,6 @@ func printOnboardPromote(w io.Writer, res onboardPromoteResult) {
 		fmt.Fprintf(w, "\n  Nothing was written. Re-run with --apply to accept these.\n\n")
 		return
 	}
-	fmt.Fprintf(w, "\n  %d annotations written, %d skipped. Re-run `atlas scan` to materialise them.\n\n",
+	fmt.Fprintf(w, "\n  %d annotations written, %d skipped. Re-run `grunnr scan` to materialise them.\n\n",
 		res.Applied, res.Skipped)
 }

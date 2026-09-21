@@ -13,10 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/redact"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/redact"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // leakedPassword is the credential the fixture hides inside stored query
@@ -29,9 +29,9 @@ const leakedPassword = "Kq9Xm2Vz7Pw4Rt6Y"
 func newSecurityFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	dbPath := filepath.Join(dir, ".atlas", "atlas.db")
+	dbPath := filepath.Join(dir, ".grunnr", "grunnr.db")
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
 	ctx := context.Background()
 
@@ -88,14 +88,14 @@ func TestSecurity_RegisteredOnRoot(t *testing.T) {
 			return
 		}
 	}
-	t.Fatal("atlas security is not registered on the root command")
+	t.Fatal("grunnr security is not registered on the root command")
 }
 
 func TestSecurity_JSONAnswersWhatAmISending(t *testing.T) {
 	dbPath := newSecurityFixture(t)
 	stdout, _, err := runSecurityCmd(t, dbPath, "--json")
 	if err != nil {
-		t.Fatalf("atlas security --json: %v", err)
+		t.Fatalf("grunnr security --json: %v", err)
 	}
 
 	var env struct {
@@ -148,7 +148,7 @@ func TestSecurity_JSONAnswersWhatAmISending(t *testing.T) {
 			env.Result.Store.Unclassified)
 	}
 	if env.Result.Egress.NetworkCalls || env.Result.Egress.Telemetry {
-		t.Errorf("egress statement claims atlas transmits: %+v", env.Result.Egress)
+		t.Errorf("egress statement claims grunnr transmits: %+v", env.Result.Egress)
 	}
 	if env.Result.Egress.Statement == "" {
 		t.Error("egress statement is empty")
@@ -179,14 +179,14 @@ func TestSecurity_NeverPrintsTheSecretItFound(t *testing.T) {
 	for _, args := range [][]string{{}, {"--json"}} {
 		stdout, stderr, err := runSecurityCmd(t, dbPath, args...)
 		if err != nil {
-			t.Fatalf("atlas security %v: %v", args, err)
+			t.Fatalf("grunnr security %v: %v", args, err)
 		}
 		if strings.Contains(stdout+stderr, leakedPassword) {
-			t.Errorf("atlas security %v printed the credential it found:\n%s%s",
+			t.Errorf("grunnr security %v printed the credential it found:\n%s%s",
 				args, stdout, stderr)
 		}
 		if !strings.Contains(stdout, "warehouse.internal") {
-			t.Errorf("atlas security %v does not say where the credential is: %s", args, stdout)
+			t.Errorf("grunnr security %v does not say where the credential is: %s", args, stdout)
 		}
 	}
 }
@@ -195,7 +195,7 @@ func TestSecurity_TextOutputNamesTheUncomfortableFacts(t *testing.T) {
 	dbPath := newSecurityFixture(t)
 	stdout, _, err := runSecurityCmd(t, dbPath)
 	if err != nil {
-		t.Fatalf("atlas security: %v", err)
+		t.Fatalf("grunnr security: %v", err)
 	}
 	// A reader must not be able to come away thinking the database holds
 	// only structure. These are the specifics the statement turns on.
@@ -217,7 +217,7 @@ func TestSecurity_ExportFilterNarrowsTheCatalogue(t *testing.T) {
 	dbPath := newSecurityFixture(t)
 	stdout, _, err := runSecurityCmd(t, dbPath, "--export", "report", "--json")
 	if err != nil {
-		t.Fatalf("atlas security --export report: %v", err)
+		t.Fatalf("grunnr security --export report: %v", err)
 	}
 	var env struct {
 		Result struct {
@@ -278,7 +278,7 @@ func TestSecurityRedact_DryRunReportsWithoutWriting(t *testing.T) {
 
 	stdout, err := runSecurityRedactCLI(t, dbPath, "--dry-run")
 	if err != nil {
-		t.Fatalf("atlas security redact --dry-run: %v", err)
+		t.Fatalf("grunnr security redact --dry-run: %v", err)
 	}
 	if strings.Contains(stdout, leakedPassword) {
 		t.Errorf("dry run printed the credential:\n%s", stdout)
@@ -293,7 +293,7 @@ func TestSecurityRedact_RewritesTheStoreAndKeepsTheQueryReadable(t *testing.T) {
 	clean := storedSQL(t, dbPath, "clean")
 
 	if _, err := runSecurityRedactCLI(t, dbPath); err != nil {
-		t.Fatalf("atlas security redact: %v", err)
+		t.Fatalf("grunnr security redact: %v", err)
 	}
 	got := storedSQL(t, dbPath, "leaky")
 	if strings.Contains(got, leakedPassword) {
@@ -308,11 +308,11 @@ func TestSecurityRedact_RewritesTheStoreAndKeepsTheQueryReadable(t *testing.T) {
 		t.Errorf("redaction touched a query with no secret in it:\n got %q\nwant %q", after, clean)
 	}
 
-	// The whole point of running it is that `atlas security` then comes
+	// The whole point of running it is that `grunnr security` then comes
 	// back clean, so the answer to "what am I sending" changes.
 	stdout, _, err := runSecurityCmd(t, dbPath, "--json")
 	if err != nil {
-		t.Fatalf("atlas security after redact: %v", err)
+		t.Fatalf("grunnr security after redact: %v", err)
 	}
 	var env struct {
 		Result struct {
@@ -363,9 +363,9 @@ var verbsWithNoArtifact = map[string]bool{
 	// directory, so a --json envelope pasted into a bug report can carry a
 	// username. It is kept because it is the field that answers "was this
 	// index built for THIS checkout", which is the question the command
-	// exists to help with -- but it comes from the index, not from atlas
+	// exists to help with -- but it comes from the index, not from grunnr
 	// reading the tree, and a caller who cannot disclose it should drop it
-	// rather than expect atlas to have removed it.
+	// rather than expect grunnr to have removed it.
 	"scip": true,
 	"help": true, "completion": true,
 	// cov has artifact-producing subcommands (cov run), which the catalogue
@@ -386,7 +386,7 @@ func TestSecurity_EveryVerbIsAccountedFor(t *testing.T) {
 		if catalogued[name] || verbsWithNoArtifact[name] {
 			continue
 		}
-		t.Errorf("`atlas %s` is in neither redact.Exports() nor verbsWithNoArtifact; "+
+		t.Errorf("`grunnr %s` is in neither redact.Exports() nor verbsWithNoArtifact; "+
 			"say what it discloses before shipping it", name)
 	}
 }
@@ -414,7 +414,7 @@ func TestSecurity_ExportCatalogueNamesRealCommands(t *testing.T) {
 // leaf does not exist -- `root.Find([]string{"report","sarrif"})` returns the
 // `report` command and no error, which would let a typo pass the check above.
 func sameVerbPath(cmd *cobra.Command, path []string) bool {
-	return cmd.CommandPath() == "atlas "+strings.Join(path, " ")
+	return cmd.CommandPath() == "grunnr "+strings.Join(path, " ")
 }
 
 // ---- redaction happens at ingest, not only in a later sweep ------------
@@ -423,15 +423,15 @@ func sameVerbPath(cmd *cobra.Command, path []string) bool {
 // on issue #131's second deliverable.
 //
 // packages/redact used to be read-only in practice: nothing outside
-// `atlas security` called it, so a hardcoded connection string landed in
+// `grunnr security` called it, so a hardcoded connection string landed in
 // sql_operations.sql_text verbatim and stayed there until somebody remembered
-// to run `atlas security redact`. The write path now runs the value through
+// to run `grunnr security redact`. The write path now runs the value through
 // redact.Field, so the store never holds it in the first place, and
-// `atlas security` on a freshly ingested store comes back clean rather than
-// reporting the leak atlas itself just wrote.
+// `grunnr security` on a freshly ingested store comes back clean rather than
+// reporting the leak grunnr itself just wrote.
 func TestSecurity_IngestRedactsBeforeTheCredentialReachesTheStore(t *testing.T) {
 	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "atlas.db")
+	dbPath := filepath.Join(dir, "grunnr.db")
 	ctx := context.Background()
 
 	s, err := store.Open(ctx, dbPath)
@@ -469,7 +469,7 @@ func TestSecurity_IngestRedactsBeforeTheCredentialReachesTheStore(t *testing.T) 
 	if !strings.Contains(stored, "[redacted:connection-string:") {
 		t.Errorf("the stored query carries no redaction placeholder: %q", stored)
 	}
-	// The query has to remain the query: `atlas sql` analyses this text.
+	// The query has to remain the query: `grunnr sql` analyses this text.
 	for _, keep := range []string{"dblink", "postgres://", "reporting", "warehouse.internal"} {
 		if !strings.Contains(stored, keep) {
 			t.Errorf("ingest-time redaction destroyed %q: %q", keep, stored)
@@ -482,7 +482,7 @@ func TestSecurity_IngestRedactsBeforeTheCredentialReachesTheStore(t *testing.T) 
 	// And the whole point: the answer to "what am I sending" is now clean.
 	stdout, _, err := runSecurityCmd(t, dbPath, "--json")
 	if err != nil {
-		t.Fatalf("atlas security --json: %v", err)
+		t.Fatalf("grunnr security --json: %v", err)
 	}
 	var env struct {
 		Result struct {
@@ -495,18 +495,18 @@ func TestSecurity_IngestRedactsBeforeTheCredentialReachesTheStore(t *testing.T) 
 		t.Fatalf("decode envelope: %v", err)
 	}
 	if len(env.Result.Secrets.Hits) != 0 {
-		t.Errorf("atlas security still reports %d hit(s) after an ingest that should have "+
+		t.Errorf("grunnr security still reports %d hit(s) after an ingest that should have "+
 			"redacted them: %v", len(env.Result.Secrets.Hits), env.Result.Secrets.Hits)
 	}
 }
 
 // TestSecurity_IngestRecordsWhereItRedacted: a redaction the operator cannot
 // locate is not much better than one that never happened. The credential is
-// still in the source file, and rotating it is the one fix atlas cannot
+// still in the source file, and rotating it is the one fix grunnr cannot
 // perform for them.
 func TestSecurity_IngestRecordsWhereItRedacted(t *testing.T) {
 	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "atlas.db")
+	dbPath := filepath.Join(dir, "grunnr.db")
 	ctx := context.Background()
 
 	s, err := store.Open(ctx, dbPath)
@@ -563,7 +563,7 @@ func queryOne(t *testing.T, dbPath, query string, into any) error {
 	return db.QueryRow(query).Scan(into)
 }
 
-// ---- `atlas security` must not modify the database it describes --------
+// ---- `grunnr security` must not modify the database it describes --------
 
 // TestSecurity_DoesNotCreateAStoreThatIsNotThere.
 //
@@ -578,18 +578,18 @@ func TestSecurity_DoesNotCreateAStoreThatIsNotThere(t *testing.T) {
 	absent := filepath.Join(dir, "absent.db")
 
 	if _, _, err := runSecurityCmd(t, absent); err == nil {
-		t.Fatal("atlas security succeeded against a database that does not exist")
+		t.Fatal("grunnr security succeeded against a database that does not exist")
 	}
 	if _, err := os.Stat(absent); !os.IsNotExist(err) {
-		t.Errorf("atlas security created %s just by being asked what it holds", absent)
+		t.Errorf("grunnr security created %s just by being asked what it holds", absent)
 	}
 }
 
 // TestSecurity_DoesNotMigrateTheDatabaseItInspects.
 //
 // The fixture is rewound to schema version 1 with its tables left in place,
-// standing in for a store captured from a machine running an older atlas.
-// `atlas security` has to report the version it finds. Migrating it would
+// standing in for a store captured from a machine running an older grunnr.
+// `grunnr security` has to report the version it finds. Migrating it would
 // mean the artifact you audited is not the artifact you now have -- and on a
 // copy taken as evidence, that is the whole ballgame.
 func TestSecurity_DoesNotMigrateTheDatabaseItInspects(t *testing.T) {
@@ -598,7 +598,7 @@ func TestSecurity_DoesNotMigrateTheDatabaseItInspects(t *testing.T) {
 
 	stdout, _, err := runSecurityCmd(t, dbPath, "--json")
 	if err != nil {
-		t.Fatalf("atlas security --json: %v", err)
+		t.Fatalf("grunnr security --json: %v", err)
 	}
 	var env struct {
 		Result struct {
@@ -615,14 +615,14 @@ func TestSecurity_DoesNotMigrateTheDatabaseItInspects(t *testing.T) {
 			env.Result.Store.SchemaVersion)
 	}
 	if got := storedSchemaVersion(t, dbPath); got != 1 {
-		t.Errorf("atlas security migrated the store it was asked to describe: "+
+		t.Errorf("grunnr security migrated the store it was asked to describe: "+
 			"schema_migrations is now %d, was 1", got)
 	}
 }
 
 // rewindSchemaVersion rewrites schema_migrations to claim an older version
 // without touching the tables, which is what a store written by an older
-// atlas looks like to a newer binary.
+// grunnr looks like to a newer binary.
 func rewindSchemaVersion(t *testing.T, dbPath string, version int) {
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+dbPath)
@@ -664,7 +664,7 @@ func TestSecurityRedact_DryRunReportsTheCountItWouldChange(t *testing.T) {
 
 	stdout, err := runSecurityRedactCLI(t, dbPath, "--dry-run")
 	if err != nil {
-		t.Fatalf("atlas security redact --dry-run: %v", err)
+		t.Fatalf("grunnr security redact --dry-run: %v", err)
 	}
 	if !strings.Contains(stdout, "1 distinct value(s) would be replaced") {
 		t.Errorf("the dry run does not report what it would change:\n%s", stdout)

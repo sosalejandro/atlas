@@ -9,12 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/indexfresh"
-	"github.com/sosalejandro/atlas/packages/mcp"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/indexfresh"
+	"github.com/sosalejandro/grunnr/packages/mcp"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newMCPCmd implements `atlas mcp` — the Model Context Protocol server, on
+// newMCPCmd implements `grunnr mcp` — the Model Context Protocol server, on
 // stdio, exposing the index read-only to coding agents.
 //
 // The command is not interactive: an MCP client launches it as a subprocess
@@ -26,7 +26,7 @@ func newMCPCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Serve the feature/symbol graph to coding agents over MCP (stdio)",
-		Long: `mcp runs an MCP server on stdio, exposing the atlas index to a coding
+		Long: `mcp runs an MCP server on stdio, exposing the grunnr index to a coding
 agent as tools it can call directly instead of shelling out to the CLI and
 parsing --json.
 
@@ -35,12 +35,12 @@ scan or executes anything: the handlers are wired to interfaces that declare
 only reads, so a hallucinated tool call cannot corrupt the index.
 
 Tools: find_feature, feature_surface, symbol_info, callers, callees,
-tests_covering, coverage_for. Run ` + "`atlas mcp --json`" + ` to print the full
+tests_covering, coverage_for. Run ` + "`grunnr mcp --json`" + ` to print the full
 catalog with each tool's input schema.
 
 Wire it into a client by pointing its server config at this command, e.g.
 
-    {"mcpServers": {"atlas": {"command": "atlas", "args": ["mcp"]}}}
+    {"mcpServers": {"grunnr": {"command": "grunnr", "args": ["mcp"]}}}
 
 stdout carries the protocol and nothing else; diagnostics go to stderr. See
 docs/commands/mcp.md.`,
@@ -71,9 +71,9 @@ func runMCP(cmd *cobra.Command, limits mcp.Limits) error {
 	}
 	// Opening (and migrating) an absent store is deliberate: an MCP client
 	// starts this process when the editor session starts, which is routinely
-	// before anyone has run `atlas scan`. Failing there would present the user
+	// before anyone has run `grunnr scan`. Failing there would present the user
 	// with a dead server; an empty store answers every tool with a structured
-	// "no data — run atlas scan", which is the useful thing to say.
+	// "no data — run grunnr scan", which is the useful thing to say.
 	s, err := store.Open(ctx, dbPath)
 	if err != nil {
 		return fmt.Errorf("mcp: open store %s: %w", dbPath, err)
@@ -83,7 +83,7 @@ func runMCP(cmd *cobra.Command, limits mcp.Limits) error {
 	index := mcp.FromStore(s)
 	version, _, _ := resolveBuildInfo()
 	srv, err := mcp.New(mcp.Options{
-		Name:      "atlas",
+		Name:      "grunnr",
 		Version:   version,
 		Graph:     index,
 		Coverage:  index,
@@ -110,7 +110,7 @@ func runMCP(cmd *cobra.Command, limits mcp.Limits) error {
 	defer stop()
 
 	fmt.Fprintf(cmd.ErrOrStderr(),
-		"atlas mcp: serving %s read-only on stdio (protocol %s)\n", dbPath, mcp.PreferredProtocolVersion)
+		"grunnr mcp: serving %s read-only on stdio (protocol %s)\n", dbPath, mcp.PreferredProtocolVersion)
 	if err := srv.Serve(ctx, cmd.InOrStdin(), stdoutOrJSON(cmd)); err != nil {
 		return fmt.Errorf("mcp: serve: %w", err)
 	}

@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // nameAnnotationRe matches the sqlc query header:
@@ -128,7 +128,7 @@ func buildQueryOperation(h queryHead, lines []string, end int, rel string) Opera
 	return op
 }
 
-// queryDirectives collects `atlas:sql-ignore` codes from the comment block
+// queryDirectives collects `grunnr:sql-ignore` codes from the comment block
 // that belongs to this query: the header line itself, the comment lines
 // immediately above it, and the comment lines between the header and the SQL.
 //

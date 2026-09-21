@@ -1,20 +1,20 @@
-# atlas version
+# grunnr version
 
-`atlas version` prints two independent things about the binary in front of
+`grunnr version` prints two independent things about the binary in front of
 you: the **stamps** it carries (which release it claims to be) and the
 **build settings** the Go linker recorded (how it was actually compiled).
 They come from different places and can disagree, which is the whole point
 of printing both.
 
 The root command's `--version` flag prints the one-line form. This
-subcommand exists because that line answers "which atlas is this?" and says
+subcommand exists because that line answers "which grunnr is this?" and says
 nothing about "can I check that this binary is the one the release claims?"
 — the question a supply-chain tool has to be able to answer about itself.
 
 ## Usage
 
 ```
-atlas version [flags]
+grunnr version [flags]
 ```
 
 ## Flags
@@ -28,7 +28,7 @@ atlas version [flags]
 
 ```
 $ ./dist/atlas_v0.11.0-39-g189e713_linux_amd64 version
-atlas v0.11.0-39-g189e713
+grunnr v0.11.0-39-g189e713
   commit:      189e713
   built:       2026-09-06T07:44:19Z
   go:          go1.26.4-X:nodwarf5
@@ -49,7 +49,7 @@ toolchain on the `go:` line.
 
 ## JSON fields
 
-`atlas version --json` emits these inside the standard envelope's `result`.
+`grunnr version --json` emits these inside the standard envelope's `result`.
 Field names are a contract: a CI job that checks "the binary I downloaded is
 the reproducible one" reads them.
 
@@ -101,8 +101,8 @@ everything else — the resolver returns them without consulting
 them, including `go install …@main`, `go install …@<sha>` and a plain
 `go build` in a clone.
 
-Measured on a clone 39 commits past `v0.11.0`: `go run ./cmd/atlas version`
-printed `atlas v0.13.0`, `commit fba0d11`, `built 2026-05-24T01:31:52Z` —
+Measured on a clone 39 commits past `v0.11.0`: `go run ./cmd/grunnr version`
+printed `grunnr v0.13.0`, `commit fba0d11`, `built 2026-05-24T01:31:52Z` —
 the last stamped release's values, not that clone's.
 
 Consequences worth knowing:
@@ -119,4 +119,4 @@ run and a commit rather than to a string in a file. See
 
 ## Exit status
 
-`0` always, absent an I/O error. `atlas version` reports; it does not gate.
+`0` always, absent an I/O error. `grunnr version` reports; it does not gate.

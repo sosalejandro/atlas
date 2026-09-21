@@ -1,6 +1,6 @@
 # Performance
 
-Where atlas actually spends its time, measured rather than assumed, and what
+Where grunnr actually spends its time, measured rather than assumed, and what
 issues #109 and #150 changed.
 
 Every number on this page came out of a benchmark in this repository. The
@@ -24,12 +24,12 @@ is what issue #152 was opened about.
 go test ./packages/codeindex -run NONE -bench . -benchtime 3x -count 2
 
 # Sweep the worker count without recompiling.
-ATLAS_BENCH_JOBS=1 go test ./packages/codeindex -run NONE \
+GRUNNR_BENCH_JOBS=1 go test ./packages/codeindex -run NONE \
   -bench 'Benchmark(PatternRecognizers|AnnotationWalk|IndexProject)' \
   -benchtime 10x -count 5
 
 # Point the same benchmarks at a bigger tree.
-ATLAS_BENCH_ROOT=/path/to/other/repo go test ./packages/codeindex -run NONE -bench .
+GRUNNR_BENCH_ROOT=/path/to/other/repo go test ./packages/codeindex -run NONE -bench .
 
 # Graph-side: building a scan-sized call graph, cycle check included.
 go test ./packages/graph -run NONE -bench BenchmarkGraph -benchtime 3x -count 3
@@ -40,7 +40,7 @@ go test ./packages/resolver -run NONE -benchtime 1x -count 3 -benchmem \
   -bench 'BenchmarkPackagesLoad|BenchmarkTypeCheckInfoFields|BenchmarkCallGraphScope'
 
 # Interface dispatch, both ways, over the same packages in one process:
-# the go/types index atlas ships and the SSA + CHA it replaced (issue
+# the go/types index grunnr ships and the SSA + CHA it replaced (issue
 # #155). Medians of three; ignore ns/op unless the machine is quiet.
 go test ./packages/resolver -run NONE -benchtime 1x -count 3 -benchmem \
   -bench BenchmarkDispatchStage
@@ -70,7 +70,7 @@ go tool pprof -top -sample_index=alloc_space /tmp/scan.test /tmp/scan.mem
 
 The memory ceiling that keeps the scan honest is
 `TestDogfood_ScanMemoryCeiling` in `test/acceptance/memory_test.go`, run by
-`./test/acceptance/run.sh` and by CI's blocking `atlas gates atlas` job. It
+`./test/acceptance/run.sh` and by CI's blocking `grunnr gates grunnr` job. It
 runs `BenchmarkIndexProject` in a child process and fails when `B/op` or
 `allocs/op` goes over a committed ceiling. Before it existed, nothing in this
 repository asserted that a scan does not start allocating gigabytes, and
@@ -90,7 +90,7 @@ All figures below were taken on:
   stable to within 2%.
 - **That caveat is about time, and about ALLOCATION only.** Cumulative
   allocation does not move with ambient load: fourteen `IndexProject` samples
-  taken while the machine was busy, spanning `ATLAS_BENCH_JOBS` 1/4/12 and
+  taken while the machine was busy, spanning `GRUNNR_BENCH_JOBS` 1/4/12 and
   `GOMAXPROCS` 2/12, spread 0.34% on `B/op` and 0.07% on `allocs/op`.
 - **RESIDENT PEAK IS NOT IN THAT CATEGORY, and this page used to imply it
   was.** Seven `BenchmarkLoad` samples, one process each, spread 0.21% on
@@ -98,7 +98,7 @@ All figures below were taken on:
   (§Resolver memory has the table). Resident peak depends on when the
   collector happens to run against a heap the runtime may grow differently
   every time, so it is not a deterministic quantity the way an allocation
-  count is. One set of five `atlas init` runs held to 2.1%; another set of
+  count is. One set of five `grunnr init` runs held to 2.1%; another set of
   five by the same method on this branch spread 10.8%, so the tight one was
   luck and not a property. **Read any single resident figure on this page as
   ±10%.**
@@ -146,13 +146,13 @@ collector", which is why the gate in
 [`test/acceptance/memory_test.go`](../test/acceptance/memory_test.go) is set
 on it, and it is the wrong number for "will this fit in my container".
 
-The two really are independent. A full `atlas init` of this repository, on
+The two really are independent. A full `grunnr init` of this repository, on
 this branch:
 
 | | | |
 |---|---:|---|
 | cumulative allocation, one `IndexProject` (`B/op`) | **709 MB** | median of 5, spread 0.06% |
-| resident peak, whole `atlas init` process (`VmHWM`) | **473 MB** | median of 5 (456/469/473/477/507), spread 10.8% |
+| resident peak, whole `grunnr init` process (`VmHWM`) | **473 MB** | median of 5 (456/469/473/477/507), spread 10.8% |
 
 Both rows predate issue #156, which took the first to **684 MB** and left the
 second where it was; §6 has that pair, measured against a frozen corpus and
@@ -165,7 +165,7 @@ demonstrate their own independence in how well they repeat. The allocation
 figure was 836 MB before the annotation-parse fix in §5 and is 709 MB after
 it, a difference forty times the measurement's own spread. **No before/after
 conclusion about residency is available from these runs**: this page has
-recorded 436 MB for `atlas init` at one branch point and 473 MB here, and
+recorded 436 MB for `grunnr init` at one branch point and 473 MB here, and
 issue #152's own notes have 461 MB, and all three sit inside one 10.8%
 spread of each other. That is not three measurements of a change; it is one
 measurement repeated on a quantity that repeats to ±10%.
@@ -202,7 +202,7 @@ peak_rss_mb() {
 
 # A full init into a throwaway database, so every run does the same work.
 db=$(mktemp -d)
-peak_rss_mb ./atlas init --root . --db-path "$db/atlas.db" --json
+peak_rss_mb ./grunnr init --root . --db-path "$db/grunnr.db" --json
 ```
 
 Two sets of five runs by exactly this method, at two branch points:
@@ -214,7 +214,7 @@ branch **456, 469, 473, 477, 507 MB — median 473 MB**, a 10.8% spread. Issue
 set, the resolver benchmarks in §1 (11.0%) and every other repeated
 `VmHWM` measurement on this page say ±10% is the honest tolerance, and a
 2.1% run is a lucky one rather than the property of the method. Three
-`atlas init` medians spanning 436–473 MB do not establish that anything
+`grunnr init` medians spanning 436–473 MB do not establish that anything
 changed between them.
 
 ### The method, checked against a known answer
@@ -279,13 +279,13 @@ disabled and file hashing on, after #150:
 | phase B — annotations + SHA-256 (serial) | 123 ms | 9.8% |
 
 ```
-ATLAS_BENCH_JOBS=1 go test ./packages/codeindex -run NONE \
+GRUNNR_BENCH_JOBS=1 go test ./packages/codeindex -run NONE \
   -bench BenchmarkIndexProject -benchtime 3x -count 3
 go test ./packages/codeindex -run NONE -bench BenchmarkGoScan_Typed \
   -benchtime 3x -count 3
-ATLAS_BENCH_JOBS=1 go test ./packages/codeindex -run NONE \
+GRUNNR_BENCH_JOBS=1 go test ./packages/codeindex -run NONE \
   -bench BenchmarkPatternRecognizers -benchtime 10x -count 3
-ATLAS_BENCH_JOBS=1 go test ./packages/codeindex -run NONE \
+GRUNNR_BENCH_JOBS=1 go test ./packages/codeindex -run NONE \
   -bench BenchmarkAnnotationWalk -benchtime 10x -count 3
 ```
 
@@ -429,7 +429,7 @@ Re-measured for #152, median of five processes at `-benchtime 1x`:
 **836 MB cumulative allocation and 9,010,665 allocations** per
 `IndexProject` on a 675-file tree, and **709 MB and 8,822,140** on this
 branch's 681-file tree once the annotation-parse fix of §5 landed. The spread
-across the first five, and across a further nine at `ATLAS_BENCH_JOBS` 1/4/12
+across the first five, and across a further nine at `GRUNNR_BENCH_JOBS` 1/4/12
 and `GOMAXPROCS` 2/12, was 0.34% on bytes and 0.07% on the count — **allocation accounting does not care about
 ambient load or core count**, unlike every timing on this page. That is what
 makes a committed ceiling on it practical, and the ceiling is
@@ -437,7 +437,7 @@ makes a committed ceiling on it practical, and the ceiling is
 [`test/acceptance/memory_test.go`](../test/acceptance/memory_test.go), which
 records how the numbers and their headroom were chosen.
 
-**RESIDENT PEAK, for contrast: 436 MB** for the whole `atlas init` process
+**RESIDENT PEAK, for contrast: 436 MB** for the whole `grunnr init` process
 at that branch point, 473 MB on this one (medians of five, `VmHWM`; method
 above — and ±10%, so treat them as one number rather than a trend). The before/after of #150 has never
 been measured in resident terms, and the 7.18 GB above must not be read as
@@ -496,7 +496,7 @@ agrees — `go/types` and `go/ssa` are what sits at the top of it now.
 
 The recommendation does not change, but its reason does. Keeping type
 checking costs about 650 ms of a 1.26 s scan, and it is worth it because
-`atlas edges` would lose the typed tier for 96% of the graph without it.
+`grunnr edges` would lose the typed tier for 96% of the graph without it.
 That is a deliberate trade for edge quality, not the free lunch #109
 recorded.
 
@@ -584,7 +584,7 @@ not deterministic at all — it depends on when the collector happens to run
 against a heap the runtime is free to grow differently on every process, and
 11% is what that costs. **An RSS figure on this page is a median of at least
 three for that reason, and a single one should be read as ±10%.** The two
-`atlas init` figures elsewhere on this page are quoted with their spread for
+`grunnr init` figures elsewhere on this page are quoted with their spread for
 the same reason.
 
 Two things follow that are worth stating before optimising anything else.
@@ -597,7 +597,7 @@ CUMULATIVE ALLOCATION over 9,031,235 allocs — so `resolver.Load` alone is
 **70% of a whole scan's cumulative allocation**. On the resident side the
 comparison is looser because it crosses two programs and because of the 11%
 above: 398 MB of RESIDENT PEAK here against the 435 MB issue #152 measured
-for a full `atlas init` by the same `VmHWM` method.
+for a full `grunnr init` by the same `VmHWM` method.
 
 **The timing split between the two moves, and the allocation split does
 not.** Across the seven runs above `BenchmarkPackagesLoad` ranged
@@ -612,11 +612,11 @@ every sample of both sessions. This is the concrete reason issue #152 asks
 for medians — and the reason no wall-clock conclusion is drawn from this
 table.
 
-#### Cause 2 — `types.Info.Types` is populated, never read by atlas, and was required anyway
+#### Cause 2 — `types.Info.Types` is populated, never read by grunnr, and was required anyway
 
 The finding was correct as far as it went. `go/types.(*Checker).recordTypeAndValue`
 was the largest single allocator in a scan (100.22 MB of CUMULATIVE
-ALLOCATION, 12.5% of it), it fills `types.Info.Types`, and nothing in atlas
+ALLOCATION, 12.5% of it), it fills `types.Info.Types`, and nothing in grunnr
 reads it:
 
 ```sh
@@ -638,7 +638,7 @@ type-check the same syntax with the same checker and differ only in whether
 
 98.4 MB of CUMULATIVE ALLOCATION, which corroborates the 100.22 MB
 `-alloc_space` pprof attributed to `recordTypeAndValue`. It was
-unavailable, because `go/ssa` read the map that atlas does not.
+unavailable, because `go/ssa` read the map that grunnr does not.
 `ssa.Function.typeOf` calls `types.Info.TypeOf`, whose only fallback for a
 nil `Types` is `ObjectOf` — which answers for `*ast.Ident` and nothing
 else — so the first composite expression in the first function body
@@ -660,7 +660,7 @@ The correctness blocker is gone; the bytes are still not collectable.**
 six-declaration program with `Types` nil and resolves its interface call
 site to both implementations — identically to the full-`Info` arm. The
 dispatch index reads `Selections` and `Defs` and never asks an expression
-for its type, so nothing in atlas reads `Types` any more, in production or
+for its type, so nothing in grunnr reads `Types` any more, in production or
 in a library it calls.
 
 It buys nothing, because `packages.LoadMode` has no bit for a subset of
@@ -676,7 +676,7 @@ here rather than closed again as inherent.
 Two costs do not appear in the table above and are the reason this would not
 be worth doing even if the bytes were free. Driving `types.Config.Check`
 directly means reimplementing `packages.Load`'s per-package error handling —
-the degradation path issue #87 built, which is what lets atlas run mid-edit
+the degradation path issue #87 built, which is what lets grunnr run mid-edit
 against a tree that does not compile. And it puts the caller in charge of where
 dependency types come from, which is the single most expensive decision in
 the load: `doc.go`'s A/B prices dependency types from source at 3.16 s and
@@ -827,7 +827,7 @@ enumerate call sites — and `packages/resolver` already enumerates its own:
 `resolve.go` walks the AST and reads `p.invokes[call.Lparen]`. The
 satisfaction computation underneath CHA (`chautil.LazyCallees`) is pure
 `go/types`. So `packages/resolver/typedispatch.go` computes the same map
-directly, and `go/ssa` is no longer linked into the atlas binary at all.
+directly, and `go/ssa` is no longer linked into the grunnr binary at all.
 
 **Equivalence first.** The safety argument is in
 `packages/resolver/invokeparity_test.go`, which keeps the old CHA
@@ -866,7 +866,7 @@ done
 ```
 
 `BenchmarkIndexProject` — the whole scan, not just the load. Three samples
-each, `ATLAS_BENCH_ROOT` pointed at the frozen tree:
+each, `GRUNNR_BENCH_ROOT` pointed at the frozen tree:
 
 | `BenchmarkIndexProject` | ns/op | B/op (CUMULATIVE ALLOCATION) | allocs/op |
 |---|---:|---:|---:|
@@ -880,10 +880,10 @@ different benchmarks. `resolver.Load` is now 74.8% of a whole scan's
 cumulative allocation, against 82.7% before — it did not stop dominating,
 it just got smaller.
 
-A full `atlas init` into a throwaway database, five samples each, by the
+A full `grunnr init` into a throwaway database, five samples each, by the
 `VmHWM` method in [Measuring resident peak](#measuring-resident-peak):
 
-| `atlas init` on the frozen tree | wall | peak RSS (RESIDENT PEAK) |
+| `grunnr init` on the frozen tree | wall | peak RSS (RESIDENT PEAK) |
 |---|---:|---:|
 | before | 1,400 ms *(7.7%)* | 462 MB *(7.6%)* |
 | after | 1,219 ms *(2.1%)* | 300 MB *(11.3%)* |
@@ -963,17 +963,17 @@ and diffed:
 | `brokencorpus` (1 of 2 packages type-checks — the #87 path) | 8 | **0** |
 | `sampleproject`, `authoritycorpus`, `generatedproject`, `unseencandidates`, `testfileproject` | 35 | **0** |
 
-An `atlas init --json` of the frozen tree by both binaries differs in three
+An `grunnr init --json` of the frozen tree by both binaries differs in three
 fields: the timestamp, the temp database path, and the duration.
 
 ## 2. Parallel per-file passes — what it bought, and what it did not
 
-`Options.Jobs` (`atlas scan --jobs`) bounds the worker count for the two
+`Options.Jobs` (`grunnr scan --jobs`) bounds the worker count for the two
 passes the orchestrator runs itself. Default is `GOMAXPROCS`; `--jobs=1` is
 strictly serial and is what the determinism suite runs.
 
 ```
-ATLAS_BENCH_JOBS=<n> go test ./packages/codeindex -run NONE \
+GRUNNR_BENCH_JOBS=<n> go test ./packages/codeindex -run NONE \
   -bench 'Benchmark(PatternRecognizers|AnnotationWalk)' -benchtime 10x -count 3
 ```
 
@@ -998,7 +998,7 @@ End to end, this was worth nothing measurable before #150, and is worth
 something now:
 
 ```
-ATLAS_BENCH_JOBS=<n> go test ./packages/codeindex -run NONE \
+GRUNNR_BENCH_JOBS=<n> go test ./packages/codeindex -run NONE \
   -bench BenchmarkIndexProject -benchtime 3x -count 3
 ```
 
@@ -1167,7 +1167,7 @@ B-trees, one of them a five-column `UNIQUE`. Building an index after the
 rows land sorts once instead of descending a tree per row, so the candidate
 `Ingest` dropped the **non-unique** indexes on `symbols` and `edges` for the
 load and rebuilt them at the end — but only when the table it was filling was
-empty, which is `atlas init` and nothing else.
+empty, which is `grunnr init` and nothing else.
 
 Issue #157 predicted 2x on the edge path. It is 6%. The figures below are
 what the prediction cost to check, and they are printed in full because the
@@ -1234,13 +1234,13 @@ go test ./packages/store -run NONE -benchtime 5x -count 9 -benchmem \
 
 | benchmark | before (`_IndexesDuringLoad`) | after | change |
 |---|---:|---:|---:|
-| `BenchmarkIngest_Fresh` — `atlas init`, empty DB | 295.6 ms | **280.5 ms** | **−15.2 ms, 1.05x** |
-| `BenchmarkIngest_RescanChanged` — `atlas scan` after an edit | 179.3 ms | 180.8 ms | +1.4 ms, inside the spread |
+| `BenchmarkIngest_Fresh` — `grunnr init`, empty DB | 295.6 ms | **280.5 ms** | **−15.2 ms, 1.05x** |
+| `BenchmarkIngest_RescanChanged` — `grunnr scan` after an edit | 179.3 ms | 180.8 ms | +1.4 ms, inside the spread |
 
 Ranges: Fresh 277.4–300.2 after against 293.9–302.1 before; RescanChanged
 179.8–186.3 after against 177.1–180.6 before.
 
-Against a full `atlas init` at roughly 1,600 ms, 15 ms is **about 1%**. It is
+Against a full `grunnr init` at roughly 1,600 ms, 15 ms is **about 1%**. It is
 worth having and it is not worth describing as anything more.
 
 The `RescanChanged` row is the one that proves the gate rather than the
@@ -1324,18 +1324,18 @@ sub-1 MB saving on a 900 KB table despite 94.5% duplication.
 
 Two numbers, one of which is not about speed.
 
-**The gain is about 1% of an `atlas init`** — 15.2 ms off 1,600 ms, from a 6%
+**The gain is about 1% of an `grunnr init`** — 15.2 ms off 1,600 ms, from a 6%
 improvement on a load that is itself a small part of the run. Real, measured,
 and reproducible; also small enough that it earns nothing on its own.
 
-**The cost lands on atlas's own SQL, in the one place that is embarrassing.**
+**The cost lands on grunnr's own SQL, in the one place that is embarrassing.**
 SQLite cannot bind a table or an index name as a parameter, so `DROP INDEX`
 and the emptiness probe must be built by string concatenation, and the rebuild
 re-executes the `CREATE INDEX` text SQLite itself recorded in `sqlite_master`.
 The implementation handles this about as carefully as it can be handled — the
 deferrable tables are a closed literal set, and the index names come from
 `pragma_index_list` on those tables rather than from a caller — but the
-statements are still not statically readable, and `atlas sql` is right to say
+statements are still not statically readable, and `grunnr sql` is right to say
 so:
 
 | | operations | unresolved | resolved fraction |
@@ -1343,10 +1343,10 @@ so:
 | without the deferral | 145 | 10 | 0.9310 |
 | with it | 149 | **13** | **0.9128** |
 
-That crosses both bars `test/acceptance/dogfood_test.go` commits atlas to —
+That crosses both bars `test/acceptance/dogfood_test.go` commits grunnr to —
 `minSQLResolvedFraction` 0.9200 and `maxSQLUnresolved` 10 — and it crosses
-them in the direction that matters: three more operations that atlas cannot
-read, added to atlas's own data layer, in exchange for 1%.
+them in the direction that matters: three more operations that grunnr cannot
+read, added to grunnr's own data layer, in exchange for 1%.
 
 The gate could have been moved instead; its own comment invites that, with a
 reason. The reason would have had to be "we added dynamic SQL to the data
@@ -1401,8 +1401,8 @@ Ordered by measured value:
    same code — the denominator moved.
 6. **The ingest's SQLite-side costs are close to spent (#157).** Deferring
    the index builds took a fresh ingest from 295.6 ms to 280.5 ms, about 1%
-   of an `atlas init` — measured, and **not shipped**, because the technique
-   needs string-built DDL and that cost atlas three unresolvable operations
+   of an `grunnr init` — measured, and **not shipped**, because the technique
+   needs string-built DDL and that cost grunnr three unresolvable operations
    in its own data layer. What is left of the edge load is 20% index work
    and the rest is parameter binding and statement
    preparation inside `modernc.org/sqlite`. Anyone reaching for the next
@@ -1615,7 +1615,7 @@ under "What did not move" below.
 
 ### What was wrong
 
-Every non-test `.go` file in a scan was opened and read by atlas's own code
+Every non-test `.go` file in a scan was opened and read by grunnr's own code
 **six times**, each read allocating its own copy of the bytes. Issue #156
 names four of them; the other two are the same two sites reached from a
 second pass, and they cost the same:
@@ -1630,7 +1630,7 @@ second pass, and they cost the same:
 | 6 | annotation walk | `os.Open` + `io.Copy` | SHA-256 for the incremental cache |
 
 `go/packages` reads them once more for type checking, inside x/tools where
-atlas has no say; that read is not counted here and was not removed.
+grunnr has no say; that read is not counted here and was not removed.
 
 Only two of the six had names in the `-alloc_space` profile —
 `io.copyBuffer` 28.4 MB and `os.readFileContents` 25.9 MB, 8% of a 717 MB
@@ -1684,7 +1684,7 @@ implementable, and the difference is a decision rather than a shortfall.
 it cannot consume the previous one's product: the Go scanner's ASTs are
 adopted from the type checker and keyed by node pointers no other pass holds;
 the pattern recognisers walk different AST shapes; the annotation walk covers
-every language atlas reads and its output ORDER is load-bearing for feature
+every language grunnr reads and its output ORDER is load-bearing for feature
 attribution. Collapsing the three reads into one means caching every file's
 bytes from the first pass until the last is done with them — the whole tree's
 source resident for the length of a scan, a ceiling that scales with the
@@ -1703,7 +1703,7 @@ itself. Comparing 681 files against 685 would have credited this change with
 four files' worth of someone else's allocation.
 
 ```sh
-ATLAS_BENCH_ROOT=/path/to/frozen/corpus \
+GRUNNR_BENCH_ROOT=/path/to/frozen/corpus \
 go test ./packages/codeindex -run '^$' \
   -bench 'IndexProject|GoScan_Typed|GoScan_ASTOnly|PatternRecognizers|AnnotationWalk' \
   -benchtime 1x -benchmem
@@ -1741,7 +1741,7 @@ them belongs in a change that argues for the new number.
 
 ### What did not move
 
-**RESIDENT PEAK, `VmHWM` of a whole `atlas init`,** by the method in
+**RESIDENT PEAK, `VmHWM` of a whole `grunnr init`,** by the method in
 §Measuring resident peak, seven INTERLEAVED pairs (before and after run
 back to back within each pair, so ambient load drifts across both arms
 equally) against the frozen corpus:
@@ -1757,7 +1757,7 @@ is why that is stated confidently rather than hopefully: an earlier
 non-interleaved pair of five-run sets put the same two binaries 5.8% apart,
 in the same direction, and that difference was drift.
 
-Wall clock, five interleaved pairs of a whole `atlas init` over the frozen
+Wall clock, five interleaved pairs of a whole `grunnr init` over the frozen
 corpus: **1332 ms → 1317 ms**, medians, −1.1%, with the after arm lower in
 four pairs of five. Reading that as a speedup would be reading noise; it is
 recorded to show the change does not cost time, which is the only claim three
@@ -1802,7 +1802,7 @@ the tests that show it fires and degrades as described
 
 ### Determinism (#120)
 
-Same corpus, `atlas init` from a binary built either side of the change,
+Same corpus, `grunnr init` from a binary built either side of the change,
 compared on the resulting databases: **symbols, edges (with kind, path, line,
 resolution tier and meta) and file hashes are byte-for-byte identical**, as
 are the 25 scan warnings and every count in the `--json` summary. The golden
@@ -1811,7 +1811,7 @@ determinism tests pass unchanged.
 
 One thing that comparison found and this change did not cause: **SQLite
 rowid order in `symbols` and `edges` is already not stable between two runs
-of the same binary.** Two `atlas init` runs of the unmodified baseline differ
+of the same binary.** Two `grunnr init` runs of the unmodified baseline differ
 in 10,394 rows of insert order; two runs of this branch differ in 10,388;
 one of each differ in 10,392. The magnitudes are the same, so the property
 predates this branch. It is not a determinism failure of the kind #120 is
@@ -1823,7 +1823,7 @@ person to rediscover it.
 ### What was not done
 
 **A faster hash: measured and rejected.** CRC-32 is 28x faster than SHA-256
-on this workload and saves 13 ms of a ~1,320 ms `atlas init`. It is refused
+on this workload and saves 13 ms of a ~1,320 ms `grunnr init`. It is refused
 on correctness rather than on the 1%: a hash collision here means a CHANGED
 file is classified unchanged, and the incremental scan then serves stale
 symbols for it indefinitely. Collision resistance is the property being

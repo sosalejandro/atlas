@@ -27,7 +27,7 @@ func TestNewRootCmd_WiresEverySubcommand(t *testing.T) {
 	}
 }
 
-// TestRootCmd_HelpExitsZero confirms `atlas --help` succeeds with
+// TestRootCmd_HelpExitsZero confirms `grunnr --help` succeeds with
 // non-empty output. Cobra surfaces an error for "no args" via
 // SilenceUsage=true; the help flag is the well-trodden no-args path.
 func TestRootCmd_HelpExitsZero(t *testing.T) {
@@ -45,7 +45,7 @@ func TestRootCmd_HelpExitsZero(t *testing.T) {
 }
 
 // TestCodebaseFind_DottedSuffix verifies the helper that powers
-// `atlas codebase find` accepts a non-dotted leaf identifier even when
+// `grunnr codebase find` accepts a non-dotted leaf identifier even when
 // the qualified name is dotted (e.g. "Login" ↔ "auth.AuthHandler.Login").
 func TestCodebaseFind_DottedSuffix(t *testing.T) {
 	cases := []struct {

@@ -4,8 +4,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // TestIsTestPath locks in the lexical test-file convention FindDead

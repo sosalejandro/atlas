@@ -1,7 +1,7 @@
 // Package sqlops turns a repository's data access layer from a symbol name
 // into something you can ask questions of.
 //
-// Atlas already knows that a repository method is covered by a test. What it
+// Grunnr already knows that a repository method is covered by a test. What it
 // could not say -- and what actually breaks in production -- is that the query
 // inside that method has no LIMIT, takes a caller-supplied offset, and filters
 // on a column no index leads with. This package extracts SQL where it is
@@ -71,7 +71,7 @@ type Report struct {
 	Warnings   []string `json:"warnings,omitempty"`
 }
 
-// ResolvedFraction is the share of operations whose shape Atlas could read.
+// ResolvedFraction is the share of operations whose shape Grunnr could read.
 // An empty inventory returns 1: nothing was missed because nothing was found,
 // and reporting 0% resolved for a repository with no SQL in it would be a lie
 // in the other direction.

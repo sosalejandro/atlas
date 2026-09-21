@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Issue #112's actual defect: "is this real code" was re-derived at every

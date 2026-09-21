@@ -157,7 +157,7 @@ func TestAnalyzeStatement_Shape(t *testing.T) {
 			// A recursive CTE names its columns before AS. Missing that made
 			// `chain` look like a table nobody had DDL for, which surfaced as
 			// a permanently un-runnable index check on a table that does not
-			// exist -- found by running the command against atlas itself.
+			// exist -- found by running the command against grunnr itself.
 			name: "recursive cte with a column list is not a table",
 			sql: `WITH RECURSIVE chain(id, depth) AS (
 			        SELECT id, 0 FROM edges WHERE id = ?
@@ -239,7 +239,7 @@ func TestAnalyzeStatement_Shape(t *testing.T) {
 	}
 }
 
-// A statement Atlas cannot even find a verb for must report not-ok rather than
+// A statement Grunnr cannot even find a verb for must report not-ok rather than
 // coming back as an empty SELECT -- an empty SELECT would then be scored as
 // "unbounded read", which is the exact class of wrong advisory issue #126
 // forbids.

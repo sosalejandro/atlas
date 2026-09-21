@@ -2,7 +2,7 @@ package report
 
 import "testing"
 
-// The security-severity plumbing has no rule behind it today: every rule atlas
+// The security-severity plumbing has no rule behind it today: every rule grunnr
 // ships is hygiene, and inventing a CVSS number for a dead-code candidate would
 // sort it above real vulnerabilities. The mechanism still has to work the day a
 // risk-bearing rule is added, and a path with no rule exercising it is exactly
@@ -11,9 +11,9 @@ import "testing"
 
 func TestRuleProperties_CarriesSecuritySeverityAndTags(t *testing.T) {
 	props := ruleProperties(Rule{
-		ID:               "atlas/example",
+		ID:               "grunnr/example",
 		SecuritySeverity: "5.0",
-		Tags:             []string{"atlas", "example"},
+		Tags:             []string{"grunnr", "example"},
 	})
 	if got, _ := props["security-severity"].(string); got != "5.0" {
 		t.Errorf("security-severity = %v, want 5.0", props["security-severity"])
@@ -26,7 +26,7 @@ func TestRuleProperties_CarriesSecuritySeverityAndTags(t *testing.T) {
 // A rule with nothing to say gets no properties bag at all, rather than an
 // empty object cluttering every rule in the golden file.
 func TestRuleProperties_NilWhenThereIsNothingToSay(t *testing.T) {
-	if props := ruleProperties(Rule{ID: "atlas/example"}); props != nil {
+	if props := ruleProperties(Rule{ID: "grunnr/example"}); props != nil {
 		t.Errorf("properties = %v, want nil", props)
 	}
 }
@@ -36,7 +36,7 @@ func TestRuleProperties_NilWhenThereIsNothingToSay(t *testing.T) {
 // sinks below every scored alert regardless of its level.
 func TestSARIFResultFor_LevelIsTheFindingAndSecuritySeverityIsTheRule(t *testing.T) {
 	rule := Rule{
-		ID:               "atlas/test-only-risk",
+		ID:               "grunnr/test-only-risk",
 		Name:             "TestOnlyRisk",
 		ShortDescription: "synthetic",
 		FullDescription:  "synthetic",

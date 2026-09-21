@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
-	"github.com/sosalejandro/atlas/internal/domain"
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 // stubScanner returns a fixed list of tests.
@@ -320,12 +320,12 @@ func TestAutoMapByProximity_CrossFramework(t *testing.T) {
 	}
 
 	paths := []string{
-		"server/modules/auth/auth_test.go",           // Go/Echo
-		"src/handlers/auth/auth_handler_test.go",      // Go/Chi
-		"internal/auth/service_test.go",               // Go/stdlib
-		"client/src/features/auth/Login.test.tsx",     // React/Vitest
-		"tests/auth/test_login.py",                    // Python/pytest
-		"apps/web/src/auth/auth.spec.ts",              // Playwright
+		"server/modules/auth/auth_test.go",        // Go/Echo
+		"src/handlers/auth/auth_handler_test.go",  // Go/Chi
+		"internal/auth/service_test.go",           // Go/stdlib
+		"client/src/features/auth/Login.test.tsx", // React/Vitest
+		"tests/auth/test_login.py",                // Python/pytest
+		"apps/web/src/auth/auth.spec.ts",          // Playwright
 	}
 
 	for _, p := range paths {

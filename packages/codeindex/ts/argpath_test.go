@@ -22,7 +22,7 @@ import (
 
 func TestSanitizeScannerPathArg_BothSeparators(t *testing.T) {
 	t.Parallel()
-	const winTemp = `C:\Users\RUNNER~1\AppData\Local\Temp\atlas-tsscan-2417\scanner.ts`
+	const winTemp = `C:\Users\RUNNER~1\AppData\Local\Temp\grunnr-tsscan-2417\scanner.ts`
 
 	tests := []struct {
 		name    string
@@ -33,16 +33,16 @@ func TestSanitizeScannerPathArg_BothSeparators(t *testing.T) {
 	}{
 		{
 			name: "posix path is unchanged",
-			in:   "/tmp/atlas-tsscan-2417/scanner.ts",
+			in:   "/tmp/grunnr-tsscan-2417/scanner.ts",
 			sep:  '/',
-			want: "/tmp/atlas-tsscan-2417/scanner.ts",
+			want: "/tmp/grunnr-tsscan-2417/scanner.ts",
 		},
 		{
 			// The exact argument the Windows runner rejected.
 			name: "windows temp path is accepted as forward slashes",
 			in:   winTemp,
 			sep:  '\\',
-			want: "C:/Users/RUNNER~1/AppData/Local/Temp/atlas-tsscan-2417/scanner.ts",
+			want: "C:/Users/RUNNER~1/AppData/Local/Temp/grunnr-tsscan-2417/scanner.ts",
 		},
 		{
 			name: "windows glob pattern",
@@ -139,7 +139,7 @@ func TestSanitizeScannerPathArg_BothSeparators(t *testing.T) {
 func TestBuildScannerArgs_EmitsSlashPaths(t *testing.T) {
 	t.Parallel()
 	const (
-		root   = `C:\Users\RUNNER~1\AppData\Local\Temp\atlas-tsscan-2417`
+		root   = `C:\Users\RUNNER~1\AppData\Local\Temp\grunnr-tsscan-2417`
 		script = root + `\scanner.ts`
 	)
 
@@ -162,12 +162,12 @@ func TestBuildScannerArgs_EmitsSlashPaths(t *testing.T) {
 	// dropped an argument entirely would pass the loop above.
 	want := []string{
 		"--experimental-strip-types",
-		"C:/Users/RUNNER~1/AppData/Local/Temp/atlas-tsscan-2417/scanner.ts",
-		"--root", "C:/Users/RUNNER~1/AppData/Local/Temp/atlas-tsscan-2417",
+		"C:/Users/RUNNER~1/AppData/Local/Temp/grunnr-tsscan-2417/scanner.ts",
+		"--root", "C:/Users/RUNNER~1/AppData/Local/Temp/grunnr-tsscan-2417",
 		"--include", "src/**/*.ts",
 		"--exclude", "dist/**",
 		"--router", string(ReactRouter),
-		"--tsconfig", "C:/Users/RUNNER~1/AppData/Local/Temp/atlas-tsscan-2417/tsconfig.json",
+		"--tsconfig", "C:/Users/RUNNER~1/AppData/Local/Temp/grunnr-tsscan-2417/tsconfig.json",
 	}
 	if len(args) != len(want) {
 		t.Fatalf("args = %q (%d), want %q (%d)", args, len(args), want, len(want))
@@ -186,9 +186,9 @@ func TestBuildScannerArgs_EmitsSlashPaths(t *testing.T) {
 // reject it; on Windows the same input is a legitimate path.
 func TestBuildScannerArgs_UsesTheHostSeparator(t *testing.T) {
 	t.Parallel()
-	const winScript = `C:\Temp\atlas\scanner.ts`
+	const winScript = `C:\Temp\grunnr\scanner.ts`
 
-	_, err := buildScannerArgs(winScript, `C:\Temp\atlas`, Options{})
+	_, err := buildScannerArgs(winScript, `C:\Temp\grunnr`, Options{})
 	if runtime.GOOS == "windows" {
 		if err != nil {
 			t.Fatalf("buildScannerArgs rejected a Windows path on Windows: %v", err)
@@ -218,7 +218,7 @@ func TestNewNodeCommand_IsArgvNotShell(t *testing.T) {
 		t.Fatalf("abs probe binary: %v", err)
 	}
 
-	args := []string{"--experimental-strip-types", "/tmp/atlas/scanner.ts", "--root", "/tmp/atlas"}
+	args := []string{"--experimental-strip-types", "/tmp/grunnr/scanner.ts", "--root", "/tmp/grunnr"}
 	cmd, err := newNodeCommand(context.Background(), bin, args)
 	if err != nil {
 		t.Fatalf("newNodeCommand: %v", err)

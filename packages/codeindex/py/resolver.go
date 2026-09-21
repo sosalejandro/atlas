@@ -4,14 +4,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // externalPyStubPath is the synthetic file path attached to symbol stubs
 // the Python scanner generates for unresolved edge targets (stdlib /
 // third-party / unimported names referenced from Python source). The
 // `external:py` prefix is reserved — no real source file path can collide
-// with the leading colon because Atlas paths are always repo-relative
+// with the leading colon because Grunnr paths are always repo-relative
 // forward-slash. Downstream consumers (audit, trace) may filter on this
 // prefix to distinguish first-party from external symbols.
 const externalPyStubPath = "external:py"
@@ -52,7 +52,7 @@ func externalSymbolStub(id shared.SymbolID) shared.Symbol {
 //     dot target like `mypkg.db.models.Case` that does NOT match any
 //     emitted id verbatim resolves to an internal symbol whose id ENDS
 //     with that target at a dot boundary, provided there is exactly one
-//     such symbol. This handles `src/` layouts where atlas's
+//     such symbol. This handles `src/` layouts where grunnr's
 //     path-rooted symbol ids (`packages.db.src.mypkg.db.models.Case`)
 //     differ from the Python import path (`mypkg.db.models.Case`) the
 //     user actually wrote in `from … import …`. Issue #15.
@@ -129,7 +129,7 @@ type pyEdgeResolver struct {
 	// suffixIndex maps every dot-segmented tail of every emitted symbol
 	// id (length >= 2 segments) to the list of full symbol ids that end
 	// with that tail at a dot boundary. Used by rule (2) — the canonical-
-	// Python-name resolver — to bridge atlas's path-rooted symbol ids
+	// Python-name resolver — to bridge grunnr's path-rooted symbol ids
 	// (e.g. `packages.db.src.mypkg.db.models.Case`) and the canonical
 	// Python import paths users actually write (e.g. `mypkg.db.models.Case`)
 	// when projects use a `src/` layout or a monorepo packaging convention.
@@ -215,11 +215,11 @@ func (r *pyEdgeResolver) indexNodes(nodes []rawNode) map[string]map[string]strin
 //
 // Only module-scope import edges contribute to importAlias /
 // reExport. Deferred imports (inside function bodies,
-// ``if TYPE_CHECKING:``, or ``try/except ImportError:`` blocks —
+// “if TYPE_CHECKING:“, or “try/except ImportError:“ blocks —
 // issue #16) bind their names in a scope NOT visible to the
-// caller-side resolver: a ``from .routes import router`` inside
-// ``def main():`` makes ``router`` available only inside that
-// function, so promoting a caller's ``router()`` to ``routes.router``
+// caller-side resolver: a “from .routes import router“ inside
+// “def main():“ makes “router“ available only inside that
+// function, so promoting a caller's “router()“ to “routes.router“
 // based on it would over-resolve. Deferred imports DO still
 // contribute to importPopularity — the target is genuinely imported
 // somewhere in the file, so the tie-break heuristic should count it.
@@ -269,7 +269,7 @@ func (r *pyEdgeResolver) indexEdges(edges []rawEdge) {
 	}
 }
 
-// isModuleScopeImport reports whether ``scope`` represents an import
+// isModuleScopeImport reports whether “scope“ represents an import
 // that binds a name at module scope (the only scope visible to
 // arbitrary call sites elsewhere in the module). Empty scope is
 // treated as module-scope for pre-issue-#16 back-compat — legacy
@@ -370,7 +370,7 @@ func (r *pyEdgeResolver) resolve(fromID shared.SymbolID, target string) shared.S
 	// is a multi-dot path like `mypkg.db.models.Case` and exactly one
 	// emitted symbol id ends with that suffix at a dot boundary. This
 	// fires for `src/` layouts and monorepo packaging conventions where
-	// atlas's path-rooted symbol ids drift from the importable Python
+	// grunnr's path-rooted symbol ids drift from the importable Python
 	// module path. Issue #15.
 	//
 	// We intentionally check this BEFORE we drop into caller-context-
@@ -710,7 +710,7 @@ func parentPackage(moduleID string, packageInits map[string]struct{}) string {
 
 // boundNameAndQualifiedImport translates a scanner.py-rendered import
 // edge target into (boundName, qualifiedID) where qualifiedID is the
-// Atlas symbol id the bound name resolves to, with relative-import
+// Grunnr symbol id the bound name resolves to, with relative-import
 // dots resolved against the caller's package.
 //
 // Examples (caller = `src.click.core`, parent package = `src.click`):

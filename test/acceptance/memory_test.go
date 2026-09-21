@@ -2,8 +2,8 @@
 
 // The memory gate: a ceiling on what indexing this repository allocates.
 //
-// Everything else in this directory gates what atlas SAYS. This gates what it
-// COSTS, and it is here because nothing did. `atlas gates atlas` asserts
+// Everything else in this directory gates what grunnr SAYS. This gates what it
+// COSTS, and it is here because nothing did. `grunnr gates grunnr` asserts
 // attribution, SQL resolution and patch coverage; the supply-chain job asserts
 // reproducibility; and #150 — an O(E^2) adjacency rebuild worth 37% of scan
 // CPU and 7.6x the allocation count — sat in the tree for months and was found
@@ -35,7 +35,7 @@ import (
 // UNITS FIRST, because conflating them is the confusion that produced #152.
 // These are `B/op` and `allocs/op` from `b.ReportAllocs`: CUMULATIVE BYTES
 // ALLOCATED over one IndexProject call, not resident memory. A scan does not
-// hold 709 MB. Peak RSS of a full `atlas init` on this tree is 473 MB — median
+// hold 709 MB. Peak RSS of a full `grunnr init` on this tree is 473 MB — median
 // of five (456/469/473/477/507), read from /proc/<pid>/status VmHWM, method in
 // docs/performance.md. That is a 10.8% spread against 0.06% on the number this
 // gate bounds, which is the practical reason the gate is on churn: an RSS
@@ -93,7 +93,7 @@ import (
 // the ceiling and only one of them is noise:
 //
 //   - Noise is almost nothing. Fourteen samples on the mem/gate tree,
-//     spanning ATLAS_BENCH_JOBS 1/4/12 and GOMAXPROCS 2/12, spread
+//     spanning GRUNNR_BENCH_JOBS 1/4/12 and GOMAXPROCS 2/12, spread
 //     834,476,160-837,336,792 B/op (0.34%) and 9,006,747-9,013,315 allocs/op
 //     (0.07%); the five on this branch spread 0.06% and 0.05%. Unlike the
 //     ns/op figures in docs/performance.md, which move up to 35% run to run
@@ -182,7 +182,7 @@ const benchTimeout = 10 * time.Minute
 // message.
 //
 // The name starts with TestDogfood so run.sh's `-run TestDogfood` picks it up
-// and it rides in the existing blocking `atlas gates atlas` job. It needs no
+// and it rides in the existing blocking `grunnr gates grunnr` job. It needs no
 // coverprofile, so it deliberately does not call setupDogfood.
 //
 // MUTATION RECORD. The gate was proven to fire before it was trusted. Both
@@ -313,15 +313,15 @@ func runIndexProjectBenchmark(t *testing.T, root string) (string, error) {
 	)
 	cmd.Dir = root
 
-	// ATLAS_BENCH_ROOT would point the benchmark at some other tree, and
-	// ATLAS_BENCH_JOBS would change the worker count. The ceiling was measured
+	// GRUNNR_BENCH_ROOT would point the benchmark at some other tree, and
+	// GRUNNR_BENCH_JOBS would change the worker count. The ceiling was measured
 	// against THIS repository; a developer who set either for their own
 	// profiling run should not get a spurious red from this gate, and should
 	// not silently get a green one measured on a different corpus. Both are
 	// stripped rather than honoured. (Worker count turned out not to matter —
 	// jobs 1, 4 and 12 agreed to within 0.2% — but the corpus does, and the
 	// two are stripped together so the child's inputs are stated in one place.)
-	cmd.Env = withoutEnv(os.Environ(), "ATLAS_BENCH_ROOT", "ATLAS_BENCH_JOBS")
+	cmd.Env = withoutEnv(os.Environ(), "GRUNNR_BENCH_ROOT", "GRUNNR_BENCH_JOBS")
 
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {

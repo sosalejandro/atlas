@@ -6,8 +6,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // seedImportCycle inserts two symbols in two files plus an import

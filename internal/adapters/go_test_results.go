@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 // GoTestResultParser parses `go test -json` output (line-delimited JSON).

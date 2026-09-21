@@ -1,6 +1,6 @@
 package adapters
 
-import "github.com/sosalejandro/atlas/internal/ports"
+import "github.com/sosalejandro/grunnr/internal/ports"
 
 // NewGraphBuilder selects the appropriate GraphBuilder based on config.
 //

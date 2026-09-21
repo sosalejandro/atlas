@@ -5,7 +5,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/coverage/gocover"
+	"github.com/sosalejandro/grunnr/packages/coverage/gocover"
 )
 
 // ExecBlock is one basic block's execution record: the shape a Go coverage
@@ -23,7 +23,7 @@ type ExecBlock struct {
 // ExecBlocksForFile narrows a parsed coverprofile to one source file.
 //
 // Profile paths are import-path-qualified (github.com/org/repo/pkg/f.go) and
-// atlas file paths are repo-relative, so they are reconciled by suffix on a
+// grunnr file paths are repo-relative, so they are reconciled by suffix on a
 // path-segment boundary — the same rule the coverage ingest uses. Duplicate
 // spans (a `-coverpkg=./...` profile repeats each block once per tested
 // package) are merged to their maximum count first; summing them instead
@@ -97,7 +97,7 @@ const MCDCNotDerivable = "MC/DC is NOT derivable from Go's statement coverage: t
 	"independently affected the outcome. The condition counts below describe the SOURCE " +
 	"(how many conditions exist, and how many could in principle be varied independently); " +
 	"they are not an MC/DC result. A DO-178C DAL A verdict needs condition-level " +
-	"instrumentation that atlas does not have."
+	"instrumentation that grunnr does not have."
 
 // Verdict is one outcome's answer. It is three-valued and the third value is
 // not a formality: "the tests never took this branch" and "no profile could

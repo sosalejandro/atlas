@@ -32,8 +32,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Framework returns the constant identifying this parser.

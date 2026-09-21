@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // MaxRunGapRows caps how many per-file gap rows a single coverage run
@@ -26,7 +26,7 @@ const MaxRunGapRows = 500
 //
 // Path is the file as the coverage report named it (import-path-qualified for
 // a Go coverprofile, absolute for an istanbul report), not the repo-relative
-// atlas path: the point of the row is usually that atlas has no atlas path
+// grunnr path: the point of the row is usually that grunnr has no grunnr path
 // for it.
 type CoverageGap struct {
 	Path   string `json:"path"`
@@ -36,9 +36,9 @@ type CoverageGap struct {
 
 // CoverageGaps is the narrow port for `coverage_run_gaps`.
 //
-// It answers the question a UI, `atlas doctor` and a CI gate all need and
+// It answers the question a UI, `grunnr doctor` and a CI gate all need and
 // which nothing could answer before issue #100: not "what does the coverage
-// say", but "how much of what ran did atlas manage to see at all". The
+// say", but "how much of what ran did grunnr manage to see at all". The
 // run-level totals live on CoverageRun; this port carries the per-file
 // enumeration behind them.
 type CoverageGaps interface {

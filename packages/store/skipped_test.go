@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	goscan "github.com/sosalejandro/grunnr/packages/codeindex/go"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 func TestSkippedFiles_ReplaceIsNotAppend(t *testing.T) {
@@ -70,7 +70,7 @@ func TestSkippedFiles_GetAnswersWhyAFileIsNotIndexed(t *testing.T) {
 		t.Errorf("Rule = %q, want generated-glob", got.Rule)
 	}
 	// The pattern is the whole point: "generated" tells an operator nothing,
-	// "**/*_gen.go" tells them which line of atlas.yaml to narrow.
+	// "**/*_gen.go" tells them which line of grunnr.yaml to narrow.
 	if got.Detail != "**/*_gen.go" {
 		t.Errorf("Detail = %q, want **/*_gen.go", got.Detail)
 	}

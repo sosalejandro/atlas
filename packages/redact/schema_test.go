@@ -21,20 +21,20 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/sosalejandro/atlas/packages/redact"
+	. "github.com/sosalejandro/grunnr/packages/redact"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newTestDB returns a fully migrated atlas state database and its path.
+// newTestDB returns a fully migrated grunnr state database and its path.
 //
 // It goes through store.Open rather than replaying DDL of its own, because
 // the point of every test in this file is to compare the registry against
-// the schema atlas ACTUALLY ships. A hand-written fixture schema would let
+// the schema grunnr ACTUALLY ships. A hand-written fixture schema would let
 // the registry and the migrations drift together and still pass.
 func newTestDB(t *testing.T) (*sql.DB, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "atlas.db")
+	path := filepath.Join(t.TempDir(), "grunnr.db")
 	ctx := context.Background()
 	s, err := store.Open(ctx, path)
 	if err != nil {
@@ -179,7 +179,7 @@ func TestRedactableColumns_AreNeverPartOfAKey(t *testing.T) {
 	}
 }
 
-// TestRedactableColumnsHoldSourceText: a column atlas is willing to rewrite
+// TestRedactableColumnsHoldSourceText: a column grunnr is willing to rewrite
 // must be one that carries copied source or free text. Rewriting an
 // identifier or a path would change what the index MEANS, not just what it
 // discloses.

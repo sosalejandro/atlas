@@ -1,5 +1,5 @@
-<!-- atlas-report:sticky -->
-## Atlas report
+<!-- grunnr-report:sticky -->
+## Grunnr report
 
 | Metric | Value |
 | --- | --- |
@@ -22,14 +22,14 @@ Removed features: `billing.legacy-export`
 
 **3 findings** — 1 error, 1 warning, 1 notice.
 
-#### atlas/feature-uncovered — A feature's health score is below the configured floor (1)
+#### grunnr/feature-uncovered — A feature's health score is below the configured floor (1)
 
 - `internal/billing/invoice.go:42` — feature billing.invoice scores 12.0/100 (coverage 4.0)
 
-#### atlas/dead-code — A symbol with no qualifying incoming edges (1)
+#### grunnr/dead-code — A symbol with no qualifying incoming edges (1)
 
 - `internal/legacy/shim.go:7` — Shim has 0 incoming import edges (dead-code candidate)
 
-#### atlas/coverage-unattributed — Executed statements atlas could not charge to any indexed symbol (1)
+#### grunnr/coverage-unattributed — Executed statements grunnr could not charge to any indexed symbol (1)
 
 - `internal/worker/queue.go:1` — 118 statements executed but charged to no indexed symbol (reason: no-indexed-symbol)

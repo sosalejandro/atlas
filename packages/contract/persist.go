@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // PersistOptions configures Persist.
@@ -102,9 +102,9 @@ func Persist(ctx context.Context, s *store.Store, defs []ContractDef, opts Persi
 // whether it was auto-generated (vs annotation-supplied).
 //
 // Precedence:
-//   1. def.FeatureID (annotation hit).
-//   2. opts.AutoGenerateIDs => synthesise from Kind + Operation/Name.
-//   3. otherwise "" (signals "skip").
+//  1. def.FeatureID (annotation hit).
+//  2. opts.AutoGenerateIDs => synthesise from Kind + Operation/Name.
+//  3. otherwise "" (signals "skip").
 func resolveFeatureID(d ContractDef, opts PersistOptions) (shared.FeatureID, bool) {
 	if d.FeatureID != nil && *d.FeatureID != "" {
 		return *d.FeatureID, false

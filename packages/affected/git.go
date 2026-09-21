@@ -16,7 +16,7 @@ import (
 // includes a mode change or a pure rename, which produce no hunks at all),
 // while --unified=0 is what narrows a file to the symbols inside it.
 //
-// Both are keyed on the POST-image path, because that is the revision atlas
+// Both are keyed on the POST-image path, because that is the revision grunnr
 // indexed.
 type GitDiff interface {
 	// ChangedFiles lists every path touched between `since` and HEAD.

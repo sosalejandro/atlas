@@ -27,18 +27,18 @@ func TestPathKeyOn_WindowsUnifiesEverySpellingOfOnePath(t *testing.T) {
 	// Windows can spell the SAME file, and every row must collapse to
 	// one key, or the byPath lookup misses and the whole tree silently
 	// degrades out of `typed`.
-	const want = `c:\src\atlas\packages\resolver\load.go`
+	const want = `c:\src\grunnr\packages\resolver\load.go`
 	spellings := []struct {
 		name string
 		in   string
 	}{
-		{"go list: native separators", `C:\src\atlas\packages\resolver\load.go`},
-		{"WalkDir over a slash-spelled root", "C:/src/atlas/packages/resolver/load.go"},
-		{"mixed, as a joined config value arrives", `C:/src\atlas/packages\resolver/load.go`},
-		{"lower-case drive letter", `c:\src\atlas\packages\resolver\load.go`},
-		{"upper-cased component", `C:\SRC\atlas\packages\resolver\load.go`},
-		{"uncleaned", `C:\src\atlas\packages\store\..\resolver\.\load.go`},
-		{"doubled separator", `C:\src\atlas\\packages\resolver\load.go`},
+		{"go list: native separators", `C:\src\grunnr\packages\resolver\load.go`},
+		{"WalkDir over a slash-spelled root", "C:/src/grunnr/packages/resolver/load.go"},
+		{"mixed, as a joined config value arrives", `C:/src\grunnr/packages\resolver/load.go`},
+		{"lower-case drive letter", `c:\src\grunnr\packages\resolver\load.go`},
+		{"upper-cased component", `C:\SRC\grunnr\packages\resolver\load.go`},
+		{"uncleaned", `C:\src\grunnr\packages\store\..\resolver\.\load.go`},
+		{"doubled separator", `C:\src\grunnr\\packages\resolver\load.go`},
 	}
 	for _, s := range spellings {
 		t.Run(s.name, func(t *testing.T) {
@@ -59,12 +59,12 @@ func TestPathKeyOn_WindowsVolumeForms(t *testing.T) {
 	}{
 		{"drive root", `C:\`, `c:\`},
 		{"bare drive", `C:`, `c:`},
-		{"trailing separator is not a component", `C:\src\atlas\`, `c:\src\atlas`},
+		{"trailing separator is not a component", `C:\src\grunnr\`, `c:\src\grunnr`},
 		// A UNC share is a volume, not two directories: cleaning must
 		// not collapse the leading pair into one separator, or every
 		// path on a network drive keys to the wrong file.
-		{"unc share", `\\build01\share\atlas\load.go`, `\\build01\share\atlas\load.go`},
-		{"unc share, uncleaned", `\\build01\share\atlas\..\atlas\load.go`, `\\build01\share\atlas\load.go`},
+		{"unc share", `\\build01\share\grunnr\load.go`, `\\build01\share\grunnr\load.go`},
+		{"unc share, uncleaned", `\\build01\share\grunnr\..\grunnr\load.go`, `\\build01\share\grunnr\load.go`},
 		{"unc share root", `\\build01\share`, `\\build01\share`},
 		// The 8.3 short name is a DIFFERENT spelling that no amount of
 		// string work can reconcile with the long one -- only the
@@ -72,8 +72,8 @@ func TestPathKeyOn_WindowsVolumeForms(t *testing.T) {
 		// not pretend otherwise; that case is closed by the EvalSymlinks
 		// fallback in Program.lookup, tested below.
 		{"8.3 short name is preserved verbatim",
-			`C:\Users\RUNNER~1\AppData\Local\Temp\atlas\a.go`,
-			`c:\users\runner~1\appdata\local\temp\atlas\a.go`},
+			`C:\Users\RUNNER~1\AppData\Local\Temp\grunnr\a.go`,
+			`c:\users\runner~1\appdata\local\temp\grunnr\a.go`},
 		{"empty", "", ""},
 		{"relative", `packages\resolver`, `packages\resolver`},
 		{"dot", ".", "."},
@@ -98,10 +98,10 @@ func TestPathKeyOn_PosixKeepsCaseAndTreatsBackslashAsAName(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"case is significant", "/src/Atlas/Load.go", "/src/Atlas/Load.go"},
+		{"case is significant", "/src/Grunnr/Load.go", "/src/Grunnr/Load.go"},
 		{"backslash is a legal filename character", `/src/a\b.go`, `/src/a\b.go`},
-		{"uncleaned", "/src/atlas/packages/store/../resolver/./load.go", "/src/atlas/packages/resolver/load.go"},
-		{"trailing separator", "/src/atlas/", "/src/atlas"},
+		{"uncleaned", "/src/grunnr/packages/store/../resolver/./load.go", "/src/grunnr/packages/resolver/load.go"},
+		{"trailing separator", "/src/grunnr/", "/src/grunnr"},
 		{"root", "/", "/"},
 		{"empty", "", ""},
 		{"dot", ".", "."},
@@ -125,8 +125,8 @@ func TestPathKeyOn_PosixKeepsCaseAndTreatsBackslashAsAName(t *testing.T) {
 func TestPathKey_UsesTheHostRules(t *testing.T) {
 	t.Parallel()
 	for _, in := range []string{
-		`C:\src\atlas\load.go`,
-		"/src/atlas/load.go",
+		`C:\src\grunnr\load.go`,
+		"/src/grunnr/load.go",
 		`/src/a\b.go`,
 		"",
 	} {
@@ -227,30 +227,30 @@ func TestStripRoots_FoldsCaseOnlyWhereTheFilesystemDoes(t *testing.T) {
 	}{
 		{
 			name:  "posix root strips exactly",
-			msg:   "/home/u/atlas/pkg/a.go:3:1: undefined: X",
-			roots: []string{"/home/u/atlas"},
+			msg:   "/home/u/grunnr/pkg/a.go:3:1: undefined: X",
+			roots: []string{"/home/u/grunnr"},
 			sep:   '/',
 			want:  "pkg/a.go:3:1: undefined: X",
 		},
 		{
 			name:  "posix is case sensitive: a different case is a different directory",
-			msg:   "/home/u/Atlas/pkg/a.go:3:1: undefined: X",
-			roots: []string{"/home/u/atlas"},
+			msg:   "/home/u/Grunnr/pkg/a.go:3:1: undefined: X",
+			roots: []string{"/home/u/grunnr"},
 			sep:   '/',
-			want:  "/home/u/Atlas/pkg/a.go:3:1: undefined: X",
+			want:  "/home/u/Grunnr/pkg/a.go:3:1: undefined: X",
 		},
 		{
 			name:  "windows drive-letter case must not defeat the strip",
-			msg:   `C:\src\atlas\pkg\a.go:3:1: undefined: X`,
-			roots: []string{`c:\src\atlas`},
+			msg:   `C:\src\grunnr\pkg\a.go:3:1: undefined: X`,
+			roots: []string{`c:\src\grunnr`},
 			sep:   '\\',
 			fold:  true,
 			want:  `pkg\a.go:3:1: undefined: X`,
 		},
 		{
 			name:  "windows: the second root spelling wins when the first misses",
-			msg:   `C:\Users\runneradmin\T\atlas\pkg\a.go:3: oops`,
-			roots: []string{`C:\Users\RUNNER~1\T\atlas`, `C:\Users\runneradmin\T\atlas`},
+			msg:   `C:\Users\runneradmin\T\grunnr\pkg\a.go:3: oops`,
+			roots: []string{`C:\Users\RUNNER~1\T\grunnr`, `C:\Users\runneradmin\T\grunnr`},
 			sep:   '\\',
 			fold:  true,
 			want:  `pkg\a.go:3: oops`,

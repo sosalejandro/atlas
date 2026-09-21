@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 func (f *fixture) upsertFeature(t *testing.T, id shared.FeatureID) {
@@ -58,8 +58,8 @@ func TestFeatureLinkage_AllLinked_OK(t *testing.T) {
 }
 
 // A feature whose only symbol was deleted survives the cascade as an
-// empty shell: it still ranks in `atlas sprint` and still scores in
-// `atlas health`, about nothing.
+// empty shell: it still ranks in `grunnr sprint` and still scores in
+// `grunnr health`, about nothing.
 func TestFeatureLinkage_FeatureWithoutSymbols_Warns(t *testing.T) {
 	f := newFixture(t)
 	f.upsertFeature(t, "auth.login")

@@ -32,12 +32,12 @@
 //
 // # Dependencies
 //
-// This package deliberately imports nothing from atlas, and nothing outside
+// This package deliberately imports nothing from grunnr, and nothing outside
 // the standard library. Two reasons.
 //
 // First, an internal test (`package coverage`) cannot import a helper that
 // imports `packages/coverage` — that is an import cycle. Keeping this package
-// atlas-free is what lets a property test live in the same package as the
+// grunnr-free is what lets a property test live in the same package as the
 // unexported function whose invariant it is checking, instead of being pushed
 // out to an external `_test` package where that function is unreachable.
 //

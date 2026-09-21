@@ -14,16 +14,16 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // indexFreshness compares `file_hashes` against the working tree.
 //
-// This is the load-bearing check. Everything else atlas prints -- a
+// This is the load-bearing check. Everything else grunnr prints -- a
 // coverage percentage, an audit score, a sprint ranking -- is computed
 // over symbols that came out of a scan, so an index that has drifted
 // makes every one of those numbers a confident statement about a repo
-// that no longer exists. Nothing else in atlas notices: a stale row is a
+// that no longer exists. Nothing else in grunnr notices: a stale row is a
 // valid row.
 type indexFreshness struct{}
 
@@ -70,13 +70,13 @@ func (c indexFreshness) Run(ctx context.Context, env *Env) (Result, error) {
 // indexVerdict turns the three drift buckets plus the unindexed sweep
 // into one severity.
 //
-// missing and changed are statements atlas has already made about content
+// missing and changed are statements grunnr has already made about content
 // it can no longer see; unindexed is only content it has not seen yet.
 // The first pair invalidates existing answers, the second merely bounds
 // them, so only the first pair fails.
 //
 // unreadable is neither, and it is the bucket that used to be silently
-// dropped. These are files atlas RECORDED, that are still on disk, and
+// dropped. These are files grunnr RECORDED, that are still on disk, and
 // whose bytes it could not re-read this run: a permission bit, an I/O
 // error, a path that is no longer a regular file. Nothing was
 // established about them in either direction, so letting them fall
@@ -97,7 +97,7 @@ func indexVerdict(indexed int, drift hashDrift, unindexed []string, root string,
 		return Result{
 			Severity:    SeverityFail,
 			Finding:     finding,
-			Remediation: "atlas scan",
+			Remediation: "grunnr scan",
 			Details:     details,
 		}
 	}
@@ -117,7 +117,7 @@ func indexVerdict(indexed int, drift hashDrift, unindexed []string, root string,
 			Severity: SeverityWarn,
 			Finding: fmt.Sprintf("%d of %d indexed files match the working tree; %s",
 				indexed-len(drift.unreadable), indexed, strings.Join(complaints, "; ")),
-			Remediation: "atlas scan",
+			Remediation: "grunnr scan",
 			Details:     details,
 		}
 	}
@@ -150,15 +150,15 @@ func (c indexFreshness) emptyIndex(ctx context.Context, env *Env) (Result, error
 			Finding: fmt.Sprintf(
 				"the store holds %d symbols but no file hashes, so freshness cannot be determined "+
 					"(the last scan ran with --hash-files=false)", len(syms)),
-			Remediation: "atlas scan --hash-files",
+			Remediation: "grunnr scan --hash-files",
 			Details:     map[string]any{"indexed_files": 0, "symbols": len(syms)},
 		}, nil
 	}
 	return Result{
 		Severity: SeverityFail,
 		Finding: fmt.Sprintf("the store holds no index of %s at all: "+
-			"every number atlas prints would be computed over nothing", env.Root),
-		Remediation: "atlas init",
+			"every number grunnr prints would be computed over nothing", env.Root),
+		Remediation: "grunnr init",
 		Details:     map[string]any{"indexed_files": 0, "symbols": 0},
 	}, nil
 }
@@ -171,7 +171,7 @@ type hashDrift struct {
 }
 
 // compareHashes re-hashes every indexed file. It reads the whole tree's
-// worth of indexed content, which is the same work `atlas scan` does to
+// worth of indexed content, which is the same work `grunnr scan` does to
 // decide what to skip -- doctor being as expensive as one scan is the
 // price of an answer that is not itself a guess (an mtime comparison
 // would be cheaper and would miss a restored-then-edited file).
@@ -205,7 +205,7 @@ func sha256File(abs string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// unindexedSources walks the tree for Go files atlas has no record of.
+// unindexedSources walks the tree for Go files grunnr has no record of.
 //
 // Restricted to .go on purpose. codeindex hashes every .go file it walks
 // but hashes a .ts / .py file only when that file carries an annotation,

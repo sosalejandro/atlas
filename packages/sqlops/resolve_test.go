@@ -46,7 +46,7 @@ func TestFormatOperands_StarsAndExplicitIndexes(t *testing.T) {
 		{format: "SELECT %[1]s", want: "0:s", ok: true},
 		// Escapes consume nothing.
 		{format: "SELECT '100%%' , %s", want: "0:s", ok: true},
-		// Directives atlas cannot account for are refused rather than
+		// Directives grunnr cannot account for are refused rather than
 		// guessed at.
 		{format: "SELECT %s FROM t WHERE x LIKE '%'", ok: false},
 		{format: "SELECT %[x]s", ok: false},

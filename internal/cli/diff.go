@@ -7,11 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/diff"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/diff"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newDiffCmd implements `atlas diff <ref-a> <ref-b>` — structured delta
+// newDiffCmd implements `grunnr diff <ref-a> <ref-b>` — structured delta
 // between two persisted snapshots.
 func newDiffCmd() *cobra.Command {
 	var noiseFloor int
@@ -27,7 +27,7 @@ Each <ref-a> / <ref-b> argument can be either:
   - an integer snapshot id (e.g. "12")
   - a git ref string (the latest snapshot row with that git_ref wins)
 
-Use 'atlas snapshot --ref <ref>' to capture a snapshot before running
+Use 'grunnr snapshot --ref <ref>' to capture a snapshot before running
 diff if your CI hasn't already.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -39,7 +39,7 @@ diff if your CI hasn't already.`,
 	return cmd
 }
 
-// diffResult is the JSON payload for `atlas diff`.
+// diffResult is the JSON payload for `grunnr diff`.
 type diffResult struct {
 	Diff *diff.SnapshotDiff `json:"diff"`
 }

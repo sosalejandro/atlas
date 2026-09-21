@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // repo is a small but complete index: one feature whose annotation sits on a
@@ -392,7 +392,7 @@ func TestTestsCovering_DistinguishesNoCoverageFromNoPerTestEvidence(t *testing.T
 		t.Fatalf("tests_covering with no coverage at all = %v, want no_data", sc)
 	}
 	if run, _ := nd["run"].(string); !strings.Contains(run, "cov sync") {
-		t.Errorf("no_data.run = %q, want it to name `atlas cov sync`", run)
+		t.Errorf("no_data.run = %q, want it to name `grunnr cov sync`", run)
 	}
 
 	// Now a run WITHOUT per-test rows: a different gap, a different fix.
@@ -445,7 +445,7 @@ func TestCoverageFor_NoFrontierSaysWhatToRun(t *testing.T) {
 		t.Fatalf("coverage_for with no coverage = %v, want no_data", sc)
 	}
 	if run, _ := nd["run"].(string); !strings.Contains(run, "cov sync") {
-		t.Errorf("no_data.run = %q, want it to name `atlas cov sync`", run)
+		t.Errorf("no_data.run = %q, want it to name `grunnr cov sync`", run)
 	}
 	if _, bad := sc["score"]; bad {
 		t.Errorf("a no_data coverage result still reports a score: %v — 0 reads as 'nothing is covered'", sc)

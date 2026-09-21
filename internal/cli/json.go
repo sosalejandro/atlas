@@ -1,4 +1,4 @@
-// Package cli implements the Atlas CLI command dispatch on top of cobra.
+// Package cli implements the Grunnr CLI command dispatch on top of cobra.
 //
 // Every subcommand lives in its own file (init.go, scan.go, trace.go, ...).
 // The shared output envelope and config-loader live here so the per-verb
@@ -11,7 +11,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/envelope"
+	"github.com/sosalejandro/grunnr/packages/envelope"
 )
 
 // schemaVersion is the stable contract version every JSON envelope emits.

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // sym is a terse SymbolRow builder. ids are assigned by position so a test
@@ -184,7 +184,7 @@ func TestInfer_TestFilesDoNotBecomeCapabilities(t *testing.T) {
 
 // The data footprint is the half of a capability that a directory listing
 // cannot show, so it has to survive the roll-up -- including the count of
-// queries atlas could not read, without which the table set reads as
+// queries grunnr could not read, without which the table set reads as
 // complete when it is a lower bound.
 func TestInfer_SQLFootprintRollsUp(t *testing.T) {
 	res := Infer(Input{
@@ -249,7 +249,7 @@ func TestInfer_EveryIDIsPromotable(t *testing.T) {
 	}
 	for _, c := range res.Capabilities {
 		if !c.Named {
-			// A grouping atlas refused to name is unpromotable on purpose
+			// A grouping grunnr refused to name is unpromotable on purpose
 			// (#177) -- see TestCapability_NamedAndUnnamedInvariants.
 			continue
 		}
@@ -263,7 +263,7 @@ func TestInfer_EveryIDIsPromotable(t *testing.T) {
 }
 
 // The first row of the map is the tool's claim about what a repository is
-// FOR, so it must not be the smallest thing atlas found.
+// FOR, so it must not be the smallest thing grunnr found.
 //
 // Ranking by signal type before size put `provisional:root.up` -- two
 // symbols, from a test-name cluster -- above `database.postgres` with

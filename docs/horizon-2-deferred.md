@@ -1,4 +1,4 @@
-# Horizon 2 — deferred Atlas work
+# Horizon 2 — deferred Grunnr work
 
 This file accumulates the items intentionally left out of a given phase so
 we don't lose track of them between sprints. Each entry records WHY it was

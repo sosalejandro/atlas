@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Download, verify and install one released atlas binary.
+# Download, verify and install one released grunnr binary.
 #
 # Used by the composite action in this directory. It is a script rather
 # than inline YAML so the parts that do not need the network — the
@@ -22,7 +22,7 @@ RUNNER_OS=""
 RUNNER_ARCH=""
 DEST=""
 VERIFY="true"
-REPO="sosalejandro/atlas"
+REPO="sosalejandro/grunnr"
 PRINT_ONLY="false"
 
 err() { printf '%s\n' "$*" >&2; }
@@ -74,7 +74,7 @@ if ! printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.
 	else
 		err "not a release version: '${VERSION}'"
 		err "Pass an explicit version, e.g."
-		err "  - uses: ${REPO}/.github/actions/atlas@v0.14.0"
+		err "  - uses: ${REPO}/.github/actions/grunnr@v0.14.0"
 		err "    with: { version: v0.14.0 }"
 		exit 1
 	fi
@@ -102,7 +102,7 @@ ARM64 | arm64) goarch=arm64 ;;
 	;;
 esac
 
-asset="atlas_${VERSION}_${goos}_${goarch}"
+asset="grunnr_${VERSION}_${goos}_${goarch}"
 [ "$goos" = "windows" ] && asset="${asset}.exe"
 
 if [ "$PRINT_ONLY" = "true" ]; then
@@ -160,8 +160,8 @@ else
 	err "warning: signature verification disabled; the binary's provenance is unchecked"
 fi
 
-install_name="atlas"
-[ "$goos" = "windows" ] && install_name="atlas.exe"
+install_name="grunnr"
+[ "$goos" = "windows" ] && install_name="grunnr.exe"
 mv "$work/$asset" "$DEST/$install_name"
 chmod +x "$DEST/$install_name"
 printf '%s\n' "$DEST/$install_name"

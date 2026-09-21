@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // covRunBase anchors the seeded runs on a fixed clock so "which run is

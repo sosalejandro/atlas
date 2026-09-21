@@ -3,7 +3,7 @@
 //
 // # Why it exists
 //
-// Every scanner in atlas before this one resolved a callee by name:
+// Every scanner in grunnr before this one resolved a callee by name:
 // render the selector expression as "Receiver.Method", look that string up
 // in a table of declarations, and — when it misses — try a substring match
 // on a lowercased identifier. Issue #87 measured the cost on a 39-module
@@ -40,7 +40,7 @@
 // It does not require a green build. packages.Load reports errors per
 // package; a package with any error is reported as degraded and its files
 // are simply absent from this program, so the scanner falls back for them
-// and keeps going. Atlas runs mid-edit, and a scanner that needs a
+// and keeps going. Grunnr runs mid-edit, and a scanner that needs a
 // compiling repo is a scanner nobody can run when they most need it.
 //
 // # Cost

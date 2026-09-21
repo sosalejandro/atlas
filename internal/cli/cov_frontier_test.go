@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // seedGroupedBuild writes the two runs a polyglot CI build leaves behind: a
@@ -77,13 +77,13 @@ func seedGroupedBuild(t *testing.T, fix *covFixture, group string) (goRun, feRun
 
 func TestCovStatus_GroupFlagWired(t *testing.T) {
 	if newCovStatusCmd().Flags().Lookup("group") == nil {
-		t.Fatal("atlas cov status is missing --group")
+		t.Fatal("grunnr cov status is missing --group")
 	}
 	if newCovSyncCmd().Flags().Lookup("run-group") == nil {
-		t.Fatal("atlas cov sync is missing --run-group")
+		t.Fatal("grunnr cov sync is missing --run-group")
 	}
 	if newCovRunCmd().Flags().Lookup("run-group") == nil {
-		t.Fatal("atlas cov run is missing --run-group")
+		t.Fatal("grunnr cov run is missing --run-group")
 	}
 }
 

@@ -11,7 +11,7 @@
 #        make test-scripts
 #
 # The cross-compile matrix case builds six binaries and is gated behind
-# ATLAS_SCRIPT_TESTS_SLOW=1 so the default run stays quick; CI sets it.
+# GRUNNR_SCRIPT_TESTS_SLOW=1 so the default run stays quick; CI sets it.
 
 set -uo pipefail
 
@@ -112,33 +112,33 @@ git_fixture_repo() {
 # Hence a probe against a known answer rather than a flag-support check.
 # ---------------------------------------------------------------------------
 
-it "atlas_date_flavor detects a usable date(1)"
-flavor="$(atlas_date_flavor)"
+it "grunnr_date_flavor detects a usable date(1)"
+flavor="$(grunnr_date_flavor)"
 if [ "$flavor" = "gnu" ] || [ "$flavor" = "bsd" ]; then
 	pass
 else
 	fail "no usable date(1) found (flavor=$flavor)"
 fi
 
-it "atlas_epoch_to_iso converts the probe epoch"
-assert_eq "$(atlas_epoch_to_iso 1000000000)" "2001-09-09T01:46:40Z"
+it "grunnr_epoch_to_iso converts the probe epoch"
+assert_eq "$(grunnr_epoch_to_iso 1000000000)" "2001-09-09T01:46:40Z"
 
-it "atlas_epoch_to_iso converts epoch 0"
-assert_eq "$(atlas_epoch_to_iso 0)" "1970-01-01T00:00:00Z"
+it "grunnr_epoch_to_iso converts epoch 0"
+assert_eq "$(grunnr_epoch_to_iso 0)" "1970-01-01T00:00:00Z"
 
-it "atlas_epoch_to_iso rejects a non-decimal epoch"
-atlas_epoch_to_iso "not-a-number" >/dev/null 2>&1
+it "grunnr_epoch_to_iso rejects a non-decimal epoch"
+grunnr_epoch_to_iso "not-a-number" >/dev/null 2>&1
 assert_not_ok $?
 
-it "atlas_epoch_to_iso rejects an empty epoch"
-atlas_epoch_to_iso "" >/dev/null 2>&1
+it "grunnr_epoch_to_iso rejects an empty epoch"
+grunnr_epoch_to_iso "" >/dev/null 2>&1
 assert_not_ok $?
 
 # The BSD branch cannot be reached on a GNU host, so shim a date(1) that
 # behaves like BSD's: rejects -d, accepts -r. Without this the fallback
 # would be dead code that nobody discovers is broken until a macOS
 # contributor tries to reproduce a release.
-it "atlas_epoch_to_iso falls back to the BSD date spelling"
+it "grunnr_epoch_to_iso falls back to the BSD date spelling"
 shimdir="$WORK/bsdshim"
 mkdir -p "$shimdir"
 cat >"$shimdir/date" <<'SHIM'
@@ -164,12 +164,12 @@ chmod +x "$shimdir/date"
 	# Re-source so the flavor probe re-runs against the shimmed date.
 	# shellcheck source=/dev/null
 	. "$SCRIPT_DIR/lib.sh"
-	unset ATLAS_DATE_FLAVOR
-	[ "$(atlas_date_flavor)" = "bsd" ] || {
+	unset GRUNNR_DATE_FLAVOR
+	[ "$(grunnr_date_flavor)" = "bsd" ] || {
 		echo "flavor probe did not pick bsd" >&2
 		exit 1
 	}
-	[ "$(atlas_epoch_to_iso 1000000000)" = "2001-09-09T01:46:40Z" ] || {
+	[ "$(grunnr_epoch_to_iso 1000000000)" = "2001-09-09T01:46:40Z" ] || {
 		echo "bsd conversion wrong" >&2
 		exit 1
 	}
@@ -185,46 +185,46 @@ assert_ok $?
 # agree on anything out of band.
 # ---------------------------------------------------------------------------
 
-it "atlas_source_date_epoch honours an explicit SOURCE_DATE_EPOCH"
-out="$(SOURCE_DATE_EPOCH=1234567890 atlas_source_date_epoch "$REPO_ROOT")"
+it "grunnr_source_date_epoch honours an explicit SOURCE_DATE_EPOCH"
+out="$(SOURCE_DATE_EPOCH=1234567890 grunnr_source_date_epoch "$REPO_ROOT")"
 assert_eq "$out" "1234567890"
 
-it "atlas_source_date_epoch defaults to HEAD's committer date"
+it "grunnr_source_date_epoch defaults to HEAD's committer date"
 fixture="$WORK/repo"
 git_fixture_repo "$fixture"
-out="$(unset SOURCE_DATE_EPOCH; atlas_source_date_epoch "$fixture")"
+out="$(unset SOURCE_DATE_EPOCH; grunnr_source_date_epoch "$fixture")"
 assert_eq "$out" "$FIXTURE_EPOCH"
 
-it "atlas_source_date_epoch rejects a non-decimal SOURCE_DATE_EPOCH"
-SOURCE_DATE_EPOCH="yesterday" atlas_source_date_epoch "$REPO_ROOT" >/dev/null 2>&1
+it "grunnr_source_date_epoch rejects a non-decimal SOURCE_DATE_EPOCH"
+SOURCE_DATE_EPOCH="yesterday" grunnr_source_date_epoch "$REPO_ROOT" >/dev/null 2>&1
 assert_not_ok $?
 
 # ---------------------------------------------------------------------------
 # lib.sh: version + artifact naming
 # ---------------------------------------------------------------------------
 
-it "atlas_resolve_version prefers an explicit VERSION"
-assert_eq "$(VERSION=v9.9.9 atlas_resolve_version "$REPO_ROOT")" "v9.9.9"
+it "grunnr_resolve_version prefers an explicit VERSION"
+assert_eq "$(VERSION=v9.9.9 grunnr_resolve_version "$REPO_ROOT")" "v9.9.9"
 
-it "atlas_resolve_version uses an exact tag when HEAD is tagged"
+it "grunnr_resolve_version uses an exact tag when HEAD is tagged"
 tagged="$WORK/tagged"
 git_fixture_repo "$tagged"
 git -C "$tagged" tag v1.2.3
-assert_eq "$(unset VERSION; atlas_resolve_version "$tagged")" "v1.2.3"
+assert_eq "$(unset VERSION; grunnr_resolve_version "$tagged")" "v1.2.3"
 
-it "atlas_resolve_version describes an untagged commit against the last tag"
+it "grunnr_resolve_version describes an untagged commit against the last tag"
 git -C "$tagged" commit -q --allow-empty -m "after the tag"
-out="$(unset VERSION; atlas_resolve_version "$tagged")"
+out="$(unset VERSION; grunnr_resolve_version "$tagged")"
 assert_contains "$out" "v1.2.3-1-g"
 
-it "atlas_resolve_version falls back to dev with no tags at all"
-assert_eq "$(unset VERSION; atlas_resolve_version "$fixture")" "dev"
+it "grunnr_resolve_version falls back to dev with no tags at all"
+assert_eq "$(unset VERSION; grunnr_resolve_version "$fixture")" "dev"
 
-it "atlas_artifact_name suffixes .exe on windows only"
-assert_eq "$(atlas_artifact_name v1.0.0 windows amd64)" "atlas_v1.0.0_windows_amd64.exe"
+it "grunnr_artifact_name suffixes .exe on windows only"
+assert_eq "$(grunnr_artifact_name v1.0.0 windows amd64)" "grunnr_v1.0.0_windows_amd64.exe"
 
-it "atlas_artifact_name leaves unix targets unsuffixed"
-assert_eq "$(atlas_artifact_name v1.0.0 darwin arm64)" "atlas_v1.0.0_darwin_arm64"
+it "grunnr_artifact_name leaves unix targets unsuffixed"
+assert_eq "$(grunnr_artifact_name v1.0.0 darwin arm64)" "grunnr_v1.0.0_darwin_arm64"
 
 # ---------------------------------------------------------------------------
 # lib.sh: tree comparison
@@ -234,22 +234,22 @@ assert_eq "$(atlas_artifact_name v1.0.0 darwin arm64)" "atlas_v1.0.0_darwin_arm6
 # nothing.
 # ---------------------------------------------------------------------------
 
-it "atlas_compare_trees accepts two byte-identical trees"
+it "grunnr_compare_trees accepts two byte-identical trees"
 mkdir -p "$WORK/a" "$WORK/b"
 printf 'aaa' >"$WORK/a/x"
 printf 'aaa' >"$WORK/b/x"
-atlas_compare_trees "$WORK/a" "$WORK/b" >/dev/null 2>&1
+grunnr_compare_trees "$WORK/a" "$WORK/b" >/dev/null 2>&1
 assert_ok $?
 
-it "atlas_compare_trees rejects a one-byte difference"
+it "grunnr_compare_trees rejects a one-byte difference"
 printf 'aab' >"$WORK/b/x"
-atlas_compare_trees "$WORK/a" "$WORK/b" >/dev/null 2>&1
+grunnr_compare_trees "$WORK/a" "$WORK/b" >/dev/null 2>&1
 assert_not_ok $?
 
-it "atlas_compare_trees rejects a missing artifact"
+it "grunnr_compare_trees rejects a missing artifact"
 printf 'aaa' >"$WORK/b/x"
 printf 'zzz' >"$WORK/a/y"
-atlas_compare_trees "$WORK/a" "$WORK/b" >/dev/null 2>&1
+grunnr_compare_trees "$WORK/a" "$WORK/b" >/dev/null 2>&1
 assert_not_ok $?
 rm -f "$WORK/a/y"
 
@@ -260,14 +260,14 @@ rm -f "$WORK/a/y"
 it "checksums.sh emits sha256 lines keyed by basename"
 sums="$WORK/sums"
 mkdir -p "$sums"
-printf 'one' >"$sums/atlas_v1_linux_amd64"
-printf 'two' >"$sums/atlas_v1_darwin_arm64"
+printf 'one' >"$sums/grunnr_v1_linux_amd64"
+printf 'two' >"$sums/grunnr_v1_darwin_arm64"
 out="$(bash "$SCRIPT_DIR/checksums.sh" "$sums" 2>&1)"
 rc=$?
 if [ $rc -ne 0 ]; then
 	fail "checksums.sh exited $rc: $out"
 else
-	assert_contains "$(cat "$sums/SHA256SUMS")" "atlas_v1_linux_amd64"
+	assert_contains "$(cat "$sums/SHA256SUMS")" "grunnr_v1_linux_amd64"
 fi
 
 it "checksums.sh output carries no directory components"
@@ -459,19 +459,19 @@ fi
 # guess produces a 404 in somebody else's CI.
 # ---------------------------------------------------------------------------
 
-ACTION_INSTALL="$REPO_ROOT/.github/actions/atlas/install.sh"
+ACTION_INSTALL="$REPO_ROOT/.github/actions/grunnr/install.sh"
 
 it "the action's installer maps Linux/X64 to the linux amd64 asset"
 assert_eq "$(bash "$ACTION_INSTALL" --print-asset-name --version v1.0.0 --os Linux --arch X64)" \
-	"atlas_v1.0.0_linux_amd64"
+	"grunnr_v1.0.0_linux_amd64"
 
 it "the action's installer maps macOS/ARM64 to the darwin arm64 asset"
 assert_eq "$(bash "$ACTION_INSTALL" --print-asset-name --version v1.0.0 --os macOS --arch ARM64)" \
-	"atlas_v1.0.0_darwin_arm64"
+	"grunnr_v1.0.0_darwin_arm64"
 
 it "the action's installer maps Windows/X64 to the .exe asset"
 assert_eq "$(bash "$ACTION_INSTALL" --print-asset-name --version v1.0.0 --os Windows --arch X64)" \
-	"atlas_v1.0.0_windows_amd64.exe"
+	"grunnr_v1.0.0_windows_amd64.exe"
 
 it "the action's installer rejects an unknown runner OS"
 bash "$ACTION_INSTALL" --print-asset-name --version v1.0.0 --os Solaris --arch X64 >/dev/null 2>&1
@@ -496,14 +496,14 @@ fi
 
 it "the action's installer accepts the edge channel"
 assert_eq "$(bash "$ACTION_INSTALL" --print-asset-name --version edge --os Linux --arch X64)" \
-	"atlas_edge_linux_amd64"
+	"grunnr_edge_linux_amd64"
 
 # ---------------------------------------------------------------------------
 # The edge channel's asset names.
 #
-# The installer asks for `atlas_edge_<goos>_<goarch>`, but an edge build is
+# The installer asks for `grunnr_edge_<goos>_<goarch>`, but an edge build is
 # stamped with `git describe`, so build.sh writes
-# `atlas_v0.13.0-7-gabc1234_linux_amd64`. Nothing reconciled the two, so the
+# `grunnr_v0.13.0-7-gabc1234_linux_amd64`. Nothing reconciled the two, so the
 # advertised edge install 404'd on every platform. edge-assets.sh closes
 # that, and these cases check the two ends AGAINST EACH OTHER rather than
 # each against a literal — a literal in both places is how they drifted
@@ -518,9 +518,9 @@ edge_fixture() {
 	rm -rf "$dir"
 	mkdir -p "$dir"
 	for f in linux_amd64 linux_arm64 darwin_arm64 windows_amd64.exe; do
-		printf 'binary\n' >"$dir/atlas_${EDGE_DESCRIBE}_${f}"
+		printf 'binary\n' >"$dir/grunnr_${EDGE_DESCRIBE}_${f}"
 	done
-	printf '{}\n' >"$dir/atlas_${EDGE_DESCRIBE}_sbom.spdx.json"
+	printf '{}\n' >"$dir/grunnr_${EDGE_DESCRIBE}_sbom.spdx.json"
 }
 
 it "edge-assets.sh produces exactly the asset name the installer downloads"
@@ -542,14 +542,14 @@ want="$(bash "$ACTION_INSTALL" --print-asset-name --version edge --os Windows --
 if [ -f "$edgedist/$want" ]; then pass; else fail "missing [$want]"; fi
 
 it "edge-assets.sh renames the SBOM alongside the binaries"
-if [ -f "$edgedist/atlas_edge_sbom.spdx.json" ]; then
+if [ -f "$edgedist/grunnr_edge_sbom.spdx.json" ]; then
 	pass
 else
 	fail "SBOM keeps a describe-stamped name: $(ls "$edgedist" | tr '\n' ' ')"
 fi
 
 it "edge-assets.sh leaves nothing behind under the describe-stamped name"
-leftover="$(find "$edgedist" -name "atlas_${EDGE_DESCRIBE}_*" | wc -l | tr -d ' ')"
+leftover="$(find "$edgedist" -name "grunnr_${EDGE_DESCRIBE}_*" | wc -l | tr -d ' ')"
 assert_eq "$leftover" "0"
 
 # A publish that produced no edge-named asset would upload a release nobody
@@ -557,14 +557,14 @@ assert_eq "$leftover" "0"
 it "edge-assets.sh fails rather than publish a release with no reachable names"
 emptydist="$WORK/edge-empty"
 mkdir -p "$emptydist"
-printf 'x\n' >"$emptydist/atlas_v9.9.9_linux_amd64"
+printf 'x\n' >"$emptydist/grunnr_v9.9.9_linux_amd64"
 bash "$EDGE_ASSETS" --dist "$emptydist" --version "$EDGE_DESCRIBE" >/dev/null 2>&1
 assert_not_ok $?
 
 it "edge-assets.sh is a no-op when the assets already carry the edge names"
 donedist="$WORK/edge-done"
 mkdir -p "$donedist"
-printf 'x\n' >"$donedist/atlas_edge_linux_amd64"
+printf 'x\n' >"$donedist/grunnr_edge_linux_amd64"
 bash "$EDGE_ASSETS" --dist "$donedist" --version edge >/dev/null 2>&1
 assert_ok $?
 
@@ -585,7 +585,7 @@ brew_fixture() {
 	rm -rf "$dir"
 	mkdir -p "$dir"
 	for t in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
-		printf '%s\n' "$t" >"$dir/atlas_${version}_${t}"
+		printf '%s\n' "$t" >"$dir/grunnr_${version}_${t}"
 	done
 	bash "$SCRIPT_DIR/checksums.sh" "$dir" >/dev/null 2>&1
 }
@@ -593,12 +593,12 @@ brew_fixture() {
 it "brew-formula.sh copies each digest out of the release manifest"
 brewdist="$WORK/brew-dist"
 brew_fixture "$brewdist" v1.2.3
-formula="$(bash "$BREW_FORMULA" --version v1.2.3 --dist "$brewdist" --repo acme/atlas 2>&1)"
+formula="$(bash "$BREW_FORMULA" --version v1.2.3 --dist "$brewdist" --repo acme/grunnr 2>&1)"
 rc=$?
 if [ $rc -ne 0 ]; then
 	fail "brew-formula.sh failed: $formula"
 else
-	want="$(grep ' atlas_v1.2.3_darwin_arm64$' "$brewdist/SHA256SUMS" | awk '{print $1}')"
+	want="$(grep ' grunnr_v1.2.3_darwin_arm64$' "$brewdist/SHA256SUMS" | awk '{print $1}')"
 	assert_contains "$formula" "sha256 \"$want\""
 fi
 
@@ -606,14 +606,14 @@ it "brew-formula.sh names the bare semver as the Homebrew version"
 assert_contains "$formula" 'version "1.2.3"'
 
 it "brew-formula.sh points at the release download URLs"
-assert_contains "$formula" 'https://github.com/acme/atlas/releases/download/v1.2.3/atlas_v1.2.3_linux_arm64'
+assert_contains "$formula" 'https://github.com/acme/grunnr/releases/download/v1.2.3/grunnr_v1.2.3_linux_arm64'
 
 # A formula that silently omits a platform installs nothing on that
 # platform, and the person who finds out is a user, not the pipeline.
 it "brew-formula.sh fails when a platform is missing from the manifest"
 partial="$WORK/brew-partial"
 brew_fixture "$partial" v1.2.3
-grep -v ' atlas_v1.2.3_darwin_amd64$' "$partial/SHA256SUMS" >"$partial/SHA256SUMS.tmp"
+grep -v ' grunnr_v1.2.3_darwin_amd64$' "$partial/SHA256SUMS" >"$partial/SHA256SUMS.tmp"
 mv "$partial/SHA256SUMS.tmp" "$partial/SHA256SUMS"
 bash "$BREW_FORMULA" --version v1.2.3 --dist "$partial" >/dev/null 2>&1
 assert_not_ok $?
@@ -633,7 +633,7 @@ assert_not_ok $?
 #
 # Four independent places spell out what a released file is called:
 #
-#   lib.sh    atlas_artifact_name  — what the publisher writes into dist/
+#   lib.sh    grunnr_artifact_name  — what the publisher writes into dist/
 #   install.sh                     — what the consumer action downloads
 #   brew-formula.sh                — what `brew install` fetches
 #   checksums.sh                   — what the signature ends up covering
@@ -670,14 +670,14 @@ runner_labels_for() {
 it "every shipped target's published name is the name the installer asks for"
 NAME_VERSION="v1.2.3"
 mismatched=""
-for target in $ATLAS_TARGETS; do
+for target in $GRUNNR_TARGETS; do
 	goos="${target%%/*}"
 	goarch="${target##*/}"
 	labels="$(runner_labels_for "$goos" "$goarch")" || {
 		mismatched="$mismatched $target(no-runner-labels)"
 		continue
 	}
-	published="$(atlas_artifact_name "$NAME_VERSION" "$goos" "$goarch")"
+	published="$(grunnr_artifact_name "$NAME_VERSION" "$goos" "$goarch")"
 	requested="$(bash "$ACTION_INSTALL" --print-asset-name \
 		--version "$NAME_VERSION" --os "${labels%% *}" --arch "${labels##* }")"
 	[ "$published" = "$requested" ] ||
@@ -697,7 +697,7 @@ it "the Homebrew formula's download urls are the published asset names"
 brewnames="$WORK/brew-names"
 brew_fixture "$brewnames" "$NAME_VERSION"
 formula_out="$(bash "$BREW_FORMULA" --version "$NAME_VERSION" --dist "$brewnames" \
-	--repo acme/atlas 2>&1)"
+	--repo acme/grunnr 2>&1)"
 if [ $? -ne 0 ]; then
 	fail "brew-formula.sh failed: $formula_out"
 else
@@ -746,19 +746,19 @@ if ! command -v go >/dev/null 2>&1; then
 	skip "go toolchain not on PATH"
 else
 	# The toolchain pin is a hard failure by default, so every build case
-	# below sets ATLAS_SKIP_TOOLCHAIN_CHECK=1: these tests are about the
+	# below sets GRUNNR_SKIP_TOOLCHAIN_CHECK=1: these tests are about the
 	# script's behaviour, and must pass on a contributor's machine whatever
 	# Go they happen to have. The pin itself gets its own two cases.
-	export ATLAS_SKIP_TOOLCHAIN_CHECK=1
+	export GRUNNR_SKIP_TOOLCHAIN_CHECK=1
 
 	it "build.sh refuses to build against an unpinned toolchain"
-	env -u ATLAS_SKIP_TOOLCHAIN_CHECK \
-		VERSION=v9.8.7 ATLAS_TOOLCHAIN_PIN=0.0.1 DIST="$WORK/dist-pin" \
+	env -u GRUNNR_SKIP_TOOLCHAIN_CHECK \
+		VERSION=v9.8.7 GRUNNR_TOOLCHAIN_PIN=0.0.1 DIST="$WORK/dist-pin" \
 		bash "$SCRIPT_DIR/build.sh" >/dev/null 2>&1
 	assert_not_ok $?
 
 	it "build.sh downgrades the toolchain pin to a warning when asked"
-	out="$(VERSION=v9.8.7 ATLAS_TOOLCHAIN_PIN=0.0.1 DIST="$WORK/dist-pin2" \
+	out="$(VERSION=v9.8.7 GRUNNR_TOOLCHAIN_PIN=0.0.1 DIST="$WORK/dist-pin2" \
 		bash "$SCRIPT_DIR/build.sh" 2>&1)"
 	rc=$?
 	if [ $rc -ne 0 ]; then
@@ -772,7 +772,7 @@ else
 	buildlog="$WORK/build1.log"
 	if VERSION=v9.8.7 SOURCE_DATE_EPOCH=1000000000 DIST="$dist" \
 		bash "$SCRIPT_DIR/build.sh" >"$buildlog" 2>&1; then
-		bin="$dist/$(atlas_artifact_name v9.8.7 "$(go env GOOS)" "$(go env GOARCH)")"
+		bin="$dist/$(grunnr_artifact_name v9.8.7 "$(go env GOOS)" "$(go env GOARCH)")"
 		if [ ! -x "$bin" ]; then
 			fail "expected binary at $bin; dist contains: $(ls "$dist" 2>&1)"
 		else
@@ -787,7 +787,7 @@ else
 	fi
 
 	it "build.sh stamps the build date from SOURCE_DATE_EPOCH, not the wall clock"
-	bin="$dist/$(atlas_artifact_name v9.8.7 "$(go env GOOS)" "$(go env GOARCH)")"
+	bin="$dist/$(grunnr_artifact_name v9.8.7 "$(go env GOOS)" "$(go env GOARCH)")"
 	if [ -x "$bin" ]; then
 		assert_contains "$("$bin" version --json 2>&1)" '"build_date": "2001-09-09T01:46:40Z"'
 	else
@@ -823,7 +823,7 @@ else
 		fail "verify-repro.sh failed: $(cat "$reprolog")"
 	fi
 
-	if [ "${ATLAS_SCRIPT_TESTS_SLOW:-0}" = "1" ]; then
+	if [ "${GRUNNR_SCRIPT_TESTS_SLOW:-0}" = "1" ]; then
 		it "build-matrix.sh builds every command for every shipped target, cgo-free"
 		mlog="$WORK/matrix.log"
 		if VERSION=v9.8.7 DIST="$WORK/distmatrix" \
@@ -832,8 +832,8 @@ else
 			# target or a binary does not require editing a number here --
 			# this assertion was `6` and went red the day a second binary
 			# shipped, which is the right failure but the wrong maintenance.
-			ncmds="$(printf '%s\n' $ATLAS_COMMANDS | wc -l | tr -d ' ')"
-			ntargets="$(printf '%s\n' $ATLAS_TARGETS | wc -l | tr -d ' ')"
+			ncmds="$(printf '%s\n' $GRUNNR_COMMANDS | wc -l | tr -d ' ')"
+			ntargets="$(printf '%s\n' $GRUNNR_TARGETS | wc -l | tr -d ' ')"
 			count="$(find "$WORK/distmatrix" -type f | wc -l | tr -d ' ')"
 			assert_eq "$count" "$((ncmds * ntargets))"
 		else
@@ -841,7 +841,7 @@ else
 		fi
 	else
 		it "build-matrix.sh builds every command for every shipped target, cgo-free"
-		skip "set ATLAS_SCRIPT_TESTS_SLOW=1 to run the full cross-compile"
+		skip "set GRUNNR_SCRIPT_TESTS_SLOW=1 to run the full cross-compile"
 	fi
 fi
 
@@ -903,45 +903,45 @@ fi
 
 # --- two binaries ------------------------------------------------------------
 #
-# The release ships `atlas` and `atlas-serve`. The second exists because
+# The release ships `grunnr` and `grunnr-serve`. The second exists because
 # docs/security.md's "nothing leaves your machine" is enforced by an import
-# check on cmd/atlas, and an HTTP API needs net/http -- so the API lives in a
+# check on cmd/grunnr, and an HTTP API needs net/http -- so the API lives in a
 # binary that listens and is separately proven never to dial out.
 #
 # Everything below guards the ways that split can go quietly wrong in the
 # pipeline: a stamp written into a symbol the binary does not link, an
 # artifact name collision, or a manifest that covers one of them.
 
-it "ATLAS_COMMANDS names both shipped binaries"
-assert_eq "$ATLAS_COMMANDS" "atlas atlas-serve"
+it "GRUNNR_COMMANDS names both shipped binaries"
+assert_eq "$GRUNNR_COMMANDS" "grunnr grunnr-serve"
 
-it "atlas_artifact_name defaults to atlas and accepts a binary"
-assert_eq "$(atlas_artifact_name v1.2.3 linux amd64)" "atlas_v1.2.3_linux_amd64"
-assert_eq "$(atlas_artifact_name v1.2.3 linux amd64 atlas-serve)" "atlas-serve_v1.2.3_linux_amd64"
-assert_eq "$(atlas_artifact_name v1.2.3 windows arm64 atlas-serve)" "atlas-serve_v1.2.3_windows_arm64.exe"
+it "grunnr_artifact_name defaults to grunnr and accepts a binary"
+assert_eq "$(grunnr_artifact_name v1.2.3 linux amd64)" "grunnr_v1.2.3_linux_amd64"
+assert_eq "$(grunnr_artifact_name v1.2.3 linux amd64 grunnr-serve)" "grunnr-serve_v1.2.3_linux_amd64"
+assert_eq "$(grunnr_artifact_name v1.2.3 windows arm64 grunnr-serve)" "grunnr-serve_v1.2.3_windows_arm64.exe"
 
 it "the two artifact names never collide"
-# atlas_* must not match atlas-serve_*, or the SLSA subject glob, the brew
+# grunnr_* must not match grunnr-serve_*, or the SLSA subject glob, the brew
 # formula and the smoke download would each silently take the wrong set.
-# `atlas_*` matching six of twelve is exactly the bug this pins.
-case "$(atlas_artifact_name v1.2.3 linux amd64 atlas-serve)" in
-atlas_*) fail "atlas-serve's artifact name matches the atlas_* glob" ;;
+# `grunnr_*` matching six of twelve is exactly the bug this pins.
+case "$(grunnr_artifact_name v1.2.3 linux amd64 grunnr-serve)" in
+grunnr_*) fail "grunnr-serve's artifact name matches the grunnr_* glob" ;;
 *) pass ;;
 esac
 
-it "atlas_ldflags_pkg targets a different package per binary"
-# atlas-serve does not import internal/cli, and -X against a symbol that is
+it "grunnr_ldflags_pkg targets a different package per binary"
+# grunnr-serve does not import internal/cli, and -X against a symbol that is
 # not linked in is silently a no-op -- so one hardcoded path would leave the
 # second binary unversioned with nothing to notice.
-assert_eq "$(atlas_ldflags_pkg atlas)" "github.com/sosalejandro/atlas/internal/cli"
-assert_eq "$(atlas_ldflags_pkg atlas-serve)" "main"
+assert_eq "$(grunnr_ldflags_pkg grunnr)" "github.com/sosalejandro/grunnr/internal/cli"
+assert_eq "$(grunnr_ldflags_pkg grunnr-serve)" "main"
 
-it "atlas_ldflags_pkg refuses a command it does not know"
+it "grunnr_ldflags_pkg refuses a command it does not know"
 set +e
-atlas_ldflags_pkg not-a-binary >/dev/null 2>&1
+grunnr_ldflags_pkg not-a-binary >/dev/null 2>&1
 ldflags_rc=$?
 set -e
-if [ "$ldflags_rc" -ne 0 ]; then pass; else fail "atlas_ldflags_pkg accepted an unknown command"; fi
+if [ "$ldflags_rc" -ne 0 ]; then pass; else fail "grunnr_ldflags_pkg accepted an unknown command"; fi
 
 it "build.sh refuses a command that does not exist"
 set +e
@@ -950,32 +950,32 @@ badcmd_rc=$?
 set -e
 if [ "$badcmd_rc" -ne 0 ]; then pass; else fail "build.sh built a command with no cmd/ directory"; fi
 
-it "build.sh stamps atlas-serve so it is not an unversioned binary"
-if CMD=atlas-serve VERSION=v9.9.9 ATLAS_SKIP_TOOLCHAIN_CHECK=1 DIST="$WORK/two" \
+it "build.sh stamps grunnr-serve so it is not an unversioned binary"
+if CMD=grunnr-serve VERSION=v9.9.9 GRUNNR_SKIP_TOOLCHAIN_CHECK=1 DIST="$WORK/two" \
 	bash "$SCRIPT_DIR/build.sh" >"$WORK/serve-build.log" 2>&1; then
-	serve_bin="$(ls "$WORK"/two/atlas-serve_* 2>/dev/null | head -1)"
+	serve_bin="$(ls "$WORK"/two/grunnr-serve_* 2>/dev/null | head -1)"
 	if [ -z "$serve_bin" ]; then
-		fail "build.sh produced no atlas-serve artifact"
+		fail "build.sh produced no grunnr-serve artifact"
 	else
 		serve_ver="$("$serve_bin" --version 2>&1)"
 		case "$serve_ver" in
 		*v9.9.9*) pass ;;
-		*) fail "atlas-serve reports '$serve_ver', not the stamped v9.9.9" ;;
+		*) fail "grunnr-serve reports '$serve_ver', not the stamped v9.9.9" ;;
 		esac
 	fi
 else
-	fail "build.sh failed for atlas-serve: $(cat "$WORK/serve-build.log")"
+	fail "build.sh failed for grunnr-serve: $(cat "$WORK/serve-build.log")"
 fi
 
-it "atlas-serve renders its contract without binding a port"
+it "grunnr-serve renders its contract without binding a port"
 if [ -n "${serve_bin:-}" ] && [ -x "${serve_bin:-}" ]; then
 	if "$serve_bin" --openapi 2>/dev/null | grep -q 'openapi:'; then
 		pass
 	else
-		fail "atlas-serve --openapi emitted no OpenAPI document"
+		fail "grunnr-serve --openapi emitted no OpenAPI document"
 	fi
 else
-	skip "atlas-serve was not built"
+	skip "grunnr-serve was not built"
 fi
 
 # --- smoke-release.sh ------------------------------------------------------
@@ -999,21 +999,21 @@ smoke_missing_rc=$?
 set -e
 assert_eq "$smoke_missing_rc" "2"
 
-it "smoke-release.sh fails on a binary that is not atlas"
+it "smoke-release.sh fails on a binary that is not grunnr"
 # A file that exists and is executable but cannot index anything. Exiting 0
 # here would mean the release gate passes on any file of the right name.
-printf '#!/bin/sh\nexit 0\n' >"$WORK/fake-atlas"
-chmod +x "$WORK/fake-atlas"
+printf '#!/bin/sh\nexit 0\n' >"$WORK/fake-grunnr"
+chmod +x "$WORK/fake-grunnr"
 set +e
-bash "$SCRIPT_DIR/smoke-release.sh" "$WORK/fake-atlas" >/dev/null 2>&1
+bash "$SCRIPT_DIR/smoke-release.sh" "$WORK/fake-grunnr" >/dev/null 2>&1
 smoke_fake_rc=$?
 set -e
 assert_eq "$smoke_fake_rc" "1"
 
 it "smoke-release.sh passes against a binary built from this checkout"
-if go build -o "$WORK/atlas-smoke" "$REPO_ROOT/cmd/atlas" 2>/dev/null; then
+if go build -o "$WORK/grunnr-smoke" "$REPO_ROOT/cmd/grunnr" 2>/dev/null; then
 	set +e
-	bash "$SCRIPT_DIR/smoke-release.sh" "$WORK/atlas-smoke" >"$WORK/smoke.log" 2>&1
+	bash "$SCRIPT_DIR/smoke-release.sh" "$WORK/grunnr-smoke" >"$WORK/smoke.log" 2>&1
 	smoke_real_rc=$?
 	set -e
 	if [ "$smoke_real_rc" -ne 0 ]; then
@@ -1021,7 +1021,7 @@ if go build -o "$WORK/atlas-smoke" "$REPO_ROOT/cmd/atlas" 2>/dev/null; then
 	fi
 	assert_eq "$smoke_real_rc" "0"
 else
-	skip "could not build cmd/atlas"
+	skip "could not build cmd/grunnr"
 fi
 
 # ---------------------------------------------------------------------------

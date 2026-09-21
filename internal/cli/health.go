@@ -7,14 +7,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newHealthCmd implements `atlas health [--feature <id>] [--worst N]`.
+// newHealthCmd implements `grunnr health [--feature <id>] [--worst N]`.
 //
-// The verb was `atlas audit` until issue #112. Three words named one number:
+// The verb was `grunnr audit` until issue #112. Three words named one number:
 // the command said audit, the type said FeatureHealth, and the docs said
 // score, which is how a reader concludes there are three numbers. `health` is
 // the one that already matched the type. The old verb stays as an alias --
@@ -32,7 +32,7 @@ func newHealthCmd() *cobra.Command {
 		Short:   "Health scores per feature (worst first by default)",
 		Long: `health computes the per-feature health score from the SQLite store.
 
-Renamed from 'atlas audit' by issue #112 -- the old verb still works for one
+Renamed from 'grunnr audit' by issue #112 -- the old verb still works for one
 minor version.
 
 Without --feature, every feature is scored; results are ordered
@@ -53,7 +53,7 @@ error if it doesn't exist).
 	return cmd
 }
 
-// healthResult is the JSON payload for `atlas health`.
+// healthResult is the JSON payload for `grunnr health`.
 type healthResult struct {
 	Features []audit.FeatureHealth `json:"features"`
 }
@@ -138,7 +138,7 @@ func printHealthText(cmd *cobra.Command, hs []audit.FeatureHealth) {
 //
 // The unavailable case is the one that has to be printed. It carries no
 // component — an unjudgeable signal must not be scored — so without this line
-// an operator who had just run `atlas flow` over the feature would see no
+// an operator who had just run `grunnr flow` over the feature would see no
 // trace of it and conclude the run did nothing. And the undetermined count is
 // printed even at 100%, because "every branch we could judge was taken, and
 // four we could not judge at all" is not the same report as "every branch was

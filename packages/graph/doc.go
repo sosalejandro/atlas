@@ -1,4 +1,4 @@
-// Package graph is the call-graph data structure Atlas uses everywhere a
+// Package graph is the call-graph data structure Grunnr uses everywhere a
 // call/edge relationship matters.
 //
 // Per docs/architecture.md §3.3 this package is a *passive* data structure:
@@ -12,7 +12,7 @@
 //
 // # Choosing between graph.Graph and store.Edges for graph walks
 //
-// Atlas exposes two call-graph walk surfaces. Pick the one that matches
+// Grunnr exposes two call-graph walk surfaces. Pick the one that matches
 // your dependency-cone budget:
 //
 //   - graph.Graph.Callees / ChainFrom / FindPathTo
@@ -25,10 +25,10 @@
 //     full store package pulls ~50MB of binary weight; graph alone is
 //     under ~20MB).
 //
-//   - store.Edges.Walk (recursive CTE against .atlas/atlas.db)
+//   - store.Edges.Walk (recursive CTE against .grunnr/grunnr.db)
 //     Database-backed traversal. Use when:
 //
-//   - You are inside atlas itself (CLI verbs, audit pipelines) and the
+//   - You are inside grunnr itself (CLI verbs, audit pipelines) and the
 //     Store is already open.
 //
 //   - You want SQL-side filtering (depth bound, kind filter) without
@@ -38,8 +38,8 @@
 //
 // External Go consumers SHOULD prefer graph.Graph.Callees — the in-memory
 // path is the leaner dep cone and stays fast for typical project sizes
-// (atlas's own bmad-cli integration uses this path). atlas.Edges.Walk is
-// the in-process default for atlas's own pipelines.
+// (grunnr's own bmad-cli integration uses this path). grunnr.Edges.Walk is
+// the in-process default for grunnr's own pipelines.
 //
 // Both surfaces respect the same edge model and produce equivalent results
 // for a given graph state. Mixing them within a single workflow is fine —

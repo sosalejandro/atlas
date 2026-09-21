@@ -7,13 +7,13 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Kinds is the closed enum of recognised @atlas:<kind> values.
 //
 // Per docs/annotations.md §Forward compatibility, adding a new kind here is
-// non-breaking: older Atlas versions encounter the unknown kind, emit a
+// non-breaking: older Grunnr versions encounter the unknown kind, emit a
 // one-time advisory warning, and skip the annotation.
 var Kinds = map[string]shared.AnnotationKind{
 	"feature":    shared.AnnFeature,
@@ -100,8 +100,17 @@ var reservedBareTags = map[string]bool{
 }
 
 var (
-	// New canonical grammar: `@atlas:<kind> <payload>`.
-	atlasAnnotationRe = regexp.MustCompile(`@atlas:([a-zA-Z][a-zA-Z0-9_-]*)\s+(.+?)\s*$`)
+	// Canonical grammar: `@grunnr:<kind> <payload>`.
+	//
+	// `@atlas:` is accepted forever, exactly as `@testreg` is below. The
+	// prefix lives in USERS' SOURCE FILES, so a rename that stopped reading
+	// it would silently drop every feature link in a repository that had
+	// done nothing wrong -- and the failure would look like "the tool found
+	// no features", which is indistinguishable from a project that has none.
+	//
+	// One regex with an alternation rather than two, so a future prefix
+	// cannot be added to one path and forgotten in the other.
+	grunnrAnnotationRe = regexp.MustCompile(`@(?:grunnr|atlas):([a-zA-Z][a-zA-Z0-9_-]*)\s+(.+?)\s*$`)
 	// Legacy grammar: `@testreg <payload>` (still recognised indefinitely).
 	testregAnnotationRe = regexp.MustCompile(`@testreg\s+(.+?)\s*$`)
 	// `@api METHOD /path` — orthogonal to @atlas:<kind>; used for handler
@@ -202,7 +211,7 @@ func ParseBytes(relPath string, content []byte, style CommentStyle) []shared.Ann
 // surface is deliberately lossy here — strict validation is the resolver's
 // job; the parser's only job is "best effort extract".
 func parseAtlasLine(ll logicalLine, relPath string) (shared.Annotation, bool) {
-	m := atlasAnnotationRe.FindStringSubmatch(ll.text)
+	m := grunnrAnnotationRe.FindStringSubmatch(ll.text)
 	if m == nil {
 		return shared.Annotation{}, false
 	}
@@ -241,7 +250,7 @@ func parseAtlasLine(ll logicalLine, relPath string) (shared.Annotation, bool) {
 		Kind:     kind,
 		IDs:      ids,
 		Tags:     tags,
-		Source:   shared.SourceAtlas,
+		Source:   shared.SourceGrunnr,
 		Position: shared.FilePosition{Path: relPath, Line: ll.lineNum},
 		Raw:      payload,
 	}, true

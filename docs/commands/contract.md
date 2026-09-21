@@ -1,6 +1,6 @@
-# atlas contract
+# grunnr contract
 
-`atlas contract` groups the API-contract-extraction verbs. Today there's a
+`grunnr contract` groups the API-contract-extraction verbs. Today there's a
 single subcommand — `list` — that runs the contract extractor against a
 fresh codeindex scan and prints every discovered contract.
 
@@ -16,7 +16,7 @@ A "contract" is one of:
 ## Usage
 
 ```
-atlas contract list [flags]
+grunnr contract list [flags]
 ```
 
 ## Flags
@@ -26,7 +26,7 @@ atlas contract list [flags]
 | `--kind`                      | (all)                 | Filter by `ContractKind` — one of `huma-op`, `route`, `func`, `graphql`.                          |
 | `--root`                      | repo root / cwd       | Project root for the scan.                                                                        |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                             |
-| `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                   |
+| `--db-path` *(global)*        | `.grunnr/grunnr.db`     | Override the SQLite state path.                                                                   |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                     |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                                                                    |
 
@@ -35,8 +35,8 @@ atlas contract list [flags]
 ### List every contract
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas contract list
+# Run from: /tmp/grunnr-fixture
+$ grunnr contract list
 contracts: 3
   [func/go] Login  go/auth.go:14
     sig: func (*AuthHandler) Login(ctx context.Context, email string, password string) (string, error)
@@ -54,8 +54,8 @@ this view also includes `[huma-op]`, `[route]`, and `[graphql]` entries.
 ### Filter by kind
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas contract list --kind func
+# Run from: /tmp/grunnr-fixture
+$ grunnr contract list --kind func
 contracts: 3
   [func/go] Login  go/auth.go:14
     sig: func (*AuthHandler) Login(ctx context.Context, email string, password string) (string, error)
@@ -73,8 +73,8 @@ REST surface my backend exposes".
 ### JSON envelope
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas contract list --json | jq '.result.contracts[0]'
+# Run from: /tmp/grunnr-fixture
+$ grunnr contract list --json | jq '.result.contracts[0]'
 {
   "kind": "func",
   "language": "go",
@@ -98,7 +98,7 @@ The `result.contracts` array carries one object per row.
    - **GraphQL extractor** — parses `gqlgen` / `graphql-tools` resolvers.
 3. Emit the union, sorted by file:line.
 
-A future verb (`atlas contract diff`) will compare two extracted contract
+A future verb (`grunnr contract diff`) will compare two extracted contract
 sets across snapshots — useful for "did this PR remove an HTTP route".
-Today the diff is available only through [`atlas diff`](./diff.md)'s
+Today the diff is available only through [`grunnr diff`](./diff.md)'s
 `contracts:` slice.

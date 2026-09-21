@@ -37,7 +37,7 @@ fallback.
 Consequences worth knowing before editing:
 
 - `go.mod` declares `module example.com/orderd`. The directory is a
-  separate module from atlas; `testdata/` is skipped by the go tool, so
+  separate module from grunnr; `testdata/` is skipped by the go tool, so
   `go build ./...` at the repo root never sees it.
 - **`go build ./...` and `go test ./...` must pass inside this directory.**
   A type error here does not fail loudly — it degrades the scan of this

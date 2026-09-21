@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 // MaestroScanner discovers Maestro mobile E2E flow files (*.yaml in e2e/flows).

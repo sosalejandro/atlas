@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/coverage"
 )
 
 // goldenJUnit is what `maestro test --format=JUNIT` writes.

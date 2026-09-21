@@ -1,4 +1,4 @@
-# Releasing atlas
+# Releasing grunnr
 
 This document is for maintainers. Users want [docs/install.md](./install.md).
 
@@ -20,18 +20,18 @@ This document is for maintainers. Users want [docs/install.md](./install.md).
 
 ## The one mechanism
 
-Four places record what version atlas is:
+Four places record what version grunnr is:
 
 | Where | Who reads it |
 | --- | --- |
-| `internal/cli.Version` in `internal/cli/root.go` | the user, via `atlas --version` |
+| `internal/cli.Version` in `internal/cli/root.go` | the user, via `grunnr --version` |
 | `.release-please-manifest.json` | release-please, to decide the next bump |
 | `CHANGELOG.md` | a human deciding whether to upgrade |
 | the git tag | everything that downloads a release |
 
 Exactly one thing is allowed to move them: **release-please**. Hand-editing
 a version constant is how they drift apart, and once they have drifted a bug
-report against "atlas v0.13.0" cannot be mapped to a commit, because no such
+report against "grunnr v0.13.0" cannot be mapped to a commit, because no such
 release exists.
 
 `.github/scripts/check-version-consistency.sh` compares all four. It is
@@ -93,7 +93,7 @@ not, and it is the whole thing this pipeline exists to eliminate. Burning
 0.12.0 and 0.13.0 costs nothing and buys an unambiguous first release.
 
 It is a minor rather than a patch because the release is breaking:
-`atlas audit` became `atlas health` and `atlas trace` became `atlas chain`,
+`grunnr audit` became `grunnr health` and `grunnr trace` became `grunnr chain`,
 so anything scripting the CLI breaks. Under `.release-please-config.json`'s
 `bump-minor-pre-major`, a breaking change below 1.0 is a minor bump, which
 is why this is 0.14.0 and not 1.0.0.
@@ -246,7 +246,7 @@ mode being a mystery.
    `--certificate-identity-regexp` in those instructions does not match the
    identity the run actually signed with, this is the step that says so,
    and it is the likeliest thing to be wrong the first time.
-4. **`gh attestation verify <binary> --repo sosalejandro/atlas`** for at
+4. **`gh attestation verify <binary> --repo sosalejandro/grunnr`** for at
    least one binary.
 5. **Rebuild and compare.** `git checkout v0.14.0 && make build
    VERSION=v0.14.0` with the pinned toolchain, then check the digest
@@ -254,11 +254,11 @@ mode being a mystery.
    cross-machine reproducibility claim; CI's `make repro` deliberately does
    not (see [When reproducibility breaks](#when-reproducibility-breaks)).
 6. **Install through the consumer action** from a scratch workflow:
-   `uses: sosalejandro/atlas/.github/actions/atlas@v0.14.0` with
+   `uses: sosalejandro/grunnr/.github/actions/grunnr@v0.14.0` with
    `args: version`. That exercises the download, the checksum check, the
    cosign verification and the provenance check in one go, which is the
    path an adopter takes.
-7. **`atlas version` reports `v0.14.0`** — from the downloaded binary, not
+7. **`grunnr version` reports `v0.14.0`** — from the downloaded binary, not
    from a local build.
 
 ## What has never run
@@ -322,7 +322,7 @@ in pieces.
 **A local dry run cannot produce the release digests.** `build.sh` refuses
 a toolchain other than `.github/scripts/toolchain.txt`'s pin for exactly
 this reason. Anything built locally with
-`ATLAS_SKIP_TOOLCHAIN_CHECK=1` on a different Go is byte-different from
+`GRUNNR_SKIP_TOOLCHAIN_CHECK=1` on a different Go is byte-different from
 what the release job will publish, by design — so a local `SHA256SUMS` is
 useful for checking *shape and names*, never for comparing against a
 published one.
@@ -374,7 +374,7 @@ re-run an existing tag by hand.
 
 `brew install` is an acceptance criterion of issue #121. What lives in this
 repository is the formula generator: `.github/scripts/brew-formula.sh`
-renders `Formula/atlas.rb` for a tag, taking every `sha256` from that
+renders `Formula/grunnr.rb` for a tag, taking every `sha256` from that
 release's signed `SHA256SUMS` rather than recomputing it, so the digest a
 user's `brew` checks and the digest the release published cannot diverge. It
 fails if any of the four `brew`-relevant assets (darwin/linux x
@@ -382,7 +382,7 @@ amd64/arm64) is missing from the manifest — a formula silently missing a
 platform fails first for a user, not for us.
 
 What is **not** in this repository is the tap. Homebrew resolves
-`brew install <owner>/<tap>/atlas` to a repository named
+`brew install <owner>/<tap>/grunnr` to a repository named
 `<owner>/homebrew-<tap>`, which has to exist and has to be writable by
 something other than the default `GITHUB_TOKEN`. That is two settings, and
 until they exist the `homebrew` job in `release.yml` generates the formula,
@@ -393,12 +393,12 @@ prints it in the job summary, and says so:
 | `HOMEBREW_TAP_REPO` | repository **variable** | `<owner>/homebrew-<tap>` |
 | `HOMEBREW_TAP_TOKEN` | repository **secret** | a token that can push to that repository |
 
-With both set, the job commits `Formula/atlas.rb` to the tap's default
+With both set, the job commits `Formula/grunnr.rb` to the tap's default
 branch on every release. With neither, it reports the gap. It never fails
 the release: it runs after publication, so a red X there could not undo
 anything, and naming it "blocking" would misrepresent what it gates.
 
-Nobody has run `brew install atlas` end to end from this repository, because
+Nobody has run `brew install grunnr` end to end from this repository, because
 there is no tap to run it against. Do not write that it works until someone
 has.
 
@@ -424,7 +424,7 @@ is literally `edge`. Nothing reconciled the two until
 `.github/scripts/edge-assets.sh`, so every documented edge install 404'd.
 That script renames the built assets before `SHA256SUMS` is written, so the
 manifest and the signature over it cover the names people actually download;
-the version inside the binary is untouched, and `atlas version` still
+the version inside the binary is untouched, and `grunnr version` still
 reports the describe string.
 
 Two cases in `scripts_test.sh` check the installer's asset name and the
@@ -438,7 +438,7 @@ What a released file is called is written down four times:
 | Where | Spells the name for |
 | --- | --- |
 | `lib.sh`'s `atlas_artifact_name` | what the publisher writes into `dist/` |
-| `.github/actions/atlas/install.sh` | what the consumer action downloads |
+| `.github/actions/grunnr/install.sh` | what the consumer action downloads |
 | `brew-formula.sh` | what `brew install` fetches |
 | `checksums.sh` | what the signature ends up covering |
 
@@ -550,8 +550,8 @@ Named here rather than left for someone to discover:
   a second repository is a decision, not a script. Nothing Scoop-shaped
   exists at all.
 - **Marketplace listing for the action.** The action ships in-tree at
-  `.github/actions/atlas` and is usable today as
-  `sosalejandro/atlas/.github/actions/atlas@vX.Y.Z`. A Marketplace listing
+  `.github/actions/grunnr` and is usable today as
+  `sosalejandro/grunnr/.github/actions/grunnr@vX.Y.Z`. A Marketplace listing
   requires the action at the root of its own repository.
 - **deb/rpm packages and a container image.**
 - **Benchmark regression gate (`benchstat` against the base branch).** #121

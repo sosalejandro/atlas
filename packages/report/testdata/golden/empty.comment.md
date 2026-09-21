@@ -1,5 +1,5 @@
-<!-- atlas-report:sticky -->
-## Atlas report
+<!-- grunnr-report:sticky -->
+## Grunnr report
 
 ### Findings
 

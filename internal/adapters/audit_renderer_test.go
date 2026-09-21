@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/domain"
 )
 
 // --- fixtures ---

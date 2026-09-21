@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/coverage/gocover"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage/gocover"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // ProfileIngestStats summarises a coverprofile ingest.
@@ -19,7 +19,7 @@ type ProfileIngestStats struct {
 	FilesInProfile  int
 	FilesMatched    int
 	SymbolsExecuted int
-	// FilesUnmatched counts profile files that reconciled to NO atlas file
+	// FilesUnmatched counts profile files that reconciled to NO grunnr file
 	// (issue #85 — visibility into attribution misses). A high value
 	// relative to FilesInProfile means production execution is being
 	// dropped: either the file was never indexed (generated code, symbols
@@ -27,9 +27,9 @@ type ProfileIngestStats struct {
 	FilesUnmatched int
 
 	// StmtsAttributed / StmtsUnattributed split the profile's statements
-	// into the ones charged to a symbol and the ones atlas could not place.
+	// into the ones charged to a symbol and the ones grunnr could not place.
 	// StmtsUnattributed is the honest size of the coverage blind spot: it
-	// is what separates "code that ran" from "code atlas knows about".
+	// is what separates "code that ran" from "code grunnr knows about".
 	StmtsAttributed   int
 	StmtsUnattributed int
 
@@ -42,13 +42,13 @@ type ProfileIngestStats struct {
 
 // Gap reasons for FileGap.Reason.
 const (
-	// ReasonNoIndexedSymbol: the profile file reconciled to no atlas file
-	// at all — atlas has zero symbols for it (never scanned, skipped as
+	// ReasonNoIndexedSymbol: the profile file reconciled to no grunnr file
+	// at all — grunnr has zero symbols for it (never scanned, skipped as
 	// generated, or every symbol in it lost a short-name collision).
 	ReasonNoIndexedSymbol = "no-indexed-symbol"
 	// ReasonOutsideSymbolSpans: the file IS indexed, but these statements
 	// fall outside every indexed symbol's [line, end_line] span — code in
-	// declarations atlas did not index (e.g. package-private helpers when
+	// declarations grunnr did not index (e.g. package-private helpers when
 	// SkipUnexportedFuncs is on, or stale symbol positions).
 	ReasonOutsideSymbolSpans = "outside-symbol-spans"
 )
@@ -58,7 +58,7 @@ type FileGap struct {
 	// Path is the file as it appears in the coverage profile
 	// (import-path-qualified, e.g. github.com/org/repo/pkg/svc.go).
 	Path string `json:"path"`
-	// Stmts is the number of statements atlas could not attribute.
+	// Stmts is the number of statements grunnr could not attribute.
 	Stmts int `json:"stmts"`
 	// Reason is one of ReasonNoIndexedSymbol / ReasonOutsideSymbolSpans.
 	Reason string `json:"reason"`
@@ -86,7 +86,7 @@ type symSpan struct {
 // execution to the symbols that ran, the basis for true per-feature coverage
 // once features are linked to their impl surface (call-graph derivation).
 //
-// Profile file paths are import-path-qualified (module prefix); atlas symbol
+// Profile file paths are import-path-qualified (module prefix); grunnr symbol
 // file paths are repo-relative. They are reconciled by suffix match.
 func IngestGoProfile(ctx context.Context, s *store.Store, meta RunMeta, r io.Reader) (ProfileIngestStats, error) {
 	var stats ProfileIngestStats
@@ -204,14 +204,14 @@ type attributionReport struct {
 	// is: the per-test ingest folds many profiles, and only a per-file key
 	// lets merge() tell "the same file again" from "another file".
 	attributedByFile map[string]int
-	// files records every report file and whether it reconciled to an atlas
+	// files records every report file and whether it reconciled to an grunnr
 	// file. It is the file SET rather than a pair of counters because the
 	// per-test ingest folds many profiles that all describe the same
 	// codebase; counting per profile would multiply one file by the number
 	// of tests that compiled it in.
 	files map[string]bool
 	// lostByFile is the profile path → unattributed statements, and
-	// reasonByFile why. Both are keyed by the PROFILE path (not the atlas
+	// reasonByFile why. Both are keyed by the PROFILE path (not the grunnr
 	// path) so the report names files the way the profile does.
 	lostByFile   map[string]int
 	reasonByFile map[string]string
@@ -260,7 +260,7 @@ func (r *attributionReport) finalize() {
 //
 // Union, not sum, because every per-test profile describes the SAME codebase:
 // a `-coverpkg=./...` profile names every file whether or not that test
-// touched it, so a file atlas cannot index appears in all 1,122 profiles.
+// touched it, so a file grunnr cannot index appears in all 1,122 profiles.
 // Summing would report a blind spot 1,122x larger than the code that exists.
 // Whether a statement CAN be attributed is a property of the symbol index,
 // identical in every profile, so per file the largest value seen is the true
@@ -331,10 +331,10 @@ func (r attributionReport) gaps() []FileGap {
 // Σ NumStmts of executed (Count>0) blocks.
 //
 // Everything it cannot place is recorded rather than dropped (issue #85):
-// a profile file that reconciles to no atlas file is counted whole, and a
+// a profile file that reconciles to no grunnr file is counted whole, and a
 // block inside a reconciled file that falls outside every symbol span is
 // counted against that file. The caller reports both, so the difference
-// between "code that ran" and "code atlas knows about" is visible.
+// between "code that ran" and "code grunnr knows about" is visible.
 //
 // Attribution is by the block's START line falling inside the symbol span
 // (rather than range-overlap) so a block is charged to exactly one symbol and
@@ -342,7 +342,7 @@ func (r attributionReport) gaps() []FileGap {
 // a per-feature fraction that tracks `go tool cover -func`.
 func attributeStatements(blocksByFile map[string][]gocover.Block, byFile map[string][]symSpan) attributionReport {
 	rep := newAttributionReport()
-	// Index atlas files by basename for suffix-match reconciliation.
+	// Index grunnr files by basename for suffix-match reconciliation.
 	byBase := map[string][]string{}
 	for f := range byFile {
 		byBase[path.Base(f)] = append(byBase[path.Base(f)], f)
@@ -401,9 +401,9 @@ func owningSymbol(syms []symSpan, line int) (int64, bool) {
 	return best, found
 }
 
-// reconcilePath finds the atlas (repo-relative) file path that the import-
+// reconcilePath finds the grunnr (repo-relative) file path that the import-
 // path-qualified profile file ends with. Matches on basename first, then
-// confirms the atlas path is a path-suffix of the profile path.
+// confirms the grunnr path is a path-suffix of the profile path.
 func reconcilePath(profileFile string, byBase map[string][]string) string {
 	cands := byBase[path.Base(profileFile)]
 	best := ""

@@ -8,7 +8,7 @@ import (
 // IsNestedRepoRoot reports whether dir is the root of a git repository other
 // than the one being scanned.
 //
-// It lives in shared because atlas has four independent directory walks --
+// It lives in shared because grunnr has four independent directory walks --
 // the annotation walk, the Go scanner, and the Python and TypeScript
 // sub-scanners, the last two in their own languages. The rule has to be
 // identical in all of them: a boundary honoured by three walkers and missed
@@ -21,7 +21,7 @@ import (
 //     worktree has (it holds `gitdir: ...`), and it is the case that produced
 //     the original report. os.Lstat accepts both; an IsDir() check would have
 //     missed the very instance this exists for.
-//   - The scan root is exempt. Atlas is nearly always run at the top of a
+//   - The scan root is exempt. Grunnr is nearly always run at the top of a
 //     repository, which by definition contains .git, so treating the root as
 //     a boundary would make every scan return nothing -- the same bug in the
 //     other direction and far louder.

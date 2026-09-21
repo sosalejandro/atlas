@@ -4,7 +4,7 @@ package redact
 // Take() says what the database holds; this says what leaves it, and where
 // each thing goes.
 //
-// Nothing here describes a network transfer, because atlas performs none.
+// Nothing here describes a network transfer, because grunnr performs none.
 // Every entry is a local file or a stream handed to a process the operator
 // started. That is the whole of the egress story today, and the point of
 // writing it down as data rather than prose is that internal/cli's
@@ -40,7 +40,7 @@ func Exports() []Export { return exports }
 
 // ExportsFor returns the catalogue entries whose verb path starts with the
 // given verb, or every entry when verb is empty. It is what backs
-// `atlas security --export <verb>`: "what would THIS command disclose".
+// `grunnr security --export <verb>`: "what would THIS command disclose".
 func ExportsFor(verb string) []Export {
 	if verb == "" {
 		return exports
@@ -94,22 +94,22 @@ var exports = []Export{
 	{
 		Verb:        "onboard",
 		Surface:     "the provisional capability map",
-		Destination: "a local file, .atlas/provisional/capabilities.json",
+		Destination: "a local file, .grunnr/provisional/capabilities.json",
 		Classes:     structuralClasses,
 		Note: "package and directory names, symbol names, route paths and the " +
 			"table names a capability touches. It carries no verbatim source " +
 			"text -- the inference reads structure, not bodies -- but a route " +
 			"path and a table name are still proprietary shape, and this file " +
 			"is the one onboarding artifact a user is most likely to paste " +
-			"into an issue or a chat while asking what atlas found.",
+			"into an issue or a chat while asking what grunnr found.",
 	},
 	{
 		Verb:        "",
 		Surface:     "the state database",
-		Destination: "a local file, .atlas/atlas.db by default",
+		Destination: "a local file, .grunnr/grunnr.db by default",
 		Classes:     allClasses,
 		Note: "written by init, scan, snapshot, cov, sql, flow and trend. " +
-			"Copying this file copies everything `atlas security` lists, " +
+			"Copying this file copies everything `grunnr security` lists, " +
 			"including the verbatim source text columns.",
 	},
 	{
@@ -118,8 +118,8 @@ var exports = []Export{
 		Destination: "stdout",
 		Classes:     allClasses,
 		Note: "every verb accepts --json. What a given envelope carries is " +
-			"whatever that verb reads: `atlas sql --json` includes query " +
-			"text, `atlas flow --json` includes branch conditions.",
+			"whatever that verb reads: `grunnr sql --json` includes query " +
+			"text, `grunnr flow --json` includes branch conditions.",
 	},
 	{
 		Verb:        "report sarif",
@@ -145,7 +145,7 @@ var exports = []Export{
 		Surface:     "sticky pull-request comment markdown",
 		Destination: "stdout; the operator pipes it to `gh pr comment`",
 		Classes:     structuralClasses,
-		Note: "atlas never calls the GitHub API itself. The comment becomes " +
+		Note: "grunnr never calls the GitHub API itself. The comment becomes " +
 			"public the moment it is posted on a public repository.",
 	},
 	{
@@ -162,7 +162,7 @@ var exports = []Export{
 		Surface:     "coverage counter snapshots",
 		Destination: "the directory named by --work, kept only with --keep",
 		Classes:     []Class{ClassPath, ClassIdentifier},
-		Note: "Go coverage meta and counter files plus atlas's own plan and " +
+		Note: "Go coverage meta and counter files plus grunnr's own plan and " +
 			"report JSON. A temporary directory by default, discarded after " +
 			"the run unless --keep is passed.",
 	},
@@ -178,14 +178,14 @@ var exports = []Export{
 			"text or branch condition reaches an MCP tool result. The client " +
 			"is usually an editor talking to a model provider, so treat this " +
 			"as the one surface where indexed content routinely reaches a " +
-			"third party -- through the client, never through atlas.",
+			"third party -- through the client, never through grunnr.",
 	},
 	{
 		Verb:        "snapshot",
 		Surface:     "serialised index blob",
 		Destination: "the snapshots table of the state database",
 		Classes:     allClasses,
-		Note: "the largest single disclosure atlas creates: the whole index " +
+		Note: "the largest single disclosure grunnr creates: the whole index " +
 			"as JSON, including every symbol's doc comment and signature. " +
 			"Nothing else in the database holds doc comments.",
 	},
@@ -195,8 +195,8 @@ var exports = []Export{
 		Destination: "the repository's own files, in place",
 		Classes:     nil,
 		Note: "one of the three commands that write into the working tree; " +
-			"the others are `atlas cov shim init` and " +
-			"`atlas onboard promote --apply`. It moves annotations between " +
+			"the others are `grunnr cov shim init` and " +
+			"`grunnr onboard promote --apply`. It moves annotations between " +
 			"comment grammars, preserving the file mode. The text it writes " +
 			"is your own annotation in another grammar, so it discloses " +
 			"nothing that was not already in the file.",
@@ -208,7 +208,7 @@ var exports = []Export{
 		Classes:     []Class{ClassIdentifier},
 		Note: "writes one `@atlas:feature <id>` comment above the anchor " +
 			"declaration. The id is inferred from the index, so this is the " +
-			"one repository write that puts something atlas derived into " +
+			"one repository write that puts something grunnr derived into " +
 			"your source -- an identifier, and only an identifier. Without " +
 			"--apply it is a dry run that prints the line and touches " +
 			"nothing.",
@@ -220,8 +220,8 @@ var exports = []Export{
 		Classes:     nil,
 		Note: "writes a generated source file into the working tree, which is " +
 			"why it is listed here even though it discloses nothing: the " +
-			"file is atlas's own template plus the package clause, it " +
-			"carries no indexed content, and it is inert unless ATLAS_COV_DIR " +
+			"file is grunnr's own template plus the package clause, it " +
+			"carries no indexed content, and it is inert unless GRUNNR_COV_DIR " +
 			"is set. A package that already declares its own TestMain is " +
 			"left alone and reported.",
 	},

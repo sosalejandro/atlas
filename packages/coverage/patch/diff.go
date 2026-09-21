@@ -61,7 +61,7 @@ func (c FileChange) Lines() int {
 //
 // Shelling out rather than linking a git library is deliberate: the diff is
 // exactly the one CI would compute, it costs no dependency, and a user who
-// can run `atlas` in a checkout can already run `git`.
+// can run `grunnr` in a checkout can already run `git`.
 //
 // The three-dot form is the merge-base diff -- "what this branch did", not
 // "how this branch differs from the current tip of base". Without it, commits

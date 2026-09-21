@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
-	"github.com/sosalejandro/atlas/internal/domain"
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 // testGraphBuilder is a stub that returns a pre-built graph with nodes of

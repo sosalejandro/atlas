@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sosalejandro/atlas/packages/coverage/shim"
+	"github.com/sosalejandro/grunnr/packages/coverage/shim"
 )
 
 // Profile is one coverprofile the run produced.

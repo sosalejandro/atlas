@@ -1,10 +1,10 @@
-// Package diff computes the structured delta between two atlas snapshots.
+// Package diff computes the structured delta between two grunnr snapshots.
 //
 // A snapshot (see Snapshot) captures the full set of indexed data at a
 // given git ref: symbols, edges, annotations, contracts, pattern matches,
 // audit scores, coverage. Two snapshots taken at different commits can be
 // compared via Compute(snapA, snapB) to produce a SnapshotDiff —
-// a multi-axis delta that powers the future `atlas diff <a> <b>` CLI verb
+// a multi-axis delta that powers the future `grunnr diff <a> <b>` CLI verb
 // and CI drift-detection gates.
 //
 // The package is intentionally Library Go-importable: it depends only on
@@ -37,7 +37,7 @@
 //	Compute(A, A) → SnapshotDiff with every delta type empty
 //
 // Out of scope for this package:
-//   - The `atlas diff` CLI subcommand (Phase 7)
+//   - The `grunnr diff` CLI subcommand (Phase 7)
 //   - History views across more than two snapshots (Horizon 2)
 //   - Auto-comment on GitHub PR (Phase 19 / Horizon 3)
 //   - Mutating the underlying code or store

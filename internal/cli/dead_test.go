@@ -9,13 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// deadFixture is the per-test scaffolding for `atlas codebase dead`.
-// Owns a tempdir + .atlas/atlas.db state file, and resets the
+// deadFixture is the per-test scaffolding for `grunnr codebase dead`.
+// Owns a tempdir + .grunnr/grunnr.db state file, and resets the
 // package-level singletons (`flags`, `loaded`) so successive runs
 // don't bleed configuration. Mirrors trace_test.go's traceFixture
 // pattern.
@@ -27,11 +27,11 @@ type deadFixture struct {
 func newDeadFixture(t *testing.T) *deadFixture {
 	t.Helper()
 	dir := t.TempDir()
-	atlasDir := filepath.Join(dir, ".atlas")
-	if err := os.MkdirAll(atlasDir, 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	grunnrDir := filepath.Join(dir, ".grunnr")
+	if err := os.MkdirAll(grunnrDir, 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
-	dbPath := filepath.Join(atlasDir, "atlas.db")
+	dbPath := filepath.Join(grunnrDir, "grunnr.db")
 	loaded = Config{repoRoot: dir, DBPath: dbPath}
 	flags = globalFlags{DBPath: dbPath}
 	return &deadFixture{root: dir, dbPath: dbPath}
@@ -121,7 +121,7 @@ func TestCodebaseDead_FlagsWired(t *testing.T) {
 	c := newCodebaseDeadCmd()
 	for _, name := range []string{"kind", "filter", "include-tests", "include-scopes"} {
 		if c.Flags().Lookup(name) == nil {
-			t.Errorf("atlas codebase dead is missing --%s", name)
+			t.Errorf("grunnr codebase dead is missing --%s", name)
 		}
 	}
 }

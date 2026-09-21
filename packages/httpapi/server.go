@@ -1,4 +1,4 @@
-// Package httpapi serves atlas's read model over HTTP for local consumers --
+// Package httpapi serves grunnr's read model over HTTP for local consumers --
 // the desktop shell (#102), a browser dashboard, an editor plugin.
 //
 // Two rules shape everything here, and both are reactions to the surface this
@@ -30,8 +30,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Options configures a Server.
@@ -53,6 +53,11 @@ type Options struct {
 	Now func() time.Time
 	// Logger receives request lines. Nil is a no-op.
 	Logger shared.Logger
+
+	// contractOnly permits a nil Store, for rendering the OpenAPI document
+	// without an index. Unexported: it is not a mode any caller outside this
+	// module should be able to select.
+	contractOnly bool
 }
 
 // Server is the HTTP surface. Build it with New and hand it to Listen.
@@ -62,9 +67,23 @@ type Server struct {
 	api  huma.API
 }
 
+// NewForContract builds a server solely to render its OpenAPI document. It
+// accepts no requests and needs no index.
+func NewForContract(opts Options) (*Server, error) {
+	opts.contractOnly = true
+	return New(opts)
+}
+
 // New builds the server and registers every route.
 func New(opts Options) (*Server, error) {
-	if opts.Store == nil {
+	// A nil Store is allowed, and only for one caller: `grunnr-serve
+	// --openapi`, which renders the contract from the handler TYPES and
+	// never dispatches a request. Requiring a store there would mean a
+	// consumer had to run `grunnr init` before they could regenerate their
+	// client, which is backwards -- the contract describes the API, not the
+	// index. Serve() refuses a nil store, so this cannot leak into a running
+	// server.
+	if opts.Store == nil && !opts.contractOnly {
 		return nil, errors.New("httpapi: Store is required")
 	}
 	if opts.Now == nil {
@@ -78,15 +97,15 @@ func New(opts Options) (*Server, error) {
 	// The generated document describes a loopback service, and saying so in
 	// the spec keeps the constraint with the contract rather than only in
 	// prose somebody has to find.
-	cfg.Info.Description = "Atlas's local read model. Loopback only: this API has " +
+	cfg.Info.Description = "Grunnr's local read model. Loopback only: this API has " +
 		"no authentication and serves a complete map of the source tree it indexed."
 	// huma's DefaultConfig installs a CreateHook that adds a schema-link
 	// transformer, which puts a `$schema` field in every response body.
 	// Dropped, because the point of this package is that the HTTP surface
-	// answers in the SAME envelope as `atlas --json`, and an extra field
+	// answers in the SAME envelope as `grunnr --json`, and an extra field
 	// only one of them carries is the drift this exists to prevent, in
 	// miniature. The contract is still published -- at /openapi and via
-	// `atlas-serve --openapi` -- which is where a schema belongs.
+	// `grunnr-serve --openapi` -- which is where a schema belongs.
 	cfg.CreateHooks = nil
 	cfg.Transformers = nil
 	s.api = humago.New(s.mux, cfg)
@@ -100,7 +119,7 @@ func (s *Server) Handler() http.Handler { return s.mux }
 // OpenAPI returns the generated contract. It is derived from the handler
 // types rather than maintained beside them, which is the whole reason for
 // huma being here -- a hand-written spec drifts from the code it describes,
-// and atlas is a tool about exactly that failure.
+// and grunnr is a tool about exactly that failure.
 func (s *Server) OpenAPI() ([]byte, error) {
 	b, err := s.api.OpenAPI().YAML()
 	if err != nil {
@@ -131,6 +150,11 @@ func (s *Server) Listen(ctx context.Context, addr string) error {
 
 // Serve runs on an existing listener until ctx is cancelled.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	// The contract-only construction has no index behind it; serving from it
+	// would answer every data route by dereferencing nil.
+	if s.opts.Store == nil {
+		return errors.New("httpapi: refusing to serve without a store")
+	}
 	srv := &http.Server{
 		Handler:           s.mux,
 		ReadHeaderTimeout: 10 * time.Second,

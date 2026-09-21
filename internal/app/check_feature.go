@@ -3,8 +3,8 @@ package app
 import (
 	"fmt"
 
-	"github.com/sosalejandro/atlas/internal/domain"
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 // CheckResult holds the detailed status of a single feature.

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Scorer is the slice of packages/audit that Collect needs. audit.Audit
@@ -62,7 +62,7 @@ type CollectOptions struct {
 //
 // The surface counted is the feature's linked impl symbols, NOT the audit's
 // derived impl surface (dynamic / package-anchor / static): that derivation
-// can change between releases of Atlas itself, and a denominator that moves
+// can change between releases of Grunnr itself, and a denominator that moves
 // on a tool upgrade would flag every comparison across the upgrade as
 // incomparable.
 func Collect(ctx context.Context, s *store.Store, sc Scorer, opts CollectOptions) (store.HistoryPoint, error) {

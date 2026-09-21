@@ -12,9 +12,9 @@ var (
 	// doesn't exist (e.g. graph.Graph lookup by SymbolID with no match).
 	ErrNotFound = errors.New("not found")
 
-	// ErrFeatureNotFound — a FeatureID was referenced but Atlas could not
-	// find any annotation declaring it. Surfaced by `atlas chain`,
-	// `atlas health`.
+	// ErrFeatureNotFound — a FeatureID was referenced but Grunnr could not
+	// find any annotation declaring it. Surfaced by `grunnr chain`,
+	// `grunnr health`.
 	ErrFeatureNotFound = errors.New("feature not found")
 
 	// ErrSymbolNotFound — a SymbolID was referenced but no scanner has

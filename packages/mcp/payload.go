@@ -5,10 +5,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// noDataResult is the ENTIRE result when atlas cannot answer.
+// noDataResult is the ENTIRE result when grunnr cannot answer.
 //
 // It is a distinct type rather than a field on the normal result so the empty
 // list is not merely nil but absent from the wire. A model handed
@@ -253,6 +253,6 @@ func checkFreshness(ctx context.Context, fn FreshnessFunc, files map[string]bool
 		FilesChecked:       len(paths),
 		UntrustworthyFiles: bad,
 		Note: "the working tree has moved since the scan: spans in these files no longer point where they did. " +
-			"Re-run `atlas scan` before citing line numbers in them.",
+			"Re-run `grunnr scan` before citing line numbers in them.",
 	}
 }

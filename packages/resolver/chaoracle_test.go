@@ -15,14 +15,14 @@ import (
 	"golang.org/x/tools/go/ssa/ssautil"
 )
 
-// This file is the class-hierarchy analysis atlas used to ship, kept as
+// This file is the class-hierarchy analysis grunnr used to ship, kept as
 // the ORACLE the types-level dispatch index is measured against.
 //
 // It was production code until issue #155. The whole output of
 // ssautil.Packages -> buildAllSSA -> cha.CallGraph -> indexInvokes was one
 // field, map[token.Pos][]*types.Func, whose key and value are both
 // go/token and go/types concepts; SSA appeared nowhere in it. CHA walks
-// SSA for one reason -- to enumerate call sites -- and atlas already
+// SSA for one reason -- to enumerate call sites -- and grunnr already
 // enumerates its own. typedispatch.go computes the same map from
 // go/types, for an eighth of the cumulative allocation.
 //
@@ -41,10 +41,10 @@ import (
 // this interface value dispatch to", by looking only at the type
 // hierarchy — no reachability, no flow. That means it over-approximates:
 // a call through an OrderRepository reports every type implementing
-// OrderRepository, whether or not the program ever constructs it. Atlas
+// OrderRepository, whether or not the program ever constructs it. Grunnr
 // records that over-approximation as an ambiguous edge, which is the
 // honest shape of the answer. RTA and VTA would narrow it using
-// whole-program reachability from a main function, and atlas indexes
+// whole-program reachability from a main function, and grunnr indexes
 // libraries and half-written trees that have no main — so their extra
 // precision would be bought with an assumption the corpus does not
 // support.
@@ -122,7 +122,7 @@ var ssaObserver func(prog *ssa.Program, pkgs []*packages.Package)
 // each package on a goroutine it spawns itself and recovers nothing: a
 // panic out of the SSA builder unwinds a goroutine that buildCallGraph's
 // recover is not on the stack of, and takes the process down with it.
-// That is the wrong failure for this program. Atlas is meant to run
+// That is the wrong failure for this program. Grunnr is meant to run
 // mid-edit against trees that do not compile (issue #87), and losing
 // interface dispatch for a repository is a far smaller loss than a scan
 // that dies. ssa.Package.Build runs inline and is documented idempotent

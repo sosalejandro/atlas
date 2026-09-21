@@ -56,15 +56,15 @@ func TestAnnotation_MultiID(t *testing.T) {
 		Kind:     AnnFeature,
 		IDs:      []string{"checkout.cart", "checkout.shipping"},
 		Tags:     []string{"#real"},
-		Source:   SourceAtlas,
+		Source:   SourceGrunnr,
 		Position: FilePosition{Path: "e2e/checkout.spec.ts", Line: 7},
 		Raw:      "checkout.cart checkout.shipping #real",
 	}
 	if len(a.IDs) != 2 {
 		t.Fatalf("expected 2 ids, got %d", len(a.IDs))
 	}
-	if a.Source != SourceAtlas {
-		t.Fatalf("expected SourceAtlas, got %s", a.Source)
+	if a.Source != SourceGrunnr {
+		t.Fatalf("expected SourceGrunnr, got %s", a.Source)
 	}
 }
 

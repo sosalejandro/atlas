@@ -1,6 +1,6 @@
-# Atlas Architecture
+# Grunnr Architecture
 
-Authoritative design for the Atlas monorepo. This is the source of truth for
+Authoritative design for the Grunnr monorepo. This is the source of truth for
 package boundaries, dependency direction, and the CLI surface. Anything that
 contradicts this doc is wrong — fix the doc first, then the code.
 
@@ -15,13 +15,13 @@ Related references:
 
 ## 1. Vision
 
-Atlas is a code-graph + coverage + audit toolkit for polyglot codebases, built
-as a monorepo of SRP-focused libraries with a single `atlas` CLI on top. It
+Grunnr is a code-graph + coverage + audit toolkit for polyglot codebases, built
+as a monorepo of SRP-focused libraries with a single `grunnr` CLI on top. It
 discovers what your codebase *is* by parsing source — call graphs, HTTP routes,
 DI bindings, SQL queries, annotated features — and answers questions about
 coverage, drift, and impact without depending on hand-maintained inventories.
 
-Atlas supersedes testreg. Atlas is library-first: every CLI subcommand is a
+Grunnr supersedes testreg. Grunnr is library-first: every CLI subcommand is a
 thin wrapper around a `packages/<x>/` Go library that external consumers
 (starting with `bmad-cli`) import directly with no subprocess tax.
 
@@ -34,13 +34,13 @@ review-blocking defect, not a style preference.
 
 **Code is the source of truth; derived data is a view.**
 Annotations live in source (`// @atlas:feature auth.login`). The SQLite
-state is a *cache* — nuke it and Atlas reconstructs it from a fresh scan.
+state is a *cache* — nuke it and Grunnr reconstructs it from a fresh scan.
 There is no hand-maintained YAML registry to drift.
 
 **Library-first, CLI-second.**
-Every `cmd/atlas <verb>` is a ~50 LOC adapter that parses flags, calls into a
+Every `cmd/grunnr <verb>` is a ~50 LOC adapter that parses flags, calls into a
 `packages/<x>` library, formats the result. No business logic in `internal/cli/`.
-External Go programs that want Atlas's capabilities import the packages, never
+External Go programs that want Grunnr's capabilities import the packages, never
 shell out to the binary.
 
 **Stable JSON output contracts.**
@@ -50,16 +50,16 @@ on their own clock. See §6.
 
 **No mandatory persistence.**
 The SQLite store is an optimization (incremental re-scan, cross-command cache),
-not a requirement. `atlas chain foo` works in a fresh checkout with no `.atlas/`
-directory. Persistence is opt-in via `atlas init`.
+not a requirement. `grunnr chain foo` works in a fresh checkout with no `.grunnr/`
+directory. Persistence is opt-in via `grunnr init`.
 
 **Each package is one SRP concern; no god-files.**
 testreg had a 1,376-LOC `go_ast_scanner.go` doing scan + route + DI + frontend
-orchestration. Atlas splits that across `codeindex/go/`, `routeparse/`,
+orchestration. Grunnr splits that across `codeindex/go/`, `routeparse/`,
 `resolver/`, `codeindex/ts/` — each package owns one concern end-to-end.
 
 **Detect drift; don't silently allow it.**
-If annotations reference symbols Atlas can't find in the code, that's a
+If annotations reference symbols Grunnr can't find in the code, that's a
 diagnostic, not a warning we swallow. The whole point of the tool is to surface
 divergence between intent (annotations, contracts) and reality (the AST).
 
@@ -72,7 +72,7 @@ land only when a real consumer needs them, not speculatively.
 ## 3. Package boundaries
 
 All packages live under `packages/<name>/` and use the module path
-`github.com/sosalejandro/atlas/packages/<name>`. Every package declares its
+`github.com/sosalejandro/grunnr/packages/<name>`. Every package declares its
 dependencies in §4 and is unit-testable in isolation. **The contract for each
 package is its exported Go API plus, if it has a CLI subcommand, the JSON
 schema tagged with `schema_version`.**
@@ -82,7 +82,7 @@ schema tagged with `schema_version`.**
 The kernel. Types every package depends on: `FilePosition`, `FeatureID`,
 `SymbolID`, `SymbolKind`, structured `Error` wrappers, logger interface.
 
-**Imports:** nothing from inside Atlas (stdlib only, plus
+**Imports:** nothing from inside Grunnr (stdlib only, plus
 `golang.org/x/exp/slog` or zap if we settle on one).
 
 **Does NOT touch:** SQLite, AST parsing, file I/O beyond `os.FileInfo`. If
@@ -213,7 +213,7 @@ is consumed by `codeindex/go/` to add `service.Method` → `query:Name` edges).
 
 HTTP route discovery. Ports `internal/adapters/route_parser.go`. Recognises
 Chi (`r.Get`), Echo (`e.GET`), stdlib (`mux.HandleFunc("POST /p", h)`), and —
-**new in Atlas** — Huma (`huma.Register[Input, Output](api, op, handler)`),
+**new in Grunnr** — Huma (`huma.Register[Input, Output](api, op, handler)`),
 because the cutover target (nutrition-v2-go) is on Huma. Returns
 `[]RouteMapping{Method, Path, HandlerRef, FilePosition}`.
 
@@ -372,7 +372,7 @@ imports up; nothing imports sideways across the same layer.
 
 ```
                           ┌──────────────────────────────────────────────┐
-   tier 4 (consumers)    │  cmd/atlas/  +  internal/cli/                │
+   tier 4 (consumers)    │  cmd/grunnr/  +  internal/cli/                │
                           │  external: bmad-cli                          │
                           └──────────────────────────────────────────────┘
                                             │  (imports any package below)
@@ -414,7 +414,7 @@ Specifics:
   each other** with one exception: `sprintplan/` → `audit/`, `diff/` →
   `audit/`. Anything beyond that needs a refactor (probably a new tier-3.5
   package).
-- `internal/cli/` and `cmd/atlas/` can import anything below them. **No
+- `internal/cli/` and `cmd/grunnr/` can import anything below them. **No
   package outside `internal/cli/` may import `internal/cli/`.**
 
 Enforced by `golangci-lint depguard` rules in CI (TODO Phase 7).
@@ -423,22 +423,22 @@ Enforced by `golangci-lint depguard` rules in CI (TODO Phase 7).
 
 ## 5. CLI shape
 
-Single binary at `cmd/atlas/main.go`. Verb-namespaced subcommands, implemented
+Single binary at `cmd/grunnr/main.go`. Verb-namespaced subcommands, implemented
 in `internal/cli/<verb>.go` using cobra. Every subcommand is a ~50 LOC
 adapter: parse flags → call package API → format result.
 
 ```
-atlas init                    Scan project, create .atlas/state.db, persist baseline
-atlas scan                    Re-scan (incremental via file_hashes), update store
-atlas chain <feature>         Show call-chain for a feature
-atlas cov sync                Ingest test framework outputs into store
-atlas cov status [<feature>]  Per-feature coverage summary
-atlas health [<feature>]       Health score + gap list
-atlas sprint [--top N]        Gap-weighted feature prioritization
-atlas diff <ref-a> <ref-b>    Snapshot diff between two refs
-atlas contract <feature>      Extract API contract (req/resp types)
-atlas diagnose <error-string> Match an error to candidate symbols
-atlas migrate-annotations     Bulk-rename @testreg → @atlas (--dry-run|--apply)
+grunnr init                    Scan project, create .grunnr/state.db, persist baseline
+grunnr scan                    Re-scan (incremental via file_hashes), update store
+grunnr chain <feature>         Show call-chain for a feature
+grunnr cov sync                Ingest test framework outputs into store
+grunnr cov status [<feature>]  Per-feature coverage summary
+grunnr health [<feature>]       Health score + gap list
+grunnr sprint [--top N]        Gap-weighted feature prioritization
+grunnr diff <ref-a> <ref-b>    Snapshot diff between two refs
+grunnr contract <feature>      Extract API contract (req/resp types)
+grunnr diagnose <error-string> Match an error to candidate symbols
+grunnr migrate-annotations     Bulk-rename @testreg → @atlas (--dry-run|--apply)
 ```
 
 Subcommand → packages composed:
@@ -487,14 +487,14 @@ Every subcommand emits JSON whose top-level object contains:
    top-level key (`data_v2`) alongside the old (`data`) for one minor release,
    then the old key is dropped at the next major. Consumers can read either
    key and migrate on their own clock.
-4. **One schema per subcommand.** `atlas chain` and `atlas health` version
-   independently. There is no global "Atlas JSON schema v1" — the contract is
+4. **One schema per subcommand.** `grunnr chain` and `grunnr health` version
+   independently. There is no global "Grunnr JSON schema v1" — the contract is
    per-verb.
 5. **Schema docs live in `docs/api/<verb>.md`.** Each one is a JSON sample
    + a field-by-field reference + a "changes since" log.
 
 This is the contract that lets a future dashboard SPA, external CI integrations,
-or `bmad-cli` consume Atlas output without coupling to undocumented internals.
+or `bmad-cli` consume Grunnr output without coupling to undocumented internals.
 
 ---
 
@@ -529,11 +529,11 @@ func Open(ctx context.Context, path string) (*Store, error)
 
 - Migrations are append-only and **immutable** once shipped. Editing an
   applied migration changes the file content; golang-migrate doesn't
-  checksum-verify by default, but Atlas's drift-detection layer (see §2
+  checksum-verify by default, but Grunnr's drift-detection layer (see §2
   "detect drift") tracks file SHAs to refuse a tampered migration.
 - No `down.sql` for v1. golang-migrate tolerates the absent down files —
-  it just loses the ability to step down past a version, which Atlas
-  doesn't need. Rollback = delete `.atlas/state.db` and re-run `atlas init`.
+  it just loses the ability to step down past a version, which Grunnr
+  doesn't need. Rollback = delete `.grunnr/state.db` and re-run `grunnr init`.
   The store is a cache; the source-of-truth is the code.
 - Schema reference docs live in `docs/schema-v1.md` and are regenerated from
   the SQL files by a `docs:schema` task (Phase 7).
@@ -580,7 +580,7 @@ hierarchy beyond sentinels — keep it boring.
    on the structured output. Beats hand-written ASTs for catching real-world
    parser breakage. Source: testreg's existing test patterns.
 3. **Integration tests** for `store/` (real SQLite file in `t.TempDir()`)
-   and `cmd/atlas/` (binary built once, invoked as subprocess against a
+   and `cmd/grunnr/` (binary built once, invoked as subprocess against a
    fixture project).
 
 `go test ./...` from repo root runs everything; no build tags. Coverage gate is
@@ -595,26 +595,26 @@ them in are documented so we don't re-argue them.
 
 **Python scanner.**
 The cutover target (nutrition-v2-go) has 26 Python files vs 2,320 Go +
-2,139 TS. Not enough to justify a Python runtime in Atlas's binary
-distribution. **Re-evaluate when:** any Atlas consumer has ≥200 Python files
+2,139 TS. Not enough to justify a Python runtime in Grunnr's binary
+distribution. **Re-evaluate when:** any Grunnr consumer has ≥200 Python files
 in a code path that needs trace/coverage, OR a Python-first consumer asks for
 it. Estimated 1 week to add (`codeindex/py/` mirroring `codeindex/ts/`'s
 subprocess shape).
 
 **Dashboard SPA.**
 CLI-only v0. The §6 stable JSON contract is the load-bearing piece — any
-future dashboard reads `atlas <verb> --json` outputs without coupling to
+future dashboard reads `grunnr <verb> --json` outputs without coupling to
 internals. **Re-evaluate when:** at least one consumer is doing repeated
-`atlas health` / `atlas chain` interactively for exploration AND CLI ergonomics
+`grunnr health` / `grunnr chain` interactively for exploration AND CLI ergonomics
 become the blocker. Until then, terminal output beats a half-built web app.
 
 **Server mode / daemon.**
 testreg had `internal/server/` with htmx templates. Dropped. If incremental
 scan latency ever becomes a problem (it shouldn't with the file_hashes cache),
-we add `atlas serve` later.
+we add `grunnr serve` later.
 
 **Cross-repo features.**
-Atlas operates on a single repo root. Monorepo-of-monorepos / multi-repo
+Grunnr operates on a single repo root. Monorepo-of-monorepos / multi-repo
 correlation is not in scope.
 
 ---
@@ -626,7 +626,7 @@ correlation is not in scope.
 symbols (handlers, tests, hooks) to features. Features are *discovered* from
 annotations — there is no central feature registry to maintain.
 
-**Symbol** — A named code entity Atlas tracks as a graph node: Go func/method
+**Symbol** — A named code entity Grunnr tracks as a graph node: Go func/method
 decl, TS function/component/hook, SQL query, HTTP endpoint. Each has a
 `SymbolID`, `SymbolKind`, and `FilePosition`.
 
@@ -639,13 +639,13 @@ dot-namespaced lowercase (`bounded-context.action`). Defined once via an
 annotation; referenced from tests, contracts, and audit reports.
 
 **FilePosition** — `(Path, Line, Col)` triple. `Path` is repo-relative.
-`Col` is 1-based, 0 means "unknown". This is the only way Atlas refers to
+`Col` is 1-based, 0 means "unknown". This is the only way Grunnr refers to
 source locations — no absolute paths, no `file://` URIs.
 
 **SymbolKind** — Enum: `handler | service | repository | query | hook |
 component | endpoint | external`. Drives layer-weighting in `audit/`.
 
-**Annotation** — A source-comment record matching one of Atlas's recognised
+**Annotation** — A source-comment record matching one of Grunnr's recognised
 grammars:
 
 ```
@@ -659,7 +659,7 @@ grammars:
 See `docs/annotations.md` for the full grammar reference.
 
 **FeatureRegistry** — *Historical only.* testreg maintained a hand-written
-YAML registry under `docs/testing/registry/`. Atlas does not. The word
-"registry" in Atlas docs refers exclusively to the *derived* index Atlas
+YAML registry under `docs/testing/registry/`. Grunnr does not. The word
+"registry" in Grunnr docs refers exclusively to the *derived* index Grunnr
 builds in the `store/` from code annotations — there is no human-maintained
 inventory to keep in sync.

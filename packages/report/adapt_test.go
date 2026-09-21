@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/diagnose"
-	"github.com/sosalejandro/atlas/packages/report"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/diagnose"
+	"github.com/sosalejandro/grunnr/packages/report"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 func TestFromAudit_SeverityFollowsTheScoreBands(t *testing.T) {

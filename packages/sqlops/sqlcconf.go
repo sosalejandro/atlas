@@ -23,7 +23,7 @@ var conventionalSchemaDirs = []string{
 	"db/migrations", "migrations", "sql/migrations", "db/schema", "schema",
 }
 
-// sqlcConfig is the subset of sqlc's config Atlas reads: where the schema
+// sqlcConfig is the subset of sqlc's config Grunnr reads: where the schema
 // lives and where the queries live. Both fields accept a string or a list in
 // sqlc's own schema, so both are decoded permissively.
 type sqlcConfig struct {

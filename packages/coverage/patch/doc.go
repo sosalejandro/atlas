@@ -21,9 +21,9 @@
 // # The three states
 //
 // Score reports a changed line as covered, uncovered, or UNKNOWN, and the
-// third state is the whole point. A changed line atlas has no symbol for --
+// third state is the whole point. A changed line grunnr has no symbol for --
 // an unindexed language, a generated file, a docs edit -- is not 0% covered;
-// atlas simply cannot see it (issue #85's blind spot). Folding it into the
+// grunnr simply cannot see it (issue #85's blind spot). Folding it into the
 // uncovered bucket makes the gate fire on files nobody can fix, which teaches
 // teams to switch the gate off; folding it into the covered bucket hides real
 // gaps. So it is its own bucket: --fail-under decides on the KNOWN fraction

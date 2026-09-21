@@ -116,7 +116,7 @@ func TestPlaceholder_CarriesKindAndDigestOnly(t *testing.T) {
 
 // TestText_LeavesASnapshotBlobParseable is the reason the value pattern
 // refuses to swallow backslashes. snapshots.index_json is JSON; a redaction
-// that ate one half of an escape pair would leave `atlas diff` unable to
+// that ate one half of an escape pair would leave `grunnr diff` unable to
 // decode the snapshot it just cleaned.
 func TestText_LeavesASnapshotBlobParseable(t *testing.T) {
 	blob := `{"symbols":[{"id":"cfg.Load",` +

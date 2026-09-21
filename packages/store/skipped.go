@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	goscan "github.com/sosalejandro/grunnr/packages/codeindex/go"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // SkippedFileRow is one entry of the `skipped_files` exclusion ledger
@@ -118,7 +118,7 @@ func (k *skippedFilesStore) List(ctx context.Context) ([]SkippedFileRow, error) 
 }
 
 // Replace outside a transaction is for callers that hold no ingest of their
-// own (tests, repair tooling). `atlas scan` goes through
+// own (tests, repair tooling). `grunnr scan` goes through
 // replaceSkippedLedgerTx instead, so the ledger commits with the index it
 // describes.
 func (k *skippedFilesStore) Replace(ctx context.Context, rows []SkippedFileRow) (int, error) {

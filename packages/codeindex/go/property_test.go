@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	atlastest "github.com/sosalejandro/atlas/packages/testing"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	atlastest "github.com/sosalejandro/grunnr/packages/testing"
 )
 
 // The scanner's property layer. See docs/testing/strategy.md for how this

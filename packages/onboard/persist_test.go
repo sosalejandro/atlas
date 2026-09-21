@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 func TestSaveLoad_RoundTripsAndStaysNamespaced(t *testing.T) {
@@ -22,9 +22,9 @@ func TestSaveLoad_RoundTripsAndStaysNamespaced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	// The provisional map must not land anywhere the rest of atlas reads as
+	// The provisional map must not land anywhere the rest of grunnr reads as
 	// declared state. Its own directory is the whole guarantee.
-	want := filepath.Join(root, ".atlas", "provisional", "capabilities.json")
+	want := filepath.Join(root, ".grunnr", "provisional", "capabilities.json")
 	if path != want {
 		t.Errorf("Save wrote %s, want %s", path, want)
 	}
@@ -61,7 +61,7 @@ func TestSaveLoad_RoundTripsAndStaysNamespaced(t *testing.T) {
 // that labelled itself, or the labelling is decoration.
 func TestLoad_RejectsUnlabelledDocument(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".atlas", "provisional")
+	dir := filepath.Join(root, ".grunnr", "provisional")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

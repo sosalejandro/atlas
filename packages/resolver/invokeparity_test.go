@@ -31,7 +31,7 @@ import (
 //  4. Wherever an edge CAN be emitted, the "more than one candidate"
 //     verdict is unchanged -- so Edge.Ambiguous does not move either.
 //
-// Together those say: the map differs, and atlas's output cannot.
+// Together those say: the map differs, and grunnr's output cannot.
 //
 // The difference has one cause. CHA's universe of concrete types is
 // whatever ssautil.AllFunctions reached -- package-level functions,

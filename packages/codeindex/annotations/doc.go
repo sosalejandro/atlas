@@ -1,4 +1,4 @@
-// Package annotations is Atlas's multi-language annotation parser.
+// Package annotations is Grunnr's multi-language annotation parser.
 //
 // Per docs/architecture.md §3.2.3 it imports only packages/shared, has no
 // awareness of the graph, and emits raw shared.Annotation records that the

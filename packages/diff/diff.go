@@ -8,14 +8,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/contract"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/contract"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // DiffPort is the narrow interface the diff package exposes. The future
-// `atlas diff <ref-a> <ref-b>` CLI verb (Phase 7) and CI drift-detection
+// `grunnr diff <ref-a> <ref-b>` CLI verb (Phase 7) and CI drift-detection
 // gates depend on this interface, not the concrete *Engine — so a test
 // double can substitute a recorded fixture without spinning up SQLite.
 type DiffPort interface {
@@ -157,7 +157,7 @@ func loadSnapshot(ctx context.Context, s *store.Store, id int64) (Snapshot, erro
 }
 
 // EncodeIndexJSON marshals a codeindex.Index for the Snapshots.Capture
-// payload. Centralised here so callers (cmd/atlas, tests) don't have to
+// payload. Centralised here so callers (cmd/grunnr, tests) don't have to
 // know the wire shape.
 func EncodeIndexJSON(idx *codeindex.Index) (string, error) {
 	if idx == nil {

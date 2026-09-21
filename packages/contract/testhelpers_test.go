@@ -1,7 +1,7 @@
 package contract
 
 import (
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // newSymbolForPathTest is a tiny test helper that fabricates a Go symbol
@@ -16,4 +16,3 @@ func newSymbolForPathTest(path string) shared.Symbol {
 		Position:  shared.FilePosition{Path: path, Line: 1},
 	}
 }
-

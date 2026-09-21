@@ -28,7 +28,7 @@ type skippedFixture struct {
 func newSkippedFixture(t *testing.T) *skippedFixture {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := filepath.Join(dir, "atlas.yaml")
+	cfg := filepath.Join(dir, "grunnr.yaml")
 	const body = `scan:
   generated:
     - "**/*.pb.go"
@@ -37,7 +37,7 @@ func newSkippedFixture(t *testing.T) *skippedFixture {
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	return &skippedFixture{dbPath: filepath.Join(dir, "atlas.db"), configPath: cfg}
+	return &skippedFixture{dbPath: filepath.Join(dir, "grunnr.db"), configPath: cfg}
 }
 
 func runScanCmd(t *testing.T, fix *skippedFixture, args ...string) (string, string, error) {
@@ -179,7 +179,7 @@ func TestScanSkipped_PathFilter(t *testing.T) {
 	}
 }
 
-// `atlas snapshot` ingests into the SAME database as `atlas scan`, so its
+// `grunnr snapshot` ingests into the SAME database as `grunnr scan`, so its
 // ingest touches the shared exclusion ledger. It must not answer the
 // operator's "why is this file not indexed?" with a walk they never ran:
 // api/schema.pb.go is excluded by a configured glob, and a snapshot built
@@ -320,10 +320,10 @@ func TestScanSkipped_MissReportsAbsenceNotIndexing(t *testing.T) {
 	}
 }
 
-// `atlas init` writes the first ledger a database ever has, and the docs
+// `grunnr init` writes the first ledger a database ever has, and the docs
 // promise the detail column names the matching glob. Without the configured
 // globs on the ingest, every glob-claimed file gets an empty detail —
-// "generated-glob" with no pattern, which names no line of atlas.yaml and so
+// "generated-glob" with no pattern, which names no line of grunnr.yaml and so
 // tells the operator nothing they can act on.
 func TestScanSkipped_InitRecordsTheMatchingGlob(t *testing.T) {
 	fix := newSkippedFixture(t)
@@ -342,7 +342,7 @@ func TestScanSkipped_InitRecordsTheMatchingGlob(t *testing.T) {
 	}
 }
 
-// runInitCmd drives `atlas init` against the fixture DB.
+// runInitCmd drives `grunnr init` against the fixture DB.
 func runInitCmd(t *testing.T, fix *skippedFixture, args ...string) (string, string, error) {
 	t.Helper()
 	root := NewRootCmd()
@@ -358,7 +358,7 @@ func runInitCmd(t *testing.T, fix *skippedFixture, args ...string) (string, stri
 	return stdout.String(), stderr.String(), err
 }
 
-// runSnapshotCmd drives `atlas snapshot` against the same fixture DB.
+// runSnapshotCmd drives `grunnr snapshot` against the same fixture DB.
 func runSnapshotCmd(t *testing.T, fix *skippedFixture, args ...string) (string, string, error) {
 	t.Helper()
 	root := NewRootCmd()

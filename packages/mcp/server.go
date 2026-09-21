@@ -75,7 +75,7 @@ func New(opts Options) (*Server, error) {
 	s := &Server{
 		tools:   ts.catalog(),
 		byName:  map[string]tool{},
-		name:    orDefault(opts.Name, "atlas"),
+		name:    orDefault(opts.Name, "grunnr"),
 		version: orDefault(opts.Version, "dev"),
 	}
 	for _, t := range s.tools {
@@ -216,7 +216,7 @@ func (s *Server) handleInitialize(req rpcRequest) rpcResponse {
 		},
 		"serverInfo": map[string]any{
 			"name":    s.name,
-			"title":   "Atlas code intelligence",
+			"title":   "Grunnr code intelligence",
 			"version": s.version,
 		},
 		"instructions": serverInstructions,
@@ -235,10 +235,10 @@ func negotiateVersion(requested string) string {
 // serverInstructions is the standing context the client passes to its model.
 // It is short on purpose — it costs tokens on every session — and says only
 // the two things that change how the answers should be read.
-const serverInstructions = "Atlas exposes this repository's feature/symbol graph, call edges and test attribution, " +
+const serverInstructions = "Grunnr exposes this repository's feature/symbol graph, call edges and test attribution, " +
 	"read-only. Two things govern how far to trust an answer. First, `surface_source` on a feature's implementation " +
 	"surface ranks the derivation from execution evidence (`dynamic`) down to a human's annotation alone " +
-	"(`direct-links`). Second, a `truncated` block means rows were withheld and a `no_data` block means atlas has " +
+	"(`direct-links`). Second, a `truncated` block means rows were withheld and a `no_data` block means grunnr has " +
 	"not been given the data yet — neither is evidence that nothing exists."
 
 func (s *Server) handleToolsList(req rpcRequest) rpcResponse {
@@ -298,7 +298,7 @@ func (s *Server) respondToCall(req rpcRequest, result any, err error) rpcRespons
 		})
 	}
 	if err != nil {
-		return errorFor(req.ID, CodeInternalError, "atlas: "+err.Error(), nil)
+		return errorFor(req.ID, CodeInternalError, "grunnr: "+err.Error(), nil)
 	}
 	return s.successResult(req, result)
 }
@@ -312,7 +312,7 @@ func (s *Server) respondToCall(req rpcRequest, result any, err error) rpcRespons
 func (s *Server) successResult(req rpcRequest, result any) rpcResponse {
 	text, err := encodeMessage(result)
 	if err != nil {
-		return errorFor(req.ID, CodeInternalError, "atlas: encode tool result: "+err.Error(), nil)
+		return errorFor(req.ID, CodeInternalError, "grunnr: encode tool result: "+err.Error(), nil)
 	}
 	return resultFor(req.ID, map[string]any{
 		"content":           []map[string]any{{"type": "text", "text": string(text)}},
@@ -342,7 +342,7 @@ type Description struct {
 
 // Describe returns the server's catalog without opening a session.
 //
-// It exists because `atlas mcp` cannot honour the global --json envelope while
+// It exists because `grunnr mcp` cannot honour the global --json envelope while
 // serving: stdout IS the protocol stream, and a JSON envelope written onto it
 // is precisely the "anything that is not a valid MCP message" the stdio
 // transport forbids. Describing the server is the useful thing --json can mean

@@ -9,18 +9,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/coverage/gotest"
-	"github.com/sosalejandro/atlas/packages/coverage/maestro"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/coverage/gotest"
+	"github.com/sosalejandro/grunnr/packages/coverage/maestro"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // openStore opens a fresh tempfile-backed store; closes on cleanup.
 func openStore(t *testing.T) *store.Store {
 	t.Helper()
 	dir := t.TempDir()
-	s, err := store.Open(context.Background(), filepath.Join(dir, "atlas-state.db"))
+	s, err := store.Open(context.Background(), filepath.Join(dir, "grunnr-state.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -37,13 +37,13 @@ func upsertFeature(t *testing.T, s *store.Store, id shared.FeatureID, title stri
 	}
 }
 
-const goldenGoTestStream = `{"Action":"run","Package":"github.com/atlas/example/auth","Test":"TestLogin"}
-{"Action":"output","Package":"github.com/atlas/example/auth","Test":"TestLogin","Output":"@atlas:feature auth.login\n"}
-{"Action":"pass","Package":"github.com/atlas/example/auth","Test":"TestLogin","Elapsed":0.5}
-{"Action":"run","Package":"github.com/atlas/example/auth","Test":"TestRegister"}
-{"Action":"fail","Package":"github.com/atlas/example/auth","Test":"TestRegister","Elapsed":0.2}
-{"Action":"run","Package":"github.com/atlas/example/auth","Test":"TestLogout"}
-{"Action":"skip","Package":"github.com/atlas/example/auth","Test":"TestLogout","Elapsed":0}
+const goldenGoTestStream = `{"Action":"run","Package":"github.com/grunnr/example/auth","Test":"TestLogin"}
+{"Action":"output","Package":"github.com/grunnr/example/auth","Test":"TestLogin","Output":"@atlas:feature auth.login\n"}
+{"Action":"pass","Package":"github.com/grunnr/example/auth","Test":"TestLogin","Elapsed":0.5}
+{"Action":"run","Package":"github.com/grunnr/example/auth","Test":"TestRegister"}
+{"Action":"fail","Package":"github.com/grunnr/example/auth","Test":"TestRegister","Elapsed":0.2}
+{"Action":"run","Package":"github.com/grunnr/example/auth","Test":"TestLogout"}
+{"Action":"skip","Package":"github.com/grunnr/example/auth","Test":"TestLogout","Elapsed":0}
 `
 
 func TestIngest_GoTest_GoldenStream(t *testing.T) {
@@ -257,7 +257,7 @@ func TestIngest_RealGoTestJSON(t *testing.T) {
 	}
 
 	cmd := exec.Command("go", "test", "-json", "-count=1", "-run", "TestParse_GoldenPassRow",
-		"github.com/sosalejandro/atlas/packages/coverage/gotest")
+		"github.com/sosalejandro/grunnr/packages/coverage/gotest")
 	out, _ := cmd.CombinedOutput()
 	if len(out) == 0 {
 		t.Fatalf("go test -json produced no output; combined err: %s", string(out))

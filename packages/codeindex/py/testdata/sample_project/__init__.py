@@ -1,4 +1,4 @@
-"""sample_project — fixture for atlas Python AST scanner integration tests.
+"""sample_project — fixture for grunnr Python AST scanner integration tests.
 
 Exercises every node + edge shape the scanner is contracted to emit:
 

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sosalejandro/atlas/internal/domain"
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 // GoASTScanner builds call graphs by parsing Go source code using only the

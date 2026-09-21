@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // carryBase anchors every seeded run relative to the wall clock: run order is
@@ -155,7 +155,7 @@ func TestAudit_Issue136_LostRunMustNotRaiseCoverage(t *testing.T) {
 
 // A number assembled from two builds must not present itself as one
 // measurement: the reason string has to say how much of the reading is
-// carried. FeatureHealth.Reasons is what `atlas health --json` emits, so this
+// carried. FeatureHealth.Reasons is what `grunnr health --json` emits, so this
 // covers the "distinguishable in both the note and --json" acceptance.
 func TestAudit_Issue136_NoteReportsCarriedShare(t *testing.T) {
 	s := openTestStore(t)

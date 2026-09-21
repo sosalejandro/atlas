@@ -30,11 +30,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // LineRange is a 1-based, inclusive line span on the POST-image (the HEAD side
-// of the diff) — the side the symbol index is keyed on, because atlas indexed
+// of the diff) — the side the symbol index is keyed on, because grunnr indexed
 // the working tree, not the merge base.
 type LineRange struct {
 	Start int `json:"start"`
@@ -63,7 +63,7 @@ const (
 // Fallback reasons. These strings are part of the --json contract; a CI job
 // that alerts on "we stopped getting a reduction" keys on them.
 const (
-	// ReasonUnindexedFile: a changed file atlas holds no symbols for. It may
+	// ReasonUnindexedFile: a changed file grunnr holds no symbols for. It may
 	// be a language the scanner does not cover, a generated directory, or a
 	// file added since the last scan. Either way there is nothing to map the
 	// change onto, so no subset can be justified.
@@ -87,7 +87,7 @@ const (
 	// and the naive result is an empty selection that reads as "run nothing".
 	ReasonNoEvidence = "no-test-evidence"
 
-	// ReasonNoTestsIndexed: atlas has indexed no test symbols, so there is no
+	// ReasonNoTestsIndexed: grunnr has indexed no test symbols, so there is no
 	// suite to take a subset OF and no denominator to report a reduction
 	// against.
 	ReasonNoTestsIndexed = "no-tests-indexed"
@@ -98,7 +98,7 @@ const (
 	// of affected tests is unknowable from evidence.
 	ReasonUnrunnableTest = "unrunnable-test"
 
-	// ReasonUnverifiableSpans: atlas could not establish whether its stored
+	// ReasonUnverifiableSpans: grunnr could not establish whether its stored
 	// spans still describe a changed file — the file could not be hashed, or
 	// the path escaped the repo root. Every other freshness verdict has a
 	// defined widening; this one is the absence of a verdict, so the only safe
@@ -126,14 +126,14 @@ const (
 	// no hunks for it (a rename or a mode change).
 	WideningNoHunks = "no-hunks"
 
-	// WideningStaleIndex: the file changed since the last `atlas scan`, so its
+	// WideningStaleIndex: the file changed since the last `grunnr scan`, so its
 	// stored spans describe a version of it that no longer exists. Joining the
 	// diff's line numbers against them would resolve to whichever symbol used
 	// to occupy those lines — the wrong tests selected AND the right ones
 	// omitted, both silently. See packages/indexfresh.
 	WideningStaleIndex = "stale-index"
 
-	// WideningUnverifiableSpans: atlas holds symbols for the file but no
+	// WideningUnverifiableSpans: grunnr holds symbols for the file but no
 	// content hash to corroborate them with (a `scan --hash-files=false`), so
 	// their freshness cannot be established either way.
 	WideningUnverifiableSpans = "unverifiable-spans"
@@ -162,7 +162,7 @@ type Widening struct {
 
 // StaleIndex reports whether this widening was forced by spans that could not
 // be trusted, rather than by the shape of the diff. Callers surface the two
-// separately because the remedy differs: `atlas scan` restores the reduction a
+// separately because the remedy differs: `grunnr scan` restores the reduction a
 // stale index cost, where an edited import block genuinely does reach its
 // whole package.
 func (w Widening) StaleIndex() bool {
@@ -252,7 +252,7 @@ type Selection struct {
 
 	// InertFiles are changed paths ruled incapable of changing behaviour
 	// (markdown, licence text). The list is reported so the reader can audit
-	// exactly what atlas chose to ignore.
+	// exactly what grunnr chose to ignore.
 	InertFiles []string `json:"inert_files,omitempty"`
 
 	ChangedSymbols []ChangedSymbol `json:"changed_symbols"`
@@ -269,7 +269,7 @@ type Selection struct {
 	Features      []shared.FeatureID `json:"features,omitempty"`
 
 	// TotalTests is the size of the indexed suite — the number of tests CI
-	// would run without atlas, and the denominator of Reduction.
+	// would run without grunnr, and the denominator of Reduction.
 	TotalTests int `json:"total_tests"`
 
 	Fallbacks []Fallback `json:"fallbacks,omitempty"`

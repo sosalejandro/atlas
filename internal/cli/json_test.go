@@ -3,7 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/sosalejandro/atlas/packages/envelope"
+	"github.com/sosalejandro/grunnr/packages/envelope"
 	"strings"
 	"testing"
 	"time"

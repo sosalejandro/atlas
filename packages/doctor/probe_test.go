@@ -7,19 +7,19 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // The guard the CLI leans on. os.Stat answers "is there a file here",
 // which is not the question: store.Open migrates whatever it is handed,
-// so anything sitting at the state path became an atlas store the moment
+// so anything sitting at the state path became an grunnr store the moment
 // someone asked whether it was one.
 func TestIsAtlasStore_AcceptsAMigratedStore(t *testing.T) {
 	f := newFixture(t)
 
 	if err := IsAtlasStore(context.Background(), f.dbPath); err != nil {
-		t.Fatalf("a store atlas just migrated was rejected: %v", err)
+		t.Fatalf("a store grunnr just migrated was rejected: %v", err)
 	}
 }
 
@@ -29,7 +29,7 @@ func TestIsAtlasStore_RejectsWhatIsNotAnAtlasStore(t *testing.T) {
 		name  string
 		bytes []byte
 	}{
-		// The placeholder an interrupted `atlas init` (or a `touch`)
+		// The placeholder an interrupted `grunnr init` (or a `touch`)
 		// leaves behind. SQLite reads a zero-length file as a valid empty
 		// database, so nothing below the schema level rejects it.
 		{"zero byte placeholder", nil},
@@ -48,7 +48,7 @@ func TestIsAtlasStore_RejectsWhatIsNotAnAtlasStore(t *testing.T) {
 			}
 
 			if err := IsAtlasStore(context.Background(), path); err == nil {
-				t.Fatal("accepted a file that is not an atlas store")
+				t.Fatal("accepted a file that is not an grunnr store")
 			}
 
 			after, err := os.Stat(path)
@@ -74,7 +74,7 @@ func TestIsAtlasStore_RejectsAMissingFile(t *testing.T) {
 	}
 }
 
-// A SQLite file with no migration bookkeeping is not an atlas store, and
+// A SQLite file with no migration bookkeeping is not an grunnr store, and
 // the schema check has to be able to say so from the probe alone --
 // version 0, which it renders as a fail, rather than a raw "no such
 // table" error surfacing as "the check could not complete".
@@ -105,7 +105,7 @@ func TestMigrationState_MissingTableReadsAsVersionZero(t *testing.T) {
 // The DSN is a `file:` URI, so SQLite parses it: an unescaped '?' starts a
 // query string and an unescaped '#' starts a fragment, and both are DISCARDED
 // from the filename. A probe built by plain concatenation therefore opens a
-// TRUNCATED path -- for ".../with#hash/atlas.db" it asks for ".../with",
+// TRUNCATED path -- for ".../with#hash/grunnr.db" it asks for ".../with",
 // which under mode=ro is either a different store or no store at all. Neither
 // outcome looks like a path bug from the inside: doctor reports on a database
 // it was never asked about, or fails a healthy one.
@@ -124,7 +124,7 @@ func TestOpenReadOnly_OpensTheFileItWasGiven(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
-		paths[i] = filepath.Join(dir, "atlas.db")
+		paths[i] = filepath.Join(dir, "grunnr.db")
 		s, err := store.Open(ctx, paths[i])
 		if err != nil {
 			t.Fatalf("store.Open under %q: %v", name, err)

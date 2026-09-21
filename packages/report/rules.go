@@ -2,18 +2,18 @@ package report
 
 import "sort"
 
-// The rule ids atlas emits. They are a wire contract: GitHub keys an alert's
+// The rule ids grunnr emits. They are a wire contract: GitHub keys an alert's
 // history off the rule id, so renaming one closes every open alert and reopens
 // it as new. Add rules; do not rename them.
 //
-// The "atlas/" prefix namespaces them against the other tools uploading SARIF
+// The "grunnr/" prefix namespaces them against the other tools uploading SARIF
 // to the same repository (CodeQL, Semgrep, golangci-lint), which is what keeps
 // two tools' "dead-code" rules from being read as one.
 const (
-	RuleFeatureUncovered     = "atlas/feature-uncovered"
-	RuleCoverageUnattributed = "atlas/coverage-unattributed"
-	RuleDeadCode             = "atlas/dead-code"
-	RuleDiagnosis            = "atlas/diagnosis"
+	RuleFeatureUncovered     = "grunnr/feature-uncovered"
+	RuleCoverageUnattributed = "grunnr/coverage-unattributed"
+	RuleDeadCode             = "grunnr/dead-code"
+	RuleDiagnosis            = "grunnr/diagnosis"
 )
 
 // Rule is the metadata SARIF requires for each rule a run reports against.
@@ -48,7 +48,7 @@ type Rule struct {
 	// rules that are hygiene rather than risk — inventing a security score
 	// for a dead-code candidate would push it above real vulnerabilities.
 	//
-	// No rule in the current catalog sets it: every rule atlas ships is
+	// No rule in the current catalog sets it: every rule grunnr ships is
 	// hygiene. The renderers still honour it so a genuinely risk-bearing
 	// rule can be added without touching them.
 	SecuritySeverity string
@@ -57,9 +57,9 @@ type Rule struct {
 	Tags []string
 }
 
-const helpBase = "https://github.com/sosalejandro/atlas/blob/main/docs/commands/report.md"
+const helpBase = "https://github.com/sosalejandro/grunnr/blob/main/docs/commands/report.md"
 
-// catalog is the closed set of rules atlas can report. RenderSARIF refuses a
+// catalog is the closed set of rules grunnr can report. RenderSARIF refuses a
 // finding whose rule is not here, which is the only defence against the
 // failure mode where GitHub accepts the upload and drops the result.
 //
@@ -71,25 +71,25 @@ var catalog = []Rule{
 		ID:               RuleFeatureUncovered,
 		Name:             "FeatureUncovered",
 		ShortDescription: "A feature's health score is below the configured floor",
-		FullDescription: "atlas scored this feature from its statement coverage, decision coverage, " +
+		FullDescription: "grunnr scored this feature from its statement coverage, decision coverage, " +
 			"annotation freshness, pattern compliance and contract drift signals, and the result is " +
 			"below the floor the repository gates on. The score's components name which signal " +
 			"dragged it down.",
-		HelpURI:      helpBase + "#atlasfeature-uncovered",
+		HelpURI:      helpBase + "#grunnrfeature-uncovered",
 		DefaultLevel: SeverityWarning,
-		Tags:         []string{"atlas", "coverage", "maintainability"},
+		Tags:         []string{"grunnr", "coverage", "maintainability"},
 	},
 	{
 		ID:               RuleCoverageUnattributed,
 		Name:             "CoverageUnattributed",
-		ShortDescription: "Executed statements atlas could not charge to any indexed symbol",
-		FullDescription: "The coverage report says these statements ran, but atlas has no indexed symbol " +
+		ShortDescription: "Executed statements grunnr could not charge to any indexed symbol",
+		FullDescription: "The coverage report says these statements ran, but grunnr has no indexed symbol " +
 			"covering them, so they contribute to no feature's score. This is a blind spot in the " +
 			"measurement rather than a defect in the code: usually the file was excluded from the scan, " +
-			"or the coverage report names it by an import path atlas cannot map to the checkout.",
-		HelpURI:      helpBase + "#atlascoverage-unattributed",
+			"or the coverage report names it by an import path grunnr cannot map to the checkout.",
+		HelpURI:      helpBase + "#grunnrcoverage-unattributed",
 		DefaultLevel: SeverityNote,
-		Tags:         []string{"atlas", "coverage", "measurement"},
+		Tags:         []string{"grunnr", "coverage", "measurement"},
 	},
 	{
 		ID:               RuleDeadCode,
@@ -98,20 +98,20 @@ var catalog = []Rule{
 		FullDescription: "Nothing in the indexed graph references this symbol. Treat it as a triage " +
 			"candidate, not a verdict: dynamic dispatch, plugin entry points and re-export chains are " +
 			"invisible to static analysis and surface here even when the symbol is live at runtime.",
-		HelpURI:      helpBase + "#atlasdead-code",
+		HelpURI:      helpBase + "#grunnrdead-code",
 		DefaultLevel: SeverityNote,
-		Tags:         []string{"atlas", "dead-code", "maintainability"},
+		Tags:         []string{"grunnr", "dead-code", "maintainability"},
 	},
 	{
 		ID:               RuleDiagnosis,
 		Name:             "Diagnosis",
-		ShortDescription: "A symbol atlas ranks as a likely source of the reported symptom",
-		FullDescription: "atlas matched a symptom string (an error message, a log line, a failing test's " +
+		ShortDescription: "A symbol grunnr ranks as a likely source of the reported symptom",
+		FullDescription: "grunnr matched a symptom string (an error message, a log line, a failing test's " +
 			"output) back to this symbol by body text and graph centrality. Confidence is a ranking " +
 			"signal, not a probability — the top few candidates are where to start looking.",
-		HelpURI:      helpBase + "#atlasdiagnosis",
+		HelpURI:      helpBase + "#grunnrdiagnosis",
 		DefaultLevel: SeverityNote,
-		Tags:         []string{"atlas", "triage"},
+		Tags:         []string{"grunnr", "triage"},
 	},
 }
 

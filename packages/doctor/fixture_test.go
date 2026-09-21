@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // fixture is a throwaway repo root + opened state DB. Every check test
@@ -26,9 +26,9 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	root := t.TempDir()
-	dbPath := filepath.Join(root, ".atlas", "atlas.db")
+	dbPath := filepath.Join(root, ".grunnr", "grunnr.db")
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
@@ -74,7 +74,7 @@ func (f *fixture) writeFile(t *testing.T, relPath, content string) string {
 }
 
 // indexFile writes the file AND records a matching file_hashes row: the
-// "atlas has seen this exact content" state.
+// "grunnr has seen this exact content" state.
 func (f *fixture) indexFile(t *testing.T, relPath, content string) {
 	t.Helper()
 	hash := f.writeFile(t, relPath, content)

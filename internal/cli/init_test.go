@@ -203,7 +203,7 @@ func TestResolveNodeModulesPath_IgnoresFileNamedNodeModules(t *testing.T) {
 //     warning that would surface from an empty NodeModulesPaths.
 //
 // This is the regression guard for the Phase 9 dogfood failure: init
-// silently dropping all TS symbols because /tmp/atlas-tsscan-* couldn't
+// silently dropping all TS symbols because /tmp/grunnr-tsscan-* couldn't
 // resolve `typescript`.
 func TestIndexProjectFromConfig_AutoDetectsNodeModules(t *testing.T) {
 	root := t.TempDir()
@@ -244,7 +244,7 @@ func TestIndexProjectFromConfig_AutoDetectsNodeModules(t *testing.T) {
 // TestEffectiveNodeModulesPaths_ExplicitWins confirms that any caller-
 // supplied value is returned verbatim — auto-detect MUST NOT override an
 // explicit --node-modules-path. This is the load-bearing rule for users
-// who deliberately point atlas at a specific install in CI scripts.
+// who deliberately point grunnr at a specific install in CI scripts.
 func TestEffectiveNodeModulesPaths_ExplicitWins(t *testing.T) {
 	root := t.TempDir()
 	// An in-tree node_modules/typescript exists; auto-detect WOULD pick it.
@@ -339,7 +339,7 @@ func TestIndexProjectFromConfig_FailsCleanlyWhenNoNodeModules(t *testing.T) {
 func TestInitCmd_HasNodeModulesPathFlag(t *testing.T) {
 	c := newInitCmd()
 	if c.Flags().Lookup("node-modules-path") == nil {
-		t.Fatal("atlas init is missing --node-modules-path flag")
+		t.Fatal("grunnr init is missing --node-modules-path flag")
 	}
 }
 
@@ -347,6 +347,6 @@ func TestInitCmd_HasNodeModulesPathFlag(t *testing.T) {
 func TestScanCmd_HasNodeModulesPathFlag(t *testing.T) {
 	c := newScanCmd()
 	if c.Flags().Lookup("node-modules-path") == nil {
-		t.Fatal("atlas scan is missing --node-modules-path flag")
+		t.Fatal("grunnr scan is missing --node-modules-path flag")
 	}
 }

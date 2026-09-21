@@ -1,4 +1,4 @@
-// Package shared is the Atlas kernel: value types and sentinel errors that
+// Package shared is the Grunnr kernel: value types and sentinel errors that
 // every other package depends on.
 //
 // Per docs/architecture.md §3.1, this package MUST NOT import any other

@@ -1,4 +1,4 @@
-module github.com/sosalejandro/atlas
+module github.com/sosalejandro/grunnr
 
 go 1.25.0
 

@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // ---------------------------------------------------------------------------
-// Regression tests for the confirmed defects in `atlas trend` (issue #92).
+// Regression tests for the confirmed defects in `grunnr trend` (issue #92).
 // ---------------------------------------------------------------------------
 
 // linkSymbol inserts a symbol and links it to a feature under the given role,
@@ -237,7 +237,7 @@ func TestCollect_DenominatorFallsBackToScoredSymbols(t *testing.T) {
 // --- Finding 5 -------------------------------------------------------------
 
 // Issue #92 asked for a series over tables that already exist. Without a
-// backfill, `atlas trend` on a store with a year of coverage runs prints
+// backfill, `grunnr trend` on a store with a year of coverage runs prints
 // "no history recorded".
 func TestBackfill_DerivesPointsFromExistingCoverageRuns(t *testing.T) {
 	s := openStore(t)
@@ -285,7 +285,7 @@ func TestBackfill_DerivesPointsFromExistingCoverageRuns(t *testing.T) {
 	}
 }
 
-// Backfill must never overwrite a point `atlas trend record` wrote: that one
+// Backfill must never overwrite a point `grunnr trend record` wrote: that one
 // is the better measurement, and a second run of the command must be a no-op.
 func TestBackfill_IsIdempotentAndNeverOverwritesARecordedPoint(t *testing.T) {
 	s := openStore(t)

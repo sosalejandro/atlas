@@ -14,10 +14,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/resolver"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex/annotations"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/resolver"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Result is the output of Scan.
@@ -344,7 +344,7 @@ func (c *scanContext) discoverRoutes() error {
 		// and resolveHandlerRefs later matches against symbols by
 		// method-name suffix. No name is bound here at all, so this is
 		// tier C — and recording it as anything stronger would file
-		// the weakest edges atlas produces alongside its
+		// the weakest edges grunnr produces alongside its
 		// scope-resolved calls.
 		c.graph.AddEdgeTier(endpointID, shared.SymbolID(handlerID), graph.TierSyntactic)
 	}
@@ -446,7 +446,7 @@ func (c *scanContext) visitFile(abs string, d os.DirEntry) error {
 		return nil
 	}
 	// Test files are included by default — see Options.SkipTests godoc:
-	// Atlas's feature-attribution workflow relies on `_test.go` because
+	// Grunnr's feature-attribution workflow relies on `_test.go` because
 	// that's where `@atlas:feature` / `@testreg` annotations live.
 	if c.opts.SkipTests && strings.HasSuffix(d.Name(), "_test.go") {
 		return nil
@@ -501,7 +501,7 @@ func (c *scanContext) recordIgnoredPackage(dirAbs string) {
 // rules, STRONGEST SIGNAL FIRST — header, then glob, then directory.
 //
 // Order matters because the reason is the product here: it is what the
-// ledger reports and what `atlas doctor` explains a denominator with. A
+// ledger reports and what `grunnr doctor` explains a denominator with. A
 // sqlc file inside a generated/ directory should be reported as
 // generated-header — the rule that holds wherever the tool put its output —
 // rather than as generated-dir, which only says where someone filed it.
@@ -1380,7 +1380,7 @@ func (c *scanContext) emitCallEdge(info *funcInfo, r callResolution) []shared.Sy
 				Doc:      fmt.Sprintf("SQLC query: %s (:%s)", sqlcMap.QueryName, sqlcMap.QueryType),
 			},
 		})
-		// The redirect DOES re-resolve, and by the weakest rule atlas
+		// The redirect DOES re-resolve, and by the weakest rule grunnr
 		// has: c.sqlcMethods is keyed on a bare method name, and the
 		// lookup above is the last dot-segment of whatever id the
 		// resolver produced. Nothing about the receiver, the package or
@@ -1407,7 +1407,7 @@ func (c *scanContext) emitCallEdge(info *funcInfo, r callResolution) []shared.Sy
 		c.graph.AddNode(&graph.Node{
 			Symbol: shared.Symbol{ID: r.ID, Kind: shared.KindExternal},
 		})
-		// An external call is a package-qualified name atlas has no
+		// An external call is a package-qualified name grunnr has no
 		// declaration for: the target is a stub built from the source
 		// text, so the edge is syntactic no matter which rung produced
 		// the name. The typed path never reaches here — it only offers

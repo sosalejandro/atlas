@@ -3,13 +3,13 @@ package coverage
 import (
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage/gocover"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage/gocover"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Issue #85: the ingest used to report only "files=641/852", so the ~25% of
 // the profile that reconciled to no symbol was invisible. Attribution gaps
-// must be enumerable — both files atlas has never indexed AND statements
+// must be enumerable — both files grunnr has never indexed AND statements
 // inside indexed files that fall outside every symbol's span.
 func TestAttributeStatements_ReportsGaps(t *testing.T) {
 	byFile := indexSymbolsByFile([]store.SymbolRow{

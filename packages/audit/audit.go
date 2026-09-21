@@ -8,9 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex/patterns"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex/patterns"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // FeatureHealth is the per-feature health record produced by Audit.ScoreFeature.
@@ -41,10 +41,10 @@ type FeatureHealth struct {
 	// that and defeat the point.
 	//
 	// nil means no symbol on the feature's surface has ever been measured —
-	// the feature predates `atlas flow`, and its JSON is byte-for-byte what it
+	// the feature predates `grunnr flow`, and its JSON is byte-for-byte what it
 	// was. Non-nil with Available=false means the measurement DID happen and
 	// produced no judgeable outcome, which is a different fact and one an
-	// operator who just ran `atlas flow` needs to see.
+	// operator who just ran `grunnr flow` needs to see.
 	Decision *DecisionCoverageReport `json:"decision_coverage,omitempty"`
 }
 
@@ -87,13 +87,13 @@ const (
 	//
 	// It was called "coverage" until issue #112, which is the word that
 	// meant three different things in this codebase at once: the statements
-	// a test run EXECUTED, the fraction of that execution atlas could
+	// a test run EXECUTED, the fraction of that execution grunnr could
 	// ATTRIBUTE to a symbol, and this -- the judgement that a feature is
 	// VERIFIED. Sharing one word made the three impossible to discuss and
 	// easy to confuse in a report; a reader who saw "coverage: 40" could not
-	// tell whether 60% of the code never ran or whether atlas simply could
+	// tell whether 60% of the code never ran or whether grunnr simply could
 	// not tell which feature the runs belonged to. So: execution is what a
-	// profile measures, attribution is how much of it atlas can place, and
+	// profile measures, attribution is how much of it grunnr can place, and
 	// verification is the verdict this signal carries.
 	SignalVerification = "verification"
 	// SignalCoverage is the pre-#112 spelling. Retained for one minor
@@ -112,14 +112,14 @@ const (
 	// profile could judge, how many were actually taken? It is scored ONLY
 	// over symbols that carry a `cfg_decision_coverage` row and that have at
 	// least one decidable outcome. Everything else — a symbol nobody ran
-	// `atlas flow` over, a symbol whose only branching is a short-circuit
+	// `grunnr flow` over, a symbol whose only branching is a short-circuit
 	// operator — leaves the signal unavailable rather than scoring it zero,
 	// because weightedAverage re-normalises over what is available and a zero
 	// here would drop the score of every feature the signal cannot see.
 	SignalDecisionCoverage = "decision_coverage"
 	// SignalAnnotationPresence fires when the feature has at least one linked
 	// symbol in the feature_symbols table. This is the same signal that
-	// `atlas chain feature:<id>` consumes — when trace resolves a chain,
+	// `grunnr chain feature:<id>` consumes — when trace resolves a chain,
 	// this signal is present and non-zero. It prevents a feature from scoring
 	// 0 with "no annotation source" solely because coverage/git/aggregate/
 	// contract data hasn't been ingested yet, even though the feature IS
@@ -320,7 +320,7 @@ type auditImpl struct {
 	// ScoreAll's surfaces overlap heavily in any codebase with shared domain
 	// services. A nil VALUE records "asked, and there is no row", so the
 	// absent case is memoised too; that is the common case on a store nobody
-	// has run `atlas flow` over, and it is the one worth not repeating.
+	// has run `grunnr flow` over, and it is the one worth not repeating.
 	decisionCache map[int64]*store.DecisionCoverage
 }
 
@@ -454,7 +454,7 @@ func (a *auditImpl) LoadSnapshot(ctx context.Context, snapshotID int64) ([]Featu
 
 // latestCoverageFrontier returns the coverage runs the audit scores against.
 //
-// Atlas treats a project as having ONE current coverage frontier, but a
+// Grunnr treats a project as having ONE current coverage frontier, but a
 // polyglot repo builds that frontier out of several runs — one per framework
 // per CI build. The store resolves them from the newest run outward: a run
 // tagged with a run group brings its whole group along, an untagged run

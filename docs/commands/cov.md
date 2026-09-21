@@ -1,6 +1,6 @@
-# atlas cov
+# grunnr cov
 
-`atlas cov` groups the coverage-ingest verb (`sync`), the coverage-status view
+`grunnr cov` groups the coverage-ingest verb (`sync`), the coverage-status view
 (`status`), and the patch-coverage gate (`diff`). Coverage is what feeds the
 `coverage_pass_rate` audit component, so a project that never runs `cov sync`
 will see the audit fall back to other signals (annotation freshness, aggregate
@@ -13,7 +13,7 @@ on.
 
 | Subcommand                          | Purpose                                                                        |
 | ----------------------------------- | ------------------------------------------------------------------------------ |
-| [`sync`](#sync)                     | Ingest a test framework's report into the atlas store.                         |
+| [`sync`](#sync)                     | Ingest a test framework's report into the grunnr store.                         |
 | [`status`](#status)                 | Per-feature coverage view, and the attribution gap, from the latest run.       |
 | [`diff`](./cov-diff.md)             | Coverage of the lines this branch changed, with a `--fail-under` CI gate.      |
 
@@ -22,7 +22,7 @@ on.
 ### `sync`
 
 ```
-atlas cov sync [flags]
+grunnr cov sync [flags]
 ```
 
 `cov sync` parses a test-framework report and writes the resulting run +
@@ -60,11 +60,11 @@ never ran.
 
 ```bash
 GROUP="$(git rev-parse HEAD)"
-atlas cov sync --framework go-cover --input cover.out       --run-group "$GROUP"
-atlas cov sync --framework istanbul --input coverage-final.json --run-group "$GROUP"
+grunnr cov sync --framework go-cover --input cover.out       --run-group "$GROUP"
+grunnr cov sync --framework istanbul --input coverage-final.json --run-group "$GROUP"
 ```
 
-Atlas never interprets the key. Forgetting the flag is safe: the run stands
+Grunnr never interprets the key. Forgetting the flag is safe: the run stands
 alone, which is the behaviour that predates run groups — it never merges into
 whatever stale group happens to be named.
 
@@ -77,14 +77,14 @@ whatever stale group happens to be named.
 | `--per-test`                  | (off)                 | Directory of per-test coverprofiles named `<TestSymbol>.out` (go-cover only).                       |
 | `--run-group`                 | (none)                | Correlation key tying this sync to the other frameworks measured in the same build.                 |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                              |
-| `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                    |
+| `--db-path` *(global)*        | `.grunnr/grunnr.db`     | Override the SQLite state path.                                                                    |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                      |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                                                                     |
 
 #### Example: ingest a go-test report
 
 ```bash
-# Run from: /tmp/atlas-fixture
+# Run from: /tmp/grunnr-fixture
 $ cat > cov.json <<'EOF'
 {"Time":"2026-05-22T00:00:00Z","Action":"run","Package":"example.com/fixture/auth","Test":"TestLogin"}
 {"Time":"2026-05-22T00:00:01Z","Action":"pass","Package":"example.com/fixture/auth","Test":"TestLogin","Elapsed":0.05}
@@ -92,7 +92,7 @@ $ cat > cov.json <<'EOF'
 {"Time":"2026-05-22T00:00:01Z","Action":"fail","Package":"example.com/fixture/auth","Test":"TestIssueToken","Elapsed":0.02}
 EOF
 
-$ atlas cov sync --framework go-test --input cov.json
+$ grunnr cov sync --framework go-test --input cov.json
 coverage ingest complete  run_id=1 framework=go-test
 ```
 
@@ -104,37 +104,37 @@ The `run_id` is the primary key of the newly inserted row in the
 
 ```bash
 # Run from: a Go project root
-$ go test -json ./... | atlas cov sync --framework go-test
+$ go test -json ./... | grunnr cov sync --framework go-test
 coverage ingest complete  run_id=12 framework=go-test
 ```
 
-Atlas does not buffer the entire input — it streams the line-delimited
+Grunnr does not buffer the entire input — it streams the line-delimited
 JSON one record at a time, so very large test runs don't blow memory.
 
 #### Example: ingest a Go coverprofile, and read the attribution gap
 
 ```bash
-# Run from: a Go project root, after `atlas scan`
+# Run from: a Go project root, after `grunnr scan`
 $ go test ./... -coverprofile=cover.out
-$ atlas cov sync --framework go-cover --input cover.out
+$ grunnr cov sync --framework go-cover --input cover.out
 coverprofile ingest complete  run_id=4 blocks=980247 files=852/852 unmatched=0 symbols_executed=6912 stmts=1204331/1204331
 ```
 
 The trailing counters are the **attribution accounting** — the answer to
-"how much of the code that actually ran did atlas manage to charge to a
+"how much of the code that actually ran did grunnr manage to charge to a
 symbol?":
 
 | Counter             | Meaning                                                                                       |
 | ------------------- | --------------------------------------------------------------------------------------------- |
-| `files=M/N`         | Profile files that reconciled to an indexed atlas file, out of all files in the profile.       |
-| `unmatched=U`       | Profile files atlas has **no symbols for** — their execution cannot be attributed at all.      |
+| `files=M/N`         | Profile files that reconciled to an indexed grunnr file, out of all files in the profile.       |
+| `unmatched=U`       | Profile files grunnr has **no symbols for** — their execution cannot be attributed at all.      |
 | `stmts=A/T`         | Statements charged to a symbol, out of all statements in the profile.                          |
 
 When anything is unattributed, `cov sync` prints the size of the blind spot
 and can enumerate it:
 
 ```bash
-$ atlas cov sync --framework go-cover --input cover.out --verbose
+$ grunnr cov sync --framework go-cover --input cover.out --verbose
 coverprofile ingest complete  run_id=5 blocks=980247 files=641/852 unmatched=211 symbols_executed=4706 stmts=812004/1204331
 attribution gap: 392327/1204331 statements (32.6%) in 254 file(s) could not be charged to a symbol
     5312 stmts  no-indexed-symbol      github.com/org/repo/src/infrastructure/persistence/generated/scheduling.sql.go
@@ -146,13 +146,13 @@ Two reasons are reported:
 
 | Reason                 | What it means                                                                                                     |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `no-indexed-symbol`    | Atlas has zero symbols for the file: it was never scanned, it is generated code (`**/generated/**` is skipped), or the profile path could not be reconciled to a repo-relative path. |
+| `no-indexed-symbol`    | Grunnr has zero symbols for the file: it was never scanned, it is generated code (`**/generated/**` is skipped), or the profile path could not be reconciled to a repo-relative path. |
 | `outside-symbol-spans` | The file IS indexed, but those statements fall outside every symbol's `[line, end_line]` span — declarations the scanner did not index. |
 
 `--json` carries the same accounting under `result.attribution`, with the
 full `gaps` list (the terminal view caps at 25 rows). Treat a large
 `no-indexed-symbol` bucket as a **scan** problem, not a test problem: the
-tests ran, atlas just doesn't know what they touched.
+tests ran, grunnr just doesn't know what they touched.
 
 All of it is also **persisted with the run** — the counters as columns on
 `coverage_runs`, the per-file list as `coverage_run_gaps` rows that cascade
@@ -167,23 +167,23 @@ list never passes itself off as a complete one.
 
 ```bash
 # One profile per test, named <qualified test symbol>.out
-$ ls .atlas/per-test/
+$ ls .grunnr/per-test/
 billing.TestCheckout_Idempotent.out   measurements.TestLogEntry.out   ...
 
-$ atlas cov sync --framework go-cover --per-test .atlas/per-test
+$ grunnr cov sync --framework go-cover --per-test .grunnr/per-test
 per-test ingest complete  run_id=6 tests=1122 rows=214883 symbols_executed=6912
 ```
 
 This writes the same union run as a whole-run ingest **plus** a row per
 (test, symbol executed) pair. That evidence changes how a feature's
 implementation surface is derived: instead of walking `call` edges out of the
-annotated test and hoping the scanner resolved them, atlas takes the union of
+annotated test and hoping the scanner resolved them, grunnr takes the union of
 what the feature's own tests actually executed, minus the symbols nearly every
 test executes (the logger, the DI container, the middleware chain).
 
 That derivation is correct through interface dispatch, DI containers,
 reflection and string-routed handlers — none of which a static walk can follow.
-`atlas health --json` reports which derivation produced each score:
+`grunnr health --json` reports which derivation produced each score:
 
 ```json
 { "feature_id": "measurements.log-entry", "score": 78.4, "surface_source": "dynamic" }
@@ -206,7 +206,7 @@ JS/TS the granularity is per test file.
 ### `status`
 
 ```
-atlas cov status [flags]
+grunnr cov status [flags]
 ```
 
 `cov status` summarises pass/fail/skip counts grouped by `feature_id` over
@@ -223,7 +223,7 @@ key.
 
 With `--gaps` it also reports the frontier's **attribution accounting** —
 read back from the store, not recomputed — so "how much of what ran can
-atlas actually see?" is answerable by anything that did not run the ingest
+grunnr actually see?" is answerable by anything that did not run the ingest
 itself. The counters sum across the frontier: the reports do not overlap
 (go-cover measures Go files, istanbul the front end), so the sum is the
 build's total blind spot.
@@ -282,7 +282,7 @@ only the run that finished last would understate the inherited denominator.
 all. It renders as `beyond the carry window`, and `builds_back` is `-1` in the
 JSON — not `0`, which would read as "the current build measured it".
 
-**The flags tune `cov status`, not `atlas health`.** The audit carries on the
+**The flags tune `cov status`, not `grunnr health`.** The audit carries on the
 package defaults (3 builds / 72h); `--carry-builds` and `--carry-max-age` exist
 so you can see what a different window WOULD do to the frontier before deciding
 the defaults are wrong for your pipeline.
@@ -307,15 +307,15 @@ denominator, which is the number that collapses when a job dies.
 | `--carry-builds`              | `0` → 3               | How many grouped builds back a carried measurement may come from and still count as evidence. |
 | `--carry-max-age`             | `0` → `72h`           | Wall-clock bound on the same window, for repos that build rarely. |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                    |
-| `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                          |
+| `--db-path` *(global)*        | `.grunnr/grunnr.db`     | Override the SQLite state path.                          |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope.                           |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                           |
 
 #### Example: latest run summary
 
 ```
-# Run from: /tmp/atlas-fixture (after the go-test ingest above)
-$ atlas cov status
+# Run from: /tmp/grunnr-fixture (after the go-test ingest above)
+$ grunnr cov status
 Coverage run 1 (ungrouped)
   <unassigned>                              pass=1 fail=1 skip=0  (50%)
 ```
@@ -324,7 +324,7 @@ Coverage run 1 (ungrouped)
 
 ```
 # Run from: a repo whose CI syncs both suites under one --run-group
-$ atlas cov status --group
+$ grunnr cov status --group
 Coverage frontier "9f2c1ab" (2 runs, newest 2)
   billing                                   pass=1 fail=0 skip=0  (100%)
   web                                       pass=1 fail=0 skip=0  (100%)
@@ -334,7 +334,7 @@ frontier runs (2):
 ```
 
 A run listed with `results=0` landed in the group but contributed nothing —
-usually a sync that ran before `atlas scan` indexed the code it measured.
+usually a sync that ran before `grunnr scan` indexed the code it measured.
 
 #### Example: a build whose second job never landed
 
@@ -345,7 +345,7 @@ synced only the shipping profile under `--run-group build-2`, standing in for
 a Go job that crashed.
 
 ```
-$ atlas cov status
+$ grunnr cov status
 Coverage frontier "build-2" (1 runs, newest 3)
   <unassigned>                              pass=1 fail=0 skip=0  (100%)
 carryforward: 1 result(s) carried (1 as evidence, 0 holding the denominator only), window 3 builds / 72h0m0s
@@ -371,7 +371,7 @@ carryforward: 1 result(s) carried (1 as evidence, 0 holding the denominator only
 }
 ```
 
-`atlas health` scores the same pool, and says so in the feature's reasons:
+`grunnr health` scores the same pool, and says so in the feature's reasons:
 
 ```
 coverage: 5/6 statements executed (83%); 3/6 statements carried from build "build-1" (1 build back), observed 3/6 (50%)
@@ -388,7 +388,7 @@ Turning it off restores the older reading, which is how you tell whether
 carryforward is what moved a number:
 
 ```
-$ atlas cov status --carry=false
+$ grunnr cov status --carry=false
 Coverage frontier "build-2" (1 runs, newest 3)
   <unassigned>                              pass=1 fail=0 skip=0  (100%)
 carryforward: off (--carry=false); symbols this build did not measure are simply absent
@@ -402,10 +402,10 @@ measurement, so it says what actually happened and what to do about it:
 
 ```
 # Run from: a repo whose CI syncs without --run-group
-$ atlas cov status
+$ grunnr cov status
 Coverage run 1 (ungrouped)
   <unassigned>                              pass=1 fail=0 skip=0  (100%)
-carryforward: did not run - this frontier has no run group, so "the previous build" is undefined; tag the syncs of one build with 'atlas cov sync --run-group <id>' to enable it
+carryforward: did not run - this frontier has no run group, so "the previous build" is undefined; tag the syncs of one build with 'grunnr cov sync --run-group <id>' to enable it
 ```
 
 In `--json` that is `carry.ran: false` with `carry.skip_reason:
@@ -415,8 +415,8 @@ and `"no-frontier"` (no coverage runs at all).
 #### Example: the attribution gap of the latest run
 
 ```
-# Run from: a Go project root, after `atlas cov sync --framework go-cover`
-$ atlas cov status --gaps
+# Run from: a Go project root, after `grunnr cov sync --framework go-cover`
+$ grunnr cov status --gaps
 Coverage run 5 (go-test, finished 2026-09-05 11:20:14)
   billing.checkout                          pass=412 fail=0 skip=0  (100%)
 attribution: 392327/1204331 statements (32.6%) unattributed, files 641/852 matched
@@ -437,7 +437,7 @@ a framework with no statement coverage (`playwright`, `maestro`, the
 zero-of-zero:
 
 ```
-$ atlas cov status --gaps
+$ grunnr cov status --gaps
 Coverage run 1 (playwright, finished 2026-05-22 00:00:01)
   <unassigned>                              pass=1 fail=1 skip=0  (50%)
 run 1 carries no attribution metadata (ingested before schema 0011, or by a framework without statement coverage)
@@ -455,7 +455,7 @@ annotated with `// @atlas:feature auth.login` would group under
    framework's parser, and writes one row into `coverage_runs` plus one
    row per test into `coverage_tests`.
 2. The test → feature linkage is harvested from the persisted
-   `annotations` table — atlas joins the test's source file against the
+   `annotations` table — grunnr joins the test's source file against the
    `@atlas:feature` annotations declared there.
 3. `cov status` pulls the highest `run_id` from `coverage_runs`, joins
    `coverage_tests` against `feature_symbols`, and emits the pass / fail /
@@ -483,4 +483,4 @@ Carryforward is not a merge either: it never mixes two builds' readings of the
 same symbol, it only fills in symbols the current build produced no reading for
 at all, and it labels what it filled in. To see history across runs, query the
 `coverage_runs` table directly via sqlite3 or use
-[`atlas diff`](./diff.md)'s `coverage:` slice.
+[`grunnr diff`](./diff.md)'s `coverage:` slice.

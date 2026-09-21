@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/sqlops"
+	"github.com/sosalejandro/grunnr/packages/sqlops"
 )
 
 // hotChurnScore is the churn score above which a capability counts as under
@@ -27,9 +27,9 @@ const maxFindingExamples = 5
 // defaultCoverageCommand is the fallback when the caller does not name the
 // project's test command. It names the verb and marks the hole rather than
 // guessing a toolchain.
-const defaultCoverageCommand = "atlas cov sync --framework <framework> --input <report>"
+const defaultCoverageCommand = "grunnr cov sync --framework <framework> --input <report>"
 
-// coverageCommand is what the report tells the reader to run to give atlas
+// coverageCommand is what the report tells the reader to run to give grunnr
 // execution evidence.
 func coverageCommand(in Input) string {
 	if in.CoverageCommand == "" {
@@ -85,7 +85,7 @@ func untestedRoutes(in Input, res Result) *Finding {
 		Title: fmt.Sprintf("%s no test reaching the handler",
 			plural(n, "HTTP endpoint has", "HTTP endpoints have")),
 		Detail: "Either an ingested coverage run measured these handlers and recorded " +
-			"none of them executing, or atlas can see nothing exercising them at all -- " +
+			"none of them executing, or grunnr can see nothing exercising them at all -- " +
 			"no coverage run, no test file beside the handler. Each citation says which. " +
 			"They are the part of the system other teams call directly.",
 		Count: n, Evidence: ev,
@@ -138,7 +138,7 @@ func sharedTableWrites(res Result) *Finding {
 		Detail: "A shared writer is coupling that no import graph shows: a schema or " +
 			"invariant change in one capability lands in the other's rows.",
 		Count: len(tables), Evidence: ev,
-		Next: "atlas sql capabilities",
+		Next: "grunnr sql capabilities",
 	}
 }
 
@@ -228,13 +228,13 @@ func hotAndUntested(res Result) *Finding {
 		Detail: "Ranked by git history inside the churn window. These are where a " +
 			"regression is most likely and least likely to be caught.",
 		Count: len(hits), Evidence: ev,
-		Next: "atlas hotspots",
+		Next: "grunnr hotspots",
 	}
 }
 
 // sqlAdvisories rolls the SQL checks up by code. It is a finding rather than
 // a section because the individual advisories already have a home in
-// `atlas sql advise`; what the first run owes the reader is the fact that
+// `grunnr sql advise`; what the first run owes the reader is the fact that
 // the checks exist and fired at all.
 func sqlAdvisories(in Input) *Finding {
 	if len(in.Advisories) == 0 {
@@ -272,7 +272,7 @@ func sqlAdvisories(in Input) *Finding {
 		Title:  fmt.Sprintf("%d SQL advisories across %d checks", len(in.Advisories), len(codes)),
 		Detail: "Unbounded reads, unstable pagination, filters no index serves.",
 		Count:  len(in.Advisories), Evidence: ev,
-		Next: "atlas sql advise",
+		Next: "grunnr sql advise",
 	}
 }
 
@@ -306,12 +306,12 @@ func deadCode(in Input) *Finding {
 	}
 	return &Finding{
 		Code: "dead-code-candidates", Severity: SeverityInfo,
-		Title: fmt.Sprintf("%s no incoming reference atlas can see",
+		Title: fmt.Sprintf("%s no incoming reference grunnr can see",
 			plural(n, "symbol has", "symbols have")),
 		Detail: "A candidate list, not a verdict: dynamic dispatch, entry points and " +
 			"plugin registries all look like this to a static graph.",
 		Count: n, Evidence: ev,
-		Next: "atlas codebase dead",
+		Next: "grunnr codebase dead",
 	}
 }
 

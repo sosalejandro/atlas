@@ -6,11 +6,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/diagnose"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/diagnose"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newDiagnoseCmd implements `atlas diagnose <symptom>` — symptom → symbol
+// newDiagnoseCmd implements `grunnr diagnose <symptom>` — symptom → symbol
 // matcher.
 func newDiagnoseCmd() *cobra.Command {
 	var (
@@ -39,7 +39,7 @@ weaker matches.`,
 	return cmd
 }
 
-// diagnoseResult is the JSON payload for `atlas diagnose`.
+// diagnoseResult is the JSON payload for `grunnr diagnose`.
 type diagnoseResult struct {
 	Matches []diagnose.Match `json:"matches"`
 }

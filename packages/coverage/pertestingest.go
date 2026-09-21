@@ -7,16 +7,16 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/coverage/gocover"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage/gocover"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // PerTestProfile is one test's own coverage profile: what the codebase
 // executed while that single test ran.
 type PerTestProfile struct {
 	// Test is the qualified name of the test symbol, exactly as the scanner
-	// indexed it (e.g. "billing.TestCheckout_Idempotent"). A name atlas has
+	// indexed it (e.g. "billing.TestCheckout_Idempotent"). A name grunnr has
 	// no symbol for is reported as unresolved rather than silently dropped —
 	// the whole point of this ingest is that nothing goes missing quietly.
 	Test shared.SymbolID
@@ -38,7 +38,7 @@ type PerTestIngestStats struct {
 	SymbolsExecuted int
 	// StmtsUnattributed is the statements no symbol claimed, unioned across
 	// profiles (issue #85's accounting). Union rather than sum: every
-	// per-test profile names the whole codebase, so a file atlas cannot
+	// per-test profile names the whole codebase, so a file grunnr cannot
 	// index shows up once per test and summing would report a blind spot
 	// as many times too large as there are tests.
 	StmtsUnattributed int

@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	upstream "github.com/scip-code/scip/bindings/go/scip"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/scip"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/scip"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -79,7 +79,7 @@ func TestConvert_DefinitionsBecomeSymbolsOnOneBasedLines(t *testing.T) {
 		t.Fatalf("got %d symbols, want 1: %+v", len(res.Symbols), res.Symbols)
 	}
 	s := res.Symbols[0]
-	// SCIP is 0-indexed; atlas is 1-indexed. Every coverage attribution
+	// SCIP is 0-indexed; grunnr is 1-indexed. Every coverage attribution
 	// downstream joins a diff against these spans, so an off-by-one here is
 	// an off-by-one in every number that follows.
 	if s.Position.Line != 10 {
@@ -119,7 +119,7 @@ func TestConvert_ReferenceInsideADefinitionBecomesAnImportedEdge(t *testing.T) {
 		t.Errorf("edge = %s -> %s, want run -> help", e.From, e.To)
 	}
 	if e.Tier != graph.TierImported {
-		t.Errorf("tier = %q, want %q: atlas did not type-check this, scip-java did",
+		t.Errorf("tier = %q, want %q: grunnr did not type-check this, scip-java did",
 			e.Tier, graph.TierImported)
 	}
 	if e.Line != 13 {
@@ -180,7 +180,7 @@ func TestConvert_EveryReferenceIsAccountedForExactlyOnce(t *testing.T) {
 	}
 }
 
-// A function-scoped symbol cannot be referenced from another file and atlas
+// A function-scoped symbol cannot be referenced from another file and grunnr
 // keys symbols by qualified name. Dropped, but counted.
 func TestConvert_LocalDefinitionsAreDroppedAndCounted(t *testing.T) {
 	res := roundTrip(t, index(doc("src/Service.java", "java",

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // storeWithBillingSymbol opens a fresh store holding exactly one indexed
@@ -16,7 +16,7 @@ import (
 func storeWithBillingSymbol(t *testing.T) *store.Store {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "atlas.db"))
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "grunnr.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -52,7 +52,7 @@ func latestRunGaps(t *testing.T, s *store.Store, runID int64) (store.CoverageRun
 
 // The profile below charges 4 statements to the indexed billing symbol,
 // loses 2 to a line outside every symbol span, and loses 9 whole statements
-// to a file atlas has no symbols for.
+// to a file grunnr has no symbols for.
 const gapProfile = `mode: set
 github.com/example/app/billing/order.go:11.29,13.2 3 1
 github.com/example/app/billing/order.go:15.23,16.2 1 0
@@ -110,7 +110,7 @@ func TestIngestIstanbul_PersistsAttribution(t *testing.T) {
 	ctx := context.Background()
 	s := storeWithBillingSymbol(t)
 
-	// One statement inside the indexed span, two in a file atlas never saw.
+	// One statement inside the indexed span, two in a file grunnr never saw.
 	report := `{
       "/repo/billing/order.go": {
         "path": "/repo/billing/order.go",

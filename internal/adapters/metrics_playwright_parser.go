@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/domain"
 )
 
 // playwrightMetricsReport mirrors the top-level Playwright JSON reporter output
@@ -22,21 +22,21 @@ type playwrightMetricsSuite struct {
 }
 
 type playwrightMetricsSpec struct {
-	Title string                   `json:"title"`
-	Tests []playwrightMetricsTest  `json:"tests"`
+	Title string                  `json:"title"`
+	Tests []playwrightMetricsTest `json:"tests"`
 }
 
 type playwrightMetricsTest struct {
-	Status   string                     `json:"status"`
-	Duration float64                    `json:"duration"`
-	Results  []playwrightMetricsResult  `json:"results"`
+	Status   string                    `json:"status"`
+	Duration float64                   `json:"duration"`
+	Results  []playwrightMetricsResult `json:"results"`
 }
 
 type playwrightMetricsResult struct {
-	Status   string                   `json:"status"`
-	Duration float64                  `json:"duration"`
-	Retry    int                      `json:"retry"`
-	Error    *playwrightMetricsError  `json:"error,omitempty"`
+	Status   string                  `json:"status"`
+	Duration float64                 `json:"duration"`
+	Retry    int                     `json:"retry"`
+	Error    *playwrightMetricsError `json:"error,omitempty"`
 }
 
 type playwrightMetricsError struct {

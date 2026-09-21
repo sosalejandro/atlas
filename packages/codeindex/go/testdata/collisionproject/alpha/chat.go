@@ -13,7 +13,7 @@ func (c *Chat) MarkLoaded() {
 }
 
 // normalize is an unexported plain function: the Go compiler instruments it
-// for coverage, so atlas must index it or its statements get charged to a
+// for coverage, so grunnr must index it or its statements get charged to a
 // neighbouring symbol.
 func normalize(c *Chat) {
 	if c == nil {

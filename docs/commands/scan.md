@@ -1,18 +1,18 @@
-# atlas scan
+# grunnr scan
 
-`atlas scan` re-walks the project root, re-indexes every source file, and
+`grunnr scan` re-walks the project root, re-indexes every source file, and
 writes the resulting symbols / edges / annotations / pattern matches to the
 SQLite state DB. Files whose SHA-256 matches the cached hash are skipped to
 avoid pointless re-writes — the cache makes warm scans on a multi-thousand-
 file repo cheap enough to put in a pre-commit hook.
 
-Run `atlas init` first to create the state DB; `scan` errors out if the DB
+Run `grunnr init` first to create the state DB; `scan` errors out if the DB
 doesn't exist.
 
 ## Usage
 
 ```
-atlas scan [flags]
+grunnr scan [flags]
 ```
 
 ## Flags
@@ -26,7 +26,7 @@ atlas scan [flags]
 | `--skipped`                   | off                   | Do not scan. Print the exclusion ledger the last scan wrote. See "Why is this file not indexed?" below.              |
 | `--skipped-path`              | none                  | Print the ledger entry for one file. Implies `--skipped`.                                                            |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                                                |
-| `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                                      |
+| `--db-path` *(global)*        | `.grunnr/grunnr.db`     | Override the SQLite state path.                                                                                      |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                                        |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                                                                                       |
 
@@ -46,7 +46,7 @@ Two rules apply without any configuration:
    header.
 
 Which OTHER files a codebase generates is a property of the codebase, not of
-the invocation, so extra patterns belong in `atlas.yaml`:
+the invocation, so extra patterns belong in `grunnr.yaml`:
 
 ```yaml
 scan:
@@ -62,7 +62,7 @@ default for the project. The flag can only turn exclusion off; it is not a
 second place to configure the default, so a config that asks to index
 generated code cannot be switched back from the command line.
 
-`atlas scan --json` reports what was skipped and under which rule, so an
+`grunnr scan --json` reports what was skipped and under which rule, so an
 over-broad glob is visible rather than silent.
 
 ## Why is this file not indexed?
@@ -77,8 +77,8 @@ So every scan persists what it excluded, and `--skipped` reads it back --
 from the store, without re-walking the tree:
 
 ```
-$ atlas scan --skipped
-Excluded from the index by the last scan (db: /repo/.atlas/atlas.db): 4 file(s)
+$ grunnr scan --skipped
+Excluded from the index by the last scan (db: /repo/.grunnr/grunnr.db): 4 file(s)
   api/schema.pb.go          generated-glob    **/*.pb.go
   db/queries.sql.go         generated-header
   generated/legacy.go       generated-dir     generated
@@ -99,13 +99,13 @@ header is what the ledger records.
 For a single file:
 
 ```
-$ atlas scan --skipped-path api/schema.pb.go
-Excluded from the index by the last scan (db: /repo/.atlas/atlas.db): 1 file(s)
+$ grunnr scan --skipped-path api/schema.pb.go
+Excluded from the index by the last scan (db: /repo/.grunnr/grunnr.db): 1 file(s)
   api/schema.pb.go  generated-glob  **/*.pb.go
 
-$ atlas scan --skipped-path internal/auth/login.go
+$ grunnr scan --skipped-path internal/auth/login.go
 internal/auth/login.go is not in the exclusion ledger written by the last scan
-(recorded 2026-05-01T12:00:00Z) (db: /repo/.atlas/atlas.db)
+(recorded 2026-05-01T12:00:00Z) (db: /repo/.grunnr/grunnr.db)
   The last scan did not exclude it. Whether it was indexed is a separate
   question this ledger does not answer.
 ```
@@ -114,7 +114,7 @@ Not being in the ledger is an answer, not an error -- the exit code stays 0.
 It is also a NARROWER answer than "the file is indexed": the ledger records
 exclusions and nothing else, so a path it does not mention may equally have
 been outside the scan root, deleted since, or spelled for another tree. Use
-`atlas symbols` to ask whether a file made it into the index.
+`grunnr symbols` to ask whether a file made it into the index.
 
 `--skipped-path` accepts the path in any of the spellings a shell or an
 editor produces -- `./api/schema.pb.go`, `api/schema.pb.go`, or the absolute
@@ -130,12 +130,12 @@ Zero rows has two causes that mean opposite things, and the command
 distinguishes them:
 
 ```
-$ atlas scan --skipped        # after a scan that excluded nothing
-The last scan excluded no files (recorded 2026-05-01T12:00:00Z) (db: /repo/.atlas/atlas.db)
+$ grunnr scan --skipped        # after a scan that excluded nothing
+The last scan excluded no files (recorded 2026-05-01T12:00:00Z) (db: /repo/.grunnr/grunnr.db)
 
-$ atlas scan --skipped        # against a database no scan has written a ledger into
-No exclusion ledger has been recorded in this database (db: /repo/.atlas/atlas.db)
-  This is not the same as a scan that excluded nothing. Run 'atlas scan' to
+$ grunnr scan --skipped        # against a database no scan has written a ledger into
+No exclusion ledger has been recorded in this database (db: /repo/.grunnr/grunnr.db)
+  This is not the same as a scan that excluded nothing. Run 'grunnr scan' to
   record a ledger.
 ```
 
@@ -148,7 +148,7 @@ The ledger is REPLACED by every scan, never appended to: a file that stops
 matching a rule leaves it. It therefore describes the current index and not
 the history of every rule ever tried, and it is written in the same
 transaction as the symbols, so it can never describe a scan that did not
-finish. `atlas scan` prints `files_excluded=N` when a scan excluded
+finish. `grunnr scan` prints `files_excluded=N` when a scan excluded
 anything; `--skipped` is the detail behind that number.
 
 ## Examples
@@ -156,9 +156,9 @@ anything; `--skipped` is the detail behind that number.
 ### Warm re-scan (incremental)
 
 ```
-# Run from: /tmp/atlas-fixture, immediately after `atlas init`
-$ atlas scan
-Atlas scan complete (root: /tmp/atlas-fixture, db: /tmp/atlas-fixture/.atlas/atlas.db)
+# Run from: /tmp/grunnr-fixture, immediately after `grunnr init`
+$ grunnr scan
+Grunnr scan complete (root: /tmp/grunnr-fixture, db: /tmp/grunnr-fixture/.grunnr/grunnr.db)
   symbols=0 edges=0 annotations=0 file_hashes=3 pattern_matches=0
   files_scanned=3 files_skipped=3 duration=0ms
 ```
@@ -174,10 +174,10 @@ reports zero because `init` already populated the slices.
 When you edit a single source file, scan re-indexes only that file:
 
 ```
-# After editing /tmp/atlas-fixture/go/auth.go to add a method
-# Run from: /tmp/atlas-fixture
-$ atlas scan
-Atlas scan complete (root: /tmp/atlas-fixture, db: /tmp/atlas-fixture/.atlas/atlas.db)
+# After editing /tmp/grunnr-fixture/go/auth.go to add a method
+# Run from: /tmp/grunnr-fixture
+$ grunnr scan
+Grunnr scan complete (root: /tmp/grunnr-fixture, db: /tmp/grunnr-fixture/.grunnr/grunnr.db)
   symbols=10 edges=3 annotations=7 file_hashes=4 pattern_matches=0
   files_scanned=4 files_skipped=3 duration=1ms
 ```
@@ -190,17 +190,17 @@ by 1 (the new method).
 There is no `--force` flag — re-indexing is hash-driven on purpose. To
 force a full re-walk, either:
 
-1. Delete the file-hash rows (`sqlite3 .atlas/atlas.db 'DELETE FROM file_hashes'`)
-   and re-run `atlas scan`, or
-2. Run `atlas scan --hash-files=false`, which disables the cache check
+1. Delete the file-hash rows (`sqlite3 .grunnr/grunnr.db 'DELETE FROM file_hashes'`)
+   and re-run `grunnr scan`, or
+2. Run `grunnr scan --hash-files=false`, which disables the cache check
    altogether.
 
 Use sparingly. The intended escape hatch for "the cached graph looks wrong"
-is `atlas chain --fresh`, which re-walks live without touching the store.
+is `grunnr chain --fresh`, which re-walks live without touching the store.
 
 ## How it works
 
-`scan` is the same code path as `atlas init` minus the schema-migration step:
+`scan` is the same code path as `grunnr init` minus the schema-migration step:
 
 1. Open the existing DB at `--db-path` (errors if missing).
 2. For each candidate source file under `--root`:
@@ -214,7 +214,7 @@ is `atlas chain --fresh`, which re-walks live without touching the store.
    `scan.skipped_ledger_written_at` marker that proves a ledger was written
    at all (docs/schema-v1.md §5.17).
 
-`atlas init` writes the same ledger, with the same glob detail. `atlas
+`grunnr init` writes the same ledger, with the same glob detail. `grunnr
 snapshot` also ingests, and it walks with the SAME scan options as `scan` so
 its ingest rewrites the ledger with an identical answer rather than one from
 a differently-configured walk. If you ever run `snapshot --root` against a

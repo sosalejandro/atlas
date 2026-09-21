@@ -6,7 +6,7 @@ import (
 	"log/slog"
 )
 
-// Logger is the thin interface every Atlas package depends on for
+// Logger is the thin interface every Grunnr package depends on for
 // structured logging.
 //
 // Production code wires log/slog (stdlib). Tests use NopLogger. Per
@@ -21,7 +21,7 @@ type Logger interface {
 }
 
 // NopLogger discards all log records. Use in tests and in library callers
-// that don't need Atlas's logging at all.
+// that don't need Grunnr's logging at all.
 type NopLogger struct{}
 
 func (NopLogger) Debug(context.Context, string, ...any) {}

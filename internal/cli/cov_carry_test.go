@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // carryCovBase pins the seeded runs on a fixed clock so "which build is
@@ -81,7 +81,7 @@ func TestCovStatus_CarryFlagsWired(t *testing.T) {
 	flagsOn := newCovStatusCmd().Flags()
 	for _, name := range []string{"carry", "carry-builds", "carry-max-age"} {
 		if flagsOn.Lookup(name) == nil {
-			t.Errorf("atlas cov status is missing --%s", name)
+			t.Errorf("grunnr cov status is missing --%s", name)
 		}
 	}
 	if f := flagsOn.Lookup("carry"); f != nil && f.DefValue != "true" {

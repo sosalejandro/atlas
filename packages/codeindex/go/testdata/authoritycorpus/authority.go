@@ -1,5 +1,5 @@
 // Package authority holds call sites the type checker resolves to
-// declarations atlas does not index, next to the local declarations the
+// declarations grunnr does not index, next to the local declarations the
 // name ladder would reach for if it were allowed a second opinion.
 package authority
 

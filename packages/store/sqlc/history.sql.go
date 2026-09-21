@@ -187,7 +187,7 @@ type UpsertHistoryPointParams struct {
 	Note        *string   `db:"note" json:"note"`
 }
 
-// coverage_history is the measurement series behind `atlas trend` (#92).
+// coverage_history is the measurement series behind `grunnr trend` (#92).
 // A re-measurement of a commit CORRECTS its point, it does not append a
 // second one, so the write is an upsert on the unique commit_sha index.
 // last_insert_rowid() is not updated on the DO UPDATE path, which is why

@@ -27,8 +27,8 @@ derived link cannot rot, because there is nothing to maintain.
 
 | | |
 | --- | --- |
-| [#177](../../issues/177) | Onboard's provisional names are noise. Measured on a real repo: it proposes `root.no` and `root.bash`, and the excellent "what atlas cannot see" section sits *below* them. |
-| [#176](../../issues/176) | Rename. `ariga/atlas` (8,733★, Go, binary `atlas`) and MongoDB's Atlas CLI (binary `atlas`) both ship today — a user cannot have two on their PATH. Install failure at line one of the quickstart. |
+| [#177](../../issues/177) | Onboard's provisional names are noise. Measured on a real repo: it proposes `root.no` and `root.bash`, and the excellent "what grunnr cannot see" section sits *below* them. |
+| [#176](../../issues/176) | Rename. `ariga/grunnr` (8,733★, Go, binary `grunnr`) and MongoDB's Grunnr CLI (binary `grunnr`) both ship today — a user cannot have two on their PATH. Install failure at line one of the quickstart. |
 | — | Tag the first release. The pipeline is complete and verified; it has never been run. |
 
 **GATE — three engineers who did not build it, on repositories that are

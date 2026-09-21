@@ -12,11 +12,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newScanCmd implements `atlas scan` — incremental re-scan that re-uses
+// newScanCmd implements `grunnr scan` — incremental re-scan that re-uses
 // the file-hash cache so unchanged files aren't re-ingested.
 func newScanCmd() *cobra.Command {
 	var (
@@ -38,11 +38,11 @@ the resulting symbols / edges / annotations / pattern matches to the
 SQLite state DB. Files whose SHA-256 matches the cached hash are
 skipped to avoid pointless re-writes.
 
-The first scan after 'atlas init' will report files_skipped=0 because
+The first scan after 'grunnr init' will report files_skipped=0 because
 every file is fresh; subsequent scans become incremental as more files
 stabilise.
 
---node-modules-path mirrors 'atlas init': point the TypeScript scanner
+--node-modules-path mirrors 'grunnr init': point the TypeScript scanner
 at a real node_modules directory so the embedded scanner.ts can resolve
 its 'typescript' dependency. When unset, scan walks up from --root
 looking for a node_modules/ sibling and uses the first hit.
@@ -52,7 +52,7 @@ excluded. Exclusion is the default because generated statements execute
 constantly and would dominate any coverage or complexity reading taken
 over hand-written code; the flag is the escape hatch for "why did my
 symbol disappear?". Which files count as generated is a property of the
-codebase, so extra patterns belong under scan.generated in atlas.yaml
+codebase, so extra patterns belong under scan.generated in grunnr.yaml
 rather than on the command line.
 
 --skip-typed-resolution scans Go with the AST name heuristics alone
@@ -63,7 +63,7 @@ compile still scans. The flag is the escape hatch for when the LOAD
 itself is the problem: no Go toolchain on the machine, a build that
 needs credentials to resolve modules, or a latency budget that cannot
 absorb it. Expect call edges to move from the typed tier down to
-name_resolved and syntactic -- 'atlas edges' will show it.
+name_resolved and syntactic -- 'grunnr edges' will show it.
 
 --jobs bounds the worker count for the per-file passes the orchestrator
 runs itself (annotation parsing, file hashing, EDA pattern recognition).
@@ -101,7 +101,7 @@ answer to one file.`,
 		"absolute path to a node_modules dir the TS scanner can borrow typescript from "+
 			"(repeatable; auto-detected from the scan root when unset)")
 	cmd.Flags().BoolVar(&includeGenerated, "include-generated", false,
-		"index machine-written files instead of excluding them (see scan.generated in atlas.yaml)")
+		"index machine-written files instead of excluding them (see scan.generated in grunnr.yaml)")
 	cmd.Flags().BoolVar(&skipTypedResolution, "skip-typed-resolution", false,
 		"resolve Go calls by name only, without go/packages type checking "+
 			"(escape hatch: no toolchain, or a load that cannot run here)")
@@ -115,12 +115,12 @@ answer to one file.`,
 	return cmd
 }
 
-// scanResult is the JSON payload emitted by `atlas scan`. It embeds
+// scanResult is the JSON payload emitted by `grunnr scan`. It embeds
 // initResult so consumers can de-duplicate parser code (the `command`
 // envelope field distinguishes the two), and adds the one count init has no
 // reason to report: how many files this scan excluded from the index.
 //
-// That count is the pointer to `atlas scan --skipped`. Without it the only
+// That count is the pointer to `grunnr scan --skipped`. Without it the only
 // evidence that a rule dropped forty files is their absence, which reads
 // exactly like a repo that never had them.
 type scanResult struct {
@@ -219,7 +219,7 @@ func runScan(
 }
 
 func printScanText(cmd *cobra.Command, r scanResult, warnings []string) {
-	fmt.Fprintf(cmd.OutOrStdout(), "Atlas scan complete (root: %s, db: %s)\n", r.Root, r.DBPath)
+	fmt.Fprintf(cmd.OutOrStdout(), "Grunnr scan complete (root: %s, db: %s)\n", r.Root, r.DBPath)
 	fmt.Fprintf(cmd.OutOrStdout(),
 		"  symbols=%d edges=%d annotations=%d file_hashes=%d pattern_matches=%d\n",
 		r.SymbolsInserted, r.EdgesInserted, r.AnnotationsInserted,
@@ -229,7 +229,7 @@ func printScanText(cmd *cobra.Command, r scanResult, warnings []string) {
 		r.FilesScanned, r.FilesSkipped, r.DurationMS)
 	if r.FilesExcluded > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(),
-			"  files_excluded=%d (generated or ignored; see 'atlas scan --skipped')\n",
+			"  files_excluded=%d (generated or ignored; see 'grunnr scan --skipped')\n",
 			r.FilesExcluded)
 	}
 	for _, w := range warnings {
@@ -388,11 +388,11 @@ func printSkippedNothing(out io.Writer, r scanSkippedResult) {
 			"No exclusion ledger has been recorded in this database (db: %s)\n", r.DBPath)
 		if r.QueriedPath != "" {
 			fmt.Fprintf(out, "  Cannot determine whether %s was excluded. "+
-				"Run 'atlas scan' to record a ledger.\n", r.QueriedPath)
+				"Run 'grunnr scan' to record a ledger.\n", r.QueriedPath)
 			return
 		}
 		fmt.Fprintln(out, "  This is not the same as a scan that excluded nothing. "+
-			"Run 'atlas scan' to record a ledger.")
+			"Run 'grunnr scan' to record a ledger.")
 		return
 	}
 	when := ""

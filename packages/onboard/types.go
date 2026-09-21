@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/churn"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/sqlops"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/churn"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/sqlops"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // ProvisionalPrefix namespaces every inferred capability.
@@ -38,7 +38,7 @@ const (
 	SourceChurn Source = "churn"
 )
 
-// TestEvidence grades how atlas knows a capability is exercised. The four
+// TestEvidence grades how grunnr knows a capability is exercised. The four
 // values are not a scale of confidence in the code -- they are a scale of
 // confidence in the CLAIM, and they are printed rather than collapsed
 // because "a test file sits in this directory" and "a test executed this
@@ -75,7 +75,7 @@ func (t TestEvidence) Untested() bool {
 	return t == TestEvidenceNone || t == TestEvidenceNotExecuted
 }
 
-// Route is one HTTP route registration atlas read statically. The CLI layer
+// Route is one HTTP route registration grunnr read statically. The CLI layer
 // fills these from packages/contract; the type is restated here so the
 // inference stays a pure function over plain values.
 type Route struct {
@@ -84,7 +84,7 @@ type Route struct {
 	// HandlerSymbolID is the indexed symbol the registration points at, or
 	// 0 when the handler could not be resolved. Such a route proposes no
 	// capability -- there is nothing to group -- and is counted in the
-	// limits section instead, because silence about an endpoint atlas could
+	// limits section instead, because silence about an endpoint grunnr could
 	// not follow reads as "there is no such endpoint".
 	HandlerSymbolID int64  `json:"handler_symbol_id,omitempty"`
 	HandlerName     string `json:"handler,omitempty"`
@@ -156,18 +156,18 @@ type Input struct {
 	// ScannerWarnings and FilesExcluded are carried through into the limits
 	// section, and they are two different facts.
 	//
-	// ScannerWarnings is a diagnostic list, NOT a count of files atlas could
+	// ScannerWarnings is a diagnostic list, NOT a count of files grunnr could
 	// not read: most of its entries on a real repository are notices about
 	// symbols that were indexed anyway (a name collision resolved by
 	// qualifying the id, a router shape a sub-scanner did not recognise).
 	// Nothing here classifies them, so the limits section reports them as
-	// warnings and sends the reader to `atlas doctor` rather than turning
+	// warnings and sends the reader to `grunnr doctor` rather than turning
 	// the count into a number about unread files.
 	//
 	// FilesExcluded is the size of the scanner's EXCLUSION LEDGER --
 	// generated files and ignored packages it declined to index. It is not
 	// the incremental scan's skip count, which counts unchanged files that
-	// are fully indexed already; reporting that as "atlas could not see
+	// are fully indexed already; reporting that as "grunnr could not see
 	// these" turns a warm cache into a scary number.
 	ScannerWarnings []string
 	FilesExcluded   int
@@ -178,7 +178,7 @@ type Input struct {
 	SQLScanned bool
 
 	// CoverageCommand is what the report tells the reader to run to give
-	// atlas execution evidence. It is supplied by the caller because the
+	// grunnr execution evidence. It is supplied by the caller because the
 	// answer is project-shaped -- the Go path and a JS path are different
 	// commands -- and a report that prints a command the reader's project
 	// cannot run has spent the one instruction it had.
@@ -234,9 +234,9 @@ type Capability struct {
 	ID     string `json:"id"`
 	Domain string `json:"domain"`
 	Title  string `json:"title"`
-	// Named is false when atlas REFUSED to name this grouping (#177). A
+	// Named is false when grunnr REFUSED to name this grouping (#177). A
 	// false here is a finding, not a failure: the symbols are real, their
-	// count is real, their file breakdown is real, and the one thing atlas
+	// count is real, their file breakdown is real, and the one thing grunnr
 	// will not do is label them with a word it cannot point at in the code.
 	// Naming one is the single judgement this tool leaves to the reader.
 	Named bool `json:"named"`
@@ -272,7 +272,7 @@ type Capability struct {
 
 	// Reads and Writes are the tables the capability's queries touch. They
 	// are a LOWER BOUND whenever SQLUnresolved is non-zero: some of its
-	// queries were assembled where atlas could not read them, and a table
+	// queries were assembled where grunnr could not read them, and a table
 	// only those touch is missing here.
 	Reads         []string `json:"reads,omitempty"`
 	Writes        []string `json:"writes,omitempty"`
@@ -354,14 +354,14 @@ type Finding struct {
 	Evidence []Evidence `json:"evidence,omitempty"`
 	// Provisional marks findings computed over inferred groupings rather
 	// than declared ones. A finding about provisional.store is a finding
-	// about a grouping atlas guessed, and the reader is owed that.
+	// about a grouping grunnr guessed, and the reader is owed that.
 	Provisional bool `json:"provisional"`
 	// Next is the command that acts on the finding, or "" when the finding
 	// is something to know rather than something to run.
 	Next string `json:"next,omitempty"`
 }
 
-// Limit is one thing atlas cannot see. The section exists because a report
+// Limit is one thing grunnr cannot see. The section exists because a report
 // that lists only what it found reads as complete, and this one is not.
 type Limit struct {
 	Code   string `json:"code"`
@@ -378,17 +378,17 @@ type Stats struct {
 	DeclaredFeatures  int `json:"declared_features"`
 	DeclaredSymbols   int `json:"declared_symbols"`
 	// ProvisionalCapabilities is every entry in the map -- named proposals
-	// PLUS the groupings atlas refused to name (#177). It keeps its name and
+	// PLUS the groupings grunnr refused to name (#177). It keeps its name and
 	// its meaning of "things in the map", so a consumer that was reading it
 	// as the length of the capabilities array stays right; the split is in
 	// NamedCapabilities and UnnamedGroupings below.
 	ProvisionalCapabilities int `json:"provisional_capabilities"`
-	// NamedCapabilities is the entries atlas was willing to name.
+	// NamedCapabilities is the entries grunnr was willing to name.
 	NamedCapabilities int `json:"named_capabilities"`
 	// UnnamedGroupings is the entries it refused to name, and
 	// UnnamedSymbols is how many symbols are inside them. The second number
 	// is the one that matters: a refusal without a size is a shrug, and the
-	// whole point of #177 is that atlas reports the size of what it cannot
+	// whole point of #177 is that grunnr reports the size of what it cannot
 	// name rather than inventing a label for it.
 	UnnamedGroupings int `json:"unnamed_groupings"`
 	UnnamedSymbols   int `json:"unnamed_symbols"`

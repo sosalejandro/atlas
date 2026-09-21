@@ -6,11 +6,11 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/codeindex/patterns"
-	"github.com/sosalejandro/atlas/packages/contract"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/codeindex/patterns"
+	"github.com/sosalejandro/grunnr/packages/contract"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // ----- Test helpers ------------------------------------------------------
@@ -43,7 +43,7 @@ func mkAnn(kind shared.AnnotationKind, id, path string, line int) shared.Annotat
 	return shared.Annotation{
 		Kind:     kind,
 		IDs:      []string{id},
-		Source:   shared.SourceAtlas,
+		Source:   shared.SourceGrunnr,
 		Position: shared.FilePosition{Path: path, Line: line},
 	}
 }

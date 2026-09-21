@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 func indexWithSymbols(syms ...shared.Symbol) *codeindex.Index {
@@ -98,7 +98,7 @@ func TestIngest_KeepsSymbolsFromFilesNotInThisScan(t *testing.T) {
 // A symbol that MOVED inside its file must have its stored position
 // refreshed. INSERT OR IGNORE alone leaves the old line behind, so the
 // coverage ingest keeps charging statements to a span the function no longer
-// occupies — and `atlas chain` points at the wrong line.
+// occupies — and `grunnr chain` points at the wrong line.
 func TestIngest_RefreshesMovedSymbolPosition(t *testing.T) {
 	t.Parallel()
 

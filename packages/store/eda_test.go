@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // seedEDA writes a small fixture into the annotations table covering every
@@ -29,15 +29,15 @@ func TestEDA_ListByBC(t *testing.T) {
 	// with no bc annotation.
 	seedEDA(t, a, []AnnotationRow{
 		// identity BC
-		{FilePath: "src/identity/login.go", Line: 1, Kind: shared.AnnBC, Value: "identity", Source: shared.SourceAtlas},
-		{FilePath: "src/identity/login.go", Line: 10, Kind: shared.AnnFeature, Value: "auth.login", Source: shared.SourceAtlas},
-		{FilePath: "src/identity/session.go", Line: 1, Kind: shared.AnnBC, Value: "identity", Source: shared.SourceAtlas},
-		{FilePath: "src/identity/session.go", Line: 20, Kind: shared.AnnEventEmit, Value: "session_created", Source: shared.SourceAtlas},
+		{FilePath: "src/identity/login.go", Line: 1, Kind: shared.AnnBC, Value: "identity", Source: shared.SourceGrunnr},
+		{FilePath: "src/identity/login.go", Line: 10, Kind: shared.AnnFeature, Value: "auth.login", Source: shared.SourceGrunnr},
+		{FilePath: "src/identity/session.go", Line: 1, Kind: shared.AnnBC, Value: "identity", Source: shared.SourceGrunnr},
+		{FilePath: "src/identity/session.go", Line: 20, Kind: shared.AnnEventEmit, Value: "session_created", Source: shared.SourceGrunnr},
 		// meal_prep BC
-		{FilePath: "src/meal_prep/batch.go", Line: 1, Kind: shared.AnnBC, Value: "meal_prep", Source: shared.SourceAtlas},
-		{FilePath: "src/meal_prep/batch.go", Line: 5, Kind: shared.AnnAggregate, Value: "meal_prep.batch_session", Source: shared.SourceAtlas},
+		{FilePath: "src/meal_prep/batch.go", Line: 1, Kind: shared.AnnBC, Value: "meal_prep", Source: shared.SourceGrunnr},
+		{FilePath: "src/meal_prep/batch.go", Line: 5, Kind: shared.AnnAggregate, Value: "meal_prep.batch_session", Source: shared.SourceGrunnr},
 		// uncategorised file
-		{FilePath: "src/util/clock.go", Line: 1, Kind: shared.AnnFeature, Value: "util.clock", Source: shared.SourceAtlas},
+		{FilePath: "src/util/clock.go", Line: 1, Kind: shared.AnnFeature, Value: "util.clock", Source: shared.SourceGrunnr},
 	})
 
 	got, err := s.EDA().ListByBC(context.Background(), "identity")
@@ -76,8 +76,8 @@ func TestEDA_ListByBC_EmptyNameRejected(t *testing.T) {
 func TestEDA_FindAggregate_WithCanonicalService(t *testing.T) {
 	s := openTestStore(t)
 	seedEDA(t, s.Annotations(), []AnnotationRow{
-		{FilePath: "src/meal_prep/batch.go", Line: 5, Kind: shared.AnnAggregate, Value: "meal_prep.batch_session", Source: shared.SourceAtlas},
-		{FilePath: "src/meal_prep/service.go", Line: 12, Kind: shared.AnnAggregateService, Value: "meal_prep.batch_session", Source: shared.SourceAtlas},
+		{FilePath: "src/meal_prep/batch.go", Line: 5, Kind: shared.AnnAggregate, Value: "meal_prep.batch_session", Source: shared.SourceGrunnr},
+		{FilePath: "src/meal_prep/service.go", Line: 12, Kind: shared.AnnAggregateService, Value: "meal_prep.batch_session", Source: shared.SourceGrunnr},
 	})
 
 	view, err := s.EDA().FindAggregate(context.Background(), "meal_prep.batch_session")
@@ -100,7 +100,7 @@ func TestEDA_FindAggregate_WithoutCanonicalService(t *testing.T) {
 	// service. FindAggregate returns CanonicalService=nil, NOT an error.
 	s := openTestStore(t)
 	seedEDA(t, s.Annotations(), []AnnotationRow{
-		{FilePath: "src/meal_prep/batch.go", Line: 5, Kind: shared.AnnAggregate, Value: "meal_prep.batch_session", Source: shared.SourceAtlas},
+		{FilePath: "src/meal_prep/batch.go", Line: 5, Kind: shared.AnnAggregate, Value: "meal_prep.batch_session", Source: shared.SourceGrunnr},
 	})
 
 	view, err := s.EDA().FindAggregate(context.Background(), "meal_prep.batch_session")
@@ -125,11 +125,11 @@ func TestEDA_WalkSaga_Ordering(t *testing.T) {
 	seedEDA(t, s.Annotations(), []AnnotationRow{
 		// Saga steps deliberately seeded out of order so the query has
 		// to sort them.
-		{FilePath: "src/meal_prep/saga.go", Line: 30, Kind: shared.AnnSaga, Value: "meal_prep_flow step=3", Source: shared.SourceAtlas},
-		{FilePath: "src/meal_prep/saga.go", Line: 10, Kind: shared.AnnSaga, Value: "meal_prep_flow step=1", Source: shared.SourceAtlas},
-		{FilePath: "src/meal_prep/saga.go", Line: 20, Kind: shared.AnnSaga, Value: "meal_prep_flow step=2", Source: shared.SourceAtlas},
+		{FilePath: "src/meal_prep/saga.go", Line: 30, Kind: shared.AnnSaga, Value: "meal_prep_flow step=3", Source: shared.SourceGrunnr},
+		{FilePath: "src/meal_prep/saga.go", Line: 10, Kind: shared.AnnSaga, Value: "meal_prep_flow step=1", Source: shared.SourceGrunnr},
+		{FilePath: "src/meal_prep/saga.go", Line: 20, Kind: shared.AnnSaga, Value: "meal_prep_flow step=2", Source: shared.SourceGrunnr},
 		// Unrelated saga in the same store — must be filtered out.
-		{FilePath: "src/identity/saga.go", Line: 5, Kind: shared.AnnSaga, Value: "session_handoff step=1", Source: shared.SourceAtlas},
+		{FilePath: "src/identity/saga.go", Line: 5, Kind: shared.AnnSaga, Value: "session_handoff step=1", Source: shared.SourceGrunnr},
 	})
 
 	steps, err := s.EDA().WalkSaga(context.Background(), "meal_prep_flow")
@@ -154,8 +154,8 @@ func TestEDA_WalkSaga_SkipsStepless(t *testing.T) {
 	// rows that somehow snuck in).
 	s := openTestStore(t)
 	seedEDA(t, s.Annotations(), []AnnotationRow{
-		{FilePath: "src/x.go", Line: 1, Kind: shared.AnnSaga, Value: "saga_a", Source: shared.SourceAtlas},
-		{FilePath: "src/x.go", Line: 2, Kind: shared.AnnSaga, Value: "saga_a step=1", Source: shared.SourceAtlas},
+		{FilePath: "src/x.go", Line: 1, Kind: shared.AnnSaga, Value: "saga_a", Source: shared.SourceGrunnr},
+		{FilePath: "src/x.go", Line: 2, Kind: shared.AnnSaga, Value: "saga_a step=1", Source: shared.SourceGrunnr},
 	})
 
 	steps, err := s.EDA().WalkSaga(context.Background(), "saga_a")
@@ -170,9 +170,9 @@ func TestEDA_WalkSaga_SkipsStepless(t *testing.T) {
 func TestEDA_ListConsumers_All(t *testing.T) {
 	s := openTestStore(t)
 	seedEDA(t, s.Annotations(), []AnnotationRow{
-		{FilePath: "src/a.go", Line: 1, Kind: shared.AnnConsumer, Value: "stream=meal_prep_events", Source: shared.SourceAtlas},
-		{FilePath: "src/b.go", Line: 1, Kind: shared.AnnConsumer, Value: "stream=identity_events", Source: shared.SourceAtlas},
-		{FilePath: "src/c.go", Line: 1, Kind: shared.AnnConsumer, Value: "stream=meal_prep_events", Source: shared.SourceAtlas},
+		{FilePath: "src/a.go", Line: 1, Kind: shared.AnnConsumer, Value: "stream=meal_prep_events", Source: shared.SourceGrunnr},
+		{FilePath: "src/b.go", Line: 1, Kind: shared.AnnConsumer, Value: "stream=identity_events", Source: shared.SourceGrunnr},
+		{FilePath: "src/c.go", Line: 1, Kind: shared.AnnConsumer, Value: "stream=meal_prep_events", Source: shared.SourceGrunnr},
 	})
 
 	all, err := s.EDA().ListConsumers(context.Background(), "")
@@ -208,11 +208,11 @@ func TestEDA_ListConsumers_All(t *testing.T) {
 func TestEDA_FindEventEmitters(t *testing.T) {
 	s := openTestStore(t)
 	seedEDA(t, s.Annotations(), []AnnotationRow{
-		{FilePath: "src/agg.go", Line: 50, Kind: shared.AnnEventEmit, Value: "batch_session_started", Source: shared.SourceAtlas},
-		{FilePath: "src/outbox.go", Line: 80, Kind: shared.AnnOutboxPublish, Value: "batch_session_started", Source: shared.SourceAtlas},
-		{FilePath: "src/agg.go", Line: 60, Kind: shared.AnnEventEmit, Value: "batch_session_completed", Source: shared.SourceAtlas},
+		{FilePath: "src/agg.go", Line: 50, Kind: shared.AnnEventEmit, Value: "batch_session_started", Source: shared.SourceGrunnr},
+		{FilePath: "src/outbox.go", Line: 80, Kind: shared.AnnOutboxPublish, Value: "batch_session_started", Source: shared.SourceGrunnr},
+		{FilePath: "src/agg.go", Line: 60, Kind: shared.AnnEventEmit, Value: "batch_session_completed", Source: shared.SourceGrunnr},
 		// Decoy: an event-emit for a different event must be filtered.
-		{FilePath: "src/other.go", Line: 1, Kind: shared.AnnEventEmit, Value: "session_created", Source: shared.SourceAtlas},
+		{FilePath: "src/other.go", Line: 1, Kind: shared.AnnEventEmit, Value: "session_created", Source: shared.SourceGrunnr},
 	})
 
 	view, err := s.EDA().FindEventEmitters(context.Background(), "batch_session_started")
@@ -268,7 +268,7 @@ func TestEDA_NewKindsPersist(t *testing.T) {
 			Line:     i + 1,
 			Kind:     k,
 			Value:    "test_value",
-			Source:   shared.SourceAtlas,
+			Source:   shared.SourceGrunnr,
 		}
 		if err := a.Upsert(ctx, row); err != nil {
 			t.Fatalf("Upsert kind=%s: %v", k, err)

@@ -26,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 DIST="${1:-}"
 if [ -z "$DIST" ] || [ ! -d "$DIST" ]; then
-	atlas_err "usage: checksums.sh <dist-dir>"
+	grunnr_err "usage: checksums.sh <dist-dir>"
 	exit 1
 fi
 
@@ -40,15 +40,15 @@ files="$(cd "$DIST" && find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -print |
 	sed 's|^\./||' | LC_ALL=C sort)"
 
 if [ -z "$files" ]; then
-	atlas_err "no artifacts in $DIST — refusing to write an empty manifest"
-	atlas_err "(an empty SHA256SUMS verifies successfully against nothing, which is worse than no file)"
+	grunnr_err "no artifacts in $DIST — refusing to write an empty manifest"
+	grunnr_err "(an empty SHA256SUMS verifies successfully against nothing, which is worse than no file)"
 	exit 1
 fi
 
 tmp="$(mktemp)"
 while IFS= read -r f; do
 	[ -n "$f" ] || continue
-	printf '%s  %s\n' "$(atlas_sha256 "$DIST/$f")" "$f" >>"$tmp"
+	printf '%s  %s\n' "$(grunnr_sha256 "$DIST/$f")" "$f" >>"$tmp"
 done <<EOF
 $files
 EOF

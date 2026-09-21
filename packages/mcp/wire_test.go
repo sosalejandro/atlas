@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // openTestStore mirrors packages/store's unexported test helper; the audit and
 // sprintplan packages inline the same three lines for the same reason.
 func openTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "atlas.db"))
+	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "grunnr.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

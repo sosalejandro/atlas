@@ -5,12 +5,12 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/indexfresh"
+	"github.com/sosalejandro/grunnr/packages/indexfresh"
 )
 
 // ---------------------------------------------------------------------------
 // Index staleness (#90 finding 1). The line numbers come from HEAD; the spans
-// come from whenever `atlas scan` last ran. Joining them when they disagree
+// come from whenever `grunnr scan` last ran. Joining them when they disagree
 // does not degrade gracefully -- it names whichever symbol USED to own those
 // lines, so the wrong tests run and the right ones are omitted, both silently.
 // ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ func TestSelect_StaleSpansWidenInsteadOfResolvingToASymbol(t *testing.T) {
 		t.Fatalf("widening reasons = %v, want [%s]", got, WideningStaleIndex)
 	}
 	if !sel.Widenings[0].StaleIndex() {
-		t.Error("a stale-index widening must report StaleIndex(): the remedy is `atlas scan`, not a wider diff")
+		t.Error("a stale-index widening must report StaleIndex(): the remedy is `grunnr scan`, not a wider diff")
 	}
 	if sel.Widenings[0].Path != "billing/checkout.go" {
 		t.Errorf("widening path = %q, want the file that forced it", sel.Widenings[0].Path)

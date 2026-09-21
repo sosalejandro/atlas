@@ -3,16 +3,16 @@ package coverage
 import (
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage/istanbul"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage/istanbul"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // TestAttributeIstanbulStatements_LineWeightedAndPathSuffix mirrors the Go
-// ingester's attribution test: istanbul reports use ABSOLUTE file paths, atlas
+// ingester's attribution test: istanbul reports use ABSOLUTE file paths, grunnr
 // FE symbols use repo-relative paths (apps/web-*/src/...). Each statement is
 // attributed to the symbol whose [start,end] span contains its start line;
 // covered counts only executed (Count>0) statements. FE symbols carry NO
-// end_line in atlas (all NULL), so indexSymbolsByFile's next-symbol-1 / EOF
+// end_line in grunnr (all NULL), so indexSymbolsByFile's next-symbol-1 / EOF
 // fallback supplies the span — exercised here by leaving EndLine nil on sym2.
 func TestAttributeIstanbulStatements_LineWeightedAndPathSuffix(t *testing.T) {
 	byFile := indexSymbolsByFile([]store.SymbolRow{
@@ -54,7 +54,7 @@ func TestAttributeIstanbulStatements_LineWeightedAndPathSuffix(t *testing.T) {
 }
 
 // TestAttributeIstanbulStatements_UnmatchedFileCounted verifies a report file
-// that reconciles to no atlas symbol increments FilesUnmatched (the FE
+// that reconciles to no grunnr symbol increments FilesUnmatched (the FE
 // analogue of issue #85) without polluting the per-symbol counts.
 func TestAttributeIstanbulStatements_UnmatchedFileCounted(t *testing.T) {
 	byFile := indexSymbolsByFile([]store.SymbolRow{

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex/patterns"
+	"github.com/sosalejandro/grunnr/packages/codeindex/patterns"
 )
 
 // TestIntegration_NutritionMeasurements runs the recognisers against the
 // real nutrition-v2-go measurements BC if it is present on the host. The
-// test is intentionally NON-fatal when the path is missing — Atlas CI does
+// test is intentionally NON-fatal when the path is missing — Grunnr CI does
 // not check out the nutrition repo, so the integration check would always
 // fail otherwise.
 //

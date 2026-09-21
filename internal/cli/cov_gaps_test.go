@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// covFixture is the per-test scaffolding for `atlas cov status`: a tempdir
-// with a .atlas/atlas.db, and the package-level singletons pinned at it so
+// covFixture is the per-test scaffolding for `grunnr cov status`: a tempdir
+// with a .grunnr/grunnr.db, and the package-level singletons pinned at it so
 // successive runs don't bleed configuration. Mirrors deadFixture.
 type covFixture struct {
 	root   string
@@ -23,10 +23,10 @@ type covFixture struct {
 func newCovFixture(t *testing.T) *covFixture {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".atlas"), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".grunnr"), 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
-	dbPath := filepath.Join(dir, ".atlas", "atlas.db")
+	dbPath := filepath.Join(dir, ".grunnr", "grunnr.db")
 	loaded = Config{repoRoot: dir, DBPath: dbPath}
 	flags = globalFlags{DBPath: dbPath}
 	return &covFixture{root: dir, dbPath: dbPath}
@@ -77,7 +77,7 @@ func runCovStatusCmd(t *testing.T, fix *covFixture, args ...string) (string, err
 
 func TestCovStatus_GapsFlagWired(t *testing.T) {
 	if newCovStatusCmd().Flags().Lookup("gaps") == nil {
-		t.Fatal("atlas cov status is missing --gaps")
+		t.Fatal("grunnr cov status is missing --gaps")
 	}
 }
 

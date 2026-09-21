@@ -10,10 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/coverage/shim/runner"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/coverage/shim/runner"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // registerCovShimCmds attaches the per-test collection verbs to the existing
@@ -32,7 +32,7 @@ func registerCovShimCmds(root *cobra.Command) {
 
 // --- cov shim init --------------------------------------------------------
 
-// newCovShimCmd builds `atlas cov shim`, whose only verb is init.
+// newCovShimCmd builds `grunnr cov shim`, whose only verb is init.
 func newCovShimCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "shim",
@@ -43,7 +43,7 @@ coverage snapshot per test instead of one per process.
 The Go runtime writes coverage counters once, at exit, so nothing in a
 plain 'go test' run says which test executed which line. The shim clears
 and snapshots the counters around each test (runtime/coverage, Go 1.20+),
-which is what 'atlas cov sync --per-test' ingests.`,
+which is what 'grunnr cov sync --per-test' ingests.`,
 	}
 	cmd.AddCommand(newCovShimInitCmd())
 	return cmd
@@ -66,7 +66,7 @@ Two kinds of package are left alone, and both are reported:
   - one with no test functions, where a TestMain would only make the go
     tool build a test binary with nothing to run.
 
-The generated file is inert unless ATLAS_COV_DIR is set, so committing it
+The generated file is inert unless GRUNNR_COV_DIR is set, so committing it
 does not change what 'go test' does.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -78,7 +78,7 @@ does not change what 'go test' does.`,
 	return cmd
 }
 
-// covShimInitResult is the JSON payload for `atlas cov shim init`.
+// covShimInitResult is the JSON payload for `grunnr cov shim init`.
 type covShimInitResult struct {
 	Packages []runner.InitResult `json:"packages"`
 }
@@ -125,14 +125,14 @@ func printShimInit(out io.Writer, results []runner.InitResult) {
 		counts[runner.StatusCreated], counts[runner.StatusUpdated],
 		counts[runner.StatusUnchanged], counts[runner.StatusSkipped])
 	if counts[runner.StatusCreated]+counts[runner.StatusUpdated] > 0 {
-		fmt.Fprintf(out, "the shim imports %s — run 'go get github.com/sosalejandro/atlas' if your module does not require it yet\n",
+		fmt.Fprintf(out, "the shim imports %s — run 'go get github.com/sosalejandro/grunnr' if your module does not require it yet\n",
 			shimImportPath)
 	}
 }
 
 // shimImportPath is what the generated file imports. Named here only for
 // the hint above; the generator owns the source it writes.
-const shimImportPath = "github.com/sosalejandro/atlas/packages/coverage/shim"
+const shimImportPath = "github.com/sosalejandro/grunnr/packages/coverage/shim"
 
 // --- cov run --------------------------------------------------------------
 
@@ -157,7 +157,7 @@ func newCovRunCmd() *cobra.Command {
 snapshots it leaves behind into one coverprofile per test, and ingests
 them as per-test evidence (the same rows 'cov sync --per-test' writes).
 
-  atlas cov run -- go test ./...
+  grunnr cov run -- go test ./...
 
 A 'go test' command is given the flags per-test collection cannot work
 without, unless it already carries them:
@@ -200,7 +200,7 @@ would silently take away the concurrency those tests asked for. Pass
 	return cmd
 }
 
-// covRunResult is the JSON payload for `atlas cov run`.
+// covRunResult is the JSON payload for `grunnr cov run`.
 type covRunResult struct {
 	Command   []string             `json:"command"`
 	ExitCode  int                  `json:"exit_code"`
@@ -263,7 +263,7 @@ func runCovRun(cmd *cobra.Command, f covRunFlags) error {
 	} else {
 		printCovRun(cmd, out, res)
 	}
-	// A suite that failed must fail this command too: `atlas cov run -- go
+	// A suite that failed must fail this command too: `grunnr cov run -- go
 	// test ./...` stands in for `go test ./...` in a CI script, and a green
 	// wrapper around a red suite is the worst thing it could be. The
 	// evidence collected before the failure is already ingested.
@@ -337,7 +337,7 @@ func consumeProfiles(ctx context.Context, cmd *cobra.Command, res runner.Result,
 	}
 	if len(profiles) == 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(),
-			"cov run: no per-test profiles to ingest — has 'atlas cov shim init' been run for these packages?")
+			"cov run: no per-test profiles to ingest — has 'grunnr cov shim init' been run for these packages?")
 		return nil
 	}
 
@@ -400,7 +400,7 @@ func printCovRun(cmd *cobra.Command, out covRunResult, res runner.Result) {
 			out.RunID, out.Tests, out.Rows, out.Symbols)
 	}
 	if n := len(out.Unmatched); n > 0 {
-		fmt.Fprintf(w, "  %d test name(s) matched no indexed symbol — re-run 'atlas scan' if the graph is stale\n", n)
+		fmt.Fprintf(w, "  %d test name(s) matched no indexed symbol — re-run 'grunnr scan' if the graph is stale\n", n)
 		if flags.Verbose {
 			for _, name := range out.Unmatched {
 				fmt.Fprintf(w, "    %s\n", name)

@@ -4,7 +4,7 @@ import "sort"
 
 // CycleEdge is one directed edge participating in a strongly-connected
 // component. The endpoints carry whatever identifier the caller chose to
-// pass to FindCycles — for `atlas codebase cycles` these are file paths,
+// pass to FindCycles — for `grunnr codebase cycles` these are file paths,
 // but the algorithm itself is identifier-agnostic.
 //
 // Scope is the import-scope tag the underlying store edge carried (one of
@@ -53,7 +53,7 @@ type Cycle struct {
 // #14 and the JSON envelope's expected stable order.
 //
 // Complexity is O(V + E) on a graph with V nodes and E edges. The
-// recursion depth is bounded by V; for the largest Atlas-indexed
+// recursion depth is bounded by V; for the largest Grunnr-indexed
 // codebases (tens of thousands of import edges, hundreds of files in
 // any one cycle) that's well under the Go default stack ceiling.
 func FindCycles(edges []CycleEdge) []Cycle {
@@ -166,15 +166,15 @@ func materializeCycle(comp []int, nodes []string, edges []CycleEdge) Cycle {
 // tarjan implements Tarjan's strongly-connected-components algorithm
 // over an integer-indexed adjacency list. The standard CLRS formulation:
 //
-//   1. DFS from every unvisited node. Each visited node gets an index
-//      (discovery time) and a lowlink (the smallest index reachable
-//      from its DFS subtree).
-//   2. Maintain a stack of nodes "currently being explored". A node
-//      stays on the stack until its DFS subtree has finished AND it
-//      has been confirmed as the root of an SCC.
-//   3. When DFS returns to a node whose lowlink == its own index, that
-//      node is the root of an SCC: pop the stack down to (and
-//      including) this node — every popped node is in the same SCC.
+//  1. DFS from every unvisited node. Each visited node gets an index
+//     (discovery time) and a lowlink (the smallest index reachable
+//     from its DFS subtree).
+//  2. Maintain a stack of nodes "currently being explored". A node
+//     stays on the stack until its DFS subtree has finished AND it
+//     has been confirmed as the root of an SCC.
+//  3. When DFS returns to a node whose lowlink == its own index, that
+//     node is the root of an SCC: pop the stack down to (and
+//     including) this node — every popped node is in the same SCC.
 //
 // The algorithm runs in a single pass and is O(V + E). It is
 // deliberately iterative-friendly here (the recursion still happens via

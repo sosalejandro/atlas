@@ -6,14 +6,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // edgeProvenance reports, per language, WHICH MECHANISM produced the
-// call graph atlas is answering questions from.
+// call graph grunnr is answering questions from.
 //
-// Every other check in this package asks whether atlas's picture is
+// Every other check in this package asks whether grunnr's picture is
 // stale. This one asks something the others cannot: whether the picture
 // was ever solid. A `trace` result, a change-impact answer and an
 // audit's impl surface are all walks over `edges`, and an edge resolved
@@ -62,7 +62,7 @@ func (c edgeProvenance) Run(ctx context.Context, env *Env) (Result, error) {
 			Severity: SeverityNotApplicable,
 			Finding: "no edges are recorded, so there is no resolution to describe " +
 				"(a repo with no call graph, or a scan that has not run)",
-			Remediation: "atlas scan",
+			Remediation: "grunnr scan",
 		}, nil
 	}
 
@@ -98,8 +98,8 @@ func (c edgeProvenance) Run(ctx context.Context, env *Env) (Result, error) {
 				strings.Join(unresolvedLangs, " and "),
 				pluralLangs(unresolvedLangs)),
 			// No remediation command exists: the tier a language
-			// reaches is a property of the scanner atlas ships for it,
-			// not of anything the user did. Inventing an "atlas scan"
+			// reaches is a property of the scanner grunnr ships for it,
+			// not of anything the user did. Inventing an "grunnr scan"
 			// suggestion here would tell them to re-run the thing that
 			// produced this exact result.
 			Details: details,

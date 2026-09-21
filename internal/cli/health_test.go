@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // healthFixture is a store seeded with one feature whose implementation surface
-// has been measured both ways: `atlas cov` statement results and `atlas flow`
+// has been measured both ways: `grunnr cov` statement results and `grunnr flow`
 // branch verdicts.
 type healthFixture struct {
 	root   string
@@ -31,15 +31,15 @@ type healthFixture struct {
 // test can name.
 func newHealthFixture(t *testing.T) *healthFixture { return newHealthFixtureWithFlow(t, true) }
 
-// newHealthFixtureWithFlow builds the same store with or without the `atlas
+// newHealthFixtureWithFlow builds the same store with or without the `grunnr
 // flow` half, so a test can compare the two directly.
 func newHealthFixtureWithFlow(t *testing.T, withFlow bool) *healthFixture {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".atlas"), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".grunnr"), 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
-	fix := &healthFixture{root: dir, dbPath: filepath.Join(dir, ".atlas", "atlas.db")}
+	fix := &healthFixture{root: dir, dbPath: filepath.Join(dir, ".grunnr", "grunnr.db")}
 
 	ctx := context.Background()
 	s, err := store.Open(ctx, fix.dbPath)
@@ -200,11 +200,11 @@ func TestHealthJSON_StatementAndDecisionCoverageStaySeparate(t *testing.T) {
 }
 
 // TestHealthJSON_OmitsDecisionCoverageWhenNothingMeasured pins the other half:
-// a store that has never run `atlas flow` must emit the JSON it always did.
+// a store that has never run `grunnr flow` must emit the JSON it always did.
 // An integrator's schema does not gain a field because a feature they do not
 // use exists.
 func TestHealthJSON_OmitsDecisionCoverageWhenNothingMeasured(t *testing.T) {
-	// The same store, minus the `atlas flow` half.
+	// The same store, minus the `grunnr flow` half.
 	fix := newHealthFixtureWithFlow(t, false)
 
 	flags.JSON = true

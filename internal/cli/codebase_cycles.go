@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// cyclesFlags holds the cobra-bound state for `atlas codebase cycles`.
+// cyclesFlags holds the cobra-bound state for `grunnr codebase cycles`.
 // Kept as a struct (rather than file-scope vars) so multiple
 // invocations in tests don't bleed flag values between runs.
 type cyclesFlags struct {
@@ -61,7 +61,7 @@ load-time cycles.
 Default --scope-filter is "module" (only real cycles); pass
 "--scope-filter all" to include every cycle regardless of import
 scope, or one of "function", "conditional", "type_checking",
-"try_guard" to target a single scope. Closes issue atlas-internal #14.`,
+"try_guard" to target a single scope. Closes issue grunnr-internal #14.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runCodebaseCycles(cmd, cf)
@@ -168,7 +168,7 @@ func isValidScopeFilter(v string) bool {
 // from real cycles at a glance.
 func renderCyclesText(w io.Writer, res codebaseCyclesResult) {
 	if len(res.Cycles) == 0 {
-		fmt.Fprintf(w, "atlas codebase cycles\n  no cycles found (scanned %d import edges, filter=%s)\n",
+		fmt.Fprintf(w, "grunnr codebase cycles\n  no cycles found (scanned %d import edges, filter=%s)\n",
 			res.TotalEdges, res.Filter)
 		return
 	}
@@ -185,7 +185,7 @@ func renderCyclesText(w io.Writer, res codebaseCyclesResult) {
 	}
 	sort.Ints(lengths)
 
-	fmt.Fprintln(w, "atlas codebase cycles")
+	fmt.Fprintln(w, "grunnr codebase cycles")
 	for i, n := range lengths {
 		if i > 0 {
 			fmt.Fprintln(w)

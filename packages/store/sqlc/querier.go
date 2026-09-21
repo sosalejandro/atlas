@@ -12,7 +12,7 @@ import (
 
 type Querier interface {
 	// The honesty counter, straight out of the store: how much of the data layer
-	// atlas could actually read.
+	// grunnr could actually read.
 	CountSQLOperationsByResolution(ctx context.Context) ([]CountSQLOperationsByResolutionRow, error)
 	CountTestsInRun(ctx context.Context, runID int64) (int64, error)
 	DeleteAllSQLIndexes(ctx context.Context) error
@@ -50,7 +50,7 @@ type Querier interface {
 	DeleteSymbolsByFile(ctx context.Context, filePath string) error
 	// Inserts a feature row from the ingest path. Pure INSERT OR IGNORE -- if
 	// the row already exists with richer metadata (title/owner/kind/etc set
-	// by a prior atlas migrate or test harness), the ingest pass MUST NOT
+	// by a prior grunnr migrate or test harness), the ingest pass MUST NOT
 	// clobber it back to the id-as-title default.
 	//
 	// Re-ingest of the same annotation produces zero row changes. Use the
@@ -220,11 +220,11 @@ type Querier interface {
 	ListTableAccessBySymbol(ctx context.Context, symbolID *int64) ([]ListTableAccessBySymbolRow, error)
 	// The inverse: which tests ran a symbol. This is affected-test selection.
 	ListTestsExecutingSymbol(ctx context.Context, arg ListTestsExecutingSymbolParams) ([]ListTestsExecutingSymbolRow, error)
-	// Resolves an annotation at file:line to the symbol it attaches to. Atlas
+	// Resolves an annotation at file:line to the symbol it attaches to. Grunnr
 	// annotations sit in the comment block immediately above their target
 	// (Go: doc comment above the func decl). The "nearest symbol at or after
 	// the annotation line, in the same file, within `max_lookahead` rows"
-	// rule is the simplest invariant that captures both `@atlas:feature`
+	// rule is the simplest invariant that captures both `@grunnr:feature`
 	// (one line above the func) and multi-line doc-block annotations
 	// (several lines above).
 	//
@@ -259,7 +259,7 @@ type Querier interface {
 	UpsertCFGSymbol(ctx context.Context, arg UpsertCFGSymbolParams) error
 	UpsertFeature(ctx context.Context, arg UpsertFeatureParams) error
 	UpsertFileHash(ctx context.Context, arg UpsertFileHashParams) error
-	// coverage_history is the measurement series behind `atlas trend` (#92).
+	// coverage_history is the measurement series behind `grunnr trend` (#92).
 	// A re-measurement of a commit CORRECTS its point, it does not append a
 	// second one, so the write is an upsert on the unique commit_sha index.
 	// last_insert_rowid() is not updated on the DO UPDATE path, which is why

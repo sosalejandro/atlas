@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 func TestAuditSnapshotRuns_RoundTrip(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/coverage/istanbul"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage/istanbul"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // IstanbulIngestStats summarises an istanbul (coverage-final.json) ingest.
@@ -20,16 +20,16 @@ type IstanbulIngestStats struct {
 	FilesInReport  int
 	FilesMatched   int
 	SymbolsCovered int
-	// FilesUnmatched counts report files that reconciled to NO atlas symbol
+	// FilesUnmatched counts report files that reconciled to NO grunnr symbol
 	// file (the FE analogue of issue #85). A high value relative to
 	// FilesInReport means the suffix path-reconciliation is dropping front-end
-	// execution on the floor (e.g. files under src/ that atlas never scanned,
-	// or a path-shape mismatch between the reporter's paths and atlas's
+	// execution on the floor (e.g. files under src/ that grunnr never scanned,
+	// or a path-shape mismatch between the reporter's paths and grunnr's
 	// repo-relative paths).
 	FilesUnmatched int
 
 	// StmtsAttributed / StmtsUnattributed split the report's statements into
-	// the ones charged to a symbol and the ones atlas could not place; Gaps
+	// the ones charged to a symbol and the ones grunnr could not place; Gaps
 	// enumerates the latter per file, biggest loss first (issue #85's FE
 	// analogue — same reporting contract as ProfileIngestStats).
 	StmtsAttributed   int
@@ -42,9 +42,9 @@ type IstanbulIngestStats struct {
 // result with the line-weighted statement fraction (covered/total). This is
 // the front-end analogue of IngestGoProfile: where the Go path attributes
 // coverprofile blocks to Go symbols, this attributes istanbul statements to
-// the React/TS symbols atlas scanned (file_path like apps/web-*/src/...).
+// the React/TS symbols grunnr scanned (file_path like apps/web-*/src/...).
 //
-// Reporter file paths are absolute (or app-relative); atlas symbol file paths
+// Reporter file paths are absolute (or app-relative); grunnr symbol file paths
 // are repo-relative (e.g. apps/web-patient/src/...). They are reconciled by
 // path-suffix match, exactly like the Go ingester's reconcilePath.
 //
@@ -122,7 +122,7 @@ func IngestIstanbul(ctx context.Context, s *store.Store, meta RunMeta, r io.Read
 // owning FE symbol (the symbol whose [start,end] span contains the statement's
 // START line) and accumulates per-symbol statement counts: total = number of
 // statements attributed, covered = number of those that executed. Returns the
-// per-symbol counts, the number of report files that reconciled to an atlas
+// per-symbol counts, the number of report files that reconciled to an grunnr
 // symbol file, and the number that did not (FilesUnmatched — the FE analogue
 // of issue #85).
 //
@@ -132,7 +132,7 @@ func IngestIstanbul(ctx context.Context, s *store.Store, meta RunMeta, r io.Read
 // for a per-feature fraction that tracks the istanbul "% Stmts" column.
 func attributeIstanbulStatements(byFileStmts map[string][]istanbul.Statement, byFile map[string][]symSpan) attributionReport {
 	rep := newAttributionReport()
-	// Index atlas files by basename for suffix-match reconciliation.
+	// Index grunnr files by basename for suffix-match reconciliation.
 	byBase := map[string][]string{}
 	for f := range byFile {
 		byBase[path.Base(f)] = append(byBase[path.Base(f)], f)

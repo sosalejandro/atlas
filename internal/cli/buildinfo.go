@@ -25,7 +25,7 @@ const (
 const shortSHALen = 7
 
 // resolveBuildInfo returns the effective (version, commit, builtAt) triple
-// for `atlas --version`.
+// for `grunnr --version`.
 //
 // Resolution order — first non-default source wins:
 //
@@ -36,7 +36,7 @@ const shortSHALen = 7
 //     ldflags defaults (`dev` / `unknown` / `unknown`) rather than
 //     mixing sources, which would surface a confusing hybrid.
 //  2. runtime/debug.ReadBuildInfo() — the path that makes
-//     `go install github.com/sosalejandro/atlas/cmd/atlas@v0.1.3`
+//     `go install github.com/sosalejandro/grunnr/cmd/grunnr@v0.1.3`
 //     produce a real "v0.1.3" instead of "dev". `Main.Version == "(devel)"`
 //     is normalised to `"dev"` so a local-tree `go build` stays readable.
 //     vcs.revision is truncated to a 7-char short SHA; vcs.time is
@@ -132,7 +132,7 @@ func normaliseModuleVersion(v string) string {
 	return v
 }
 
-// buildSettings is what `atlas version` can honestly say about how the
+// buildSettings is what `grunnr version` can honestly say about how the
 // running binary was compiled, read back out of the table the Go linker
 // embeds (runtime/debug.BuildInfo.Settings).
 //
@@ -140,9 +140,9 @@ func normaliseModuleVersion(v string) string {
 //
 //   - Trimpath. Without -trimpath the binary embeds the absolute path of
 //     the checkout it was built from, so the same commit built in
-//     /home/a/atlas and /home/b/atlas yields different bytes. Nobody can
+//     /home/a/grunnr and /home/b/grunnr yields different bytes. Nobody can
 //     reproduce such a build without also reproducing the directory layout.
-//   - CGOEnabled. atlas stores state in modernc.org/sqlite specifically so
+//   - CGOEnabled. grunnr stores state in modernc.org/sqlite specifically so
 //     no C toolchain is involved. CGO_ENABLED=0 is what makes the
 //     linux/darwin/windows x amd64/arm64 matrix buildable from one host,
 //     and a cgo build is additionally tied to the host's libc. Losing this
@@ -170,7 +170,7 @@ type buildSettings struct {
 }
 
 // resolveBuildSettings projects a *debug.BuildInfo onto the fields
-// `atlas version` reports. Split out as a pure function, and taking `ok`
+// `grunnr version` reports. Split out as a pure function, and taking `ok`
 // explicitly rather than calling ReadBuildInfo itself, so tests can drive
 // the stripped-binary branch (ok=false) without a stripped binary.
 //
@@ -230,7 +230,7 @@ func cgoText(v *bool) string {
 	return strconv.FormatBool(*v)
 }
 
-// versionResult is the `atlas version --json` payload. Field names are a
+// versionResult is the `grunnr version --json` payload. Field names are a
 // contract: a CI job that checks "the binary I downloaded is the
 // reproducible one" reads them, so renaming one is a breaking change to
 // that job (docs/architecture.md §6: additive within a major version).
@@ -270,11 +270,11 @@ func collectVersionResult() versionResult {
 	}
 }
 
-// newVersionCmd implements `atlas version`.
+// newVersionCmd implements `grunnr version`.
 //
 // The root command's `--version` flag already renders the one-line
 // "vX.Y.Z (commit ..., built ...)" string. This subcommand exists because
-// that line answers "which atlas is this?" and says nothing about "can I
+// that line answers "which grunnr is this?" and says nothing about "can I
 // check that this binary is the one the release claims?" — which is the
 // question a supply-chain tool has to be able to answer about itself.
 func newVersionCmd() *cobra.Command {
@@ -311,7 +311,7 @@ func runVersion(cmd *cobra.Command) error {
 	if flags.JSON {
 		return emitJSON(w, "version", nil, res, nil)
 	}
-	fmt.Fprintf(w, "atlas %s\n", res.Version)
+	fmt.Fprintf(w, "grunnr %s\n", res.Version)
 	fmt.Fprintf(w, "  commit:      %s\n", res.Commit)
 	fmt.Fprintf(w, "  built:       %s\n", res.BuildDate)
 	fmt.Fprintf(w, "  go:          %s\n", res.GoVersion)

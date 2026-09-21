@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex/annotations"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // featureLinkage checks that the annotation layer and the symbol layer
@@ -19,7 +19,7 @@ import (
 //   - A feature outlives its symbols. feature_symbols cascades when a
 //     symbol is deleted, but the features row does not, so a renamed or
 //     removed function leaves an empty shell behind that still ranks in
-//     `atlas sprint` and still scores in `atlas health` -- about nothing.
+//     `grunnr sprint` and still scores in `grunnr health` -- about nothing.
 //
 //   - An annotation that DOES resolve to an indexed symbol still names a
 //     feature the store has no row for. The ingest materializes a feature
@@ -50,7 +50,7 @@ func (c featureLinkage) Run(ctx context.Context, env *Env) (Result, error) {
 			Severity: SeverityNotApplicable,
 			Finding: "no features are declared in the store, so there is no linkage to check " +
 				"(nothing in this repo carries an @atlas:feature annotation yet)",
-			Remediation: "annotate a symbol with @atlas:feature <id>, then: atlas scan",
+			Remediation: "annotate a symbol with @atlas:feature <id>, then: grunnr scan",
 			Details:     map[string]any{"features": 0},
 		}, nil
 	}
@@ -86,7 +86,7 @@ func (c featureLinkage) Run(ctx context.Context, env *Env) (Result, error) {
 // annotation sweep.
 //
 // Warn, not fail. Both findings mean a slice of the picture is missing,
-// which makes atlas's answers incomplete -- but unlike a stale index they
+// which makes grunnr's answers incomplete -- but unlike a stale index they
 // do not make the answers it does give wrong, and a half-migrated
 // annotation rollout would otherwise red-light every build for weeks.
 func linkageVerdict(features int, unlinked []string, sweep annotationSweep, details map[string]any) (Result, error) {
@@ -104,7 +104,7 @@ func linkageVerdict(features int, unlinked []string, sweep annotationSweep, deta
 		return Result{
 			Severity:    SeverityWarn,
 			Finding:     strings.Join(complaints, "; "),
-			Remediation: "atlas scan",
+			Remediation: "grunnr scan",
 			Details:     details,
 		}, nil
 	}
@@ -120,7 +120,7 @@ func linkageVerdict(features int, unlinked []string, sweep annotationSweep, deta
 					"store.schema check carries the reason), so nothing was established about "+
 					"the annotation layer",
 				features),
-			Remediation: "resolve the store.schema finding, then re-run: atlas doctor",
+			Remediation: "resolve the store.schema finding, then re-run: grunnr doctor",
 			Details:     details,
 		}, nil
 	}

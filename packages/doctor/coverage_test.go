@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // seedRun inserts one coverage run finishing at finishedAt, carrying the
@@ -66,7 +66,7 @@ func TestCoverageFreshness_OldRun_Warns(t *testing.T) {
 }
 
 // The index holding file content NEWER than the coverage run is the real
-// signal: atlas is scoring code that run never executed, so the two
+// signal: grunnr is scoring code that run never executed, so the two
 // halves of the picture are about different repos.
 func TestCoverageFreshness_IndexHoldsContentNewerThanTheRun_Warns(t *testing.T) {
 	f := newFixture(t)
@@ -83,7 +83,7 @@ func TestCoverageFreshness_IndexHoldsContentNewerThanTheRun_Warns(t *testing.T) 
 	}
 }
 
-// The defect this check shipped with: `atlas scan` refreshes
+// The defect this check shipped with: `grunnr scan` refreshes
 // file_hashes.last_scanned for EVERY file on EVERY scan, unchanged ones
 // included (packages/store/ingest.go step 5). Keying staleness off the
 // newest last_scanned therefore fired after any scan whatsoever, whether

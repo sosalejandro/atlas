@@ -1,4 +1,4 @@
-// Package acceptance is atlas's end-to-end layer: the whole pipeline over a
+// Package acceptance is grunnr's end-to-end layer: the whole pipeline over a
 // real repository, asserting the numbers a user would read.
 //
 // # What separates this from the unit and property layers
@@ -13,15 +13,15 @@
 //
 // So nothing here is mocked. The fixture under testdata/shopfixture is a real
 // Go module with real tests; cover.coverprofile is the untouched output of
-// running them; and the per-symbol fractions atlas produces are compared
-// against `go tool cover -func` invoked live on that same profile. When atlas
-// and the Go toolchain disagree about a fixture this small, atlas is wrong.
+// running them; and the per-symbol fractions grunnr produces are compared
+// against `go tool cover -func` invoked live on that same profile. When grunnr
+// and the Go toolchain disagree about a fixture this small, grunnr is wrong.
 //
 // # Layout
 //
 //	pipeline_test.go   the library pipeline, pinned to go tool cover
 //	cli_test.go        the same repo through the real binary and --json
-//	dogfood_test.go    atlas run against atlas (build tag: dogfood)
+//	dogfood_test.go    grunnr run against grunnr (build tag: dogfood)
 //	run.sh             the runner ci.yml calls for the dogfood layer
 //
 // # Cost
@@ -29,6 +29,6 @@
 // pipeline_test.go and cli_test.go run on every `go test ./...`; the binary
 // build in cli_test.go is the expensive part and is done once for the
 // package. dogfood_test.go is behind a build tag because it needs a
-// coverprofile for the whole atlas repo, and producing one means running the
+// coverprofile for the whole grunnr repo, and producing one means running the
 // suite that would be running it — see docs/testing/strategy.md.
 package acceptance

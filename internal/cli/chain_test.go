@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // chainFixture is the per-test scaffolding for the cached-store chain tests.
@@ -30,11 +30,11 @@ type chainFixture struct {
 func newChainFixture(t *testing.T) *chainFixture {
 	t.Helper()
 	dir := t.TempDir()
-	atlasDir := filepath.Join(dir, ".atlas")
-	if err := os.MkdirAll(atlasDir, 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	grunnrDir := filepath.Join(dir, ".grunnr")
+	if err := os.MkdirAll(grunnrDir, 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
-	dbPath := filepath.Join(atlasDir, "atlas.db")
+	dbPath := filepath.Join(grunnrDir, "grunnr.db")
 
 	// Reset package-level globals so tests don't bleed state. chain.go reads
 	// `loaded` and `flags` directly; the rest of the cli package does the
@@ -168,10 +168,10 @@ func TestChain_UsesCachedDBByDefault(t *testing.T) {
 
 // TestChain_ErrorsWhenNoDB confirms the explicit error message when the
 // state DB doesn't exist. Silent re-walks here would mask the missing-init
-// case — exactly what atlas#29 set out to fix.
+// case — exactly what grunnr#29 set out to fix.
 func TestChain_ErrorsWhenNoDB(t *testing.T) {
 	dir := t.TempDir()
-	bogus := filepath.Join(dir, ".atlas", "missing.db")
+	bogus := filepath.Join(dir, ".grunnr", "missing.db")
 
 	loaded = Config{repoRoot: dir}
 	flags = globalFlags{DBPath: bogus}
@@ -187,10 +187,10 @@ func TestChain_ErrorsWhenNoDB(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error when DB missing; stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
 	}
-	if !strings.Contains(err.Error(), "no atlas state found") {
-		t.Fatalf("expected 'no atlas state found' in error; got: %v", err)
+	if !strings.Contains(err.Error(), "no grunnr state found") {
+		t.Fatalf("expected 'no grunnr state found' in error; got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "Run 'atlas init' first") {
+	if !strings.Contains(err.Error(), "Run 'grunnr init' first") {
 		t.Fatalf("expected onboarding hint in error; got: %v", err)
 	}
 }
@@ -229,7 +229,7 @@ func TestChain_FreshFlagReWalks(t *testing.T) {
 	}
 }
 
-// TestChain_AcceptsFeatureID covers atlas#28: an unprefixed feature id
+// TestChain_AcceptsFeatureID covers grunnr#28: an unprefixed feature id
 // resolves via the feature_symbols link table to a merged chain over every
 // linked symbol.
 func TestChain_AcceptsFeatureID(t *testing.T) {
@@ -462,7 +462,7 @@ func TestChain_JSONEnvelope_Cache(t *testing.T) {
 func TestChain_FreshFlagWired(t *testing.T) {
 	c := newChainCmd()
 	if c.Flags().Lookup("fresh") == nil {
-		t.Fatal("atlas chain is missing --fresh flag")
+		t.Fatal("grunnr chain is missing --fresh flag")
 	}
 }
 
@@ -471,7 +471,7 @@ func TestChain_FreshFlagWired(t *testing.T) {
 func TestChain_DepthFlagWired(t *testing.T) {
 	c := newChainCmd()
 	if c.Flags().Lookup("depth") == nil {
-		t.Fatal("atlas chain is missing --depth flag")
+		t.Fatal("grunnr chain is missing --depth flag")
 	}
 }
 
@@ -657,7 +657,7 @@ func TestChain_DepthUnlimitedCycle(t *testing.T) {
 }
 
 // TestChain_JSONTreeShape exercises the nested-tree JSON contract that
-// issue #61 introduces. Downstream tooling (e.g. atlas's own
+// issue #61 introduces. Downstream tooling (e.g. grunnr's own
 // integration tests, future LSP plugins) will read this structure.
 func TestChain_JSONTreeShape(t *testing.T) {
 	fix := newChainFixture(t)

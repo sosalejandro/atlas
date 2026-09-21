@@ -44,7 +44,7 @@ func TestIndexProjectFromConfig_GeneratedWiring(t *testing.T) {
 	}
 
 	// The config form is equivalent to the flag: an operator who sets it in
-	// atlas.yaml must not need to remember the flag as well.
+	// grunnr.yaml must not need to remember the flag as well.
 	viaConfig := countSymbols(t, ScanConfig{
 		Generated:        []string{"**/*.pb.go"},
 		IncludeGenerated: true,

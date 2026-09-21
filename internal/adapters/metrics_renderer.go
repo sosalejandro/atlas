@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/domain"
 )
 
 // MetricsRenderer outputs quality signals and metrics to the terminal.

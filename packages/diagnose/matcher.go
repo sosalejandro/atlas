@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Match is one ranked diagnosis result. Score is the float [0,1] the
@@ -99,7 +99,7 @@ func Diagnose(ctx context.Context, symptom string, s *store.Store, opts *Options
 
 	// 2. Pull every symbol. Diagnose is a low-frequency triage call;
 	//    paginating would add complexity without saving meaningful work
-	//    on the project sizes Atlas targets (<100k symbols).
+	//    on the project sizes Grunnr targets (<100k symbols).
 	rows, err := s.Symbols().List(ctx, store.SymbolFilter{})
 	if err != nil {
 		return nil, fmt.Errorf("diagnose: list symbols: %w", err)

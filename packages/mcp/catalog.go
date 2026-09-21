@@ -72,7 +72,7 @@ func (ts *toolset) graphTools() []tool {
 				"symbols, not of call sites, so they are usually smaller than the row count of callers/callees.",
 			InputSchema: objectSchema(map[string]any{
 				"qualified_name": stringProp(
-					"Fully qualified symbol name exactly as atlas indexed it, usually <import path or module>.<Name>.",
+					"Fully qualified symbol name exactly as grunnr indexed it, usually <import path or module>.<Name>.",
 					"pkg/checkout.Pay", "src/api/handlers.LoginHandler"),
 			}, "qualified_name"),
 			Handle: ts.symbolInfo,

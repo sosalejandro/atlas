@@ -84,7 +84,7 @@ func Redactable(table, column string) bool {
 // with no findings. That is not an oversight: rewriting an identifier or a
 // path would change what the index MEANS rather than what it discloses, and
 // a Sweep still reports the disclosure to the operator either way. The
-// asymmetry is the same one `atlas security redact` applies, and it is
+// asymmetry is the same one `grunnr security redact` applies, and it is
 // stated in one place -- the registry -- so the two cannot drift.
 func Field(table, column, value string) Result {
 	if value == "" || !Redactable(table, column) {

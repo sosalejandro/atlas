@@ -7,15 +7,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // ---------------------------------------------------------------------------
 // audit_snapshot_runs — whole-project JSON-blob snapshots (Phase 6a).
 //
 // The earlier per-feature `audit_snapshots` table (migration 0001) was
-// removed by migration 0006 (closes #21) — nothing in Atlas ever wrote to
+// removed by migration 0006 (closes #21) — nothing in Grunnr ever wrote to
 // it. `audit_snapshot_runs` stores ONE row per snapshot run with the full
 // FeatureHealth slice JSON-encoded in score_json. Used by packages/audit
 // which serialises its own type — the store layer treats the blob as

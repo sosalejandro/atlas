@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/cfg"
+	"github.com/sosalejandro/grunnr/packages/cfg"
 )
 
 // detect runs the N+1 detector over one fixture function.

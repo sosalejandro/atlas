@@ -11,13 +11,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
-	"github.com/sosalejandro/atlas/packages/trend"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
+	"github.com/sosalejandro/grunnr/packages/trend"
 )
 
-// trendFlags holds the parsed flag state for `atlas trend`.
+// trendFlags holds the parsed flag state for `grunnr trend`.
 //
 // maxRegressionSet / denominatorToleranceSet exist because 0 is a MEANINGFUL
 // value for both: a team asking for a zero-tolerance gate must not be handed
@@ -37,7 +37,7 @@ type trendFlags struct {
 	denominatorToleranceSet bool
 }
 
-// newTrendCmd implements `atlas trend` plus its `record` subcommand.
+// newTrendCmd implements `grunnr trend` plus its `record` subcommand.
 func newTrendCmd() *cobra.Command {
 	var f trendFlags
 
@@ -45,7 +45,7 @@ func newTrendCmd() *cobra.Command {
 		Use:   "trend",
 		Short: "Coverage/health series over time, with a PR regression gate",
 		Long: `trend reads the per-commit measurement series recorded by
-'atlas trend record' and answers the question a snapshot cannot:
+'grunnr trend record' and answers the question a snapshot cannot:
 is this getting better or worse?
 
 With --compare-to <ref-or-sha> it reports the delta against that
@@ -105,7 +105,7 @@ cannot recover.`,
 	return cmd
 }
 
-// trendResult is the JSON payload for `atlas trend`.
+// trendResult is the JSON payload for `grunnr trend`.
 type trendResult struct {
 	Series     trend.Series          `json:"series"`
 	Comparison *trend.Report         `json:"comparison,omitempty"`
@@ -134,7 +134,7 @@ func runTrend(cmd *cobra.Command, f trendFlags) error {
 		if filled.Added > 0 {
 			res.Backfilled = filled
 			warnings = append(warnings, fmt.Sprintf(
-				"backfilled %d point(s) from coverage runs already in the store; these are direct-link measurements, not `atlas trend record` points",
+				"backfilled %d point(s) from coverage runs already in the store; these are direct-link measurements, not `grunnr trend record` points",
 				filled.Added))
 		}
 	}
@@ -197,7 +197,7 @@ func validateTrendFeature(ctx context.Context, s *store.Store, id string) error 
 	}
 	_, err := s.Features().Get(ctx, shared.FeatureID(id))
 	if errors.Is(err, shared.ErrFeatureNotFound) || errors.Is(err, shared.ErrNotFound) {
-		return fmt.Errorf("trend: no feature %q in this project; `atlas features list` shows the ids that exist", id)
+		return fmt.Errorf("trend: no feature %q in this project; `grunnr features list` shows the ids that exist", id)
 	}
 	if err != nil {
 		return fmt.Errorf("trend: look up feature %q: %w", id, err)
@@ -206,9 +206,9 @@ func validateTrendFeature(ctx context.Context, s *store.Store, id string) error 
 }
 
 // backfillTrendHistory derives the points the series does not have from the
-// coverage runs the store already holds, so `atlas trend` says something
+// coverage runs the store already holds, so `grunnr trend` says something
 // useful on a repo that has been ingesting coverage for a year and has never
-// run `atlas trend record`.
+// run `grunnr trend record`.
 func backfillTrendHistory(ctx context.Context, s *store.Store) (*trend.BackfillResult, error) {
 	res, err := trend.Backfill(ctx, s)
 	if err != nil {
@@ -292,7 +292,7 @@ func resolveTrendHead(ctx context.Context, s *store.Store, f trendFlags) (store.
 	point, err := lookupRecordedPoint(ctx, s, ref)
 	if errors.Is(err, shared.ErrNotFound) {
 		return store.HistoryPoint{}, fmt.Errorf(
-			"trend: no measurement recorded for %s, the commit under test; run `atlas trend record` on this commit before gating "+
+			"trend: no measurement recorded for %s, the commit under test; run `grunnr trend record` on this commit before gating "+
 				"(--compare-to gates THIS checkout, never whatever point was recorded last)", trendShortSHA(ref))
 	}
 	if err != nil {
@@ -306,7 +306,7 @@ func resolveTrendBaseline(ctx context.Context, s *store.Store, ref string) (stor
 	point, err := lookupRecordedPoint(ctx, s, ref)
 	if errors.Is(err, shared.ErrNotFound) {
 		return store.HistoryPoint{}, fmt.Errorf(
-			"trend: no recorded measurement for %q; `atlas trend` lists what has been recorded", ref)
+			"trend: no recorded measurement for %q; `grunnr trend` lists what has been recorded", ref)
 	}
 	if err != nil {
 		return store.HistoryPoint{}, err
@@ -403,7 +403,7 @@ func emitTrend(cmd *cobra.Command, f trendFlags, res trendResult, warnings []str
 // does not have, and cannot show a gap honestly.
 func printTrendSeries(w io.Writer, s trend.Series) {
 	if len(s.Points) == 0 {
-		fmt.Fprintf(w, "trend: no history recorded for %s; run `atlas trend record`\n", s.Scope)
+		fmt.Fprintf(w, "trend: no history recorded for %s; run `grunnr trend record`\n", s.Scope)
 		return
 	}
 	truncated := ""
@@ -512,10 +512,10 @@ func openTrendStore(ctx context.Context) (*store.Store, func(), error) {
 }
 
 // ---------------------------------------------------------------------------
-// atlas trend record
+// grunnr trend record
 // ---------------------------------------------------------------------------
 
-// newTrendRecordCmd implements `atlas trend record`.
+// newTrendRecordCmd implements `grunnr trend record`.
 func newTrendRecordCmd() *cobra.Command {
 	var (
 		commit string
@@ -531,7 +531,7 @@ history point for the current commit.
 Recording the same commit twice REPLACES its point rather than
 appending a second one, so a CI retry leaves the series intact.
 
---retain prunes points older than the given window. Atlas keeps the
+--retain prunes points older than the given window. Grunnr keeps the
 raw per-commit points and does not roll them up; a team that measures
 every commit for years should pass --retain in CI.`,
 		Args: cobra.NoArgs,
@@ -548,7 +548,7 @@ every commit for years should pass --retain in CI.`,
 	return cmd
 }
 
-// trendRecordResult is the JSON payload for `atlas trend record`.
+// trendRecordResult is the JSON payload for `grunnr trend record`.
 type trendRecordResult struct {
 	ID     int64              `json:"id"`
 	Point  store.HistoryPoint `json:"point"`
@@ -613,7 +613,7 @@ func trendRecordWarnings(p store.HistoryPoint) []string {
 		return nil
 	}
 	return []string{
-		"no coverage evidence for any feature; recorded as a gap, not a zero. Run `atlas cov sync` before `atlas trend record`.",
+		"no coverage evidence for any feature; recorded as a gap, not a zero. Run `grunnr cov sync` before `grunnr trend record`.",
 	}
 }
 

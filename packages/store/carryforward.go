@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // Carryforward: what a build did not re-measure (issue #136).

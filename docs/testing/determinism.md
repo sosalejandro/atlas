@@ -1,6 +1,6 @@
 # Determinism
 
-Atlas's pitch is "the numbers are true". A number that changes when nothing
+Grunnr's pitch is "the numbers are true". A number that changes when nothing
 in the source changed is not true, it is a coin flip with a decimal point.
 This document describes the property, the tests that enforce it, the corpus
 they run against, and the places where the property does not hold yet.

@@ -21,7 +21,7 @@ type CountSQLOperationsByResolutionRow struct {
 }
 
 // The honesty counter, straight out of the store: how much of the data layer
-// atlas could actually read.
+// grunnr could actually read.
 func (q *Queries) CountSQLOperationsByResolution(ctx context.Context) ([]CountSQLOperationsByResolutionRow, error) {
 	rows, err := q.db.QueryContext(ctx, countSQLOperationsByResolution)
 	if err != nil {

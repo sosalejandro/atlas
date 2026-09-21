@@ -9,14 +9,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
-	tsscan "github.com/sosalejandro/atlas/packages/codeindex/ts"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	goscan "github.com/sosalejandro/grunnr/packages/codeindex/go"
+	tsscan "github.com/sosalejandro/grunnr/packages/codeindex/ts"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newInitCmd implements `atlas init` -- first-time scan that creates
-// `.atlas/atlas.db`, applies migrations, and ingests the project.
+// newInitCmd implements `grunnr init` -- first-time scan that creates
+// `.grunnr/grunnr.db`, applies migrations, and ingests the project.
 func newInitCmd() *cobra.Command {
 	var (
 		root                string
@@ -27,13 +27,13 @@ func newInitCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialise the Atlas state DB and run the first scan",
+		Short: "Initialise the Grunnr state DB and run the first scan",
 		Long: `init performs a one-time scan of the project rooted at --root
 (defaults to the git toplevel / cwd), opens (creating if needed) the
 SQLite state DB, applies all pending migrations, and ingests the
 codeindex.Index produced by the scan.
 
-After init you can re-run incremental scans with 'atlas scan'.
+After init you can re-run incremental scans with 'grunnr scan'.
 
 Feature membership is materialized directly from @atlas:feature /
 @atlas:contract / @testreg annotations during ingest -- no separate
@@ -52,7 +52,7 @@ excluded. Exclusion is the default because generated statements execute
 constantly and would dominate any coverage or complexity reading taken
 over hand-written code; the flag is the escape hatch for "why did my
 symbol disappear?". Which files count as generated is a property of the
-codebase, so extra patterns belong under scan.generated in atlas.yaml
+codebase, so extra patterns belong under scan.generated in grunnr.yaml
 rather than on the command line.
 
 --skip-typed-resolution scans Go with the AST name heuristics alone
@@ -63,7 +63,7 @@ compile still scans. The flag is the escape hatch for when the LOAD
 itself is the problem: no Go toolchain on the machine, a build that
 needs credentials to resolve modules, or a latency budget that cannot
 absorb it. Expect call edges to move from the typed tier down to
-name_resolved and syntactic -- 'atlas edges' will show it.`,
+name_resolved and syntactic -- 'grunnr edges' will show it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runInit(cmd, root, hashFiles, nodeModulesPaths, includeGenerated,
@@ -78,14 +78,14 @@ name_resolved and syntactic -- 'atlas edges' will show it.`,
 		"absolute path to a node_modules dir the TS scanner can borrow typescript from "+
 			"(repeatable; auto-detected from the scan root when unset)")
 	cmd.Flags().BoolVar(&includeGenerated, "include-generated", false,
-		"index machine-written files instead of excluding them (see scan.generated in atlas.yaml)")
+		"index machine-written files instead of excluding them (see scan.generated in grunnr.yaml)")
 	cmd.Flags().BoolVar(&skipTypedResolution, "skip-typed-resolution", false,
 		"resolve Go calls by name only, without go/packages type checking "+
 			"(escape hatch: no toolchain, or a load that cannot run here)")
 	return cmd
 }
 
-// initResult is the JSON payload emitted by `atlas init`.
+// initResult is the JSON payload emitted by `grunnr init`.
 type initResult struct {
 	DBPath                   string `json:"db_path"`
 	Root                     string `json:"root"`
@@ -136,7 +136,7 @@ func runInit(
 	}
 	defer func() { _ = s.Close() }()
 
-	// The configured globs travel with the ingest, as they do for `atlas
+	// The configured globs travel with the ingest, as they do for `grunnr
 	// scan`: the index records that a glob claimed a file but not WHICH
 	// glob, and the pattern is the half an operator can act on. Without
 	// this the ledger init writes names no config line at all.
@@ -173,7 +173,7 @@ func runInit(
 }
 
 func printInitText(cmd *cobra.Command, r initResult, warnings []string) {
-	fmt.Fprintf(cmd.OutOrStdout(), "Atlas initialised %s (root: %s)\n", r.DBPath, r.Root)
+	fmt.Fprintf(cmd.OutOrStdout(), "Grunnr initialised %s (root: %s)\n", r.DBPath, r.Root)
 	fmt.Fprintf(cmd.OutOrStdout(),
 		"  symbols=%d edges=%d annotations=%d file_hashes=%d pattern_matches=%d\n",
 		r.SymbolsInserted, r.EdgesInserted, r.AnnotationsInserted,
@@ -200,10 +200,10 @@ func printInitText(cmd *cobra.Command, r initResult, warnings []string) {
 // TS scanner degrades to a warning and the Go scan still completes.
 //
 // goScanOverride adjusts the scan options after they have been assembled
-// from atlas.yaml.
+// from grunnr.yaml.
 //
 // It is variadic rather than another positional bool because the toggles
-// are per command: `atlas onboard` offers neither, and every command
+// are per command: `grunnr onboard` offers neither, and every command
 // that calls this would otherwise have to name a flag it does not have.
 //
 // It takes the whole codeindex.Options rather than just the Go sub-scanner's

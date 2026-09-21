@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // EdgeKind matches the CHECK constraint on `edges.kind`.
@@ -251,7 +251,7 @@ type Edges interface {
 	// (from_file, to_file, scope, line) projection, JOINed against
 	// the `symbols` table for both endpoints. The result is the raw
 	// material packages/graph.FindCycles consumes when looking for
-	// circular imports — closes issue atlas-internal #14.
+	// circular imports — closes issue grunnr-internal #14.
 	//
 	// Filter.Scopes narrows to a subset of the EdgeMetaImportScope*
 	// values; an empty slice returns every import edge regardless of

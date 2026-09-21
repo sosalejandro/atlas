@@ -7,13 +7,13 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // BackfillNotePrefix tags every point Backfill writes. A backfilled point is
 // derived from a coverage run that was ingested before anyone ran
-// `atlas trend record`, so it is a slightly coarser measurement than a
+// `grunnr trend record`, so it is a slightly coarser measurement than a
 // recorded one (see Backfill), and a reader comparing the two must be able to
 // tell which is which without guessing.
 const BackfillNotePrefix = "backfilled from coverage run"
@@ -33,7 +33,7 @@ const SyntheticCommitPrefix = "coverage-run:"
 // MaxBackfillGroups bounds how many coverage run groups one Backfill will
 // consider, newest first.
 //
-// Backfill runs on every `atlas trend`, and the "already recorded?" check is
+// Backfill runs on every `grunnr trend`, and the "already recorded?" check is
 // a query per group. Unbounded, a store with years of CI runs would pay
 // thousands of round trips on every read of the series to discover there is
 // nothing to do. 200 groups is more history than any trend line is read over,
@@ -47,7 +47,7 @@ type BackfillResult struct {
 	Added int `json:"added"`
 	// Skipped is the number of coverage runs whose commit already had a
 	// recorded point. Backfill never overwrites one: a point written by
-	// `atlas trend record` is the better measurement of the two.
+	// `grunnr trend record` is the better measurement of the two.
 	Skipped int `json:"skipped"`
 	// Points are the points written, oldest first.
 	Points []store.HistoryPoint `json:"points,omitempty"`
@@ -57,8 +57,8 @@ type BackfillResult struct {
 // store and records the ones the series does not have yet.
 //
 // It exists because issue #92 asked for a series over tables that already
-// hold years of data, and `atlas trend record` only ever writes points from
-// the moment a team adds a CI step. Without a backfill, `atlas trend` on a
+// hold years of data, and `grunnr trend record` only ever writes points from
+// the moment a team adds a CI step. Without a backfill, `grunnr trend` on a
 // store full of coverage runs prints "no history recorded" — a trend command
 // that needs a trend before it can say anything is not adoptable.
 //

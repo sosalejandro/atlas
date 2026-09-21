@@ -56,6 +56,6 @@
 //     but we don't preferentially weight those — a future input adapter
 //     can extract them and pass them via a SymptomHint).
 //   - Symptom clustering across multiple inputs.
-//   - The `atlas diagnose <symptom>` CLI subcommand — Phase 7 wires it.
+//   - The `grunnr diagnose <symptom>` CLI subcommand — Phase 7 wires it.
 //   - ML-assisted matching (Horizon 5).
 package diagnose

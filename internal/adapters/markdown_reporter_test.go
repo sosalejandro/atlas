@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/domain"
 )
 
 // --- fixtures ---
@@ -116,8 +116,8 @@ func TestMarkdownReporterRender(t *testing.T) {
 		{"billing domain section", "## Billing"},
 		{"feature name login", "User Login"},
 		{"feature name checkout", "Checkout"},
-		{"status covered emoji", "\u2705"},  // ✅
-		{"status missing emoji", "\u274c"},  // ❌
+		{"status covered emoji", "\u2705"}, // ✅
+		{"status missing emoji", "\u274c"}, // ❌
 		{"gaps heading", "### Gaps"},
 		{"gap text", "Missing E2E web tests"},
 	}
@@ -173,10 +173,10 @@ func TestStatusEmoji(t *testing.T) {
 	}{
 		{domain.StatusCovered, "\u2705"},       // ✅
 		{domain.StatusPartial, "\U0001f7e1"},   // 🟡
-		{domain.StatusMissing, "\u274c"},        // ❌
-		{domain.StatusFailing, "\U0001f534"},    // 🔴
-		{domain.StatusNotApplicable, "\u2796"},  // ➖
-		{domain.Status("unknown"), "\u2014"},    // —
+		{domain.StatusMissing, "\u274c"},       // ❌
+		{domain.StatusFailing, "\U0001f534"},   // 🔴
+		{domain.StatusNotApplicable, "\u2796"}, // ➖
+		{domain.Status("unknown"), "\u2014"},   // —
 	}
 
 	for _, tt := range tests {

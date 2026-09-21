@@ -1,13 +1,13 @@
-# atlas onboard
+# grunnr onboard
 
-`atlas onboard` is the first run on a repository nobody has annotated.
+`grunnr onboard` is the first run on a repository nobody has annotated.
 
 Every other verb in this tool is gated behind somebody having written
 `@atlas:feature` annotations first, which makes the very first run a symbol
 count and a shrug. `onboard` runs the whole chain — scan, ingest, SQL
 inventory, HTTP route extraction, git churn — and ends on a **provisional
 capability map** plus the findings that map made visible, followed by an
-explicit account of what atlas could *not* see.
+explicit account of what grunnr could *not* see.
 
 **Inferred is not declared.** Nothing `onboard` proposes is written to the
 features table. See [Inferred is not
@@ -22,8 +22,8 @@ can write the registry even by mistake.
 ## Usage
 
 ```
-atlas onboard [flags]
-atlas onboard promote [flags]
+grunnr onboard [flags]
+grunnr onboard promote [flags]
 ```
 
 ## Flags
@@ -35,7 +35,7 @@ atlas onboard promote [flags]
 | `--top`                | `15`              | How many provisional capabilities to print per section (`0` = all). The full map is always written to disk. |
 | `--skip-churn`         | off               | Skip git history mining. Drops the "changing and untested" finding entirely rather than degrading it. |
 | `--config` *(global)*  | `.atlas.yaml`     | Explicit config path.                                                                            |
-| `--db-path` *(global)* | `.atlas/atlas.db` | Override the SQLite state path.                                                                  |
+| `--db-path` *(global)* | `.grunnr/grunnr.db` | Override the SQLite state path.                                                                  |
 | `--json` *(global)*    | off               | Emit the stable JSON envelope instead of human-friendly text.                                    |
 
 ## What it reports
@@ -49,14 +49,14 @@ with the wall time it cost. With `--skip-sql` the SQL line reads `skipped`;
 it does not print `0 operations, 0 unresolved 0.0s`, which would be an
 unknown wearing a measurement's clothes.
 
-**WHAT ATLAS FOUND** — the findings, ordered by how unlikely they are to be
+**WHAT GRUNNR FOUND** — the findings, ordered by how unlikely they are to be
 known already: endpoints with no test reaching the handler, tables written
 from more than one capability, tables with exactly one writer, capabilities
 under active change with nothing verifying them, SQL advisories, dead-code
 candidates. Findings computed over inferred groupings are tagged
 `[over provisional groupings]`.
 
-**WHAT ATLAS CANNOT SEE** — the limits. This section is not a disclaimer: a
+**WHAT GRUNNR CANNOT SEE** — the limits. This section is not a disclaimer: a
 report that lists only its findings reads as complete, and this one is a
 lower bound in several directions at once (queries it could not parse,
 routers it does not recognise, execution nobody gave it, history git would
@@ -65,24 +65,24 @@ carries the command that removes it.
 
 **PROVISIONAL CAPABILITY MAP** — the proposals, under a line saying what the
 map is for, split into those derived from HTTP routes, those derived from code
-structure and test names, and — last — the groupings atlas **refused to name**,
+structure and test names, and — last — the groupings grunnr **refused to name**,
 each with one line of the evidence it came from. The refusal is also stated in
-WHAT ATLAS CANNOT SEE, above, with its size: a reader meets it before they meet
+WHAT GRUNNR CANNOT SEE, above, with its size: a reader meets it before they meet
 the map.
 
-**NEXT / CI** — the promote commands, the command that gives atlas execution
+**NEXT / CI** — the promote commands, the command that gives grunnr execution
 evidence, and a GitHub Actions snippet.
 
-## Why this is a separate verb from `atlas init`
+## Why this is a separate verb from `grunnr init`
 
-The obvious shape is for [`atlas init`](./init.md) to do this by itself: run
+The obvious shape is for [`grunnr init`](./init.md) to do this by itself: run
 it on an unannotated repository and get the map for free. It is a separate
 verb on purpose, and the reason is not tidiness.
 
 `init` is the bootstrap every other verb depends on, and it is the command
 that runs in CI. Its output today is entirely derived from the source: a
 scan, the migrations, and whatever annotations a human wrote. `onboard`
-writes something else — a proposal set — into `.atlas/provisional/`, and
+writes something else — a proposal set — into `.grunnr/provisional/`, and
 proposals are the one kind of state in this tool that nobody asked for. A
 bootstrap that produced them by surprise would mean:
 
@@ -90,15 +90,15 @@ bootstrap that produced them by surprise would mean:
   and nothing reads, on repositories that finished onboarding a year ago.
 - The verb whose entire job is "make the store match the source" acquires a
   second job — "guess at things the source does not say" — and the reader of
-  `atlas init` output has to tell the two halves apart every time.
+  `grunnr init` output has to tell the two halves apart every time.
 - The 6-second inference is charged to every `init`, including the warm
   incremental ones that otherwise finish in milliseconds.
 
 So `init` bootstraps, `onboard` proposes, and the split is what lets each of
 them say exactly one thing. The cost is that the first run on a fresh
-repository is two commands rather than one; `atlas onboard` performs the
-scan and ingest itself, so in practice it is `atlas onboard` first and
-`atlas init` never, until CI needs it.
+repository is two commands rather than one; `grunnr onboard` performs the
+scan and ingest itself, so in practice it is `grunnr onboard` first and
+`grunnr init` never, until CI needs it.
 
 ## Where the proposals come from
 
@@ -110,7 +110,7 @@ earlier stages left, so a symbol lands in exactly one proposal:
 | Existing annotations | Adopted as they are. Their symbols are invisible to every grouping stage and never re-proposed. |
 | HTTP routes          | One capability per registration — `POST /measurements` → `measurements.create`.               |
 | Test names           | Two or more tests in one directory leading with the same word, **and that word is the head of at least two declarations in that directory**. `TestCheckout*` in `billing` proposes `billing.checkout` only when the code contains things that ARE checkouts — not `GenBashCompletionFile`, which is a *file*, and not `NoFileCompletions`, which is *completions*. |
-| Directory tree       | Everything left, named `<parent>.<dir>` — unless the directory's own last segment is layout rather than subject (`src`, `lib`, `pkg`, `app`, …) or it is the repository root, in which case atlas refuses to name it. The weakest proposal, and the only one that is a fact about the tree rather than a guess. |
+| Directory tree       | Everything left, named `<parent>.<dir>` — unless the directory's own last segment is layout rather than subject (`src`, `lib`, `pkg`, `app`, …) or it is the repository root, in which case grunnr refuses to name it. The weakest proposal, and the only one that is a fact about the tree rather than a guess. |
 
 The SQL inventory, git churn and any ingested coverage are **not** grouping
 sources. They are attached to whatever grouping was made, which is where each
@@ -122,7 +122,7 @@ recorded in that capability's evidence (`merged in: …`), so the reader can
 see that a symbol list under route or test-name evidence was partly filled in
 by a directory sweep.
 
-## Groupings atlas will not name
+## Groupings grunnr will not name
 
 A word only becomes a capability name when the production code carries that
 word as the **head** of a declaration, at least twice. English compound
@@ -132,7 +132,7 @@ from a modifier somebody happened to start a test name with.
 
 Everything that fails that test is still reported. It is grouped, counted,
 broken down by file, and printed as an **unnamed grouping** under
-`groupings atlas would not name`, addressed as `provisional:unnamed:1`. Atlas
+`groupings grunnr would not name`, addressed as `provisional:unnamed:1`. Grunnr
 never labels a grouping with a word it cannot point at in the code, and a
 grouping with a size and a file breakdown is something a reader can act on;
 a grouping with a misleading name is something they have to undo first.
@@ -143,14 +143,14 @@ acquires an id is `promote --as`, where the id is one **you** typed.
 
 Measured on [spf13/cobra](https://github.com/spf13/cobra) (269 production
 symbols, no annotations), before and after
-[#177](https://github.com/sosalejandro/atlas/issues/177):
+[#177](https://github.com/sosalejandro/grunnr/issues/177):
 
 | | before | after |
 | --- | --- | --- |
 | entries in the map | 25 | 7 |
 | one-symbol "capabilities" | 10 | 0 |
 | proposals named off a test-name prefix | `root.no`, `root.bash`, `root.root`, `root.version`, `root.active`, `root.exact`, `root.arbitrary`, `root.child`, `root.valid`, `root.complete`, … | none — all refused |
-| symbols atlas declines to name | 0 (83 of them were labelled `root.root`) | 118 of 269 (44%), in 1 grouping, with an 11-file breakdown led by `command.go` (70) |
+| symbols grunnr declines to name | 0 (83 of them were labelled `root.root`) | 118 of 269 (44%), in 1 grouping, with an 11-file breakdown led by `command.go` (70) |
 
 What survives on cobra is `root.flag` (58 symbols, head-witnessed by
 `writeShortFlag`, `writeFlag`, `writeLocalNonPersistentFlag` and 31 more),
@@ -188,7 +188,7 @@ on. A Go coverprofile ingested into a Go + TypeScript repository measures
 half the tree, and the other half falls back to `colocated-tests` or `none`
 rather than being reported as measured and dead.
 
-## `atlas onboard promote`
+## `grunnr onboard promote`
 
 Promotion is the only path from a proposal into the registry, and it does
 **not** write the database. It writes an `@atlas:feature <id>` annotation
@@ -200,7 +200,7 @@ hand-written one would.
 | --------- | ---------------- | ------------------------------------------------------------------------------ |
 | `--root`  | repo root or cwd | Project root.                                                                   |
 | `--id`    | —                | Provisional capability id to promote (repeatable; the `provisional:` prefix is optional). |
-| `--as`    | —                | The feature id to write for an **unnamed grouping**. Requires exactly one `--id unnamed:N`, and is refused on a proposal atlas did name. |
+| `--as`    | —                | The feature id to write for an **unnamed grouping**. Requires exactly one `--id unnamed:N`, and is refused on a proposal grunnr did name. |
 | `--all`   | off              | Promote every capability in the provisional map.                                |
 | `--apply` | off              | Write the annotations. The default is a dry run that prints the exact lines.    |
 
@@ -213,18 +213,18 @@ Notes:
   never overwritten.
 - An id that is not in the map is an error, not a silent skip, so a typo in a
   script fails instead of passing green.
-- A grouping atlas refused to name is **skipped**, with the reason and the
+- A grouping grunnr refused to name is **skipped**, with the reason and the
   command that resolves it, so `--all` keeps working:
 
   ```
-  skip  provisional:unnamed:1   unnamed grouping: atlas has no honest name for this.
-                                Name it yourself: atlas onboard promote --id unnamed:N --as <your.feature.id>
+  skip  provisional:unnamed:1   unnamed grouping: grunnr has no honest name for this.
+                                Name it yourself: grunnr onboard promote --id unnamed:N --as <your.feature.id>
   ```
 
   Name one yourself with `--as`, which writes the id **you** chose:
 
   ```
-  atlas onboard promote --id unnamed:1 --as mailhog.entrypoint --apply
+  grunnr onboard promote --id unnamed:1 --as mailhog.entrypoint --apply
   ```
 
   `--as` takes exactly one `--id`, validates the id against the annotation
@@ -235,14 +235,14 @@ Notes:
   ordered per file, bottom-up, so an earlier insertion cannot shift the line
   a later one is aimed at.
 - Promotion seeds membership at **one** symbol per capability. Broaden a
-  feature by annotating more symbols yourself; `atlas chain <feature-id>`
+  feature by annotating more symbols yourself; `grunnr chain <feature-id>`
   shows what the claim currently covers.
-- Re-run `atlas scan` afterwards to materialise the annotations.
+- Re-run `grunnr scan` afterwards to materialise the annotations.
 
 ## Output artefacts
 
 The full map — every proposal, its evidence, its anchor and its symbol ids —
-is written to `.atlas/provisional/capabilities.json` on every run, whatever
+is written to `.grunnr/provisional/capabilities.json` on every run, whatever
 `--top` prints. It is JSON in a directory named `provisional`, deliberately
 not a table in the state DB: a proposals table would eventually be joined
 against by a verb that forgot the distinction. Delete it with `rm -r` when
@@ -251,8 +251,8 @@ the proposals turn out to be wrong.
 ## See also
 
 - [Quickstart](../quickstart.md) — the whole first run with recorded output
-- [`atlas init`](./init.md) — the bootstrap for a repository that already has
+- [`grunnr init`](./init.md) — the bootstrap for a repository that already has
   annotations
-- [`atlas scan`](./scan.md) — materialise promoted annotations
-- [`atlas sql`](./sql.md), [`atlas hotspots`](./hotspots.md),
-  [`atlas cov`](./cov.md) — the verbs the findings point at
+- [`grunnr scan`](./scan.md) — materialise promoted annotations
+- [`grunnr sql`](./sql.md), [`grunnr hotspots`](./hotspots.md),
+  [`grunnr cov`](./cov.md) — the verbs the findings point at

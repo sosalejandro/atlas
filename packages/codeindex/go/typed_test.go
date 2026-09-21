@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // The #87 suite. Every test here is about the MECHANISM that produced an
@@ -160,7 +160,7 @@ func TestTypedResolution_DegradesPerPackageOnBrokenBuild(t *testing.T) {
 }
 
 // The acceptance criterion from the brief, as a test: the composition may
-// move, but the number of edges atlas is GUESSING about must not grow.
+// move, but the number of edges grunnr is GUESSING about must not grow.
 // A resolver swap that keeps the total steady while turning resolutions
 // into guesses is the failure this replaces.
 func TestTypedResolution_DoesNotIncreaseSyntacticEdges(t *testing.T) {
@@ -204,7 +204,7 @@ func TestTypedResolution_SkipReproducesNameResolution(t *testing.T) {
 func TestTypedResolution_NoModuleFallsBackQuietly(t *testing.T) {
 	// t.TempDir() is under the OS temp root, which is not inside a
 	// module -- unlike every fixture in testdata/, which is inside the
-	// atlas module whether or not it carries a go.mod of its own.
+	// grunnr module whether or not it carries a go.mod of its own.
 	loose := filepath.Join(t.TempDir(), "loose")
 	copyTree(t, "testdata/sampleproject", loose)
 

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 func TestCoverage_InsertRunAndResults(t *testing.T) {

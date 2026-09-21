@@ -9,14 +9,22 @@ import (
 
 // DirectivePrefix is the comment marker that silences an advisory.
 //
-//	// atlas:sql-ignore sql.unbounded-list,sql.select-star
+//	// grunnr:sql-ignore sql.unbounded-list,sql.select-star
 //
 // Every advisory in this package must be suppressible, because every one of
 // them has a legitimate exception -- the deliberately unbounded read over a
 // table that holds nine rows, the offset pagination on an admin screen nobody
 // pages past the second page of. A check with no way to say "yes, I know" gets
 // turned off wholesale, and then it protects nothing.
-const DirectivePrefix = "atlas:sql-ignore"
+const DirectivePrefix = "grunnr:sql-ignore"
+
+// LegacyDirectivePrefix is the spelling this directive had before the rename.
+//
+// It is still honoured, and always will be: the directive is written in the
+// USER'S .sql and .go files, so dropping it would turn every suppression they
+// had deliberately added back into a noisy advisory -- and the report would
+// look like their code got worse, not like a tool renamed itself.
+const LegacyDirectivePrefix = "atlas:sql-ignore"
 
 // DirectiveAll silences every code at a site.
 const DirectiveAll = "all"
@@ -77,14 +85,19 @@ func directivesIn(doc *ast.CommentGroup) []string {
 }
 
 // parseDirective extracts the codes from one comment. Text after the codes is
-// ignored, so `// atlas:sql-ignore sql.select-star -- payload is versioned`
+// ignored, so `// grunnr:sql-ignore sql.select-star -- payload is versioned`
 // works and reads well.
 func parseDirective(text string) []string {
-	idx := strings.Index(text, DirectivePrefix)
+	prefix := DirectivePrefix
+	idx := strings.Index(text, prefix)
+	if idx < 0 {
+		prefix = LegacyDirectivePrefix
+		idx = strings.Index(text, prefix)
+	}
 	if idx < 0 {
 		return nil
 	}
-	rest := strings.TrimSpace(text[idx+len(DirectivePrefix):])
+	rest := strings.TrimSpace(text[idx+len(prefix):])
 	if rest == "" {
 		return nil
 	}

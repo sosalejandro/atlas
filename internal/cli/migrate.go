@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newMigrateAnnotationsCmd implements `atlas migrate-annotations` — bulk
+// newMigrateAnnotationsCmd implements `grunnr migrate-annotations` — bulk
 // rewrite of `// @testreg <id>` comments to `// @atlas:feature <id>`.
 //
 // --dry-run reports candidate annotations without touching disk.
@@ -35,7 +35,7 @@ verbatim (the leading '#' is dropped).
 The verb refuses to touch:
 
   - files inside vendor/ or node_modules/
-  - files that contain the magic suppressor '// nolint:atlas-migrate'
+  - files that contain the magic suppressor '// nolint:grunnr-migrate'
 
 You MUST pass exactly one of --dry-run or --apply. The default is a
 no-op so a CI script that forgot to pick a mode fails loud.`,
@@ -60,7 +60,7 @@ no-op so a CI script that forgot to pick a mode fails loud.`,
 	return cmd
 }
 
-// migrateAnnotationsResult is the JSON payload for `atlas migrate-annotations`.
+// migrateAnnotationsResult is the JSON payload for `grunnr migrate-annotations`.
 type migrateAnnotationsResult struct {
 	FilesScanned int                        `json:"files_scanned"`
 	FilesTouched int                        `json:"files_touched"`
@@ -86,7 +86,7 @@ var migrateAnnotationsRE = regexp.MustCompile(
 	`^@testreg\s+([A-Za-z0-9._\-]+)(\s+.*)?$`,
 )
 
-// migrateAnnotationsExts is the closed set of extensions Atlas's annotation
+// migrateAnnotationsExts is the closed set of extensions Grunnr's annotation
 // parser recognises (docs/annotations.md). Anything else is skipped.
 var migrateAnnotationsExts = map[string]bool{
 	".go": true, ".ts": true, ".tsx": true,
@@ -101,7 +101,7 @@ var migrateAnnotationsSkipDirs = map[string]bool{
 	".git":         true,
 }
 
-const migrateAnnotationsSuppressor = "// nolint:atlas-migrate"
+const migrateAnnotationsSuppressor = "// nolint:grunnr-migrate"
 
 func runMigrateAnnotations(cmd *cobra.Command, root string, apply bool) error {
 	ctx := cmd.Context()
@@ -171,7 +171,7 @@ func runMigrateAnnotations(cmd *cobra.Command, root string, apply bool) error {
 // (apply==true) rewrites the file in place, or (apply==false) just
 // returns the list of rewrites it would have made.
 //
-// Files containing `// nolint:atlas-migrate` are skipped entirely — that
+// Files containing `// nolint:grunnr-migrate` are skipped entirely — that
 // is the documented escape hatch for code that intentionally keeps the
 // legacy grammar.
 func processMigrateFile(absPath, root string, apply bool) (bool, []migrateAnnotationRewrite, error) {

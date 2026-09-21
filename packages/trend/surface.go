@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // statementTally is a statement count summed over some set of symbols.

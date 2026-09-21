@@ -8,7 +8,7 @@ import (
 )
 
 // TestRewriteLine_Cases exercises the per-line rewrite engine across the
-// shapes Atlas needs to support: Go double-slash, Python hash, /* */ open,
+// shapes Grunnr needs to support: Go double-slash, Python hash, /* */ open,
 // tag-stripping, idempotency for already-migrated lines, suppressor bypass.
 func TestRewriteLine_Cases(t *testing.T) {
 	cases := []struct {
@@ -108,12 +108,12 @@ func TestRewriteMigrateAnnotations_RoundTrip(t *testing.T) {
 }
 
 // TestProcessMigrateFile_SuppressorSkip verifies the
-// `// nolint:atlas-migrate` opt-out keeps a file untouched.
+// `// nolint:grunnr-migrate` opt-out keeps a file untouched.
 func TestProcessMigrateFile_SuppressorSkip(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "x.go")
 	body := []byte(`package x
-// nolint:atlas-migrate
+// nolint:grunnr-migrate
 // @testreg auth.login
 `)
 	if err := os.WriteFile(file, body, 0o644); err != nil {

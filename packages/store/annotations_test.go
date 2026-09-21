@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 func TestAnnotations_UpsertList(t *testing.T) {
@@ -12,8 +12,8 @@ func TestAnnotations_UpsertList(t *testing.T) {
 	ctx := context.Background()
 
 	rows := []AnnotationRow{
-		{FilePath: "src/foo.go", Line: 10, Kind: shared.AnnFeature, Value: "auth.login", Source: shared.SourceAtlas},
-		{FilePath: "src/foo.go", Line: 11, Kind: shared.AnnOwner, Value: "@auth-team", Source: shared.SourceAtlas},
+		{FilePath: "src/foo.go", Line: 10, Kind: shared.AnnFeature, Value: "auth.login", Source: shared.SourceGrunnr},
+		{FilePath: "src/foo.go", Line: 11, Kind: shared.AnnOwner, Value: "@auth-team", Source: shared.SourceGrunnr},
 		{FilePath: "src/bar.go", Line: 5, Kind: shared.AnnFeature, Value: "meals.create", Source: shared.SourceTestreg},
 	}
 	for _, r := range rows {
@@ -37,7 +37,7 @@ func TestAnnotations_DedupeOnReUpsert(t *testing.T) {
 
 	row := AnnotationRow{
 		FilePath: "src/foo.go", Line: 10, Kind: shared.AnnFeature,
-		Value: "auth.login", Source: shared.SourceAtlas,
+		Value: "auth.login", Source: shared.SourceGrunnr,
 	}
 	for i := 0; i < 3; i++ {
 		if err := a.Upsert(ctx, row); err != nil {
@@ -70,7 +70,7 @@ func TestAnnotations_DeleteByFile(t *testing.T) {
 	ctx := context.Background()
 	_ = a.Upsert(ctx, AnnotationRow{
 		FilePath: "src/foo.go", Line: 10, Kind: shared.AnnFeature,
-		Value: "auth.login", Source: shared.SourceAtlas,
+		Value: "auth.login", Source: shared.SourceGrunnr,
 	})
 	if err := a.DeleteByFile(ctx, "src/foo.go"); err != nil {
 		t.Fatalf("DeleteByFile: %v", err)
@@ -101,7 +101,7 @@ func TestAnnotations_DashedIDs_RoundTrip(t *testing.T) {
 			Line:     i + 1,
 			Kind:     shared.AnnFeature,
 			Value:    v,
-			Source:   shared.SourceAtlas,
+			Source:   shared.SourceGrunnr,
 		}); err != nil {
 			t.Fatalf("Upsert %q: %v", v, err)
 		}

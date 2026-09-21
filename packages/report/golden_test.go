@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/report"
+	"github.com/sosalejandro/grunnr/packages/report"
 )
 
 // updateGolden regenerates the checked-in renderings instead of asserting
@@ -16,7 +16,7 @@ import (
 //	go test ./packages/report -update
 //
 // The goldens exist because nothing in this repo can render SARIF, workflow
-// commands, or a PR comment — the only place a reviewer can see what atlas
+// commands, or a PR comment — the only place a reviewer can see what grunnr
 // actually emits into CI is the checked-in file. Regenerate deliberately and
 // read the diff; an unreviewed -update turns the test into a tautology.
 var updateGolden = flag.Bool("update", false,
@@ -25,7 +25,7 @@ var updateGolden = flag.Bool("update", false,
 const goldenDir = "testdata/golden"
 
 // goldenComment is the fixture PR comment: the finding set plus the summary
-// and delta a real `atlas report pr --base main` would carry.
+// and delta a real `grunnr report pr --base main` would carry.
 func goldenComment() report.CommentInput {
 	return report.CommentInput{
 		Summary: []report.SummaryRow{

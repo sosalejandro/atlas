@@ -173,7 +173,7 @@ func TestParseBytes_CRLFDoesNotLeakIntoPayloads(t *testing.T) {
 // an LF, so a classic-Mac file (CR-only endings) was one enormous line and
 // the comment on it was one comment. splitLines does the same, deliberately:
 // treating a bare CR as a line break would newly find annotations in files
-// where atlas has never reported any.
+// where grunnr has never reported any.
 func TestParseRelative_LoneCROnItsOwnIsNotALineBreak(t *testing.T) {
 	t.Parallel()
 
@@ -182,7 +182,7 @@ func TestParseRelative_LoneCROnItsOwnIsNotALineBreak(t *testing.T) {
 	// One physical line as far as any LF-based reader is concerned: the
 	// first `//` opens a comment that swallows the rest, so both ids land on
 	// ONE annotation at line 1 rather than on two annotations at lines 1
-	// and 2. Ugly, and exactly what atlas has always reported for such a
+	// and 2. Ugly, and exactly what grunnr has always reported for such a
 	// file — which is the point of pinning it.
 	if err := os.WriteFile(path, []byte("// @atlas:feature a.a\r// @atlas:feature b.b\r"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -244,7 +244,7 @@ func TestSplitLines_ContractIsWhatBufioScanLinesDid(t *testing.T) {
 			// bufio.ScanLines' asymmetry, preserved deliberately: a CR
 			// that does not precede an LF is ordinary content, so a
 			// classic-Mac file stays one line. Treating it as a break
-			// would newly find annotations in files atlas has never
+			// would newly find annotations in files grunnr has never
 			// reported any for.
 			name:    "a lone CR is content, not a line break",
 			content: "a\rb\n",

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Scan the repository for committed credentials.
 #
-# Atlas ships a secret DETECTOR (packages/redact, issue #131), which creates a
+# Grunnr ships a secret DETECTOR (packages/redact, issue #131), which creates a
 # tension nothing resolves cleanly: testing a detector requires inputs that look
 # exactly like the thing it detects. Those fixtures are not credentials and
 # never were -- but no scanner can tell, and neither can a reviewer skimming a
@@ -55,9 +55,9 @@ SCAN_MODE="${SCAN_MODE:-tree}"
 CONFIG="$REPO_ROOT/.gitleaks.toml"
 
 if [ ! -f "$CONFIG" ]; then
-	atlas_err "FAIL: no .gitleaks.toml at $CONFIG"
-	atlas_err "The allowlist lives there, and running without it would flag every"
-	atlas_err "fixture in packages/redact. Refusing to scan with default rules."
+	grunnr_err "FAIL: no .gitleaks.toml at $CONFIG"
+	grunnr_err "The allowlist lives there, and running without it would flag every"
+	grunnr_err "fixture in packages/redact. Refusing to scan with default rules."
 	exit "$EXIT_BAD_USAGE"
 fi
 
@@ -66,15 +66,15 @@ fi
 if command -v gitleaks >/dev/null 2>&1; then
 	GITLEAKS_BIN="$(command -v gitleaks)"
 else
-	atlas_err "gitleaks is not on PATH."
-	atlas_err ""
-	atlas_err "Install it with one of:"
-	atlas_err "  go install github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}"
-	atlas_err "    (the module path is zricethezav/..., not gitleaks/... -- the repo"
-	atlas_err "     moved org but the go module path did not follow)"
-	atlas_err "  brew install gitleaks"
-	atlas_err ""
-	atlas_err "Or see https://github.com/gitleaks/gitleaks#installing"
+	grunnr_err "gitleaks is not on PATH."
+	grunnr_err ""
+	grunnr_err "Install it with one of:"
+	grunnr_err "  go install github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}"
+	grunnr_err "    (the module path is zricethezav/..., not gitleaks/... -- the repo"
+	grunnr_err "     moved org but the go module path did not follow)"
+	grunnr_err "  brew install gitleaks"
+	grunnr_err ""
+	grunnr_err "Or see https://github.com/gitleaks/gitleaks#installing"
 	exit "$EXIT_CANNOT_RUN"
 fi
 
@@ -83,7 +83,7 @@ if [ "$have_version" != "$GITLEAKS_VERSION" ]; then
 	# A warning, not a failure. Pinning matters for reproducibility of the
 	# RESULT, but refusing to run because a contributor has 8.29 installed
 	# would mean most people simply do not run it.
-	atlas_err "note: gitleaks $have_version installed, $GITLEAKS_VERSION pinned; findings may differ"
+	grunnr_err "note: gitleaks $have_version installed, $GITLEAKS_VERSION pinned; findings may differ"
 fi
 
 case "$SCAN_MODE" in
@@ -97,7 +97,7 @@ history)
 	set -- detect --source "$REPO_ROOT" -c "$CONFIG" --redact --no-banner
 	;;
 *)
-	atlas_err "FAIL: SCAN_MODE must be 'tree' or 'history', got '$SCAN_MODE'"
+	grunnr_err "FAIL: SCAN_MODE must be 'tree' or 'history', got '$SCAN_MODE'"
 	exit "$EXIT_BAD_USAGE"
 	;;
 esac
@@ -119,37 +119,37 @@ if "$GITLEAKS_BIN" "$@" 2>&1 | tee "$scan_log"; then
 	# existence, whatever the exit code said.
 	scanned="$(grep -oE 'scanned ~[0-9]+ bytes' "$scan_log" | head -1 | grep -oE '[0-9]+' || echo 0)"
 	if [ "${scanned:-0}" -lt 65536 ]; then
-		atlas_err ""
-		atlas_err "FAIL: gitleaks reported success after reading only ${scanned:-0} bytes."
-		atlas_err ""
-		atlas_err "That is not a clean scan, it is a scan that did not happen. The usual"
-		atlas_err "cause is an allowlist in .gitleaks.toml matching the scan root itself:"
-		atlas_err "a path pattern without a leading ^ is matched against the ABSOLUTE"
-		atlas_err "path, so running from inside a directory that pattern names allowlists"
-		atlas_err "everything under it."
-		atlas_err ""
-		atlas_err "Check the [allowlist] paths in .gitleaks.toml against \$PWD."
+		grunnr_err ""
+		grunnr_err "FAIL: gitleaks reported success after reading only ${scanned:-0} bytes."
+		grunnr_err ""
+		grunnr_err "That is not a clean scan, it is a scan that did not happen. The usual"
+		grunnr_err "cause is an allowlist in .gitleaks.toml matching the scan root itself:"
+		grunnr_err "a path pattern without a leading ^ is matched against the ABSOLUTE"
+		grunnr_err "path, so running from inside a directory that pattern names allowlists"
+		grunnr_err "everything under it."
+		grunnr_err ""
+		grunnr_err "Check the [allowlist] paths in .gitleaks.toml against \$PWD."
 		exit "$EXIT_BAD_USAGE"
 	fi
 	echo "ok    no committed credentials found (${scanned} bytes scanned)"
 	exit 0
 fi
 
-atlas_err ""
-atlas_err "FAIL: gitleaks found something that looks like a credential."
-atlas_err ""
-atlas_err "If it is REAL: rotate it first, then remove it. Rotation comes first"
-atlas_err "because the value is already in the reflog, in every clone, and"
-atlas_err "possibly in a CI log -- removing it from the tip does not unpublish it."
-atlas_err ""
-atlas_err "If it is a TEST FIXTURE for packages/redact:"
-atlas_err "  - vendor-specific shape (AWS, Stripe, GitHub token)? assemble it at"
-atlas_err "    runtime so no literal exists -- see awsSessionShaped in"
-atlas_err "    packages/redact/detect_test.go. GitHub's own scanner cannot be"
-atlas_err "    configured, so a literal there raises an alert we cannot suppress."
-atlas_err "  - generic shape (PEM header, high-entropy assignment)? add it to the"
-atlas_err "    scoped allowlist in .gitleaks.toml, by path AND rule."
-atlas_err ""
-atlas_err "Do not add a blanket allowlist. The allowlist is scoped so that a real"
-atlas_err "key committed outside the detector's fixtures still fails this scan."
+grunnr_err ""
+grunnr_err "FAIL: gitleaks found something that looks like a credential."
+grunnr_err ""
+grunnr_err "If it is REAL: rotate it first, then remove it. Rotation comes first"
+grunnr_err "because the value is already in the reflog, in every clone, and"
+grunnr_err "possibly in a CI log -- removing it from the tip does not unpublish it."
+grunnr_err ""
+grunnr_err "If it is a TEST FIXTURE for packages/redact:"
+grunnr_err "  - vendor-specific shape (AWS, Stripe, GitHub token)? assemble it at"
+grunnr_err "    runtime so no literal exists -- see awsSessionShaped in"
+grunnr_err "    packages/redact/detect_test.go. GitHub's own scanner cannot be"
+grunnr_err "    configured, so a literal there raises an alert we cannot suppress."
+grunnr_err "  - generic shape (PEM header, high-entropy assignment)? add it to the"
+grunnr_err "    scoped allowlist in .gitleaks.toml, by path AND rule."
+grunnr_err ""
+grunnr_err "Do not add a blanket allowlist. The allowlist is scoped so that a real"
+grunnr_err "key committed outside the detector's fixtures still fails this scan."
 exit "$EXIT_LEAK_FOUND"

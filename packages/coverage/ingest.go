@@ -7,8 +7,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Parser is the interface every framework sub-package satisfies. The
@@ -165,14 +165,14 @@ type ParseFunc func(r io.Reader) (Run, []Result, error)
 // Parse satisfies the Parser interface.
 func (p ParseFunc) Parse(r io.Reader) (Run, []Result, error) { return p(r) }
 
-// RunMeta is the identity Atlas stamps on a coverage run: which framework
+// RunMeta is the identity Grunnr stamps on a coverage run: which framework
 // produced it, and which measurement it belongs to.
 //
 // It exists because a coverage run is no longer self-contained. A polyglot
 // repo measures itself several times per CI build -- go-cover, then istanbul,
 // then Playwright -- and Group is the correlation key that lets the audit read
 // those runs as ONE frontier instead of letting the last sync erase the
-// earlier ones (issue #86). Atlas never interprets the key: a git SHA or a CI
+// earlier ones (issue #86). Grunnr never interprets the key: a git SHA or a CI
 // run id is the intended shape.
 //
 // A zero Group is not an error and not a default group. It reproduces the

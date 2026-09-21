@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/domain"
 )
 
 // AuditRenderer renders feature health audit reports to terminal or file.

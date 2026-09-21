@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// limits states what atlas could not see on this run.
+// limits states what grunnr could not see on this run.
 //
 // The section is not a disclaimer. A report that lists only its findings
 // reads as complete, and this one is a lower bound in four separate
@@ -35,15 +35,15 @@ func limits(in Input, res Result, unresolvedRoutes int) []Limit {
 		// "All 107 capabilities below are inferred" -- one bullet after the
 		// header had said "105 named proposals + 2 unnamed groupings". That
 		// re-inflated the exact number #177 exists to bring down, and it
-		// called a grouping atlas had just refused to name a capability, in
+		// called a grouping grunnr had just refused to name a capability, in
 		// the same breath as refusing it. A tool that contradicts itself
 		// inside twenty lines is not read carefully after that.
-		Detail: fmt.Sprintf("All %d inferred proposals below are atlas's guesses, not declarations: "+
+		Detail: fmt.Sprintf("All %d inferred proposals below are grunnr's guesses, not declarations: "+
 			"it wrote none of them to the registry, and %d declared features already there were "+
 			"adopted as they are.%s",
 			res.Stats.NamedCapabilities, res.Stats.DeclaredFeatures,
 			unnamedSuffix(res.Stats.UnnamedGroupings)),
-		Fix: "atlas onboard promote --id <id> --apply",
+		Fix: "grunnr onboard promote --id <id> --apply",
 	})
 	return out
 }
@@ -56,9 +56,9 @@ func unnamedSuffix(n int) string {
 	case 0:
 		return ""
 	case 1:
-		return " One further grouping is listed that atlas would not name."
+		return " One further grouping is listed that grunnr would not name."
 	default:
-		return fmt.Sprintf(" A further %d groupings are listed that atlas would not name.", n)
+		return fmt.Sprintf(" A further %d groupings are listed that grunnr would not name.", n)
 	}
 }
 
@@ -85,14 +85,14 @@ func couldNotNameLimit(res Result) *Limit {
 	return &Limit{
 		Code: "could-not-name",
 		Detail: fmt.Sprintf(
-			"Atlas could not name %d of %d undeclared symbols (%.0f%%). They are in %s it "+
+			"Grunnr could not name %d of %d undeclared symbols (%.0f%%). They are in %s it "+
 				"refused to name rather than label with a word scraped off a test name or a "+
-				"directory that says nothing -- listed as \"groupings atlas would not name\" in "+
+				"directory that says nothing -- listed as \"groupings grunnr would not name\" in "+
 				"the map below, with their file breakdown. Naming one is the single judgement "+
 				"this tool will not make for you.",
 			st.UnnamedSymbols, st.UndeclaredSymbols, pct,
 			plural(st.UnnamedGroupings, "grouping", "groupings")),
-		Fix: "atlas onboard promote --id unnamed:1 --as <your.feature.id>",
+		Fix: "grunnr onboard promote --id unnamed:1 --as <your.feature.id>",
 	}
 }
 
@@ -112,7 +112,7 @@ func coverageLimit(in Input) *Limit {
 	}
 	return &Limit{
 		Code: "no-execution-evidence",
-		Detail: "No coverage run has been ingested, so atlas cannot say what your tests " +
+		Detail: "No coverage run has been ingested, so grunnr cannot say what your tests " +
 			"actually execute. Test evidence in this report means \"a test file sits in " +
 			"the same directory\", which is a weaker claim than it looks.",
 		Fix: coverageCommand(in),
@@ -124,7 +124,7 @@ func sqlLimit(in Input, res Result) *Limit {
 		return &Limit{
 			Code:   "sql-not-scanned",
 			Detail: "The SQL inventory was not built, so no capability in this report has a data footprint.",
-			Fix:    "atlas sql scan",
+			Fix:    "grunnr sql scan",
 		}
 	}
 	if res.Stats.SQLUnresolved == 0 {
@@ -133,25 +133,25 @@ func sqlLimit(in Input, res Result) *Limit {
 	pct := 100 * float64(res.Stats.SQLUnresolved) / float64(res.Stats.SQLOperations)
 	return &Limit{
 		Code: "sql-unresolved",
-		Detail: fmt.Sprintf("%d of %d queries (%.0f%%) were assembled where atlas could not read them. "+
+		Detail: fmt.Sprintf("%d of %d queries (%.0f%%) were assembled where grunnr could not read them. "+
 			"Every table set above is a lower bound: a table only those queries touch is missing from it.",
 			res.Stats.SQLUnresolved, res.Stats.SQLOperations, pct),
-		Fix: "atlas sql list --unresolved",
+		Fix: "grunnr sql list --unresolved",
 	}
 }
 
 // routeLimit covers the two ways the HTTP surface can be incomplete: a
-// router atlas does not parse, and a registration whose handler it could not
+// router grunnr does not parse, and a registration whose handler it could not
 // resolve. Both produce the same silence, and silence about an HTTP surface
 // reads as "there isn't one".
 func routeLimit(in Input, unresolved int) *Limit {
 	if len(in.Routes) == 0 {
 		return &Limit{
 			Code: "no-routes-found",
-			Detail: "Atlas found no HTTP route registrations. It reads chi, echo, gin, huma and " +
+			Detail: "Grunnr found no HTTP route registrations. It reads chi, echo, gin, huma and " +
 				"net/http registrations written as literal calls; a router configured from a " +
 				"table, a code generator or another framework is invisible to it, so this may " +
-				"mean \"no routes\" or may mean \"a router atlas does not read\".",
+				"mean \"no routes\" or may mean \"a router grunnr does not read\".",
 		}
 	}
 	if unresolved == 0 {
@@ -159,10 +159,10 @@ func routeLimit(in Input, unresolved int) *Limit {
 	}
 	return &Limit{
 		Code: "unresolved-route-handlers",
-		Detail: fmt.Sprintf("%d of %d route registrations point at a handler atlas could not resolve "+
+		Detail: fmt.Sprintf("%d of %d route registrations point at a handler grunnr could not resolve "+
 			"to an indexed symbol, so no capability was proposed for them.",
 			unresolved, len(in.Routes)),
-		Fix: "atlas contract list",
+		Fix: "grunnr contract list",
 	}
 }
 
@@ -172,7 +172,7 @@ func churnLimit(in Input, res Result) *Limit {
 			Code: "no-history",
 			Detail: "Git history was not mined, so no capability in this report is ranked by how " +
 				"much it is changing.",
-			Fix: "atlas hotspots",
+			Fix: "grunnr hotspots",
 		}
 	}
 	// A shallow clone -- the normal CI checkout -- makes every score a lower
@@ -201,9 +201,9 @@ func churnLimit(in Input, res Result) *Limit {
 // indexed, so their symbols really are absent from every capability above.
 // A scanner warning is a different kind of thing: a name collision resolved
 // by qualifying the id, a router shape the TS scanner did not recognise, a
-// file that would not parse. Some of those cost atlas a symbol and some do
+// file that would not parse. Some of those cost grunnr a symbol and some do
 // not, and nothing here classifies them -- so the warning count is reported
-// as a warning count. Presenting it as "files atlas could not read" would be
+// as a warning count. Presenting it as "files grunnr could not read" would be
 // a number this run does not have.
 func scanLimit(in Input) *Limit {
 	if in.FilesExcluded == 0 && len(in.ScannerWarnings) == 0 {
@@ -217,7 +217,7 @@ func scanLimit(in Input) *Limit {
 	}
 	if n := len(in.ScannerWarnings); n > 0 {
 		parts = append(parts, fmt.Sprintf(
-			"The scan raised %s. A warning is a diagnostic, not a count of files atlas "+
+			"The scan raised %s. A warning is a diagnostic, not a count of files grunnr "+
 				"could not read: some cost it a symbol and some do not, and it does not "+
 				"tell them apart -- so read them rather than the number.",
 			plural(n, "scanner warning", "scanner warnings")))
@@ -225,6 +225,6 @@ func scanLimit(in Input) *Limit {
 	return &Limit{
 		Code:   "scan-incomplete",
 		Detail: strings.Join(parts, " "),
-		Fix:    "atlas doctor",
+		Fix:    "grunnr doctor",
 	}
 }
