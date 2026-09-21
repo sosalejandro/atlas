@@ -126,6 +126,6 @@ func (e *Env) requireStore() (Result, bool) {
 		Finding: fmt.Sprintf(
 			"the state database at %s could not be opened, so there is nothing to examine "+
 				"(the store.schema check carries the reason)", e.DBPath),
-		Remediation: "grunnr init",
+		Fixes: fixesFor(FixInit), Remediation: remedyText(FixInit),
 	}, false
 }

@@ -41,6 +41,11 @@ const (
 	ReasonNoFeatureLinks = "feature-has-no-linked-symbols"
 	ReasonNoCoverage     = "no-coverage-frontier"
 	ReasonNoPerTest      = "no-per-test-evidence"
+	// ReasonNoRepo is the doctor tool's gap: the server was started without
+	// a repository, so there is no working tree to compare the index against.
+	// Distinct from the others because no grunnr command run HERE fixes it --
+	// the server has to be started somewhere else.
+	ReasonNoRepo = "no-repository-context"
 )
 
 func noIndex() *NoData {

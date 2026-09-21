@@ -35,6 +35,55 @@ one has a field:
 An agent that ignores these will confidently delete a symbol with 400 callers
 because a capped `callers()` showed it five.
 
+## `doctor` comes first
+
+`doctor` is the first tool in the catalogue, and not for neatness. A coverage
+number from a three-commit-stale index is about code that no longer exists, and
+nothing in that number reveals it. An agent that reads the catalogue top-down
+meets "is this trustworthy?" before it meets anything that returns a figure.
+
+Each finding carries a `severity`, the `remediation` prose a human reads, and —
+where grunnr knows a command that addresses it — a machine-actionable `fixes`
+entry:
+
+```json
+{
+  "name": "index.freshness",
+  "severity": "fail",
+  "finding": "the index is stale: of 713 indexed files, 515 changed on disk",
+  "remediation": "grunnr scan",
+  "fixes": [{"id": "index.scan", "argv": ["grunnr", "scan"], "mutates_index": true}]
+}
+```
+
+`argv` is pre-split so nobody has to re-split a command with a quoted path in
+it. `mutates_index` says whether running it writes, because a caller that is
+only allowed to observe needs to know that before it runs anything, and it is
+not inferable from the argv by anyone who does not already know the CLI.
+
+**A finding with no `fixes` is not mechanically fixable.** That absence is
+information, not an omission: "upgrade grunnr to the version that wrote this
+store" is a judgement call about which version, and `rm <db> && grunnr init` is
+a shell construct with a destructive verb in it that grunnr will not hand an
+agent as an argv. Running a scan at either changes nothing.
+
+### The termination contract
+
+The result carries `fixable` and a `note` stating the loop:
+
+> Apply only the commands in `fixes`, then call doctor again. Stop after two
+> rounds that do not reduce the finding count: a diagnosis that does not move
+> means the remedy is not one grunnr has.
+
+Without that clause an agent burns a session re-running `scan` against a
+diagnosis no scan can fix. The rule is in the tool description *and* in every
+result, because a description is read once when the catalogue loads and the
+result is read every round — which is when the stopping rule actually matters.
+
+A server started outside a repository returns `no_data` with reason
+`no-repository-context` rather than an empty report. "No findings" and "I could
+not look" must never render alike.
+
 ## Call edges carry their provenance
 
 `callers` and `callees` put a `resolution_tier` on **every** row, and a
@@ -116,6 +165,7 @@ requires. Diagnostics go to `stderr`.
 
 | Tool | Answers |
 | --- | --- |
+| `doctor()` | **Is the index trustworthy right now** — ask before anything that returns a number |
 | `find_feature(query, limit?)` | Which features match a name or title |
 | `feature_surface(feature_id, limit?)` | Which symbols implement it — **with the derivation's provenance** |
 | `symbol_info(qualified_name)` | Kind, file, line span, package, owning features, **distinct** caller/callee counts |

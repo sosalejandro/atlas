@@ -96,10 +96,10 @@ func indexVerdict(indexed int, drift hashDrift, unindexed []string, root string,
 				len(drift.unreadable))
 		}
 		return Result{
-			Severity:    SeverityFail,
-			Finding:     finding,
-			Remediation: "grunnr scan",
-			Details:     details,
+			Severity: SeverityFail,
+			Finding:  finding,
+			Fixes:    fixesFor(FixScan), Remediation: remedyText(FixScan),
+			Details: details,
 		}
 	}
 
@@ -118,8 +118,8 @@ func indexVerdict(indexed int, drift hashDrift, unindexed []string, root string,
 			Severity: SeverityWarn,
 			Finding: fmt.Sprintf("%d of %d indexed files match the working tree; %s",
 				indexed-len(drift.unreadable), indexed, strings.Join(complaints, "; ")),
-			Remediation: "grunnr scan",
-			Details:     details,
+			Fixes: fixesFor(FixScan), Remediation: remedyText(FixScan),
+			Details: details,
 		}
 	}
 	return Result{
@@ -151,16 +151,16 @@ func (c indexFreshness) emptyIndex(ctx context.Context, env *Env) (Result, error
 			Finding: fmt.Sprintf(
 				"the store holds %d symbols but no file hashes, so freshness cannot be determined "+
 					"(the last scan ran with --hash-files=false)", len(syms)),
-			Remediation: "grunnr scan --hash-files",
-			Details:     map[string]any{"indexed_files": 0, "symbols": len(syms)},
+			Fixes: fixesFor(FixScanHashFiles), Remediation: remedyText(FixScanHashFiles),
+			Details: map[string]any{"indexed_files": 0, "symbols": len(syms)},
 		}, nil
 	}
 	return Result{
 		Severity: SeverityFail,
 		Finding: fmt.Sprintf("the store holds no index of %s at all: "+
 			"every number grunnr prints would be computed over nothing", env.Root),
-		Remediation: "grunnr init",
-		Details:     map[string]any{"indexed_files": 0, "symbols": 0},
+		Fixes: fixesFor(FixInit), Remediation: remedyText(FixInit),
+		Details: map[string]any{"indexed_files": 0, "symbols": 0},
 	}, nil
 }
 

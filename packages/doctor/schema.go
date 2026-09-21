@@ -73,10 +73,10 @@ func (c schemaVersion) Run(ctx context.Context, env *Env) (Result, error) {
 	switch {
 	case applied == 0:
 		return Result{
-			Severity:    SeverityFail,
-			Finding:     fmt.Sprintf("%s carries no applied migrations: it is not an grunnr store", env.DBPath),
-			Remediation: "grunnr init",
-			Details:     details,
+			Severity: SeverityFail,
+			Finding:  fmt.Sprintf("%s carries no applied migrations: it is not an grunnr store", env.DBPath),
+			Fixes:    fixesFor(FixInit), Remediation: remedyText(FixInit),
+			Details: details,
 		}, nil
 	case applied > expected:
 		// The dangerous direction, and the quiet one: migrate.Up is a
@@ -143,10 +143,10 @@ func (c schemaVersion) unreadable(env *Env) Result {
 	// the kind of advice that makes a tool look like it is guessing.
 	if _, statErr := os.Stat(env.DBPath); os.IsNotExist(statErr) {
 		return Result{
-			Severity:    SeverityFail,
-			Finding:     fmt.Sprintf("there is no grunnr state database at %s: this repo has never been scanned", env.DBPath),
-			Remediation: "grunnr init",
-			Details:     details,
+			Severity: SeverityFail,
+			Finding:  fmt.Sprintf("there is no grunnr state database at %s: this repo has never been scanned", env.DBPath),
+			Fixes:    fixesFor(FixInit), Remediation: remedyText(FixInit),
+			Details: details,
 		}
 	}
 	finding := reason

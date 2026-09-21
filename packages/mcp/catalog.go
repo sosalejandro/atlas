@@ -10,6 +10,7 @@ type toolset struct {
 	coverage  CoverageIndex
 	scorer    Scorer
 	freshness FreshnessFunc
+	doctor    DoctorFunc
 	limits    Limits
 }
 
@@ -20,7 +21,13 @@ type toolset struct {
 // "Find a feature" would not distinguish find_feature from feature_surface;
 // each one therefore says what question it answers and what it does NOT.
 func (ts *toolset) catalog() []tool {
-	out := ts.featureTools()
+	// Health first, and not for neatness: it is the question that should
+	// precede every other one. A coverage number from a three-commit-stale
+	// index is about code that no longer exists, and an agent that reads the
+	// catalogue top-down should meet "is this trustworthy?" before it meets
+	// anything that returns a number.
+	out := ts.healthTools()
+	out = append(out, ts.featureTools()...)
 	out = append(out, ts.graphTools()...)
 	return append(out, ts.coverageTools()...)
 }
@@ -144,6 +151,30 @@ func (ts *toolset) coverageTools() []tool {
 				"feature_id": stringProp("Exact feature id. Use find_feature to get one.", "checkout.pay"),
 			}, "feature_id"),
 			Handle: ts.coverageFor,
+		},
+	}
+}
+
+// healthTools answer "is the index trustworthy right now".
+func (ts *toolset) healthTools() []tool {
+	return []tool{
+		{
+			Name:  "doctor",
+			Title: "Is the index trustworthy right now",
+			Description: "Ask this FIRST, before any tool that returns a number. It reports whether " +
+				"grunnr's picture of the repo is still true: a stale index answers confidently about " +
+				"code that no longer exists, and nothing in a coverage or call-graph result reveals " +
+				"that on its own. " +
+				"Each finding carries a `severity` (ok / n/a / warn / fail) and, where grunnr knows a " +
+				"command that addresses it, a `fixes` entry with an `argv` you can run and a " +
+				"`mutates_index` flag saying whether it writes. " +
+				"A finding with NO `fixes` is not mechanically fixable -- running a scan at it will " +
+				"not help, and the `remediation` prose says what a person has to decide. " +
+				"Apply only fixes grunnr offered here; do not invent commands. Then re-run this tool, " +
+				"and STOP after two rounds that do not reduce the finding count -- a diagnosis that " +
+				"does not move is telling you the remedy is not one grunnr has.",
+			InputSchema: objectSchema(map[string]any{}),
+			Handle:      ts.doctorReport,
 		},
 	}
 }

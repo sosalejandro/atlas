@@ -316,8 +316,19 @@ func TestMCP_JSONDescribesTheServerWithoutServing(t *testing.T) {
 	if env.SchemaVersion != schemaVersion || env.Command != "mcp" {
 		t.Errorf("envelope = %s/%s, want %s/mcp", env.SchemaVersion, env.Command, schemaVersion)
 	}
-	if len(env.Result.Tools) != 7 {
-		t.Errorf("described %d tools, want 7", len(env.Result.Tools))
+	if len(env.Result.Tools) != 8 {
+		t.Errorf("described %d tools, want 8", len(env.Result.Tools))
+	}
+	// A bare count is a weak assertion: it stays green when one tool is
+	// swapped for another. `doctor` is named because the whole point of this
+	// envelope is telling a client what it can ask BEFORE it connects, and
+	// the trustworthiness question is the one an agent needs first.
+	described := map[string]bool{}
+	for _, tl := range env.Result.Tools {
+		described[tl.Name] = true
+	}
+	if !described["doctor"] {
+		t.Errorf("--json does not describe the doctor tool: %v", described)
 	}
 	if !env.Result.ReadOnly {
 		t.Error("read_only = false; this server must describe itself as read-only")

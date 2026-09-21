@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sosalejandro/grunnr/packages/doctor"
 	"github.com/sosalejandro/grunnr/packages/indexfresh"
 	"github.com/sosalejandro/grunnr/packages/mcp"
 	"github.com/sosalejandro/grunnr/packages/store"
@@ -89,6 +90,7 @@ func runMCP(cmd *cobra.Command, limits mcp.Limits) error {
 		Coverage:  index,
 		Scorer:    index.Scorer(),
 		Freshness: freshnessHook(s, loaded.repoRoot),
+		Doctor:    doctorHook(s, dbPath, loaded.repoRoot),
 		Limits:    limits,
 	})
 	if err != nil {
@@ -138,5 +140,36 @@ func freshnessHook(s *store.Store, repoRoot string) mcp.FreshnessFunc {
 			out[path] = string(state)
 		}
 		return out, nil
+	}
+}
+
+// doctorHook lets an agent ask the question that should precede every other
+// one: is this index still true of this repo?
+//
+// It runs the SAME check set as `grunnr doctor`, against an Env built the same
+// way, so the two can never disagree about the same repository. The
+// alternative -- a reduced check set for the MCP surface -- would mean an
+// agent and a human get different answers to "is this trustworthy", and the
+// agent's would be the one nobody reviewed.
+//
+// nil when there is no repo root. The tool then says it cannot look, which is
+// not the same as a clean report and must not render like one.
+func doctorHook(s *store.Store, dbPath, repoRoot string) mcp.DoctorFunc {
+	if repoRoot == "" {
+		return nil
+	}
+	return func(ctx context.Context) (doctor.Report, error) {
+		// The store is already open here -- runMCP opened it, and opening it
+		// twice would run the migrations a second time against a file another
+		// handle holds. StoreErr stays nil for the same reason: this path is
+		// only reached when the open succeeded.
+		env := &doctor.Env{
+			Store:          s,
+			DBPath:         dbPath,
+			Root:           repoRoot,
+			SkipDirs:       loaded.Scan.SkipDirs,
+			GeneratedGlobs: loaded.Scan.Generated,
+		}
+		return doctor.Run(ctx, env, doctor.DefaultChecks())
 	}
 }
