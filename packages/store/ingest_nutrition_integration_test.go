@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // TestIngest_NutritionDogfood is the end-to-end smoke test that exercises
@@ -30,7 +30,7 @@ import (
 //   - codeindex.IndexProject succeeds.
 //   - Ingest writes a non-zero count of annotations.
 //   - FeaturesMaterialized crosses the conservative ≥500 threshold —
-//     atlas#26 regression guard. Pre-fix the count was 0 because the Go
+//     grunnr#26 regression guard. Pre-fix the count was 0 because the Go
 //     AST scanner silently skipped `_test.go` and nutrition's
 //     `@testreg` / `@atlas:feature` annotations all live in test files.
 //     Post-fix the actual count clears 900; 500 is a deliberately loose
@@ -85,7 +85,7 @@ func TestIngest_NutritionDogfood(t *testing.T) {
 		t.Fatal("nutrition smoke wrote zero annotations - parser or ingest regressed")
 	}
 	if stats.FeaturesMaterialized == 0 {
-		t.Fatal("nutrition smoke materialized zero features — atlas#26 regression: the Go scanner is skipping _test.go again")
+		t.Fatal("nutrition smoke materialized zero features — grunnr#26 regression: the Go scanner is skipping _test.go again")
 	}
 	// Exact-count + 2% tolerance band. Calibrated 2026-05-20 against
 	// nutrition's then-current corpus (972 features). When the corpus
@@ -93,8 +93,8 @@ func TestIngest_NutritionDogfood(t *testing.T) {
 	// re-calibrate this band in the same commit that causes the drift —
 	// this is a regression guard, not a moving target.
 	//
-	// Audit details: atlas-internal/docs/dogfood-findings/2026-05-20-annotation-gap.md
-	// Refs sosalejandro/atlas#39 (Horizon 1 closure tracker, W2-D).
+	// Audit details: grunnr-internal/docs/dogfood-findings/2026-05-20-annotation-gap.md
+	// Refs sosalejandro/grunnr#39 (Horizon 1 closure tracker, W2-D).
 	const expected = 972
 	const tolerance = expected / 50 // 2%
 	if stats.FeaturesMaterialized < expected-tolerance || stats.FeaturesMaterialized > expected+tolerance {
@@ -116,7 +116,7 @@ func TestIngest_NutritionDogfood(t *testing.T) {
 	for _, fid := range spotChecks {
 		feat, err := s.Features().Get(ctx, fid)
 		if err != nil {
-			t.Errorf("Features.Get(%q): %v — atlas#26 regression: this feature lives in _test.go and should have materialized",
+			t.Errorf("Features.Get(%q): %v — grunnr#26 regression: this feature lives in _test.go and should have materialized",
 				fid, err)
 			continue
 		}

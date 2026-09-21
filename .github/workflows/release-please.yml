@@ -175,7 +175,7 @@ jobs:
           fi
           # Pull the trailing semver off the title; tolerant of an
           # optional component name between "release" and the number
-          # (e.g. "release atlas 0.2.0" in monorepo mode).
+          # (e.g. "release grunnr 0.2.0" in monorepo mode).
           VERSION="$(printf '%s' "$PR_TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$' || true)"
           if [ -z "$VERSION" ]; then
             echo "could not extract semver from PR title: $PR_TITLE" >&2

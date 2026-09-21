@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/resolver"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/resolver"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // ResolutionReport is what the type-checked resolver managed to do on one
@@ -54,7 +54,7 @@ type ResolutionReport struct {
 	// Unavailable explains why NOTHING was type-checked, when that is
 	// what happened: no go.mod, no toolchain, an unreadable tree. It is
 	// empty on a successful load even when every package degraded, so a
-	// reader can tell "atlas could not look" from "atlas looked and the
+	// reader can tell "grunnr could not look" from "grunnr looked and the
 	// repo does not compile".
 	Unavailable string `json:"unavailable,omitempty"`
 }
@@ -161,7 +161,7 @@ func (c *scanContext) recordTypedID(file *ast.File, fn *ast.FuncDecl, id shared.
 // resolveCallTyped answers one call site using types, and only types.
 //
 // It returns (nil, true) — resolved, nothing to emit — for a call the
-// type checker understands but atlas has no symbol for: a conversion, a
+// type checker understands but grunnr has no symbol for: a conversion, a
 // builtin, a call into a dependency, a call into a generated file the
 // exclusion ledger dropped. Falling back to the name heuristic there
 // would be the worst of both worlds: the type checker has already said
@@ -196,7 +196,7 @@ func (c *scanContext) resolveCallTyped(caller *funcInfo, call *ast.CallExpr) ([]
 	// dependency. Counting after the filter inverts the meaning: an
 	// interface with four implementations, three of them unindexed,
 	// would record ambiguous=false and claim certainty about which one
-	// ran precisely where atlas can see the least. Fewer visible
+	// ran precisely where grunnr can see the least. Fewer visible
 	// alternatives is less evidence, not more.
 	ambiguous := len(r.Targets) > 1
 	out := make([]callResolution, 0, len(ids))

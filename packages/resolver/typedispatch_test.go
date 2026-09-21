@@ -65,7 +65,7 @@ func assertCallees(t *testing.T, got, want []string, why string) {
 // #152's cause 2, which issue #155 asked for by name.
 //
 // #152 measured 98.4 MB of CUMULATIVE ALLOCATION in
-// go/types.(*Checker).recordTypeAndValue, found that nothing in atlas
+// go/types.(*Checker).recordTypeAndValue, found that nothing in grunnr
 // reads the map it fills, and closed the item as unavailable anyway --
 // because go/ssa read it. ssa.Function.typeOf calls types.Info.TypeOf,
 // whose only fallback for a nil Types map answers for *ast.Ident and

@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/coverage/playwright"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/coverage/playwright"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // TestIngest_PlaywrightFixture is the end-to-end smoke test that exercises
@@ -22,7 +22,7 @@ import (
 func TestIngest_PlaywrightFixture(t *testing.T) {
 	ctx := context.Background()
 
-	dbPath := filepath.Join(t.TempDir(), "atlas.db")
+	dbPath := filepath.Join(t.TempDir(), "grunnr.db")
 	s, err := store.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)

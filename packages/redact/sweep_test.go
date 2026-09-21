@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/sosalejandro/atlas/packages/redact"
+	. "github.com/sosalejandro/grunnr/packages/redact"
 )
 
 // seedOperation inserts one sql_operations row with the given query text.

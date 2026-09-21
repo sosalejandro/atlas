@@ -66,7 +66,7 @@ type fileCoverage struct {
 // list of statements (with covered/total verdict) in stable statement-id
 // order. The returned map key is the file path AS REPORTED by istanbul
 // (absolute, or app-relative depending on the reporter config); the ingest
-// layer reconciles it against repo-relative atlas symbol paths.
+// layer reconciles it against repo-relative grunnr symbol paths.
 //
 // A malformed report fails loudly rather than silently under-reporting:
 // truncated/garbage JSON returns an error.

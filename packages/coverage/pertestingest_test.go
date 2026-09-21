@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Per-test ingest over the same fixture the whole-run acceptance test uses.
@@ -23,7 +23,7 @@ func TestPerTestIngest_RecordsWhatEachTestRan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IndexProject: %v", err)
 	}
-	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "atlas.db"))
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "grunnr.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

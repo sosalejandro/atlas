@@ -17,7 +17,7 @@ const (
 )
 
 // Evidence records HOW the call was identified as a query. A reader deciding
-// whether to act on a finding needs to know whether atlas followed a graph
+// whether to act on a finding needs to know whether grunnr followed a graph
 // edge to a real query or matched a method name.
 const (
 	EvidenceGraphEdge = "the call site has a graph edge to a query symbol"
@@ -65,7 +65,7 @@ type QueryInLoop struct {
 // QueryLoopOptions configures the detector.
 type QueryLoopOptions struct {
 	// KnownQueryLines are call-site lines the caller has PROVEN issue a
-	// query — in atlas that means an edge from this symbol to a `sql:` node
+	// query — in grunnr that means an edge from this symbol to a `sql:` node
 	// in the graph. A hit here is evidence rather than a guess, and raises
 	// the finding a confidence notch.
 	KnownQueryLines map[int]bool

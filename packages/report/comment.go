@@ -16,8 +16,8 @@ import (
 // and must never change: change it and every existing comment is orphaned, so
 // the next push posts a second one that then sticks alongside the first.
 //
-// atlas does not post the comment. It emits the body; `gh pr comment` posts it.
-const StickyMarker = "<!-- atlas-report:sticky -->"
+// grunnr does not post the comment. It emits the body; `gh pr comment` posts it.
+const StickyMarker = "<!-- grunnr-report:sticky -->"
 
 // DefaultCommentRows is how many findings a rule's section lists before it
 // collapses into a "N more" line. A PR comment that scrolls for a screen is a
@@ -66,7 +66,7 @@ func (d *Delta) empty() bool {
 
 // CommentInput is everything the sticky comment renders.
 type CommentInput struct {
-	// Title is the comment's H2. Defaults to "Atlas report".
+	// Title is the comment's H2. Defaults to "Grunnr report".
 	Title string
 
 	// Summary is the headline table. Rendered in the given order.
@@ -82,7 +82,7 @@ type CommentInput struct {
 	// DefaultCommentRows.
 	MaxRowsPerRule int
 
-	// Footer is an optional trailing line (the atlas version, a link to the
+	// Footer is an optional trailing line (the grunnr version, a link to the
 	// workflow run). Rendered small.
 	Footer string
 }
@@ -98,7 +98,7 @@ func RenderComment(w io.Writer, in CommentInput) error {
 
 	title := in.Title
 	if title == "" {
-		title = "Atlas report"
+		title = "Grunnr report"
 	}
 	fmt.Fprintf(&b, "%s\n## %s\n", StickyMarker, title)
 

@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/diagnose"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/diagnose"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Anchor is the source position a finding about a non-positional subject is
@@ -43,7 +43,7 @@ type AuditThresholds struct {
 // no anchor: a feature whose annotation links to no indexed symbol has no line
 // to hang a warning on, and picking an arbitrary one would point the reviewer
 // at unrelated code. The caller is expected to report the unanchored count
-// separately rather than let those features vanish — see `atlas report`'s
+// separately rather than let those features vanish — see `grunnr report`'s
 // warnings.
 func FromAudit(healths []audit.FeatureHealth, anchors map[shared.FeatureID]Anchor, t AuditThresholds) []Finding {
 	out := make([]Finding, 0, len(healths))
@@ -124,7 +124,7 @@ func weakestSignal(components map[string]float64) (string, float64, bool) {
 // lost four hundred.
 //
 // Note that these paths are frequently NOT repo-relative — a Go coverprofile
-// names files by import path — which is the point of the rule: atlas could not
+// names files by import path — which is the point of the rule: grunnr could not
 // map the file to the checkout. NormalizePaths drops what it cannot resolve,
 // so those gaps survive in the sticky comment (which needs no line anchor) and
 // not in SARIF (which does).

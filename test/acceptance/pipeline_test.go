@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // fixtureDir is the repo the whole acceptance layer runs against. It has its
@@ -57,7 +57,7 @@ func runPipeline(t *testing.T) pipelineResult {
 		t.Fatalf("IndexProject(%s): %v", fixtureDir, err)
 	}
 
-	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "atlas.db"))
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "grunnr.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -81,13 +81,13 @@ func runPipeline(t *testing.T) pipelineResult {
 }
 
 // TestAcceptance_PerSymbolCoverageMatchesGoToolCover is the layer's anchor:
-// atlas's per-symbol statement fractions, compared against `go tool cover
+// grunnr's per-symbol statement fractions, compared against `go tool cover
 // -func` run live on the same profile.
 //
 // Live rather than a checked-in expectation. A committed expected-output file
 // pins what the Go toolchain said on the day it was written; invoking the
 // toolchain pins what it says now. The distinction matters because the claim
-// atlas makes is not "these seven numbers" but "our arithmetic agrees with
+// grunnr makes is not "these seven numbers" but "our arithmetic agrees with
 // the compiler's" — and when a toolchain upgrade changes how statements are
 // counted, the honest outcome is this test failing, not a stale file agreeing
 // with a stale belief.
@@ -136,7 +136,7 @@ func TestAcceptance_PerSymbolCoverageMatchesGoToolCover(t *testing.T) {
 	for _, fn := range want {
 		sym, ok := byPos[fmt.Sprintf("%s:%d", fn.file, fn.line)]
 		if !ok {
-			t.Errorf("%s at %s:%d has no atlas symbol; its coverage is charged to nobody",
+			t.Errorf("%s at %s:%d has no grunnr symbol; its coverage is charged to nobody",
 				fn.name, fn.file, fn.line)
 			continue
 		}
@@ -146,7 +146,7 @@ func TestAcceptance_PerSymbolCoverageMatchesGoToolCover(t *testing.T) {
 			continue
 		}
 		if got.TotalStmts == 0 {
-			t.Errorf("%s (%s): atlas charged it 0 statements; go tool cover measured it at %.1f%%",
+			t.Errorf("%s (%s): grunnr charged it 0 statements; go tool cover measured it at %.1f%%",
 				fn.name, sym.QualifiedName, fn.percent)
 			continue
 		}
@@ -155,17 +155,17 @@ func TestAcceptance_PerSymbolCoverageMatchesGoToolCover(t *testing.T) {
 		// comparing at half of that is comparing what both sides actually
 		// claim rather than the float noise underneath it.
 		if diff := gotPct - fn.percent; diff > 0.05 || diff < -0.05 {
-			t.Errorf("%s (%s): atlas says %d/%d = %.1f%%, go tool cover says %.1f%%",
+			t.Errorf("%s (%s): grunnr says %d/%d = %.1f%%, go tool cover says %.1f%%",
 				fn.name, sym.QualifiedName, got.CoveredStmts, got.TotalStmts, gotPct, fn.percent)
 		}
 	}
 }
 
 // TestAcceptance_TheBlindSpotIsReportedNotAbsorbed pins the accounting a user
-// reads at the top of `atlas cov sync`, including the part that is missing.
+// reads at the top of `grunnr cov sync`, including the part that is missing.
 //
 // The fixture measures 14 statements. Eleven of them belong to the seven
-// declarations `go tool cover -func` lists, and atlas charges those. The other
+// declarations `go tool cover -func` lists, and grunnr charges those. The other
 // three are the body of shipping.Surcharge, a function VALUE the compiler
 // instruments and the scanner does not index — so they are reported as an
 // "outside-symbol-spans" gap.
@@ -274,7 +274,7 @@ func TestAcceptance_CollidingDeclarationsBothSurvive(t *testing.T) {
 //
 // This is the one every other layer is in service of. A coverage number that
 // cannot be attached to a feature is a repo-wide percentage, which is the
-// metric atlas exists to replace; the value is only there if the annotation
+// metric grunnr exists to replace; the value is only there if the annotation
 // in the source ends up scoring the statements the compiler measured.
 func TestAcceptance_AnnotationsBecomeFeaturesWithCoverage(t *testing.T) {
 	res := runPipeline(t)
@@ -348,11 +348,11 @@ var funcLine = regexp.MustCompile(`^(\S+):(\d+):\s+(\S+)\s+([0-9.]+)%$`)
 
 // goToolCoverFunc runs the Go toolchain's own reporter over the committed
 // profile and returns what it says, with paths reduced to the fixture-
-// relative form atlas uses.
+// relative form grunnr uses.
 //
 // The command runs with Dir set to the fixture because `go tool cover -func`
 // resolves the profile's import paths against the surrounding module; from
-// the atlas module it cannot find github.com/example/shopfixture and fails.
+// the grunnr module it cannot find github.com/example/shopfixture and fails.
 func goToolCoverFunc(t *testing.T) []coveredFunc {
 	t.Helper()
 	cmd := exec.Command("go", "tool", "cover", "-func="+profileName)
@@ -389,7 +389,7 @@ func goToolCoverFunc(t *testing.T) []coveredFunc {
 }
 
 // TestAcceptance_CallEdgesReachTheColliderOnBothSides checks that the call
-// graph a user walks with `atlas chain` reaches the RIGHT Total.
+// graph a user walks with `grunnr chain` reaches the RIGHT Total.
 //
 // Both packages declare Order.Total and both call a package-private helper.
 // The scanner resolves a call by preferring the declaration in the CALLER's

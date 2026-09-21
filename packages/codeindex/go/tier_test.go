@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // scanCorpusEdges scans the golden corpus and returns its edges.
@@ -106,7 +106,7 @@ func TestGoScanner_FallbackStillReachesBothTiersItCan(t *testing.T) {
 // ("h.orderHandler.Create"), matched later against symbols by name
 // suffix. Nothing about that is resolution, so both the route->handler
 // and the @api->handler edges are syntactic. Recording them as
-// name_resolved would put the weakest edges atlas produces in the same
+// name_resolved would put the weakest edges grunnr produces in the same
 // bucket as its scope-resolved calls.
 func TestGoScanner_RouteAndAPIEdgesAreSyntactic(t *testing.T) {
 	for _, e := range scanCorpusEdges(t, Options{Routes: corpusRoutes()}) {

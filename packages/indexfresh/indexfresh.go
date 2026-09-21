@@ -1,10 +1,10 @@
 // Package indexfresh answers one question that several commands silently got
-// wrong: are the symbol spans atlas holds for a file still true of that file?
+// wrong: are the symbol spans grunnr holds for a file still true of that file?
 //
 // The commands that map a git diff onto symbols -- `cov diff` (#89) and
 // `affected` (#90) -- join two things measured at different times. The line
 // numbers come from the working tree at HEAD; the [line, end_line] spans come
-// from whenever `atlas scan` last ran. Those are only comparable if the index
+// from whenever `grunnr scan` last ran. Those are only comparable if the index
 // was built at HEAD.
 //
 // When they disagree the failure is silent and directional. Insert twenty lines
@@ -33,8 +33,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // State is how much the caller may trust a file's stored symbol spans.
@@ -51,7 +51,7 @@ const (
 	// single inserted line at the top invalidates every span below it.
 	StateStale State = "stale"
 
-	// StateAbsent means atlas has no hash row for the file: never scanned,
+	// StateAbsent means grunnr has no hash row for the file: never scanned,
 	// excluded by config, or generated (#96). There are no spans to be wrong
 	// about, which is a different situation from having wrong ones.
 	StateAbsent State = "absent"
@@ -62,7 +62,7 @@ const (
 	// only that this check could not run.
 	StateUnreadable State = "unreadable"
 
-	// StateDeleted means the file is gone from the working tree but atlas
+	// StateDeleted means the file is gone from the working tree but grunnr
 	// still holds a hash row for it. Its spans describe nothing.
 	StateDeleted State = "deleted"
 )

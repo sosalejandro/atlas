@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // ContractKind narrows a ContractDef to one of the supported contract
@@ -524,4 +524,3 @@ func normaliseRelPath(projectRoot, p string) string {
 	}
 	return pSlash
 }
-

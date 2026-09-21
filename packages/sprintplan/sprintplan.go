@@ -7,10 +7,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/churn"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/churn"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // SprintItem is one entry in the prioritised backlog.
@@ -115,7 +115,7 @@ type Planner interface {
 	TopN(ctx context.Context, n int) ([]SprintItem, error)
 
 	// Hotspots ranks by churn x gap alone — the standalone view behind
-	// `atlas hotspots`. Requires Options.Churn.
+	// `grunnr hotspots`. Requires Options.Churn.
 	Hotspots(ctx context.Context) ([]Hotspot, error)
 }
 
@@ -318,7 +318,7 @@ func churnReason(fc churn.FeatureChurn) string {
 
 // bugSignal returns the count of failing coverage results for this
 // feature's symbols in the most-recent run, capped at 100. We use the
-// latest run rather than walking ALL runs over the BugWindow — Atlas's
+// latest run rather than walking ALL runs over the BugWindow — Grunnr's
 // coverage ingest is "snapshot per run", so the latest run already
 // represents "today's failures." Time-windowing across runs would
 // double-count the same flaky test.
@@ -455,7 +455,7 @@ func decayCurve(now, ts time.Time, fresh, decay time.Duration) float64 {
 // Materialises a per-Planner cache on first call so the recency-decay
 // pass across all features pays the Symbols.List cost ONCE, not per
 // feature. The cache lives for the planner's lifetime — short-lived
-// since Atlas runs as a one-shot CLI.
+// since Grunnr runs as a one-shot CLI.
 func (p *planner) symbolFilePath(ctx context.Context, id int64) (string, error) {
 	if p.symbolCache == nil {
 		rows, err := p.store.Symbols().List(ctx, store.SymbolFilter{})

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // answerError is a failure of the QUESTION rather than of the call: no such
@@ -31,8 +31,8 @@ func noFeaturesAnnotated() *NoData {
 	return &NoData{
 		Reason: ReasonNoFeatures,
 		Detail: "the repository is indexed but no symbol carries an @atlas:feature annotation, " +
-			"so atlas knows the code and nothing about which capability it serves",
-		Run: "annotate an entry point with @atlas:feature <id>, then run atlas scan",
+			"so grunnr knows the code and nothing about which capability it serves",
+		Run: "annotate an entry point with @atlas:feature <id>, then run grunnr scan",
 	}
 }
 
@@ -199,9 +199,9 @@ func filesOfSurface(symbols []surfaceSymbol) map[string]bool {
 
 // symbolInfoNotes states what the index does NOT carry. Without it an agent
 // reads the absence of a doc field as "this symbol has no doc comment" and
-// stops looking, when the truth is that atlas stores spans, not source text.
+// stops looking, when the truth is that grunnr stores spans, not source text.
 var symbolInfoNotes = []string{
-	"atlas indexes declarations, not source text: doc comments and signatures are not stored. " +
+	"grunnr indexes declarations, not source text: doc comments and signatures are not stored. " +
 		"Read the declaration at the file:line above for either.",
 	"caller_count and callee_count count DISTINCT symbols, not call sites: a function that calls this one " +
 		"five times counts once, so both numbers are usually smaller than the row count of `callers`/`callees`. " +
@@ -519,7 +519,7 @@ var coverageForNotes = []string{
 	"`score` is the audit's weighted blend of the signals that were available, re-normalised over them — " +
 		"not a line-coverage percentage. `components.coverage` is the coverage signal on its own.",
 	"The annotation_freshness signal is unavailable over MCP: it shells out to `git blame` per annotation site, " +
-		"which is too slow to run inside a request. Run `atlas health --feature <id>` for a score that includes it.",
+		"which is too slow to run inside a request. Run `grunnr health --feature <id>` for a score that includes it.",
 }
 
 func (ts *toolset) coverageFor(ctx context.Context, a *toolArgs) (any, error) {
@@ -567,7 +567,7 @@ func (ts *toolset) mustFeature(ctx context.Context, id string) (store.Feature, e
 	if errors.Is(err, shared.ErrFeatureNotFound) {
 		return store.Feature{}, noSuch(
 			"no feature %q is indexed. Use find_feature to search by name, or check the @atlas:feature "+
-				"annotation and re-run `atlas scan`.", id)
+				"annotation and re-run `grunnr scan`.", id)
 	}
 	if err != nil {
 		return store.Feature{}, err
@@ -585,14 +585,14 @@ func (ts *toolset) mustSymbol(ctx context.Context, name string) (*symbolTable, s
 	}
 	if table.empty() {
 		return nil, store.SymbolRow{}, noSuch(
-			"the atlas store holds no symbols: this repository has not been scanned yet. Run `atlas init` " +
-				"(first scan) or `atlas scan` (incremental). An empty index says nothing about the code.")
+			"the grunnr store holds no symbols: this repository has not been scanned yet. Run `grunnr init` " +
+				"(first scan) or `grunnr scan` (incremental). An empty index says nothing about the code.")
 	}
 	row, ok := table.byName[shared.SymbolID(name)]
 	if !ok {
 		return nil, store.SymbolRow{}, noSuch(
 			"no symbol %q is indexed. Qualified names are exactly as the scanner recorded them "+
-				"(usually <import path or module>.<Name>); check the spelling, or re-run `atlas scan` if the "+
+				"(usually <import path or module>.<Name>); check the spelling, or re-run `grunnr scan` if the "+
 				"symbol is newer than the index.", name)
 	}
 	return table, row, nil

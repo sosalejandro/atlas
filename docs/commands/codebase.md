@@ -1,8 +1,8 @@
-# atlas codebase
+# grunnr codebase
 
-`atlas codebase` groups the read-only structural-lookup verbs against the
+`grunnr codebase` groups the read-only structural-lookup verbs against the
 indexed codebase. Every subcommand reads from the SQLite state DB; nothing
-re-walks the source on disk. Run `atlas init` or `atlas scan` first to
+re-walks the source on disk. Run `grunnr init` or `grunnr scan` first to
 populate the store.
 
 The subcommands are the daily-driver "where is X?" / "what's in X?" /
@@ -23,7 +23,7 @@ The subcommands are the daily-driver "where is X?" / "what's in X?" /
 ### `find`
 
 ```
-atlas codebase find <symbol> [flags]
+grunnr codebase find <symbol> [flags]
 ```
 
 Resolves a fully-qualified symbol name (e.g. `auth.AuthHandler.Login`) to
@@ -32,24 +32,24 @@ exact match exists, `find` performs a case-sensitive suffix match
 (`Login` resolves `auth.AuthHandler.Login`) and returns the first hit.
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas codebase find Login
+# Run from: /tmp/grunnr-fixture
+$ grunnr codebase find Login
 AuthHandler.Login  go/auth.go:14  [func]
 ```
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas codebase find AuthService
+# Run from: /tmp/grunnr-fixture
+$ grunnr codebase find AuthService
 AuthService.Authenticate  go/auth.go:26  [func]
 ```
 
 The second example shows the suffix-match fallback: there is no symbol
-literally named `AuthService` (it's the receiver type), so atlas returns
+literally named `AuthService` (it's the receiver type), so grunnr returns
 the first method that shares the suffix.
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas codebase find py.billing.BillingService
+# Run from: /tmp/grunnr-fixture
+$ grunnr codebase find py.billing.BillingService
 py.billing.BillingService  py/billing.py:13  [type]
 ```
 
@@ -59,7 +59,7 @@ qualified-name lookups work across Go, TS, and Python in one namespace.
 ### `pattern`
 
 ```
-atlas codebase pattern <name> [flags]
+grunnr codebase pattern <name> [flags]
 ```
 
 Lists every symbol whose `pattern_matches` column carries a hit for the
@@ -72,8 +72,8 @@ named Phase 6f pattern recogniser. Common recogniser names:
 - `outbox-append` — call site for `outbox.Append(...)`.
 
 ```
-# Run from: /tmp/atlas-fixture (no patterns registered for this fixture)
-$ atlas codebase pattern canonical-service
+# Run from: /tmp/grunnr-fixture (no patterns registered for this fixture)
+$ grunnr codebase pattern canonical-service
 pattern canonical-service: 0 symbols
 ```
 
@@ -81,7 +81,7 @@ On a real codebase with the EDA patterns wired:
 
 ```
 # Run from: a nutrition-v2-go-shaped repo
-$ atlas codebase pattern outbox-append
+$ grunnr codebase pattern outbox-append
 pattern outbox-append: 12 symbols
   src/contexts/identity/internal/application/services/auth_service.go:284  outbox-append
   src/contexts/messaging/internal/application/services/conversation_service.go:91  outbox-append
@@ -91,7 +91,7 @@ pattern outbox-append: 12 symbols
 ### `emit`
 
 ```
-atlas codebase emit <event-name> [flags]
+grunnr codebase emit <event-name> [flags]
 ```
 
 Groups every `@atlas:event-emit` and `@atlas:outbox-publish` annotation
@@ -100,7 +100,7 @@ and "is it published to the bus, or staged in the outbox":
 
 ```
 # Run from: a nutrition-v2-go-shaped repo
-$ atlas codebase emit conversation.message_sent
+$ grunnr codebase emit conversation.message_sent
 event conversation.message_sent (3 sites)
   src/contexts/messaging/.../conversation_service.go:91  [event-emit]
   src/contexts/messaging/.../outbox_publisher.go:42       [outbox-publish]
@@ -110,15 +110,15 @@ event conversation.message_sent (3 sites)
 ### `agg`
 
 ```
-atlas codebase agg <id> [flags]
+grunnr codebase agg <id> [flags]
 ```
 
 Returns the `@atlas:aggregate` declaration for an aggregate id plus its
 linked canonical-service site (when one exists).
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas codebase agg identity.auth
+# Run from: /tmp/grunnr-fixture
+$ grunnr codebase agg identity.auth
 aggregate identity.auth
   decl: go/auth.go:23  identity.auth
   service: (none)
@@ -130,15 +130,15 @@ linked. That's not an error — many aggregates carry only the declaration.
 ### `bc`
 
 ```
-atlas codebase bc <bc-name> [flags]
+grunnr codebase bc <bc-name> [flags]
 ```
 
 Returns every annotation row inside files that declare `@atlas:bc <name>`.
 Useful for "what's in this BC" inventories.
 
 ```
-# Run from: /tmp/atlas-fixture (one bc declaration in go/bc.go)
-$ atlas codebase bc identity
+# Run from: /tmp/grunnr-fixture (one bc declaration in go/bc.go)
+$ grunnr codebase bc identity
 bc identity: 1 annotations
   go/bc.go:1  [bc] identity
 ```
@@ -150,21 +150,21 @@ files surfaces here.
 ### `consumer`
 
 ```
-atlas codebase consumer [<stream>] [flags]
+grunnr codebase consumer [<stream>] [flags]
 ```
 
 Lists `@atlas:consumer` subscriptions, optionally filtered by stream
 name. With no argument, every consumer in the store is listed.
 
 ```
-# Run from: /tmp/atlas-fixture (no consumers)
-$ atlas codebase consumer
+# Run from: /tmp/grunnr-fixture (no consumers)
+$ grunnr codebase consumer
 consumers: 0
 ```
 
 ```
 # Run from: a nutrition-v2-go-shaped repo
-$ atlas codebase consumer batch_session_events
+$ grunnr codebase consumer batch_session_events
 consumers (stream=batch_session_events): 2 sites
   src/contexts/meal_prep/.../consumer.go:18  [consumer] stream=batch_session_events
   src/contexts/meal_prep/.../audit_consumer.go:24  [consumer] stream=batch_session_events
@@ -173,7 +173,7 @@ consumers (stream=batch_session_events): 2 sites
 ### `cycles`
 
 ```
-atlas codebase cycles [--scope <prefix>] [--scope-filter module|function|conditional|type_checking|try_guard|all]
+grunnr codebase cycles [--scope <prefix>] [--scope-filter module|function|conditional|type_checking|try_guard|all]
 ```
 
 Detects circular imports by running Tarjan's strongly-connected-components
@@ -192,16 +192,16 @@ output flags non-module edges inline so you can tell deferred-import
 workarounds from real cycles at a glance.
 
 ```
-$ atlas codebase cycles
-atlas codebase cycles
+$ grunnr codebase cycles
+grunnr codebase cycles
   2-node cycles: 1
     a.py
     <-> b.py
 ```
 
 ```
-$ atlas codebase cycles --scope-filter all
-atlas codebase cycles
+$ grunnr codebase cycles --scope-filter all
+grunnr codebase cycles
   2-node cycles: 1
     a.py
     <-> b.py
@@ -233,4 +233,4 @@ All `codebase` verbs are pure SQL lookups against the persisted store:
   filtered-out edges.
 
 There is no live re-walk here — if a query returns "not found" but you
-know the symbol exists, run `atlas scan` first to refresh the store.
+know the symbol exists, run `grunnr scan` first to refresh the store.

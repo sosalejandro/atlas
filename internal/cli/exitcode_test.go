@@ -151,7 +151,7 @@ func TestCovDiff_StaleIndexUnderAGateIsUndeterminedNotAFinding(t *testing.T) {
 		if got := ExitCodeFor(err); got != ExitUndetermined {
 			t.Errorf("exit = %d, want %d (undetermined): %v", got, ExitUndetermined, err)
 		}
-		if !strings.Contains(err.Error(), "atlas scan") {
+		if !strings.Contains(err.Error(), "grunnr scan") {
 			t.Errorf("the message must name the remedy, got: %v", err)
 		}
 	})

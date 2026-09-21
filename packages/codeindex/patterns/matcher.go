@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Match is one recogniser hit on a Go source file.
 //
 // JSON tags match the field names downstream consumers (audit/, diagnose/,
-// store/ pattern_matches column) expect — lowerCamel per Atlas v1 contract
+// store/ pattern_matches column) expect — lowerCamel per Grunnr v1 contract
 // conventions.
 type Match struct {
 	// Pattern is the recogniser's identifier. Closed enum — extending it is

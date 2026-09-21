@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // realNutritionRoot is the canonical path the integration tests look for.
@@ -24,7 +24,7 @@ const realNutritionRoot = "/home/alejandrososa/Documents/startup-projects/nutrit
 // Skips cleanly when:
 //   - testing.Short() is set
 //   - the nutrition checkout isn't present (CI runners / fresh clones)
-//   - ATLAS_INTEGRATION isn't set (CI default — full integration tests
+//   - GRUNNR_INTEGRATION isn't set (CI default — full integration tests
 //     are gated behind an explicit opt-in env var because they index the
 //     whole nutrition repo and add ~30s under -race)
 //
@@ -34,8 +34,8 @@ func TestIntegration_AuditScoresAgainstNutritionCodebase(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration in short mode")
 	}
-	if os.Getenv("ATLAS_INTEGRATION") == "" {
-		t.Skip("set ATLAS_INTEGRATION=1 to run nutrition-codebase integration")
+	if os.Getenv("GRUNNR_INTEGRATION") == "" {
+		t.Skip("set GRUNNR_INTEGRATION=1 to run nutrition-codebase integration")
 	}
 	if _, err := os.Stat(realNutritionRoot); err != nil {
 		t.Skipf("nutrition checkout missing at %s; skipping", realNutritionRoot)
@@ -57,7 +57,7 @@ func TestIntegration_AuditScoresAgainstNutritionCodebase(t *testing.T) {
 	if _, err := s.Ingest(ctx, idx); err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-	// Atlas does not yet auto-materialise feature rows from @atlas:feature
+	// Grunnr does not yet auto-materialise feature rows from @atlas:feature
 	// annotations during Ingest (that resolver lands in a later phase). For
 	// this integration test we project the annotated features manually:
 	// any (file, @atlas:feature <id>) site gets a features row + a
@@ -105,13 +105,13 @@ func TestIntegration_AuditScoresAgainstNutritionCodebase(t *testing.T) {
 // TestIntegration_AuditSnapshotPersistsAgainstNutritionCodebase confirms
 // the full pipeline can round-trip a real-codebase snapshot through SQLite.
 //
-// Same skip rules as above (ATLAS_INTEGRATION=1 opt-in).
+// Same skip rules as above (GRUNNR_INTEGRATION=1 opt-in).
 func TestIntegration_AuditSnapshotPersistsAgainstNutritionCodebase(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration in short mode")
 	}
-	if os.Getenv("ATLAS_INTEGRATION") == "" {
-		t.Skip("set ATLAS_INTEGRATION=1 to run nutrition-codebase integration")
+	if os.Getenv("GRUNNR_INTEGRATION") == "" {
+		t.Skip("set GRUNNR_INTEGRATION=1 to run nutrition-codebase integration")
 	}
 	if _, err := os.Stat(realNutritionRoot); err != nil {
 		t.Skipf("nutrition checkout missing at %s; skipping", realNutritionRoot)

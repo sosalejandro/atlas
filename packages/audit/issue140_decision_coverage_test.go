@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Issue #140: decision coverage is a signal of its own, blended alongside
@@ -15,7 +15,7 @@ import (
 // wrong, and each names the wrong answer it rejects.
 
 // seedDecision writes one symbol's decision-coverage measurement, the way
-// `atlas flow measure` would.
+// `grunnr flow measure` would.
 func seedDecision(t *testing.T, s *store.Store, symbolID int64, total, decidable, taken int) {
 	t.Helper()
 	err := s.ControlFlow().SetDecisionCoverage(context.Background(), store.DecisionCoverage{
@@ -35,7 +35,7 @@ func seedDecision(t *testing.T, s *store.Store, symbolID int64, total, decidable
 //
 // scoreFromFeature re-normalises over the AVAILABLE signals, so a signal that
 // reports 0 when it has no data does not merely add a component — it drags
-// every previously-scored feature down the moment anyone runs `atlas flow`.
+// every previously-scored feature down the moment anyone runs `grunnr flow`.
 // That is how a signal gets switched off in the first week. A feature whose
 // symbols carry no cfg_decision_coverage row must therefore report the signal
 // UNAVAILABLE, and its score must be bit-for-bit what it was.
@@ -77,7 +77,7 @@ func TestDecisionCoverage_UnmeasuredFeatureScoresExactlyAsBefore(t *testing.T) {
 		t.Errorf("Decision report = %+v for a store with no cfg rows; want nil", before.Decision)
 	}
 
-	// Someone runs `atlas flow` — but only over auth.login's symbols.
+	// Someone runs `grunnr flow` — but only over auth.login's symbols.
 	seedDecision(t, s, measured[0], 4, 4, 4)
 	seedDecision(t, s, measured[1], 4, 4, 4)
 
@@ -283,8 +283,8 @@ func TestDecisionCoverage_SplitsTheCoverageBudget(t *testing.T) {
 }
 
 // TestDecisionCoverage_TakesWholeBudgetWhenStatementCoverageIsAbsent covers a
-// store that ran `atlas flow` against a profile it never ingested through
-// `atlas cov`. The coverage budget belongs to the question "is this feature's
+// store that ran `grunnr flow` against a profile it never ingested through
+// `grunnr cov`. The coverage budget belongs to the question "is this feature's
 // behaviour exercised?"; when only one half can answer it, that half holds the
 // whole budget rather than leaving it unspent.
 func TestDecisionCoverage_TakesWholeBudgetWhenStatementCoverageIsAbsent(t *testing.T) {

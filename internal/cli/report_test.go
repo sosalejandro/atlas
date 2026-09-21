@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/diff"
-	"github.com/sosalejandro/atlas/packages/report"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/diff"
+	"github.com/sosalejandro/grunnr/packages/report"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// reportFixture is a tempdir repo root + .atlas/atlas.db, with the package
+// reportFixture is a tempdir repo root + .grunnr/grunnr.db, with the package
 // singletons pointed at it. Mirrors deadFixture in dead_test.go; the
 // singletons make t.Parallel() unsafe here (see NewRootCmd's note).
 type reportFixture struct {
@@ -27,10 +27,10 @@ type reportFixture struct {
 func newReportFixture(t *testing.T) *reportFixture {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".atlas"), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".grunnr"), 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
-	dbPath := filepath.Join(dir, ".atlas", "atlas.db")
+	dbPath := filepath.Join(dir, ".grunnr", "grunnr.db")
 	loaded = Config{repoRoot: dir, DBPath: dbPath}
 	flags = globalFlags{DBPath: dbPath}
 	return &reportFixture{root: dir, dbPath: dbPath}
@@ -191,13 +191,13 @@ func TestReport_Registered(t *testing.T) {
 					}
 				}
 				if !sub {
-					t.Errorf("atlas report is missing the %q subcommand", want)
+					t.Errorf("grunnr report is missing the %q subcommand", want)
 				}
 			}
 		}
 	}
 	if !found {
-		t.Fatal("atlas report is not registered on the root command")
+		t.Fatal("grunnr report is not registered on the root command")
 	}
 }
 
@@ -251,7 +251,7 @@ func TestReport_SARIF_IsUploadable(t *testing.T) {
 		t.Fatalf("want 1 run, got %d", len(doc.Runs))
 	}
 	run := doc.Runs[0]
-	if run.Tool.Driver.Name != "atlas" {
+	if run.Tool.Driver.Name != "grunnr" {
 		t.Errorf("driver name = %q", run.Tool.Driver.Name)
 	}
 	if strings.HasPrefix(run.Tool.Driver.SemanticVersion, "v") {
@@ -400,7 +400,7 @@ func TestReport_OutWritesTheFile(t *testing.T) {
 	fix := newReportFixture(t)
 	fix.seed(t)
 
-	out := filepath.Join(fix.root, "atlas.sarif")
+	out := filepath.Join(fix.root, "grunnr.sarif")
 	if _, stderr, err := runReportCmd(t, fix, "sarif", "--out", out); err != nil {
 		t.Fatalf("report sarif --out: %v\nstderr:\n%s", err, stderr)
 	}

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // scoreFromFeature is the core scoring routine. It takes a Feature row
@@ -44,7 +44,7 @@ func (a *auditImpl) scoreFromFeature(
 	}
 	// Decision coverage is scored over the SAME surface the statement signal
 	// just used (issue #140). It runs whether or not that signal was
-	// available: `atlas flow measure` reads a coverprofile off disk, so a repo
+	// available: `grunnr flow measure` reads a coverprofile off disk, so a repo
 	// can have branch verdicts with nothing in coverage_results.
 	var decision *DecisionCoverageReport
 	if len(links) > 0 {
@@ -77,7 +77,7 @@ func (a *auditImpl) scoreFromFeature(
 	// we compute the real signals first, then — only when nothing else is
 	// available — apply a low "annotated but unverified" floor equal to the
 	// presence weight × 100 (10 by default). A feature whose annotation→
-	// symbol link exists (the same condition `atlas chain feature:<id>`
+	// symbol link exists (the same condition `grunnr chain feature:<id>`
 	// uses) thus scores >0 but ranks at the bottom, where it belongs until a
 	// coverage run verifies it. See issues #78 / #77.
 	score := weightedAverage(components, available, a.blendWeights(available, decision))

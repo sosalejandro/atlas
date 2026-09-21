@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/internal/app"
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/app"
+	"github.com/sosalejandro/grunnr/internal/domain"
 )
 
 // writeTestSnapshot saves a pre-built snapshotFile to the server's snapshot dir.
@@ -196,7 +196,10 @@ func TestBuildCoverageBars_ColorClasses(t *testing.T) {
 	bars := buildCoverageBars(domain.Metrics{
 		TotalFeatures: 10, CoveredUnit: 8, CoveredIntegration: 5, CoveredE2E: 2,
 	})
-	cases := []struct{ idx int; want string }{
+	cases := []struct {
+		idx  int
+		want string
+	}{
 		{0, "bg-emerald-500"}, // 80%
 		{1, "bg-yellow-500"},  // 50%
 		{2, "bg-red-500"},     // 20%

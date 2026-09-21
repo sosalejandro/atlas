@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/domain"
 )
 
 func setupRegistryForStatusTests(t *testing.T) (string, *adapters.YAMLStore) {

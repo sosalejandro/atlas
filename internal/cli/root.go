@@ -11,12 +11,12 @@ import (
 
 // Build-time metadata. Linker overrides via -ldflags="-X ...":
 //
-//	-X github.com/sosalejandro/atlas/internal/cli.Version=v0.7.0
-//	-X github.com/sosalejandro/atlas/internal/cli.Commit=$(git rev-parse HEAD)
-//	-X github.com/sosalejandro/atlas/internal/cli.BuildDate=$(date -u +%FT%TZ)
+//	-X github.com/sosalejandro/grunnr/internal/cli.Version=v0.7.0
+//	-X github.com/sosalejandro/grunnr/internal/cli.Commit=$(git rev-parse HEAD)
+//	-X github.com/sosalejandro/grunnr/internal/cli.BuildDate=$(date -u +%FT%TZ)
 //
 // When ldflags are absent (e.g. `go install
-// github.com/sosalejandro/atlas/cmd/atlas@v0.1.3`, which does not pass
+// github.com/sosalejandro/grunnr/cmd/grunnr@v0.1.3`, which does not pass
 // ldflags), resolveBuildInfo() falls back to runtime/debug.ReadBuildInfo()
 // so the version string still reflects the installed module version and
 // VCS revision. The defaults below are only the last-resort sentinel
@@ -45,7 +45,7 @@ type globalFlags struct {
 	JSON bool
 	// Stable drops every field whose value depends on when or where the
 	// command ran, so two runs over the same code produce the same bytes.
-	// See stable.go for why atlas had no comparable output before this.
+	// See stable.go for why grunnr had no comparable output before this.
 	Stable     bool
 	DBPath     string
 	ConfigPath string
@@ -75,8 +75,8 @@ func NewRootCmd() *cobra.Command {
 
 	version, commit, builtAt := resolveBuildInfo()
 	root := &cobra.Command{
-		Use:           "atlas",
-		Short:         "Atlas — code graph, coverage, and audit toolkit",
+		Use:           "grunnr",
+		Short:         "Grunnr — code graph, coverage, and audit toolkit",
 		Long:          atlasLong,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -111,7 +111,7 @@ func NewRootCmd() *cobra.Command {
 		"omit timestamps, durations and absolute paths so two runs over the "+
 			"same code produce identical bytes (implies --json)")
 	root.PersistentFlags().StringVar(&flags.DBPath, "db-path", "",
-		"override the SQLite state path (default: .atlas/atlas.db at repo root)")
+		"override the SQLite state path (default: .grunnr/grunnr.db at repo root)")
 	root.PersistentFlags().StringVar(&flags.ConfigPath, "config", "",
 		"path to an explicit .atlas.yaml (default: lookup at repo root)")
 	root.PersistentFlags().BoolVarP(&flags.Verbose, "verbose", "v", false,
@@ -147,7 +147,7 @@ func NewRootCmd() *cobra.Command {
 	return root
 }
 
-// Execute is the single entry point called from cmd/atlas/main.go. Returns
+// Execute is the single entry point called from cmd/grunnr/main.go. Returns
 // the cobra command's error so main can pick the correct exit code.
 //
 // The atlasIO seam (out/err) is wired to os.Stdout / os.Stderr at the
@@ -166,17 +166,17 @@ func Execute() error {
 // files free of plumbing branches.
 func stdoutOrJSON(cmd *cobra.Command) io.Writer { return cmd.OutOrStdout() }
 
-const atlasLong = `Atlas indexes your codebase via AST + annotations and answers
+const atlasLong = `Grunnr indexes your codebase via AST + annotations and answers
 questions about coverage, drift, and impact.
 
 Common workflows:
 
-  atlas init               # first scan + persist state at .atlas/atlas.db
-  atlas scan               # incremental re-scan (file-hash based)
-  atlas chain <id>         # walk the call chain for a feature or symbol
-  atlas cov sync           # ingest test framework output
-  atlas health             # health scores per feature
-  atlas sprint             # ranked backlog (gap-weighted priority)
+  grunnr init               # first scan + persist state at .grunnr/grunnr.db
+  grunnr scan               # incremental re-scan (file-hash based)
+  grunnr chain <id>         # walk the call chain for a feature or symbol
+  grunnr cov sync           # ingest test framework output
+  grunnr health             # health scores per feature
+  grunnr sprint             # ranked backlog (gap-weighted priority)
 
 Every subcommand accepts --json for a stable structured envelope. See
 docs/json-output.md for the schema and docs/api/<verb>.md for per-verb fields.`

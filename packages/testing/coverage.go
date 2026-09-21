@@ -21,7 +21,7 @@ type SymbolSpan struct {
 	// GUESS the span (next symbol's start minus one, or end-of-file for the
 	// last symbol in a file), and those guesses behave differently enough
 	// from a real span that a generator which never produced them would be
-	// testing a world atlas does not live in.
+	// testing a world grunnr does not live in.
 	NoEnd bool
 }
 
@@ -30,12 +30,12 @@ type SymbolSpan struct {
 //
 // The three parts exist separately because the interesting failures live in
 // the gaps between them. AllSymbols is what the source contains; Indexed is
-// what atlas managed to record; Profile is what the compiler measured. Issue
+// what grunnr managed to record; Profile is what the compiler measured. Issue
 // #85 was precisely the case where Indexed was a proper subset of AllSymbols
 // and the difference was reported as coverage rather than as a blind spot.
 type CoverageCase struct {
 	// ModulePath is the import prefix the profile qualifies file paths with.
-	// Profiles say "github.com/org/repo/pkg/f.go"; atlas says "pkg/f.go".
+	// Profiles say "github.com/org/repo/pkg/f.go"; grunnr says "pkg/f.go".
 	// Keeping the two different is not cosmetic — the suffix reconciliation
 	// between them is a step attribution can silently lose whole files at.
 	ModulePath string
@@ -44,19 +44,19 @@ type CoverageCase struct {
 	// then start line.
 	AllSymbols []SymbolSpan
 
-	// Indexed is the subset of AllSymbols atlas is pretending to know about.
+	// Indexed is the subset of AllSymbols grunnr is pretending to know about.
 	// The complement models symbols lost to a name collision or skipped as
 	// generated: their statements must surface as unattributed, never as
 	// somebody else's coverage.
 	Indexed []SymbolSpan
 
 	// Profile is the raw cover.out text — a mode header, blocks inside
-	// spans, blocks in the gaps between declarations, files atlas has no
+	// spans, blocks in the gaps between declarations, files grunnr has no
 	// symbol for at all, and (often) the whole block set repeated the way
 	// `-coverpkg=./...` repeats it once per tested package.
 	Profile string
 
-	// UnindexedFiles are profile paths that reconcile to no atlas file.
+	// UnindexedFiles are profile paths that reconcile to no grunnr file.
 	UnindexedFiles []string
 }
 
@@ -70,7 +70,7 @@ type CoverageCaseOptions struct {
 	// only when the spans are real. With a NULL end_line the last symbol in
 	// a file is given an end of 1<<30, so it absorbs every trailing
 	// statement in the file including ones that belong to a declaration
-	// atlas has not indexed yet; restoring that declaration takes its
+	// grunnr has not indexed yet; restoring that declaration takes its
 	// statements back and can leave the trailing gap unattributed, which is
 	// a DECREASE. That is not a bug in attribution, it is the guess being
 	// corrected — but it does mean the monotonicity property is false in
@@ -102,7 +102,7 @@ func GenCoverageCase(r *Rand, opts CoverageCaseOptions) CoverageCase {
 		lines = append(lines, blocks...)
 	}
 
-	// Files the profile names that atlas has no symbol for at all. This is
+	// Files the profile names that grunnr has no symbol for at all. This is
 	// the "no-indexed-symbol" gap reason, and the half of issue #85 that
 	// mattered most: 210 production files whose execution was invisible.
 	for gi := range r.IntRange(0, 2) {

@@ -1,8 +1,8 @@
 package pyscan
 
 import (
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // FileMeta is the per-file record the scanner emits so the caller can feed
@@ -29,9 +29,9 @@ type FileMeta struct {
 //   - Comment-style hits on the line above a def/class
 //     (e.g. `# @atlas:feature billing.subscribe`).
 //   - Decorator-style hits using the no-op runtime helper shipped at
-//     `assets/python/atlas.py` (e.g. `@atlas.feature("billing.subscribe")`
+//     `assets/python/grunnr.py` (e.g. `@atlas.feature("billing.subscribe")`
 //     or `@feature("billing.subscribe")` when imported as
-//     `from atlas import feature`).
+//     `from grunnr import feature`).
 //   - Class-level propagation records: when a class carries an annotation,
 //     one record is emitted per method with the method's line as the
 //     anchor so the store-side LookupSymbolAtOrAfterLine resolves to the
@@ -57,7 +57,7 @@ type Result struct {
 // rawScannerOutput is the JSON contract emitted by the embedded scanner.py.
 // It is intentionally near-1:1 with the tsscan envelope (so the Go-side
 // orchestration code stays uniform across language sub-scanners), then
-// mapped to Atlas's shared.Symbol + graph.Edge shapes in the Go layer.
+// mapped to Grunnr's shared.Symbol + graph.Edge shapes in the Go layer.
 type rawScannerOutput struct {
 	Nodes       []rawNode       `json:"nodes"`
 	Edges       []rawEdge       `json:"edges"`
@@ -136,7 +136,7 @@ type rawStats struct {
 	SyntaxFailures   int `json:"syntax_failures"`
 }
 
-// rawKindToSymbolKind maps the scanner.py node.kind strings onto Atlas's
+// rawKindToSymbolKind maps the scanner.py node.kind strings onto Grunnr's
 // closed shared.SymbolKind enum. The Python scanner emits source-shape
 // kinds (function, class, method, const) which the orchestrator surfaces
 // as the closest semantic SymbolKind for cross-language traceability.

@@ -119,7 +119,7 @@ func TestNestedRepo_WorktreeGitFileCountsAsABoundary(t *testing.T) {
 	}
 }
 
-// The bug in the other direction, and the more spectacular one: atlas is
+// The bug in the other direction, and the more spectacular one: grunnr is
 // nearly always run at the top of a repository, which by definition contains
 // .git. If the root were treated as a boundary every scan would return
 // nothing.

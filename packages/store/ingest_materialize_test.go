@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // materializeIndex builds a minimal *codeindex.Index that places a single
@@ -267,7 +267,7 @@ func TestIngest_OrphanAnnotationOnNonCodeFile(t *testing.T) {
 
 // TestIngest_DoesNotOverwriteExistingTitle proves the INSERT OR IGNORE
 // contract: when a feature row pre-exists with rich metadata (Title, Owner)
-// because a prior atlas migrate or a test harness Upsert'd it, the ingest
+// because a prior grunnr migrate or a test harness Upsert'd it, the ingest
 // pass MUST NOT clobber that metadata back to the id-as-title default.
 func TestIngest_DoesNotOverwriteExistingTitle(t *testing.T) {
 	s := openTestStore(t)
@@ -354,36 +354,36 @@ func TestIngest_TestFileAnnotation_LinksToImplSymbolWithRoleTest(t *testing.T) {
 			// __tests__ sits directly under src/, so implFileForTestFile maps
 			// "src/__tests__/LoginPage.test.tsx" → "src/LoginPage.tsx".
 			// The impl symbol must be placed at that exact path.
-			name:    "__tests__ directory (Jest/Vitest pattern)",
-			symFile: "apps/web-patient/src/LoginPage.tsx",
-			annFile: "apps/web-patient/src/__tests__/LoginPage.test.tsx",
-			symLine: 10,
-			annLine: 1,
+			name:     "__tests__ directory (Jest/Vitest pattern)",
+			symFile:  "apps/web-patient/src/LoginPage.tsx",
+			annFile:  "apps/web-patient/src/__tests__/LoginPage.test.tsx",
+			symLine:  10,
+			annLine:  1,
 			wantRole: RoleTest,
 		},
 		{
-			name:    "co-located .test.tsx file",
-			symFile: "apps/web-patient/src/pages/Dashboard.tsx",
-			annFile: "apps/web-patient/src/pages/Dashboard.test.tsx",
-			symLine: 5,
-			annLine: 1,
+			name:     "co-located .test.tsx file",
+			symFile:  "apps/web-patient/src/pages/Dashboard.tsx",
+			annFile:  "apps/web-patient/src/pages/Dashboard.test.tsx",
+			symLine:  5,
+			annLine:  1,
 			wantRole: RoleTest,
 		},
 		{
 			// mobile __tests__ under src/ → impl is at src/HomeScreen.tsx
-			name:    "mobile __tests__ directory",
-			symFile: "apps/mobile/src/HomeScreen.tsx",
-			annFile: "apps/mobile/src/__tests__/HomeScreen.test.tsx",
-			symLine: 3,
-			annLine: 1,
+			name:     "mobile __tests__ directory",
+			symFile:  "apps/mobile/src/HomeScreen.tsx",
+			annFile:  "apps/mobile/src/__tests__/HomeScreen.test.tsx",
+			symLine:  3,
+			annLine:  1,
 			wantRole: RoleTest,
 		},
 		{
-			name:    "co-located .spec.ts file",
-			symFile: "apps/web-nutritionist/src/hooks/usePatients.ts",
-			annFile: "apps/web-nutritionist/src/hooks/usePatients.spec.ts",
-			symLine: 8,
-			annLine: 1,
+			name:     "co-located .spec.ts file",
+			symFile:  "apps/web-nutritionist/src/hooks/usePatients.ts",
+			annFile:  "apps/web-nutritionist/src/hooks/usePatients.spec.ts",
+			symLine:  8,
+			annLine:  1,
 			wantRole: RoleTest,
 		},
 	}
@@ -398,15 +398,15 @@ func TestIngest_TestFileAnnotation_LinksToImplSymbolWithRoleTest(t *testing.T) {
 			// orphan annotation (no symbol in the test file). After the fix,
 			// the impl file symbol is found via fallback.
 			implSym := shared.Symbol{
-				ID:      shared.SymbolID("pkg." + tc.name + "Component"),
-				Kind:    shared.KindFunc,
+				ID:       shared.SymbolID("pkg." + tc.name + "Component"),
+				Kind:     shared.KindFunc,
 				Position: shared.FilePosition{Path: tc.symFile, Line: tc.symLine},
-				Package: "github.com/example/pkg",
+				Package:  "github.com/example/pkg",
 			}
 			testAnn := shared.Annotation{
 				Kind:     shared.AnnFeature,
 				IDs:      []string{"auth.login"},
-				Source:   shared.SourceAtlas,
+				Source:   shared.SourceGrunnr,
 				Position: shared.FilePosition{Path: tc.annFile, Line: tc.annLine},
 				Raw:      "auth.login",
 			}
@@ -481,7 +481,7 @@ func TestIngest_TestFileAnnotation_NoImplSymbol_IncrementsTestAnnotationCounter(
 	testAnn := shared.Annotation{
 		Kind:     shared.AnnFeature,
 		IDs:      []string{"auth.login"},
-		Source:   shared.SourceAtlas,
+		Source:   shared.SourceGrunnr,
 		Position: shared.FilePosition{Path: "apps/web-patient/src/__tests__/LoginPage.test.tsx", Line: 1},
 		Raw:      "auth.login",
 	}
@@ -495,7 +495,7 @@ func TestIngest_TestFileAnnotation_NoImplSymbol_IncrementsTestAnnotationCounter(
 		Annotations: []shared.Annotation{testAnn},
 		FileHashes: map[string]codeindex.FileHash{
 			"apps/web-patient/src/__tests__/LoginPage.test.tsx": {
-				Path: "apps/web-patient/src/__tests__/LoginPage.test.tsx",
+				Path:   "apps/web-patient/src/__tests__/LoginPage.test.tsx",
 				SHA256: "h-test", ModTime: now, LastScanned: now,
 			},
 		},
@@ -532,7 +532,7 @@ func TestIngest_ContractKindBecomesFeatureKindContract(t *testing.T) {
 	ann := shared.Annotation{
 		Kind:     shared.AnnContract,
 		IDs:      []string{"auth.api.login"},
-		Source:   shared.SourceAtlas,
+		Source:   shared.SourceGrunnr,
 		Position: shared.FilePosition{Path: "src/api/login.go", Line: 7},
 		Raw:      "auth.api.login",
 	}

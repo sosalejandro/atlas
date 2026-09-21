@@ -22,7 +22,7 @@ import (
 
 func TestSanitizeScannerPathArg_BothSeparators(t *testing.T) {
 	t.Parallel()
-	const winTemp = `C:\Users\RUNNER~1\AppData\Local\Temp\atlas-pyscan-9931\scanner.py`
+	const winTemp = `C:\Users\RUNNER~1\AppData\Local\Temp\grunnr-pyscan-9931\scanner.py`
 
 	tests := []struct {
 		name    string
@@ -33,15 +33,15 @@ func TestSanitizeScannerPathArg_BothSeparators(t *testing.T) {
 	}{
 		{
 			name: "posix path is unchanged",
-			in:   "/tmp/atlas-pyscan-9931/scanner.py",
+			in:   "/tmp/grunnr-pyscan-9931/scanner.py",
 			sep:  '/',
-			want: "/tmp/atlas-pyscan-9931/scanner.py",
+			want: "/tmp/grunnr-pyscan-9931/scanner.py",
 		},
 		{
 			name: "windows temp path is accepted as forward slashes",
 			in:   winTemp,
 			sep:  '\\',
-			want: "C:/Users/RUNNER~1/AppData/Local/Temp/atlas-pyscan-9931/scanner.py",
+			want: "C:/Users/RUNNER~1/AppData/Local/Temp/grunnr-pyscan-9931/scanner.py",
 		},
 		{
 			name: "windows glob pattern",
@@ -133,7 +133,7 @@ func TestSanitizeScannerPathArg_BothSeparators(t *testing.T) {
 func TestBuildScannerArgs_EmitsSlashPaths(t *testing.T) {
 	t.Parallel()
 	const (
-		root   = `C:\Users\RUNNER~1\AppData\Local\Temp\atlas-pyscan-9931`
+		root   = `C:\Users\RUNNER~1\AppData\Local\Temp\grunnr-pyscan-9931`
 		script = root + `\scanner.py`
 	)
 
@@ -153,8 +153,8 @@ func TestBuildScannerArgs_EmitsSlashPaths(t *testing.T) {
 	// Naming the values, not just "no backslashes": a builder that
 	// dropped an argument entirely would pass the loop above.
 	want := []string{
-		"C:/Users/RUNNER~1/AppData/Local/Temp/atlas-pyscan-9931/scanner.py",
-		"--root", "C:/Users/RUNNER~1/AppData/Local/Temp/atlas-pyscan-9931",
+		"C:/Users/RUNNER~1/AppData/Local/Temp/grunnr-pyscan-9931/scanner.py",
+		"--root", "C:/Users/RUNNER~1/AppData/Local/Temp/grunnr-pyscan-9931",
 		"--include", "src/**/*.py",
 		"--exclude", "build/**",
 	}
@@ -175,9 +175,9 @@ func TestBuildScannerArgs_EmitsSlashPaths(t *testing.T) {
 // reject it; on Windows the same input is a legitimate path.
 func TestBuildScannerArgs_UsesTheHostSeparator(t *testing.T) {
 	t.Parallel()
-	const winScript = `C:\Temp\atlas\scanner.py`
+	const winScript = `C:\Temp\grunnr\scanner.py`
 
-	_, err := buildScannerArgs(winScript, `C:\Temp\atlas`, Options{})
+	_, err := buildScannerArgs(winScript, `C:\Temp\grunnr`, Options{})
 	if runtime.GOOS == "windows" {
 		if err != nil {
 			t.Fatalf("buildScannerArgs rejected a Windows path on Windows: %v", err)
@@ -206,7 +206,7 @@ func TestNewPythonCommand_IsArgvNotShell(t *testing.T) {
 		t.Fatalf("abs probe binary: %v", err)
 	}
 
-	args := []string{"/tmp/atlas/scanner.py", "--root", "/tmp/atlas"}
+	args := []string{"/tmp/grunnr/scanner.py", "--root", "/tmp/grunnr"}
 	cmd, err := newPythonCommand(context.Background(), bin, args)
 	if err != nil {
 		t.Fatalf("newPythonCommand: %v", err)

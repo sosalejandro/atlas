@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Carryforward at the scoring layer (issue #136).

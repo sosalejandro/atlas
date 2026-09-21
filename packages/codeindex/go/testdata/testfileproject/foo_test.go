@@ -18,7 +18,7 @@ func TestFoo(_ *testing.T) {
 
 // @atlas:feature foo.bar
 //
-// TestFooFeature carries the canonical annotation pattern Atlas is built
+// TestFooFeature carries the canonical annotation pattern Grunnr is built
 // around: the feature ID is attached to the TEST that proves the feature
 // works, not to the production handler the test exercises. The scanner
 // must surface the annotation AND point its Symbol.Position at this

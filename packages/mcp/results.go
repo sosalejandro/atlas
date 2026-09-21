@@ -15,7 +15,7 @@ type Truncation struct {
 	Note     string `json:"note"`
 }
 
-// NoData is the structured "atlas cannot answer this yet, and here is the
+// NoData is the structured "grunnr cannot answer this yet, and here is the
 // command that would let it".
 //
 // It replaces the list rather than accompanying it. An agent handed
@@ -28,7 +28,7 @@ type NoData struct {
 	Reason string `json:"reason"`
 	// Detail says what is missing in the caller's own terms.
 	Detail string `json:"detail"`
-	// Run is the atlas command that produces the missing data.
+	// Run is the grunnr command that produces the missing data.
 	Run string `json:"run"`
 }
 
@@ -46,16 +46,16 @@ const (
 func noIndex() *NoData {
 	return &NoData{
 		Reason: ReasonNoIndex,
-		Detail: "the atlas store holds no symbols: this repository has not been scanned yet, so an empty answer here says nothing about the code",
-		Run:    "atlas init  (first scan)  or  atlas scan  (incremental re-scan)",
+		Detail: "the grunnr store holds no symbols: this repository has not been scanned yet, so an empty answer here says nothing about the code",
+		Run:    "grunnr init  (first scan)  or  grunnr scan  (incremental re-scan)",
 	}
 }
 
 func noCoverage() *NoData {
 	return &NoData{
 		Reason: ReasonNoCoverage,
-		Detail: "no coverage run has been ingested, so atlas knows nothing about what executes; this is not the same as nothing being covered",
-		Run:    "atlas cov sync --framework go-cover --input coverage.out",
+		Detail: "no coverage run has been ingested, so grunnr knows nothing about what executes; this is not the same as nothing being covered",
+		Run:    "grunnr cov sync --framework go-cover --input coverage.out",
 	}
 }
 
@@ -63,15 +63,15 @@ func noPerTestEvidence() *NoData {
 	return &NoData{
 		Reason: ReasonNoPerTest,
 		Detail: "the current coverage frontier records THAT symbols ran, not WHICH test ran them; per-test attribution needs a per-test ingest",
-		Run:    "atlas cov sync --framework go-cover --per-test <dir of per-test coverprofiles>",
+		Run:    "grunnr cov sync --framework go-cover --per-test <dir of per-test coverprofiles>",
 	}
 }
 
 func noFeatureLinks(id string) *NoData {
 	return &NoData{
 		Reason: ReasonNoFeatureLinks,
-		Detail: fmt.Sprintf("feature %q exists but no symbol is annotated for it, so atlas has no implementation to name", id),
-		Run:    "annotate the implementation with @atlas:feature " + id + ", then run atlas scan",
+		Detail: fmt.Sprintf("feature %q exists but no symbol is annotated for it, so grunnr has no implementation to name", id),
+		Run:    "annotate the implementation with @atlas:feature " + id + ", then run grunnr scan",
 	}
 }
 
@@ -106,7 +106,7 @@ func truncationNote(limit, total int, what string) string {
 		"TRUNCATED: showing %d of %d %s. The remaining %d are NOT in this response — do not conclude they "+
 			"do not exist. There is NO cursor and no offset: calling this tool again cannot retrieve them, and "+
 			"`limit` may only narrow the server cap, never exceed it. Ask a narrower question, or read the "+
-			"complete set outside MCP with the atlas CLI (e.g. `atlas chain --json` for call edges). The server "+
-			"cap itself is set by the operator with `atlas mcp --max-features/--max-symbols/--max-edges/--max-tests`.",
+			"complete set outside MCP with the grunnr CLI (e.g. `grunnr chain --json` for call edges). The server "+
+			"cap itself is set by the operator with `grunnr mcp --max-features/--max-symbols/--max-edges/--max-tests`.",
 		limit, total, what, total-limit)
 }

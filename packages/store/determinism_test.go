@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
 )
 
 // The store half of the determinism suite (issue #120). See

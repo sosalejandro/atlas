@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/atlas/internal/domain"
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 // GenerateReportUseCase builds a complete coverage report from registry state.

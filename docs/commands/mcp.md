@@ -1,16 +1,16 @@
-# atlas mcp
+# grunnr mcp
 
 ```
-atlas mcp [--max-features N] [--max-symbols N] [--max-edges N] [--max-tests N]
-atlas mcp --json          # describe the server; do NOT serve
+grunnr mcp [--max-features N] [--max-symbols N] [--max-edges N] [--max-tests N]
+grunnr mcp --json          # describe the server; do NOT serve
 ```
 
-`atlas mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
-server on stdio, exposing the atlas index to a coding agent as tools it calls
+`grunnr mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
+server on stdio, exposing the grunnr index to a coding agent as tools it calls
 directly — instead of shelling out to the CLI and inventing a parser for
 `--json`.
 
-A coding agent re-derives, badly and every session, what atlas already knows
+A coding agent re-derives, badly and every session, what grunnr already knows
 precisely: which symbols implement a capability, what a change would affect,
 which tests cover it. That lives in SQLite already. MCP is the protocol the
 agent already speaks.
@@ -27,7 +27,7 @@ one has a field:
 | --- | --- | --- |
 | The list is a guess, not evidence | `surface_source` | Which derivation produced it (see below) |
 | The list is incomplete | `truncated` | Rows were withheld. There are more. |
-| Atlas was never given the data | `no_data` | Not "there is none" — "nobody ran the command" |
+| Grunnr was never given the data | `no_data` | Not "there is none" — "nobody ran the command" |
 | The spans predate the working tree | `index_freshness` | The file moved since the scan; the line numbers are wrong |
 
 An agent that ignores these will confidently delete a symbol with 400 callers
@@ -42,7 +42,7 @@ That is enforced by the type system, not by review: the tool handlers hold
 writable store ports (`Upsert`, `Link`, `Insert`, `Ingest`, `DeleteByFile`) are
 not reachable from any value the `packages/mcp` tree holds. An agent-facing
 surface that *can* write is a surface that *will* corrupt the index on a
-hallucinated call, and the index is what every other atlas answer derives from.
+hallucinated call, and the index is what every other grunnr answer derives from.
 
 Every tool also carries `annotations.readOnlyHint: true`, so a client knows
 this without having to call anything.
@@ -52,21 +52,21 @@ this without having to call anything.
 ```json
 {
   "mcpServers": {
-    "atlas": {
-      "command": "atlas",
+    "grunnr": {
+      "command": "grunnr",
       "args": ["mcp"]
     }
   }
 }
 ```
 
-Run it with the repository as the working directory: `atlas mcp` resolves
-`.atlas/atlas.db` the same way every other subcommand does, and honours
+Run it with the repository as the working directory: `grunnr mcp` resolves
+`.grunnr/grunnr.db` the same way every other subcommand does, and honours
 `--db-path` and `--config`.
 
 Starting the server in a repo that has never been scanned is fine and
 deliberate — a client launches it when the editor session starts, which is
-routinely before anybody has run `atlas scan`. Every tool then answers with a
+routinely before anybody has run `grunnr scan`. Every tool then answers with a
 structured `no_data` naming the command to run, which is the useful thing to
 say.
 
@@ -89,7 +89,7 @@ Every tool declares a full JSON Schema for its arguments. Print the catalog
 with schemas:
 
 ```
-$ atlas mcp --json | jq '.result.tools[] | {name, input_schema}'
+$ grunnr mcp --json | jq '.result.tools[] | {name, input_schema}'
 ```
 
 ### `caller_count` / `callee_count` count symbols, not call sites
@@ -116,7 +116,7 @@ from. The four tiers, strongest first:
 | `package-anchor` | Every production symbol in the annotated symbols' package | Whole-package granularity. May include unrelated code. |
 | `direct-links` | Only the symbols a human annotated | No evidence behind it at all. The real implementation is almost certainly larger. |
 
-`dynamic` requires a per-test ingest (`atlas cov sync --per-test`). Without
+`dynamic` requires a per-test ingest (`grunnr cov sync --per-test`). Without
 one, the best available answer is `static`, and the tool says so.
 
 The same string appears on `coverage_for`, because a coverage number whose
@@ -136,7 +136,7 @@ carries:
   "returned": 100,
   "total": 1284,
   "limit": 100,
-  "note": "TRUNCATED: showing 100 of 1284 call edges. The remaining 1184 are NOT in this response — do not conclude they do not exist. There is NO cursor and no offset: calling this tool again cannot retrieve them, and `limit` may only narrow the server cap, never exceed it. Ask a narrower question, or read the complete set outside MCP with the atlas CLI (e.g. `atlas chain --json` for call edges). The server cap itself is set by the operator with `atlas mcp --max-features/--max-symbols/--max-edges/--max-tests`."
+  "note": "TRUNCATED: showing 100 of 1284 call edges. The remaining 1184 are NOT in this response — do not conclude they do not exist. There is NO cursor and no offset: calling this tool again cannot retrieve them, and `limit` may only narrow the server cap, never exceed it. Ask a narrower question, or read the complete set outside MCP with the grunnr CLI (e.g. `grunnr chain --json` for call edges). The server cap itself is set by the operator with `grunnr mcp --max-features/--max-symbols/--max-edges/--max-tests`."
 }
 ```
 
@@ -172,18 +172,18 @@ to misread:
   "no_data": {
     "reason": "no-per-test-evidence",
     "detail": "the current coverage frontier records THAT symbols ran, not WHICH test ran them; per-test attribution needs a per-test ingest",
-    "run": "atlas cov sync --framework go-cover --per-test <dir of per-test coverprofiles>"
+    "run": "grunnr cov sync --framework go-cover --per-test <dir of per-test coverprofiles>"
   }
 }
 ```
 
 | `reason` | What is missing | Fix |
 | --- | --- | --- |
-| `index-empty` | No symbols at all | `atlas init` / `atlas scan` |
+| `index-empty` | No symbols at all | `grunnr init` / `grunnr scan` |
 | `no-features-annotated` | Code is indexed; nothing says what it is for | Add `@atlas:feature <id>`, re-scan |
 | `feature-has-no-linked-symbols` | The feature exists; nothing is annotated for it | Annotate the implementation, re-scan |
-| `no-coverage-frontier` | No coverage run ingested | `atlas cov sync` |
-| `no-per-test-evidence` | Coverage exists, but only as a union | `atlas cov sync --per-test` |
+| `no-coverage-frontier` | No coverage run ingested | `grunnr cov sync` |
+| `no-per-test-evidence` | Coverage exists, but only as a union | `grunnr cov sync --per-test` |
 
 A genuinely empty *match* — `find_feature("zzz")` against a populated store —
 returns an empty list and no `no_data`, because that IS the answer.
@@ -205,7 +205,7 @@ carries one.)
 "index_freshness": {
   "files_checked": 3,
   "untrustworthy_files": ["pkg/checkout/pay.go (stale)"],
-  "note": "the working tree has moved since the scan: spans in these files no longer point where they did. Re-run `atlas scan` before citing line numbers in them."
+  "note": "the working tree has moved since the scan: spans in these files no longer point where they did. Re-run `grunnr scan` before citing line numbers in them."
 }
 ```
 
@@ -256,7 +256,7 @@ exits cleanly. `SIGINT` / `SIGTERM` also stop it.
 
 ## `--json` describes; it does not serve
 
-`atlas mcp` cannot honour the global `--json` envelope while serving: stdout
+`grunnr mcp` cannot honour the global `--json` envelope while serving: stdout
 *is* the protocol stream, and an envelope written onto it is precisely the
 "anything that is not a valid MCP message" the stdio transport forbids.
 
@@ -267,7 +267,7 @@ server into a client config actually wants to see.
 
 ## Known limitations
 
-- **No `doc` or `signature` on `symbol_info`.** Atlas indexes declarations, not
+- **No `doc` or `signature` on `symbol_info`.** Grunnr indexes declarations, not
   source text: neither is in the schema. `symbol_info` says so in its `notes`
   rather than omitting the fields silently, because an absent `doc` reads as
   "this symbol has no doc comment". Read the declaration at the reported
@@ -275,7 +275,7 @@ server into a client config actually wants to see.
 - **`coverage_for` omits the `annotation_freshness` signal.** That signal shells
   out to `git blame` once per annotation site, which is too slow to run inside a
   request an agent is blocking on. The audit re-normalises over the remaining
-  signals; run `atlas health --feature <id>` for a score that includes it. The
+  signals; run `grunnr health --feature <id>` for a score that includes it. The
   result says so in its `notes`.
 - **One request at a time.** The store is a single SQLite connection and an
   agent's calls are serialised by its own turn structure, so concurrency would

@@ -1,15 +1,15 @@
-# Atlas
+# Grunnr
 
 **Produces evidence. Everything else produces either an opinion or a link
 somebody has to maintain.**
 
-Atlas derives feature-level traceability from your code — which capability a
+Grunnr derives feature-level traceability from your code — which capability a
 symbol implements, which tests execute it, what a change puts at risk — and
 **refuses to answer when it cannot establish the answer.**
 
 ```bash
-atlas onboard      # a provisional capability map, from zero annotations
-atlas cov diff --base origin/main --fail-under 80
+grunnr onboard      # a provisional capability map, from zero annotations
+grunnr cov diff --base origin/main --fail-under 80
 ```
 
 ## Why another one of these
@@ -24,7 +24,7 @@ yourself.
 | **Traceability suites** | Audit-ready matrices | The links are written by humans and maintained by humans. Manual links rot. |
 | **Diagram tools** | Beautiful architecture diagrams | Nothing connects the drawing to the code, so it is stale within a month |
 
-Atlas works **code-up** instead of requirements-down: it derives the map from
+Grunnr works **code-up** instead of requirements-down: it derives the map from
 the source, and a derived link cannot rot because there is nothing to
 maintain.
 
@@ -49,7 +49,7 @@ This is the part that is unusual, so it is worth being concrete.
 ## Where it is strongest
 
 Applications — code with routes, queries and capabilities. On a pure library
-the feature concept has less to hold onto, and atlas will tell you so rather
+the feature concept has less to hold onto, and grunnr will tell you so rather
 than invent structure that is not there.
 
 Go is type-checked end to end. TypeScript and Python are scanned natively, and
@@ -84,7 +84,7 @@ packages/                 # SRP libraries — each importable from external Go p
 ├── contract/             # API contract extraction
 └── diagnose/             # Error → code matching
 
-cmd/atlas/                # single CLI binary
+cmd/grunnr/                # single CLI binary
 internal/cli/             # cobra subcommand implementations
 docs/                     # architecture / annotations / schema-v1 / migration / api
 ```
@@ -96,12 +96,12 @@ docs/                     # architecture / annotations / schema-v1 / migration /
 One command, on a repository with no annotations in it:
 
 ```bash
-go install github.com/sosalejandro/atlas/cmd/atlas@latest
+go install github.com/sosalejandro/grunnr/cmd/grunnr@latest
 cd your-project
-atlas onboard
+grunnr onboard
 ```
 
-`atlas onboard` scans the project, builds the SQL inventory, reads the HTTP
+`grunnr onboard` scans the project, builds the SQL inventory, reads the HTTP
 route registrations and mines git history, then derives a **provisional
 capability map** from all of it — no `@atlas:feature` annotations required.
 It reports what that map made visible (endpoints nothing tests, tables
@@ -119,15 +119,15 @@ so you can take the measurement on yours. See
 [How long it takes](./docs/quickstart.md#how-long-it-takes).
 
 **Inferred is not declared.** Everything `onboard` proposes is namespaced
-under `provisional:`, written to `.atlas/provisional/capabilities.json`, and
-absent from the features table — atlas's registry is worth something only
+under `provisional:`, written to `.grunnr/provisional/capabilities.json`, and
+absent from the features table — grunnr's registry is worth something only
 because a human wrote every row in it. The single path in is
-`atlas onboard promote`, which writes an `@atlas:feature` annotation into
+`grunnr onboard promote`, which writes an `@atlas:feature` annotation into
 your source (dry run by default) and lets the ordinary scan pick it up.
 Annotations you already have are adopted as-is and never re-proposed.
 
 - [Quickstart](./docs/quickstart.md) — the whole first run, with recorded output
-- [`atlas onboard`](./docs/commands/onboard.md) — the command reference,
+- [`grunnr onboard`](./docs/commands/onboard.md) — the command reference,
   including `onboard promote` and what each test-evidence grade claims
 - [Languages](./docs/languages/) — per-language usage guides
   ([Go](./docs/languages/go.md) /
@@ -137,7 +137,7 @@ Annotations you already have are adopted as-is and never re-proposed.
 ### Reference
 
 - [Commands](./docs/commands/) — per-subcommand reference
-  (`atlas onboard`, `init`, `scan`, `chain`, `audit`, `codebase`, `cov`,
+  (`grunnr onboard`, `init`, `scan`, `chain`, `audit`, `codebase`, `cov`,
   `diff`, `snapshot`, `sprint`, `diagnose`, `contract`, `sql`, `hotspots`,
   `migrate-annotations`)
 - [Architecture](./docs/architecture.md) — package boundaries + dependency direction
@@ -158,7 +158,7 @@ Full instructions, including how to verify a download, live in
 **In GitHub Actions** — installs a verified release, puts it on `PATH`, runs it:
 
 ```yaml
-- uses: sosalejandro/atlas/.github/actions/atlas@v0.14.0
+- uses: sosalejandro/grunnr/.github/actions/grunnr@v0.14.0
   with:
     args: audit --json
 ```
@@ -166,17 +166,17 @@ Full instructions, including how to verify a download, live in
 **As a Go developer:**
 
 ```
-go install github.com/sosalejandro/atlas/cmd/atlas@latest
+go install github.com/sosalejandro/grunnr/cmd/grunnr@latest
 ```
 
 Swap `@latest` for a specific tag (e.g. `@v0.1.2`) to pin. See
-[Releases](https://github.com/sosalejandro/atlas/releases) for the version
+[Releases](https://github.com/sosalejandro/grunnr/releases) for the version
 history — releases are cut by
 [release-please](https://github.com/googleapis/release-please) from
 conventional-commit messages on `main`.
 
 **As a downloaded binary,** from a
-[release](https://github.com/sosalejandro/atlas/releases): a single static
+[release](https://github.com/sosalejandro/grunnr/releases): a single static
 binary per platform, plus `SHA256SUMS`, a keyless Sigstore signature over
 it, an SPDX SBOM and SLSA provenance.
 
@@ -196,7 +196,7 @@ on the output directory, `TMPDIR`, `GOMAXPROCS` or the absolute path of the
 checkout. Scope and method are in
 [docs/install.md](./docs/install.md#reproducing-a-release-build).
 
-`atlas version` reports the stamps and the build flags. Read the version
+`grunnr version` reports the stamps and the build flags. Read the version
 string with care on a build you did not download from a release: the release
 commit carries its stamps in the source, so a `go install` from any ref —
 tag or not — reports those baked values rather than `dev`. See
@@ -207,7 +207,7 @@ tag or not — reports those baked values rather than `dev`. See
 
 The language sub-scanners shell out to native runtimes when a project
 contains TypeScript or Python sources. Each is **optional** — if the
-runtime isn't on PATH, atlas surfaces a single warning and continues
+runtime isn't on PATH, grunnr surfaces a single warning and continues
 scanning the languages it can:
 
 | Language   | Runtime  | Min version | Skip with                         |

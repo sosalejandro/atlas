@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/graph"
 )
 
 // Typed Go resolution (issue #87) is per package and can fail for reasons
@@ -26,12 +26,12 @@ func TestSkipTypedResolution_FlagExistsOnBothScanningCommands(t *testing.T) {
 	} {
 		f := cmd.Flags().Lookup("skip-typed-resolution")
 		if f == nil {
-			t.Errorf("atlas %s has no --skip-typed-resolution flag; the docs' escape hatch "+
+			t.Errorf("grunnr %s has no --skip-typed-resolution flag; the docs' escape hatch "+
 				"is reachable only by editing code", name)
 			continue
 		}
 		if f.DefValue != "false" {
-			t.Errorf("atlas %s --skip-typed-resolution defaults to %q; type checking is the "+
+			t.Errorf("grunnr %s --skip-typed-resolution defaults to %q; type checking is the "+
 				"default and the flag may only turn it off", name, f.DefValue)
 		}
 	}

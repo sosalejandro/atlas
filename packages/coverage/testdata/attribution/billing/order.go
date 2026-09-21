@@ -1,7 +1,7 @@
 package billing
 
 // Order is a duplicated type name: shipping declares an Order too. This is
-// the shape that used to make a whole file invisible to atlas.
+// the shape that used to make a whole file invisible to grunnr.
 type Order struct {
 	total int
 	paid  bool

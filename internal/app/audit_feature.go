@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/internal/domain"
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 // Layer weights for health score calculation.
@@ -1029,7 +1029,8 @@ func perfBenchmarkReason(kind string) string {
 
 // extractFuncName extracts a short function name from a node ID.
 // Examples: "RecipeHandler.ListRecipes" -> "ListRecipes"
-//           "handler:ListRecipes" -> "ListRecipes"
+//
+//	"handler:ListRecipes" -> "ListRecipes"
 func extractFuncName(nodeID string) string {
 	// Try "Type.Method" format.
 	if idx := strings.LastIndex(nodeID, "."); idx >= 0 {

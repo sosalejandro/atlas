@@ -1,41 +1,41 @@
-# `atlas scip`
+# `grunnr scip`
 
 Read an index produced by somebody else's indexer.
 
 SCIP is Sourcegraph's published interchange format. Indexers exist for Java,
-Python, Ruby, C#, Rust, TypeScript and more — so ingesting SCIP is how atlas
+Python, Ruby, C#, Rust, TypeScript and more — so ingesting SCIP is how grunnr
 covers a language it has no scanner for, without writing a scanner, a grammar,
 or a name-binding rule for any of them.
 
-This is Tier 3 of [#105](https://github.com/sosalejandro/atlas/issues/105).
+This is Tier 3 of [#105](https://github.com/sosalejandro/grunnr/issues/105).
 
 ## What it is not
 
-**It is not a claim that atlas verified any of it.** Every edge from this path
+**It is not a claim that grunnr verified any of it.** Every edge from this path
 is recorded at the `imported` tier, and that is deliberate: *"scip-java said
 so"* and *"we type-checked it"* are different claims even when they usually
-agree. The tier histogram in `atlas doctor` then tells you exactly how much of
+agree. The tier histogram in `grunnr doctor` then tells you exactly how much of
 your graph rests on someone else's work, and every consumer that gates on tiers
 keeps working unchanged.
 
 | tier | meaning |
 | --- | --- |
-| `typed` | atlas type-checked it (Go, via `go/types`) |
-| `name_resolved` | atlas resolved the name across files |
+| `typed` | grunnr type-checked it (Go, via `go/types`) |
+| `name_resolved` | grunnr resolved the name across files |
 | `syntactic` | the shape of the source said so |
 | `imported` | **another indexer said so** — this path |
 
-## `atlas scip inspect`
+## `grunnr scip inspect`
 
 ```bash
 scip-go --output index.scip          # or scip-java, scip-python, scip-ruby…
-atlas scip inspect --input index.scip
+grunnr scip inspect --input index.scip
 ```
 
 ```
-atlas scip inspect — scip-go 0.2.7
+grunnr scip inspect — scip-go 0.2.7
 
-  project root  file:///home/you/atlas
+  project root  file:///home/you/grunnr
   documents     662
   symbols       12380  (+33283 function-scoped, not addressable across files)
   edges         64996, all at the "imported" tier
@@ -59,9 +59,9 @@ answer after it is in the store.
 An index whose references all lead outside it produces **no edges** — and
 without the counts, that is indistinguishable from a clean run over code with
 no calls. The four buckets always sum to the reference total; if they ever do
-not, that is an atlas bug and the command says so rather than letting the
+not, that is an grunnr bug and the command says so rather than letting the
 arithmetic pass quietly. Same invariant as `stmts_unattributed`
-([#100](https://github.com/sosalejandro/atlas/issues/100)) one layer up.
+([#100](https://github.com/sosalejandro/grunnr/issues/100)) one layer up.
 
 The bucket worth reading first is **"sat inside no definition"**. An indexer
 that emits no enclosing ranges puts *every* reference there, which means that
@@ -79,13 +79,13 @@ Follows the [contract](exit-codes.md):
 | 3 | the file could not be opened, or is not a SCIP index |
 
 `3` rather than `1` on an unreadable index is the distinction that matters in
-CI: atlas could not look, which is a broken pipeline step, not a finding about
+CI: grunnr could not look, which is a broken pipeline step, not a finding about
 your code.
 
 ## Reading from stdin
 
 ```bash
-scip-java index --output - | atlas scip inspect --input -
+scip-java index --output - | grunnr scip inspect --input -
 ```
 
 ## What is not here yet

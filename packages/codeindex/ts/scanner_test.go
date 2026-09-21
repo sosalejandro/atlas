@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
-// atlasNodeModules returns the absolute path to atlas's own node_modules
+// atlasNodeModules returns the absolute path to grunnr's own node_modules
 // directory (the one populated by `npm install` at the repo root). All
 // fixture tests forward this via Options.NodeModulesPaths so scanner.ts
 // can resolve the `typescript` package without each fixture shipping its
@@ -31,7 +31,7 @@ func atlasNodeModules(t *testing.T) string {
 		t.Fatalf("abs node_modules: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(abs, "typescript")); err != nil {
-		t.Skipf("atlas node_modules/typescript not installed (run npm install at repo root): %v", err)
+		t.Skipf("grunnr node_modules/typescript not installed (run npm install at repo root): %v", err)
 	}
 	return abs
 }
@@ -253,9 +253,9 @@ func TestBuildScannerArgs_HappyPath(t *testing.T) {
 // features/<slice>/api.ts file (the per-feature-folder convention), the
 // scanner correctly:
 //
-//  (a) registers the api-service node (e.g. subscriptionApi.list),
-//  (b) creates the hook → api-service edge, and
-//  (c) emits no false "no matching API service" warning for that hook.
+//	(a) registers the api-service node (e.g. subscriptionApi.list),
+//	(b) creates the hook → api-service edge, and
+//	(c) emits no false "no matching API service" warning for that hook.
 func TestScanner_FeatureFolderApi(t *testing.T) {
 	t.Parallel()
 	res := runScan(t, "feature-folder-api")

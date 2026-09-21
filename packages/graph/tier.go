@@ -2,7 +2,7 @@ package graph
 
 // ResolutionTier records WHICH MECHANISM produced an edge.
 //
-// Atlas resolves the same relationship — "this function calls that one"
+// Grunnr resolves the same relationship — "this function calls that one"
 // — by very different means depending on the language and the scanner:
 // a type checker that knows the receiver's dynamic type, a name lookup
 // against a package scope, or a substring match on a lowercased
@@ -37,13 +37,13 @@ const (
 	// callgraph on Go (#87): interface dispatch, generic instantiation
 	// and embedding are all exact. Requires a compilable build.
 	//
-	// Nothing in atlas produces this tier yet. It is defined here
+	// Nothing in grunnr produces this tier yet. It is defined here
 	// because #87 needs somewhere to move edges TO, and the histogram
 	// diff that reviews #87 is only readable if both endpoints of the
 	// move exist before the move.
 	TierTyped ResolutionTier = "typed"
 
-	// TierNameResolved (B) — a name was bound to a declaration atlas
+	// TierNameResolved (B) — a name was bound to a declaration grunnr
 	// has actually indexed, using scope rules rather than types.
 	// tree-sitter + stack-graphs is the tier-B mechanism #105 plans;
 	// today's Go scanner reaches it whenever resolveInScope finds the

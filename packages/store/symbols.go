@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // SymbolRow is one row of the `symbols` table (docs/schema-v1.md §5.4).
@@ -35,7 +35,7 @@ type SymbolRow struct {
 	CreatedAt time.Time `json:"created_at"`
 
 	// NodeClass says whether this row is authored code (declaration) or a
-	// vertex Atlas minted to hang an edge on (anchor). Before issue #112
+	// vertex Grunnr minted to hang an edge on (anchor). Before issue #112
 	// the distinction was re-derived at every call site by prefix-matching
 	// the id or the path; it is a column now, and every "real code only"
 	// query reads it. See shared.ClassifyNode and migration 0019.
@@ -248,7 +248,7 @@ type Symbols interface {
 
 	// FindDead returns the subset of internal symbols whose incoming-edge
 	// count (filtered by DeadCodeFilter) is zero. Used by the
-	// `atlas codebase dead` CLI verb to surface candidates that no first-
+	// `grunnr codebase dead` CLI verb to surface candidates that no first-
 	// party module imports / calls / references.
 	//
 	// "Internal" excludes the `external:py` stubs the Python scanner emits
@@ -418,7 +418,7 @@ func (s *symbolsStore) FindByQualifiedName(ctx context.Context, qn shared.Symbol
 // the predicate for any arg that's the zero value. See queries/symbols.sql
 // for the rationale (TL;DR: sqlc v1.31.1 sqlite engine rejects sqlc.narg
 // post-substitution, so we encode the IS-NULL-OR-EQUALS semantics with
-// '' instead of NULL).
+// ” instead of NULL).
 func (s *symbolsStore) List(ctx context.Context, f SymbolFilter) ([]SymbolRow, error) {
 	kind := ""
 	if f.Kind != "" {
@@ -628,7 +628,7 @@ const deadCodeBaseSelect = `SELECT s.id, s.qualified_name, s.kind, s.file_path, 
 // from the candidate set itself.
 //
 // SQLite LIKE is case-sensitive by default for ASCII inside the
-// pragma-default collation Atlas uses, which matches the lexical
+// pragma-default collation Grunnr uses, which matches the lexical
 // convention pytest / go test enforce.
 const excludeTestPredicates = `
   AND e.file_path NOT LIKE '%/tests/%'

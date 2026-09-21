@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // seedTwoSymbols returns two symbol ids in two files with the given
@@ -129,6 +129,22 @@ func TestMigration0018_BackfillsExistingRowsAtTheWeakestTier(t *testing.T) {
 		`INSERT INTO edges (id, from_symbol_id, to_symbol_id, kind, file_path, line, edge_meta)
 			VALUES (7, 1, 2, 'call', 'src/a.go', 11, NULL),
 			       (9, 2, 1, 'import', 'src/b.go', 3, 'module')`,
+		// A real pre-0018 database has this table -- 0001 creates it -- and
+		// the fixture lacked it only because no migration between 18 and 19
+		// touched annotations. 0020 rebuilds it to widen a CHECK, so an
+		// incomplete fixture now fails with "no such table" rather than
+		// telling anyone the fixture was the problem.
+		`CREATE TABLE annotations (
+			id        INTEGER PRIMARY KEY AUTOINCREMENT,
+			file_path TEXT NOT NULL,
+			line      INTEGER NOT NULL,
+			kind      TEXT NOT NULL,
+			value     TEXT NOT NULL,
+			source    TEXT NOT NULL,
+			parsed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE (file_path, line, kind),
+			CHECK (source IN ('atlas', 'testreg'))
+		)`,
 		`CREATE TABLE schema_migrations (version uint64, dirty bool)`,
 		`INSERT INTO schema_migrations (version, dirty) VALUES (17, false)`,
 	} {

@@ -1,8 +1,8 @@
 package sqlops
 
-import "github.com/sosalejandro/atlas/packages/shared"
+import "github.com/sosalejandro/grunnr/packages/shared"
 
-// OperationSource says where Atlas found a query.
+// OperationSource says where Grunnr found a query.
 type OperationSource string
 
 // The closed set of operation sources.
@@ -38,27 +38,27 @@ const (
 )
 
 // Unresolved reasons. These are user-visible strings: they appear in the
-// `unresolved` list of `atlas sql` output, and a reader must be able to tell
-// from the reason alone whether the query is worth making visible to Atlas.
+// `unresolved` list of `grunnr sql` output, and a reader must be able to tell
+// from the reason alone whether the query is worth making visible to Grunnr.
 const (
-	ReasonConcat = "query text is concatenated with an expression atlas cannot evaluate"
+	ReasonConcat = "query text is concatenated with an expression grunnr cannot evaluate"
 	// ReasonSprintf covers fmt.Sprintf and friends. The format string is
 	// usually visible, so the fragment is recorded even though the whole is
 	// not.
 	ReasonSprintf = "query text is assembled with a formatting call"
 	// ReasonDynamic is the query builder, the cross-function assembly, the
-	// value read from config. Atlas cannot resolve it and says so.
-	ReasonDynamic = "query text is an expression atlas cannot statically resolve"
+	// value read from config. Grunnr cannot resolve it and says so.
+	ReasonDynamic = "query text is an expression grunnr cannot statically resolve"
 	// ReasonReassigned is a local whose value is written more than once; the
 	// last writer is not knowable without flow analysis.
-	ReasonReassigned = "query variable is assigned more than once; atlas cannot resolve which value reaches the call"
+	ReasonReassigned = "query variable is assigned more than once; grunnr cannot resolve which value reaches the call"
 	// ReasonNotAStatement means the text resolved but the lexer found no SQL
 	// verb in it. Recording it as an operation with an unknown shape is
 	// honest; classifying it as a SELECT would not be.
 	ReasonNotAStatement = "resolved text contains no recognisable SQL statement"
 )
 
-// Operation is one SQL operation Atlas found, resolved or not.
+// Operation is one SQL operation Grunnr found, resolved or not.
 //
 // The unresolved case carries as much as could be seen -- the fragment, the
 // symbol, the position, the reason -- because the alternative, dropping it,
@@ -76,7 +76,7 @@ type Operation struct {
 	Resolved         bool   `json:"resolved"`
 	UnresolvedReason string `json:"unresolved_reason,omitempty"`
 
-	// SQL is the resolved query text, or the fragment of it Atlas could see
+	// SQL is the resolved query text, or the fragment of it Grunnr could see
 	// when unresolved.
 	SQL       string    `json:"sql,omitempty"`
 	Statement Statement `json:"statement"`
@@ -94,7 +94,7 @@ type Operation struct {
 	// Interpolated fragments, for the advisory message.
 	InterpolatedExpr string `json:"interpolated_expr,omitempty"`
 
-	// Suppressions are the advisory codes an `atlas:sql-ignore` directive at
+	// Suppressions are the advisory codes an `grunnr:sql-ignore` directive at
 	// the call site turns off.
 	Suppressions []string `json:"suppressions,omitempty"`
 }

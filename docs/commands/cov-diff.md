@@ -1,7 +1,7 @@
-# atlas cov diff
+# grunnr cov diff
 
 ```
-atlas cov diff --base <ref> [--fail-under N] [--json]
+grunnr cov diff --base <ref> [--fail-under N] [--json]
 ```
 
 `cov diff` scores the lines **this branch changed** instead of the whole
@@ -16,7 +16,7 @@ status, SonarQube's "Clean as You Code", diff-cover, Coveralls).
 ## What it measures
 
 1. The changed line ranges come from `git diff --unified=0 <base>...HEAD`.
-   Atlas pins the parts of that invocation a repository's own configuration
+   Grunnr pins the parts of that invocation a repository's own configuration
    could otherwise redefine — `--no-color`, `--no-ext-diff`, and
    `--src-prefix=a/ --dst-prefix=b/`, because `diff.srcPrefix`,
    `diff.dstPrefix`, `diff.noprefix` and `diff.mnemonicPrefix` all rewrite the
@@ -25,7 +25,7 @@ status, SonarQube's "Clean as You Code", diff-cover, Coveralls).
    `[line, end_line]` span contains them — but only for files the index still
    describes; see [The freshness guard](#the-freshness-guard).
 3. Each touched symbol is scored against the **current coverage frontier** —
-   the same runs [`atlas cov status`](./cov.md) and `atlas health` read, so a
+   the same runs [`grunnr cov status`](./cov.md) and `grunnr health` read, so a
    polyglot build that tagged its syncs with `--run-group` is scored as one
    measurement rather than by whichever framework synced last.
 
@@ -42,10 +42,10 @@ reason this command is subtle:
 | ------------- | ----------------------------------------------------------------------------- |
 | **covered**   | Inside a symbol the frontier measured, weighted by that symbol's ratio.        |
 | **uncovered** | Inside a measured symbol with zero covered statements. Provably a gap.         |
-| **unknown**   | Atlas cannot score it. Its own state — never folded into either of the above.  |
+| **unknown**   | Grunnr cannot score it. Its own state — never folded into either of the above.  |
 
-A changed line atlas has no symbol for is **not** 0% covered. Scoring it as
-uncovered makes the gate fire on files atlas simply cannot see (the blind spot
+A changed line grunnr has no symbol for is **not** 0% covered. Scoring it as
+uncovered makes the gate fire on files grunnr simply cannot see (the blind spot
 `cov status --gaps` reports), which teaches teams to switch the gate off.
 Scoring it as covered hides real gaps. So it is reported as a third state:
 `--fail-under` decides on the **known** fraction only, and the unknown one is
@@ -55,10 +55,10 @@ Unknown lines carry a reason, because each one has a different remedy:
 
 | Reason                 | What it means                                                                      | Fix                                                     |
 | ---------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `file-not-indexed`     | Atlas holds no symbol for the file (a doc, a config, an unscanned language).        | Nothing, usually — or extend the scanner.               |
-| `outside-symbol-spans` | The file is indexed, but the lines sit outside every symbol's span.                 | Re-run `atlas scan` so the index matches HEAD.          |
-| `no-coverage-data`     | A symbol owns the lines, but no run carried statement counts for it.                | `atlas cov sync --framework go-cover` / `istanbul`.     |
-| `index-stale`          | The file is indexed, but its spans describe a version that is no longer on disk.    | Re-run `atlas scan` at HEAD — see *The freshness guard*.|
+| `file-not-indexed`     | Grunnr holds no symbol for the file (a doc, a config, an unscanned language).        | Nothing, usually — or extend the scanner.               |
+| `outside-symbol-spans` | The file is indexed, but the lines sit outside every symbol's span.                 | Re-run `grunnr scan` so the index matches HEAD.          |
+| `no-coverage-data`     | A symbol owns the lines, but no run carried statement counts for it.                | `grunnr cov sync --framework go-cover` / `istanbul`.     |
+| `index-stale`          | The file is indexed, but its spans describe a version that is no longer on disk.    | Re-run `grunnr scan` at HEAD — see *The freshness guard*.|
 
 Two more rules follow from the same honesty:
 
@@ -73,7 +73,7 @@ Two more rules follow from the same honesty:
 
 The join at step 2 has a precondition that is easy to miss: the line numbers
 come from the working tree at **HEAD**, while the `[line, end_line]` spans come
-from whenever `atlas scan` last ran. Those are only comparable if the index was
+from whenever `grunnr scan` last ran. Those are only comparable if the index was
 built at HEAD.
 
 When they disagree the failure is silent and *directional*. Insert twenty lines
@@ -92,7 +92,7 @@ the percentage itself:
 
 ```
   STALE INDEX: 2 of 12 changed files are not described by the current index;
-               their 96 changed lines are unscored. Re-run 'atlas scan' at HEAD.
+               their 96 changed lines are unscored. Re-run 'grunnr scan' at HEAD.
     src/contexts/billing/checkout.go                     stale         71 lines
     src/contexts/billing/refund.go                       absent        25 lines
 ```
@@ -103,17 +103,17 @@ The `state` column is the reason the file was refused:
 | ------------ | ------------------------------------------------------------------------------------------ |
 | `stale`      | The file on disk no longer hashes to what the scanner recorded.                            |
 | `absent`     | No hash row at all — never scanned, excluded by config, or a scan run with `--hash-files=false`. |
-| `deleted`    | Atlas still holds spans for a file that is gone from the working tree.                     |
+| `deleted`    | Grunnr still holds spans for a file that is gone from the working tree.                     |
 | `unreadable` | The file could not be hashed (a permission or device error), so the check could not run.   |
 
-A file atlas has no symbols for at all is **not** reported here — it is already
+A file grunnr has no symbols for at all is **not** reported here — it is already
 `file-not-indexed`, which is the sharper answer and a different remedy.
 
 Refusing shrinks the denominator, and a shrunken denominator can turn a failing
 gate green. That is the deliberate trade: a smaller honest measurement beats a
 larger wrong one, and the `STALE INDEX` block says out loud that the number
 below it was computed over part of the diff. The fix is one line of CI — run
-`atlas scan` after checkout and before `cov diff`.
+`grunnr scan` after checkout and before `cov diff`.
 
 ## Flags
 
@@ -140,8 +140,8 @@ know.
 ## Example
 
 ```
-# Run from: a repo root, after `atlas scan` and `atlas cov sync`
-$ atlas cov diff --base origin/main --fail-under 80
+# Run from: a repo root, after `grunnr scan` and `grunnr cov sync`
+$ grunnr cov diff --base origin/main --fail-under 80
 patch coverage  origin/main...HEAD
 changed files: 12   changed lines: 418
 
@@ -155,7 +155,7 @@ changed files: 12   changed lines: 418
   uncovered changed lines:
     src/contexts/measurements/application/services/log_service.go:88-131  measurements.LogService.Log  (0/24 stmts)
 
-  partially covered - atlas knows the symbol's ratio, not which of its lines ran:
+  partially covered - grunnr knows the symbol's ratio, not which of its lines ran:
     src/contexts/billing/checkout.go:44-51  billing.Checkout  (18/22 stmts, 81.8%)
 
   unknown changed lines:
@@ -169,7 +169,7 @@ $ echo $?
 
 The uncovered list names lines, not just a number, because a percentage with
 no lines is not actionable. Note what is *not* in it: partially covered
-symbols. Atlas knows a symbol's covered/total ratio, not which of its
+symbols. Grunnr knows a symbol's covered/total ratio, not which of its
 individual lines ran, so those are reported separately — printing lines it
 cannot vouch for would be worse than printing none.
 
@@ -177,12 +177,12 @@ cannot vouch for would be worse than printing none.
 
 ```yaml
 - run: go test -coverprofile=cover.out ./...
-- run: atlas scan
-- run: atlas cov sync --framework go-cover --input cover.out
-- run: atlas cov diff --base "origin/${{ github.base_ref }}" --fail-under 80
+- run: grunnr scan
+- run: grunnr cov sync --framework go-cover --input cover.out
+- run: grunnr cov diff --base "origin/${{ github.base_ref }}" --fail-under 80
 ```
 
-`atlas scan` before `cov diff` matters, and the ordering is load-bearing
+`grunnr scan` before `cov diff` matters, and the ordering is load-bearing
 rather than tidy: an index that predates the branch describes files that have
 since moved under it. `cov diff` detects that by re-hashing (see
 [The freshness guard](#the-freshness-guard)) and refuses those files rather

@@ -8,15 +8,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/diff"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/diff"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newSnapshotCmd implements `atlas snapshot [--ref <ref>] [--note <text>]`.
+// newSnapshotCmd implements `grunnr snapshot [--ref <ref>] [--note <text>]`.
 //
 // Captures the current scan + audit state into the `snapshots` table so a
-// later `atlas diff` invocation can compare against it.
+// later `grunnr diff` invocation can compare against it.
 func newSnapshotCmd() *cobra.Command {
 	var (
 		ref          string
@@ -52,7 +52,7 @@ score regressions.`,
 	return cmd
 }
 
-// snapshotResult is the JSON payload for `atlas snapshot`.
+// snapshotResult is the JSON payload for `grunnr snapshot`.
 type snapshotResult struct {
 	ID            int64  `json:"id"`
 	GitRef        string `json:"git_ref"`
@@ -81,11 +81,11 @@ func runSnapshot(cmd *cobra.Command, rootArg, ref, note string, includeAudit boo
 		return err
 	}
 
-	// The same options `atlas scan` walks with, deliberately. This ingest
+	// The same options `grunnr scan` walks with, deliberately. This ingest
 	// shares a database — and an exclusion ledger — with the scan, so an
 	// index built from a different set of generated-code rules would
 	// overwrite the ledger with a walk the operator never ran: a later
-	// `atlas scan --skipped` would then answer about the snapshot's
+	// `grunnr scan --skipped` would then answer about the snapshot's
 	// configuration instead of the scan's.
 	idx, _, err := indexProjectFromConfig(ctx, rootDir, true, nil, false)
 	if err != nil {
@@ -99,7 +99,7 @@ func runSnapshot(cmd *cobra.Command, rootArg, ref, note string, includeAudit boo
 	defer func() { _ = s.Close() }()
 
 	// Ingest first so the audit/diff has fresh symbols + annotations to
-	// chew on; harmless when the caller is also running `atlas scan`
+	// chew on; harmless when the caller is also running `grunnr scan`
 	// separately.
 	if _, err := s.Ingest(ctx, idx, store.IngestOptions{
 		GeneratedGlobs: loaded.Scan.Generated,

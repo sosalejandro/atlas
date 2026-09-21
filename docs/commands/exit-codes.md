@@ -1,6 +1,6 @@
 # Exit codes
 
-Every atlas command returns one of four statuses. The contract is defined in
+Every grunnr command returns one of four statuses. The contract is defined in
 `internal/cli/exitcode.go` and applies to the binary as a whole.
 
 | Code | Name | Meaning |
@@ -13,13 +13,13 @@ Every atlas command returns one of four statuses. The contract is defined in
 ## Why 3 exists
 
 A CI job that treats any non-zero status as failure still fails closed, so
-adopting this costs nothing. What it buys is the ability to tell **"atlas found
-untested code"** from **"atlas could not tell"** — which arrive as the same red
+adopting this costs nothing. What it buys is the ability to tell **"grunnr found
+untested code"** from **"grunnr could not tell"** — which arrive as the same red
 X otherwise, and call for opposite responses. The first is a code review. The
 second is a broken pipeline step, and the worst outcome is a team that learns
 to re-run it until it goes green.
 
-This distinction is not hypothetical here. Atlas has shipped the bug twice:
+This distinction is not hypothetical here. Grunnr has shipped the bug twice:
 
 - `.gitleaks.toml`'s worktree allowlist was unanchored, so it matched the
   **absolute** path and any scan rooted inside `.claude/worktrees` allowlisted
@@ -38,7 +38,7 @@ The binary now does too.
 The rule: **a command returns 3 only when it was asked to decide something it
 cannot decide.**
 
-Reporting a caveat is not undetermined. `atlas cov diff` without `--fail-under`
+Reporting a caveat is not undetermined. `grunnr cov diff` without `--fail-under`
 prints the stale-index warning and exits 0, because nobody is deciding anything
 with that number. Add `--fail-under` and the same staleness becomes a refusal,
 because a percentage computed against spans that describe a version of the file
@@ -47,19 +47,19 @@ measurement, and comparing it to a threshold would launder it into one.
 
 | Command | Returns 3 when |
 | --- | --- |
-| `atlas doctor` | A check could not complete. ("The input does not exist yet" is a not-applicable result, not an error, and does not trigger this.) |
-| `atlas cov diff` | `--fail-under` was given and one or more changed files have moved since the index was built. |
-| `atlas affected` | Opt-in, via `--fallback-exit-code 3`. Bailing to "run everything" *is* the undetermined case; the default stays 0 so enabling it never breaks an existing pipeline. |
+| `grunnr doctor` | A check could not complete. ("The input does not exist yet" is a not-applicable result, not an error, and does not trigger this.) |
+| `grunnr cov diff` | `--fail-under` was given and one or more changed files have moved since the index was built. |
+| `grunnr affected` | Opt-in, via `--fallback-exit-code 3`. Bailing to "run everything" *is* the undetermined case; the default stays 0 so enabling it never breaks an existing pipeline. |
 
 ## Using it
 
 ```bash
-atlas cov diff --base origin/main --fail-under 80
+grunnr cov diff --base origin/main --fail-under 80
 case $? in
   0) ;;                                   # patch coverage meets the floor
   1) echo "::error::patch coverage below floor"; exit 1 ;;
-  2) echo "::error::atlas invoked incorrectly"; exit 1 ;;
-  3) atlas scan && exec "$0" ;;           # stale index: re-scan and retry
+  2) echo "::error::grunnr invoked incorrectly"; exit 1 ;;
+  3) grunnr scan && exec "$0" ;;           # stale index: re-scan and retry
 esac
 ```
 

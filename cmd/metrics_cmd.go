@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/domain"
 	"github.com/spf13/cobra"
 )
 

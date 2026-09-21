@@ -6,15 +6,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	atlastest "github.com/sosalejandro/atlas/packages/testing"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	atlastest "github.com/sosalejandro/grunnr/packages/testing"
 )
 
 // The graph layer's property tests.
 //
 // Two things are being defended here, and they fail differently.
 //
-// The cycle report is what `atlas codebase cycles` prints and what a reviewer
+// The cycle report is what `grunnr codebase cycles` prints and what a reviewer
 // acts on, so it has to be a function of the graph's CONNECTIVITY and nothing
 // else. Tarjan indexes nodes internally; a report that depended on which
 // integer a node happened to be assigned would be stable on the corpus and
@@ -123,7 +123,7 @@ func TestProperty_FindCycles_ReportsOnlyRealComponents(t *testing.T) {
 //
 // The failure this catches is silent by construction: a forgotten retarget
 // leaves an edge pointing at an id that was just deleted, the edge count does
-// not move, and the first symptom is `atlas chain` walking off the end of a
+// not move, and the first symptom is `grunnr chain` walking off the end of a
 // call chain that used to work.
 func TestProperty_MergeNode_KeepsTheGraphReferentiallyClosed(t *testing.T) {
 	t.Parallel()

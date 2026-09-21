@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // generatedFixture holds one file per exclusion rule plus two hand-written
@@ -192,7 +192,7 @@ func TestMatchGeneratedGlob(t *testing.T) {
 }
 
 // The reason reported for a skipped file is the product, not a byproduct:
-// `atlas doctor` uses it to explain a coverage denominator. When several
+// `grunnr doctor` uses it to explain a coverage denominator. When several
 // rules match one file, the STRONGEST signal must win — the header holds
 // wherever the tool wrote its output, the directory only says where someone
 // filed it.

@@ -11,12 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // flowFixture is a tiny repo on disk plus a store seeded with the symbols the
-// scanner would have produced for it. `atlas flow` reads symbols from the
+// scanner would have produced for it. `grunnr flow` reads symbols from the
 // store and re-parses the files they name, so both halves have to exist.
 type flowFixture struct {
 	root   string
@@ -52,8 +52,8 @@ func LoadAll(db DB, ids []int) []Row {
 func newFlowFixture(t *testing.T) *flowFixture {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".atlas"), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".grunnr"), 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "svc"), 0o755); err != nil {
 		t.Fatalf("mkdir svc: %v", err)
@@ -61,7 +61,7 @@ func newFlowFixture(t *testing.T) *flowFixture {
 	if err := os.WriteFile(filepath.Join(dir, flowSourceFile), []byte(flowSource), 0o644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
-	fix := &flowFixture{root: dir, dbPath: filepath.Join(dir, ".atlas", "atlas.db")}
+	fix := &flowFixture{root: dir, dbPath: filepath.Join(dir, ".grunnr", "grunnr.db")}
 
 	ctx := context.Background()
 	s, err := store.Open(ctx, fix.dbPath)
@@ -168,7 +168,7 @@ func runFlowCmd(t *testing.T, fix *flowFixture, args ...string) (string, string,
 	root.SetErr(&stderr)
 	// --root is passed explicitly: the root command's PersistentPreRunE
 	// re-loads the config and overwrites the fixture's repoRoot with whatever
-	// the test binary's working directory resolves to, which is the atlas
+	// the test binary's working directory resolves to, which is the grunnr
 	// repo, not the tempdir.
 	if len(args) > 0 && args[0] == "build" {
 		args = append([]string{"build", "--root", fix.root}, args[1:]...)
@@ -186,7 +186,7 @@ func TestFlow_RegisteredOnRoot(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("`atlas flow` is not registered on the root command")
+		t.Fatal("`grunnr flow` is not registered on the root command")
 	}
 }
 

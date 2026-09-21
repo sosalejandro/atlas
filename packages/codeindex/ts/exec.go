@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // This file isolates every os/exec call site so the validation and
@@ -119,10 +119,11 @@ func validateNodeBin(s string) error {
 // (the local semgrep MCP hook flags the exec.CommandContext line itself,
 // so per-call-site suppressions are load-bearing — not redundant).
 //
-//nolint:gosec // bin + args validated by resolveNodeBin / buildScannerArgs; bin is filepath.IsAbs
 // nosemgrep: go.lang.security.audit.dangerous-command-write
 // nosemgrep: go.lang.security.audit.dangerous-exec-command
 // nosemgrep: rules.dangerous-command-write
+//
+//nolint:gosec // bin + args validated by resolveNodeBin / buildScannerArgs; bin is filepath.IsAbs
 func newNodeCommand(ctx context.Context, bin string, args []string) (*exec.Cmd, error) {
 	if err := validateNodeBin(bin); err != nil {
 		return nil, fmt.Errorf("tsscan: invalid node binary: %w", err)

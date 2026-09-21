@@ -31,8 +31,8 @@ func (r *gitRepo) run(args ...string) {
 	cmd := exec.Command(r.bin, args...) //nolint:gosec // fixed verbs, temp dir.
 	cmd.Dir = r.dir
 	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=atlas", "GIT_AUTHOR_EMAIL=atlas@example.com",
-		"GIT_COMMITTER_NAME=atlas", "GIT_COMMITTER_EMAIL=atlas@example.com",
+		"GIT_AUTHOR_NAME=grunnr", "GIT_AUTHOR_EMAIL=grunnr@example.com",
+		"GIT_COMMITTER_NAME=grunnr", "GIT_COMMITTER_EMAIL=grunnr@example.com",
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		r.t.Fatalf("git %v: %v\n%s", args, err, out)

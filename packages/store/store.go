@@ -16,8 +16,8 @@ import (
 	migratesqlite "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 //go:embed schema/*.sql
@@ -28,7 +28,7 @@ var schemaFS embed.FS
 // diagnostics and the "reset" flow described in docs/schema-v1.md §10).
 //
 // One Store instance per process is the contract — SQLite is single-writer
-// and Atlas always runs as a single CLI invocation. Multiple processes
+// and Grunnr always runs as a single CLI invocation. Multiple processes
 // opening the same DB file are not supported, even though SQLite would not
 // outright refuse.
 //
@@ -43,14 +43,14 @@ type Store struct {
 	logger shared.Logger
 }
 
-// Open initializes (or opens existing) atlas-state.db at path, applies
+// Open initializes (or opens existing) grunnr-state.db at path, applies
 // pending embedded migrations via golang-migrate, and returns a *Store
 // ready for use. The caller is responsible for Close.
 //
 // DSN pragmas (per docs/schema-v1.md §3):
 //
 //   - journal_mode=WAL    — concurrent readers don't block on a writer
-//   - foreign_keys=1      — Atlas relies on ON DELETE CASCADE
+//   - foreign_keys=1      — Grunnr relies on ON DELETE CASCADE
 //   - busy_timeout=5000   — five-second wait before SQLITE_BUSY surfaces
 //
 // Migration tracking lives in golang-migrate's default `schema_migrations`
@@ -105,8 +105,8 @@ func OpenWithLogger(ctx context.Context, path string, logger shared.Logger) (*St
 // schema FS using golang-migrate's sqlite driver. Re-running is a no-op
 // (migrate.ErrNoChange is swallowed) so Open is idempotent on re-opens.
 //
-// Up-only: Atlas does NOT ship `*.down.sql` files. golang-migrate tolerates
-// their absence — it just loses the ability to step down, which Atlas
+// Up-only: Grunnr does NOT ship `*.down.sql` files. golang-migrate tolerates
+// their absence — it just loses the ability to step down, which Grunnr
 // doesn't need (the DB is a re-derivable cache; rollback is delete + reopen).
 //
 // On Up() failure we surface the database's (version, dirty) state via

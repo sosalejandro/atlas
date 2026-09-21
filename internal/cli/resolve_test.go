@@ -17,7 +17,7 @@ func runResolveCmd(t *testing.T, args ...string) (string, string) {
 	root.SetErr(&errBuf)
 	root.SetArgs(args)
 	if err := root.Execute(); err != nil {
-		t.Fatalf("atlas %s: %v\nstderr: %s", strings.Join(args, " "), err, errBuf.String())
+		t.Fatalf("grunnr %s: %v\nstderr: %s", strings.Join(args, " "), err, errBuf.String())
 	}
 	return out.String(), errBuf.String()
 }

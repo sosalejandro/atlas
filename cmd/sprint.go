@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
-	"github.com/sosalejandro/atlas/internal/app"
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/app"
+	"github.com/sosalejandro/grunnr/internal/domain"
 	"github.com/spf13/cobra"
 )
 

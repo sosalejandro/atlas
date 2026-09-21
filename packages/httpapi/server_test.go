@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/envelope"
-	"github.com/sosalejandro/atlas/packages/httpapi"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/envelope"
+	"github.com/sosalejandro/grunnr/packages/httpapi"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 func newServer(t *testing.T, stable bool) (*httpapi.Server, *store.Store, string) {
 	t.Helper()
 	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "atlas.db")
+	dbPath := filepath.Join(dir, "grunnr.db")
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -236,7 +237,7 @@ func TestServer_ListenRefusesRoutableAddresses(t *testing.T) {
 }
 
 // The claim this package exists to make true: the HTTP surface answers in the
-// SAME envelope as `atlas --json`. A field on one and not the other is the
+// SAME envelope as `grunnr --json`. A field on one and not the other is the
 // drift the testreg dashboard died of, in miniature -- huma adds a `$schema`
 // link by default, and this is what notices if it ever comes back.
 func TestAPI_EnvelopeHasNoFieldsTheCLIDoesNot(t *testing.T) {
@@ -256,11 +257,54 @@ func TestAPI_EnvelopeHasNoFieldsTheCLIDoesNot(t *testing.T) {
 	}
 	for k := range got {
 		if !allowed[k] {
-			t.Errorf("the API emits %q, which `atlas --json` does not; the two "+
+			t.Errorf("the API emits %q, which `grunnr --json` does not; the two "+
 				"surfaces have started to drift", k)
 		}
 	}
 	if _, ok := got["schema_version"]; !ok {
 		t.Error("no schema_version; the comparison above would pass on an empty object")
+	}
+}
+
+// The contract describes the API, not the index, so rendering it must not
+// require one.
+//
+// `grunnr-serve --openapi` used to open the store first, and nobody noticed
+// because this repository always had a database sitting in the working tree.
+// The rename moved that file and the smoke test went red with
+// "unable to open database file" -- from a command whose whole job is to
+// print a document generated from Go types.
+func TestNewForContract_RendersWithoutAStore(t *testing.T) {
+	srv, err := httpapi.NewForContract(httpapi.Options{Root: t.TempDir(), DBPath: "/nonexistent/grunnr.db"})
+	if err != nil {
+		t.Fatalf("NewForContract with no store: %v", err)
+	}
+	doc, err := srv.OpenAPI()
+	if err != nil {
+		t.Fatalf("OpenAPI: %v", err)
+	}
+	if !strings.Contains(string(doc), "openapi:") {
+		t.Error("no OpenAPI document rendered")
+	}
+	if !strings.Contains(string(doc), "/api/doctor") {
+		t.Error("the contract does not describe /api/doctor")
+	}
+}
+
+// ...and a contract-only server must never answer a request, because every
+// data route would dereference the nil store it was built with.
+func TestContractOnlyServer_RefusesToServe(t *testing.T) {
+	srv, err := httpapi.NewForContract(httpapi.Options{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewForContract: %v", err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	if err := srv.Serve(context.Background(), ln); err == nil {
+		t.Error("a contract-only server accepted connections; every data route would panic on a nil store")
 	}
 }

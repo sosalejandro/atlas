@@ -3,13 +3,13 @@ package diff
 import (
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/contract"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/contract"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Snapshot is the input shape Compute consumes. One Snapshot is the full
-// state of an atlas-indexed project at a given git ref.
+// state of an grunnr-indexed project at a given git ref.
 //
 // Fields:
 //
@@ -38,7 +38,7 @@ type Snapshot struct {
 	// annotation-only path: FeatureIDs that exist on both sides with the
 	// same shape (Kind == KindFunc placeholder) → no Changed. This means
 	// contract-signature-shape diffs only fire on the richer path. The
-	// caller (cmd/atlas, Phase 7) is expected to populate this field
+	// caller (cmd/grunnr, Phase 7) is expected to populate this field
 	// from the per-ref scan output.
 	Contracts []contract.ContractDef `json:"contracts,omitempty"`
 }

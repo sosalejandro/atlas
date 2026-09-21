@@ -11,12 +11,12 @@ import (
 	"testing"
 )
 
-// The `atlas` binary cannot open a socket, and TestAtlasBinary_ImportsNoNetworkPackage
-// proves it. `atlas-serve` obviously can -- serving is its whole job -- so the
+// The `grunnr` binary cannot open a socket, and TestGrunnrBinary_ImportsNoNetworkPackage
+// proves it. `grunnr-serve` obviously can -- serving is its whole job -- so the
 // import check cannot be the guarantee for it, and dropping the guarantee for
 // that binary was not acceptable either: it reads the same proprietary index.
 //
-// So the property is narrowed rather than abandoned. `atlas-serve` ACCEPTS
+// So the property is narrowed rather than abandoned. `grunnr-serve` ACCEPTS
 // connections and never MAKES one. "Nothing leaves your machine" survives
 // verbatim: an inbound listener on loopback cannot exfiltrate, and an
 // outbound dial is the thing that could.
@@ -66,7 +66,7 @@ func TestServeBinary_NeverDialsOut(t *testing.T) {
 			}
 		}
 	}
-	walk(modulePath + "/cmd/atlas-serve")
+	walk(modulePath + "/cmd/grunnr-serve")
 
 	// A floor, not a measurement: if the directory mapping ever broke, the
 	// walk would inspect almost nothing and pass vacuously.
@@ -76,8 +76,8 @@ func TestServeBinary_NeverDialsOut(t *testing.T) {
 	}
 	if len(offenders) > 0 {
 		sort.Strings(offenders)
-		t.Errorf("atlas-serve reaches outbound-connection code:\n  %s\n"+
-			"atlas-serve accepts connections and must never make one. If this is "+
+		t.Errorf("grunnr-serve reaches outbound-connection code:\n  %s\n"+
+			"grunnr-serve accepts connections and must never make one. If this is "+
 			"intentional, docs/security.md must stop claiming that nothing leaves "+
 			"the machine BEFORE this test is changed.",
 			strings.Join(offenders, "\n  "))
@@ -127,11 +127,11 @@ func outboundCallsIn(t *testing.T, pkgPath, dir string) []string {
 // pass having inspected nothing, and a planted dial proves it still looks.
 func TestServeBinary_TheDialCheckActuallyLooks(t *testing.T) {
 	root := repoRoot(t)
-	dir := filepath.Join(root, "cmd", "atlas-serve")
+	dir := filepath.Join(root, "cmd", "grunnr-serve")
 	// The binary legitimately calls net.Listen and net.JoinHostPort; neither
 	// is a dialer, and finding one here would mean the matcher is too broad.
 	if found := outboundCallsIn(t, "probe", dir); len(found) != 0 {
-		t.Fatalf("the matcher flags cmd/atlas-serve's own listener calls: %v", found)
+		t.Fatalf("the matcher flags cmd/grunnr-serve's own listener calls: %v", found)
 	}
 
 	planted := filepath.Join(t.TempDir(), "pkg")

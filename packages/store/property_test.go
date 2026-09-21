@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
-	atlastest "github.com/sosalejandro/atlas/packages/testing"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	atlastest "github.com/sosalejandro/grunnr/packages/testing"
 )
 
 // The store's property layer.
@@ -25,7 +25,7 @@ import (
 // edge's endpoints still name the symbols they named before persistence, and
 // re-ingesting an unchanged index changes nothing.
 //
-// The last one is not academic. `atlas scan` is incremental and runs on every
+// The last one is not academic. `grunnr scan` is incremental and runs on every
 // commit; if a re-ingest of an unchanged file could renumber a symbol, every
 // coverage row keyed to the old surrogate would silently point somewhere
 // else. Issue #97 is what that looks like when it happens once. A property
@@ -97,7 +97,7 @@ func TestProperty_Store_OpensTheFileItWasGiven(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
-		s, err := Open(ctx, filepath.Join(dir, "atlas.db"))
+		s, err := Open(ctx, filepath.Join(dir, "grunnr.db"))
 		if err != nil {
 			t.Fatalf("Open under %q: %v", name, err)
 		}
@@ -114,14 +114,14 @@ func TestProperty_Store_OpensTheFileItWasGiven(t *testing.T) {
 		}
 		if len(rows) != 1 || rows[0].QualifiedName != qn {
 			t.Fatalf("store at %q holds %d rows (%v); it is sharing a file with another path",
-				filepath.Join(dir, "atlas.db"), len(rows), rows)
+				filepath.Join(dir, "grunnr.db"), len(rows), rows)
 		}
 		if err := s.Close(); err != nil {
 			t.Fatalf("Close under %q: %v", name, err)
 		}
 		// And the file has to be where it was asked for, not at some prefix
 		// of it. A store that works by writing somewhere else is not working.
-		if _, err := os.Stat(filepath.Join(dir, "atlas.db")); err != nil {
+		if _, err := os.Stat(filepath.Join(dir, "grunnr.db")); err != nil {
 			t.Fatalf("no database at the path Open was given under %q: %v", name, err)
 		}
 	}
@@ -131,7 +131,7 @@ func TestProperty_Store_OpensTheFileItWasGiven(t *testing.T) {
 // reads back.
 //
 // This is the least glamorous property here and the one everything else
-// rests on. Every number atlas prints is a join over these rows: a dropped
+// rests on. Every number grunnr prints is a join over these rows: a dropped
 // end_line makes coverage attribution guess a span, a dropped package makes
 // the layer classification wrong, a rewritten kind makes `codebase find`
 // miss. None of those fail loudly — they each produce a plausible number
@@ -185,7 +185,7 @@ func TestProperty_Symbols_RoundTrip(t *testing.T) {
 // Insert is documented as an upsert keyed on qualified_name, returning the
 // existing id when the row is already there. Everything downstream depends on
 // that: coverage results, feature links and edges all hold surrogate ids, and
-// a second `atlas scan` that minted fresh ids would leave every one of them
+// a second `grunnr scan` that minted fresh ids would leave every one of them
 // pointing at a symbol that no longer means what it did. The rows would still
 // be there; they would just be about something else.
 func TestProperty_Symbols_InsertIsIdempotent(t *testing.T) {
@@ -273,7 +273,7 @@ func TestProperty_Edges_EndpointsSurvivePersistence(t *testing.T) {
 			first = append(first, id)
 		}
 		// Write the whole set a second time, in the same order — which is
-		// exactly what the next `atlas scan` does. Insert is documented as an
+		// exactly what the next `grunnr scan` does. Insert is documented as an
 		// upsert returning the EXISTING id, and the assertion is explicit
 		// because the failure is silent: an id pointing at a DIFFERENT edge
 		// row is still a valid id, and nothing downstream can tell.
@@ -314,7 +314,7 @@ func TestProperty_Edges_EndpointsSurvivePersistence(t *testing.T) {
 // TestProperty_Ingest_ReScanNeverRenumbersAnExistingSymbol is the
 // scan-ingest-scan idempotence property.
 //
-// `atlas scan` is incremental and runs on every commit, so this path executes
+// `grunnr scan` is incremental and runs on every commit, so this path executes
 // far more often than the first-ingest path everything else tests. What it
 // must not do is move anything: the rows a previous scan wrote keep their
 // content and, above all, keep their surrogate ids. Every coverage result and
@@ -398,7 +398,7 @@ func TestProperty_Ingest_ReScanNeverRenumbersAnExistingSymbol(t *testing.T) {
 // created a row" — it reports "some insert on this connection created a row",
 // which on a re-ingest is whatever the symbol loop touched a moment earlier.
 // The observable consequence is stats.EdgesInserted: a re-scan of an unchanged
-// tree claims to have inserted every edge again, so `atlas scan`'s headline
+// tree claims to have inserted every edge again, so `grunnr scan`'s headline
 // counts describe work that did not happen, and nothing downstream that reads
 // them can tell an incremental scan from a first one.
 //

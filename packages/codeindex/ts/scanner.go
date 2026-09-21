@@ -1,6 +1,6 @@
-// Package tsscan is the Atlas TypeScript scanner. It orchestrates the
+// Package tsscan is the Grunnr TypeScript scanner. It orchestrates the
 // embedded scanner.ts (a TypeScript-compiler-API walker) via a Node.js
-// subprocess and returns its discoveries in Atlas's canonical
+// subprocess and returns its discoveries in Grunnr's canonical
 // shared.Symbol + graph.Edge shapes.
 //
 // Design rules (mirrors packages/codeindex/go/):
@@ -44,8 +44,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // ScannerSource is the embedded TypeScript scanner. It ships as a string so
@@ -95,7 +95,7 @@ type Options struct {
 
 	// NodeModulesPaths is appended to NODE_PATH so scanner.ts (which imports
 	// the typescript module) can resolve dependencies that don't live in the
-	// scanned project's own node_modules. Useful when atlas runs against a
+	// scanned project's own node_modules. Useful when grunnr runs against a
 	// minimal fixture or a backend-only repo. Each entry must be an absolute
 	// directory ending in `node_modules`; non-conforming entries are dropped
 	// with a warning rather than failing the scan.
@@ -104,14 +104,14 @@ type Options struct {
 	// Timeout, when > 0, bounds a single Scan call. The caller's ctx is
 	// wrapped with context.WithTimeout(ctx, Timeout) before the Node
 	// subprocess is started, so a deadlocked scanner.ts (pathological input,
-	// runaway type resolution, etc.) cannot hang atlas forever even when
+	// runaway type resolution, etc.) cannot hang grunnr forever even when
 	// the caller passes context.Background().
 	//
 	// Zero value (the default) means no package-internal timeout — the scan
 	// only ends when the caller's ctx is done or scanner.ts exits. Library
 	// callers that want unbounded scans should leave this at zero and manage
 	// the deadline upstream. For very large monorepos a sensible default is
-	// 5 * time.Minute; the atlas CLI applies that default when invoking
+	// 5 * time.Minute; the grunnr CLI applies that default when invoking
 	// from the trace/index commands.
 	Timeout time.Duration
 
@@ -119,7 +119,7 @@ type Options struct {
 	Logger shared.Logger
 }
 
-// Scanner is the long-lived orchestrator. Hold one per atlas process; it
+// Scanner is the long-lived orchestrator. Hold one per grunnr process; it
 // caches the extracted scanner.ts tempfile across Scan calls.
 type Scanner struct {
 	Options Options
@@ -191,7 +191,7 @@ func (s *Scanner) Scan(ctx context.Context, rootDir string) (*Result, error) {
 		ctx = context.Background()
 	}
 	// Apply package-internal timeout so a deadlocked scanner.ts can't hang
-	// atlas forever when the caller passed context.Background(). Zero =
+	// grunnr forever when the caller passed context.Background(). Zero =
 	// opt-out (defer to caller ctx).
 	if s.Options.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -229,7 +229,7 @@ func (s *Scanner) Scan(ctx context.Context, rootDir string) (*Result, error) {
 	// and the orchestrator can't tell them how many .ts/.tsx files were
 	// affected. Probing here lets us emit one clean, actionable warning
 	// with the impact count + searched paths + a fix command. See issue
-	// sosalejandro/atlas-internal#19 for the UX motivation.
+	// sosalejandro/grunnr-internal#19 for the UX motivation.
 	if found, searched := probeTypescriptModule(abs, s.Options.NodeModulesPaths); !found {
 		skipped, _ := countTSSourceFiles(ctx, abs, nil)
 		if skipped > 0 {
@@ -378,7 +378,7 @@ func buildScannerArgsSep(scriptPath, projectRoot string, opts Options, sep rune)
 // metacharacters, so `C:\Users\RUNNER~1\...\scanner.ts` — which is what
 // os.MkdirTemp hands back on a Windows runner — was rejected before it
 // could reach Node, and the TS scanner could not run at all on the
-// platform atlas ships a binary for.
+// platform grunnr ships a binary for.
 //
 // Normalising first is not the same as loosening the guard:
 //
@@ -440,7 +440,7 @@ func (s *Scanner) ensureScript() (string, error) {
 			s.scriptErr = errors.New("tsscan: embedded scanner.ts is empty")
 			return
 		}
-		dir, err := os.MkdirTemp("", "atlas-tsscan-*")
+		dir, err := os.MkdirTemp("", "grunnr-tsscan-*")
 		if err != nil {
 			s.scriptErr = err
 			return
@@ -571,7 +571,7 @@ func decodeOutput(b []byte) (*rawScannerOutput, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&out); err != nil {
 		// Retry without strict mode so a future additive scanner.ts field
-		// doesn't break older atlas binaries.
+		// doesn't break older grunnr binaries.
 		out = rawScannerOutput{}
 		if err2 := json.Unmarshal(b, &out); err2 != nil {
 			// Include a bounded prefix of the raw payload so a caller
@@ -586,7 +586,7 @@ func decodeOutput(b []byte) (*rawScannerOutput, error) {
 	return &out, nil
 }
 
-// mapToResult converts the JSON envelope into Atlas's canonical types.
+// mapToResult converts the JSON envelope into Grunnr's canonical types.
 //
 // Note: scanner.ts emits an "endpoint" node for the join key on backend
 // HTTP routes (e.g. "POST /api/v1/auth/login"). The Go orchestrator
@@ -646,7 +646,7 @@ func (s *Scanner) mapToResult(raw *rawScannerOutput) *Result {
 // left→right):
 //
 //  1. <projectRoot>/node_modules — for monorepos the typical layout
-//  2. opts.NodeModulesPaths — caller-supplied fallbacks (e.g. atlas's own
+//  2. opts.NodeModulesPaths — caller-supplied fallbacks (e.g. grunnr's own
 //     node_modules in test fixtures)
 //  3. any pre-existing NODE_PATH from the parent env
 //

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // mkOp builds a resolved operation from SQL text, so a case can state the
@@ -187,7 +187,7 @@ func TestAdvise_MissingIndex(t *testing.T) {
 	}
 
 	// A table whose DDL was never read must yield "not checked", never a
-	// finding: claiming an index is missing from a schema Atlas never saw is
+	// finding: claiming an index is missing from a schema Grunnr never saw is
 	// the worst kind of wrong answer, because it looks authoritative.
 	res = Advise([]Operation{mkOp(t, "SELECT id FROM widgets WHERE owner = $1", ScanSingle)}, sc, perOpOnly())
 	if len(res.Advisories) != 0 {

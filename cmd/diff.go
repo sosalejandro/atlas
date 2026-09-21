@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
-	"github.com/sosalejandro/atlas/internal/app"
+	"github.com/sosalejandro/grunnr/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/app"
 	"github.com/spf13/cobra"
 )
 

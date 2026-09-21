@@ -10,12 +10,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/doctor"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/doctor"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newDoctorCmd implements `atlas doctor` — the self-check that reports
-// whether atlas's picture of the repo is still true.
+// newDoctorCmd implements `grunnr doctor` — the self-check that reports
+// whether grunnr's picture of the repo is still true.
 func newDoctorCmd() *cobra.Command {
 	var (
 		failOn string
@@ -23,11 +23,11 @@ func newDoctorCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Report whether atlas's picture of this repo is still true",
-		Long: `doctor answers the one question no other atlas command can: is the
-state atlas is answering from still about the code on disk?
+		Short: "Report whether grunnr's picture of this repo is still true",
+		Long: `doctor answers the one question no other grunnr command can: is the
+state grunnr is answering from still about the code on disk?
 
-Every number atlas prints -- a coverage percentage, an audit score, a
+Every number grunnr prints -- a coverage percentage, an audit score, a
 sprint ranking -- is downstream of a scan and an ingest, and both go
 stale silently. A stale index does not error; it answers confidently
 about a repo that no longer exists.
@@ -39,8 +39,8 @@ the reason -- never "ok".
 
 The exit code is the CI contract: 0 clean, 1 a check reached the
 --fail-on severity, 2 bad usage, 3 a check could not run at all. 3 is
-the one worth wiring up -- it separates "atlas found a problem" from
-"atlas could not look", which otherwise arrive as the same red X.
+the one worth wiring up -- it separates "grunnr found a problem" from
+"grunnr could not look", which otherwise arrive as the same red X.
 --fail-on warn tightens the gate without changing which checks run.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -73,7 +73,7 @@ func runDoctor(cmd *cobra.Command, rootArg, failOn string) error {
 	}
 
 	// A store that will not open is NOT an early return. It is the single
-	// most useful moment for this command: every other atlas verb dies
+	// most useful moment for this command: every other grunnr verb dies
 	// here in a wall of golang-migrate output, and doctor's job is to turn
 	// that into "migration 11 is dirty, delete the cache and re-init".
 	// The schema check reads the database file directly; the rest report
@@ -86,8 +86,8 @@ func runDoctor(cmd *cobra.Command, rootArg, failOn string) error {
 	//
 	// Existence alone is not enough of a guard, though: store.Open
 	// migrates whatever it is handed, so a 0-byte placeholder, a database
-	// an interrupted `atlas init` left half-made, or an unrelated SQLite
-	// file at this path would all be turned INTO an atlas store by the
+	// an interrupted `grunnr init` left half-made, or an unrelated SQLite
+	// file at this path would all be turned INTO an grunnr store by the
 	// command asked whether they were one. doctor.IsAtlasStore answers
 	// that from a read-only handle first; only a file that is already
 	// ours is opened read-write.
@@ -152,7 +152,7 @@ func tripped(r doctor.Report, threshold doctor.Severity) int {
 }
 
 func printDoctorText(w io.Writer, r doctor.Report, root, dbPath string, verbose bool) {
-	fmt.Fprintf(w, "atlas doctor — %s (db: %s)\n\n", root, dbPath)
+	fmt.Fprintf(w, "grunnr doctor — %s (db: %s)\n\n", root, dbPath)
 	for _, c := range r.Checks {
 		fmt.Fprintf(w, "  %-6s %s\n", "["+string(c.Severity)+"]", c.Name)
 		fmt.Fprintf(w, "        examines: %s\n", c.Examines)

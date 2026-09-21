@@ -3,7 +3,7 @@ package sqlops
 import "sort"
 
 // StatementKind is the verb a statement leads with. "other" covers DDL,
-// transaction control and anything else Atlas records but does not reason
+// transaction control and anything else Grunnr records but does not reason
 // about; it is deliberately not an error, because a query it cannot classify
 // must still appear in the inventory.
 type StatementKind string
@@ -43,7 +43,7 @@ const (
 	ClauseJoin  PredicateClause = "join"
 )
 
-// Predicate is one column comparison Atlas could read out of a WHERE or JOIN
+// Predicate is one column comparison Grunnr could read out of a WHERE or JOIN
 // clause. Table is empty when the alias could not be resolved to a table --
 // an empty Table means "unknown", never "no table", and the index checks
 // treat it as a reason to skip rather than a reason to complain.
@@ -70,7 +70,7 @@ const (
 	OffsetExpression OffsetBound = "expression"
 )
 
-// Statement is everything Atlas extracts from one SQL statement.
+// Statement is everything Grunnr extracts from one SQL statement.
 type Statement struct {
 	Kind       StatementKind `json:"kind"`
 	Tables     []TableAccess `json:"tables,omitempty"`
@@ -135,7 +135,7 @@ var tableClauses = map[clause]Access{
 // AnalyzeStatement extracts the shape of one SQL statement. The second return
 // is false when the text has no recognisable leading SQL keyword at all.
 //
-// The false case is load-bearing. If a fragment Atlas cannot read came back as
+// The false case is load-bearing. If a fragment Grunnr cannot read came back as
 // a zero-valued Statement, its Kind would be the empty string and its
 // HasLimit false -- and a later pass would happily report "unbounded read" on
 // something that is not even a query. Refusing to classify is the only honest
@@ -668,7 +668,7 @@ func collectCTEs(toks []sqlToken) map[string]bool {
 //
 // The optional column list is the part that is easy to miss --
 // `WITH RECURSIVE chain(id, depth) AS (...)` -- and missing it makes the CTE
-// look like a table, which then reports forever as a table whose DDL atlas
+// look like a table, which then reports forever as a table whose DDL grunnr
 // could not find.
 func cteBinding(toks []sqlToken, i int) (name string, bodyStart int, ok bool) {
 	if toks[i].kind != tokIdent {

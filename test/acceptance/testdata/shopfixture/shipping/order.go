@@ -37,7 +37,7 @@ func rate(weight int) int {
 // deliberately the last thing in the file.
 //
 // The Go compiler instruments its body like any other code, so its statements
-// appear in the coverprofile. The atlas scanner indexes FuncDecls, so there is
+// appear in the coverprofile. The grunnr scanner indexes FuncDecls, so there is
 // no symbol for them to be charged to. That makes this the fixture's known
 // blind spot, and it is here on purpose: it is the only shape in the fixture
 // that can tell a REAL end_line from a guessed one.

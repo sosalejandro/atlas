@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage/gocover"
-	"github.com/sosalejandro/atlas/packages/coverage/shim"
-	"github.com/sosalejandro/atlas/packages/coverage/shim/runner"
+	"github.com/sosalejandro/grunnr/packages/coverage/gocover"
+	"github.com/sosalejandro/grunnr/packages/coverage/shim"
+	"github.com/sosalejandro/grunnr/packages/coverage/shim/runner"
 )
 
 // The acceptance test for the whole shim: a real module, a real `go test`,

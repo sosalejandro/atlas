@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/affected"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/affected"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // affectedFixture is a repo with a real store behind it: two production
@@ -35,10 +35,10 @@ type affectedFixture struct {
 func newAffectedFixture(t *testing.T) *affectedFixture {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".atlas"), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".grunnr"), 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
-	fix := &affectedFixture{root: dir, dbPath: filepath.Join(dir, ".atlas", "atlas.db")}
+	fix := &affectedFixture{root: dir, dbPath: filepath.Join(dir, ".grunnr", "grunnr.db")}
 	// A git repo so `git rev-parse --show-toplevel` anchors repoRoot on the
 	// fixture rather than on whatever tree the test binary was built in.
 	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
@@ -71,7 +71,7 @@ func (f *affectedFixture) writeFile(t *testing.T, rel, body string) string {
 }
 
 // touch rewrites a file WITHOUT updating its recorded hash — an edit that
-// landed after the last `atlas scan`, which is what makes the stored spans
+// landed after the last `grunnr scan`, which is what makes the stored spans
 // describe a version of the file that no longer exists.
 func (f *affectedFixture) touch(t *testing.T, rel string) {
 	t.Helper()
@@ -146,7 +146,7 @@ func runAffectedCmd(t *testing.T, fix *affectedFixture, git affected.GitDiff, ar
 	t.Helper()
 	// From the fixture's own directory: config resolution recomputes repoRoot
 	// per invocation, and the freshness check hashes the changed files
-	// relative to it. Pointed at atlas's own tree, every fixture path would
+	// relative to it. Pointed at grunnr's own tree, every fixture path would
 	// classify as deleted and the command would never exercise the fresh path.
 	t.Chdir(fix.root)
 	root := NewRootCmd()
@@ -178,7 +178,7 @@ func TestAffected_FlagsWired(t *testing.T) {
 	cmd := newAffectedCmd()
 	for _, name := range []string{"since", "kind", "fallback-exit-code"} {
 		if cmd.Flags().Lookup(name) == nil {
-			t.Errorf("atlas affected is missing --%s", name)
+			t.Errorf("grunnr affected is missing --%s", name)
 		}
 	}
 }
@@ -186,7 +186,7 @@ func TestAffected_FlagsWired(t *testing.T) {
 func TestAffected_RequiresSince(t *testing.T) {
 	fix := newAffectedFixture(t)
 	if _, _, err := runAffectedCmd(t, fix, changedCheckout()); err == nil {
-		t.Fatal("atlas affected with no --since must fail rather than diff against an implied default")
+		t.Fatal("grunnr affected with no --since must fail rather than diff against an implied default")
 	}
 }
 
@@ -294,7 +294,7 @@ func TestAffected_FallbackExitCodeSignalsRunEverything(t *testing.T) {
 	}
 }
 
-// Without the flag a bail-out is still exit 0: `atlas affected` succeeded at
+// Without the flag a bail-out is still exit 0: `grunnr affected` succeeded at
 // answering the question, and a team that has not opted in must not have their
 // pipeline start failing.
 func TestAffected_FallbackIsExitZeroByDefault(t *testing.T) {
@@ -438,7 +438,7 @@ func TestAffected_EmptySelectionIsWarnedAboutInJSON(t *testing.T) {
 	}
 }
 
-// End to end for #90 finding 1: a file edited since the last `atlas scan` has
+// End to end for #90 finding 1: a file edited since the last `grunnr scan` has
 // spans that describe a version of it that no longer exists. Lines 12-14 land
 // inside billing.Checkout's STORED span, so an unchecked join answers
 // "TestCheckout" alone. The command must widen instead, and say why.
@@ -456,7 +456,7 @@ func TestAffected_StaleIndexWidensAndNamesTheFile(t *testing.T) {
 	if !strings.Contains(out, "billing/checkout.go") {
 		t.Errorf("output does not name the file whose index is out of date:\n%s", out)
 	}
-	if !strings.Contains(out, "atlas scan") {
+	if !strings.Contains(out, "grunnr scan") {
 		t.Errorf("output does not tell the reader how to recover the reduction:\n%s", out)
 	}
 	// And the safety property itself: the tests of the package's other symbol

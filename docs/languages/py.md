@@ -2,11 +2,11 @@
 
 The Python scanner is a `python3` subprocess that walks each `.py` file
 through the stdlib `ast` module and returns the discovered symbols and
-decorator-derived edges to the atlas Go orchestrator. Source lives in
+decorator-derived edges to the grunnr Go orchestrator. Source lives in
 [`packages/codeindex/py/`](../../packages/codeindex/py/) — the embedded
 `scanner.py` is what `python3` actually runs.
 
-The scanner shipped in atlas v0.3.0 (issue #46 / PR #47). It mirrors the
+The scanner shipped in grunnr v0.3.0 (issue #46 / PR #47). It mirrors the
 TS scanner's wire-format contract but uses pure-stdlib AST parsing rather
 than the TypeScript Compiler API, so there's no pip dependency to manage.
 
@@ -14,13 +14,13 @@ than the TypeScript Compiler API, so there's no pip dependency to manage.
 
 - `python3` on `PATH`, version **3.8 or newer** (the scanner uses
   `from __future__ import annotations` and dataclass shapes that
-  predate 3.7 → 3.8 features atlas relies on).
+  predate 3.7 → 3.8 features grunnr relies on).
 - **No pip dependencies** — `scanner.py` is strict-stdlib by design
   (`ast`, `json`, `sys`, `os`, `argparse`). You don't need a virtualenv,
-  Poetry, or pip-installed packages to run atlas against a Python
+  Poetry, or pip-installed packages to run grunnr against a Python
   project.
 
-The Python scanner is **optional**: if `python3` isn't on PATH, atlas
+The Python scanner is **optional**: if `python3` isn't on PATH, grunnr
 emits a single warning and continues indexing Go + TypeScript.
 
 ## What gets indexed
@@ -64,7 +64,7 @@ my-svc/
     └── test_billing.py    ← @atlas:feature billing.subscribe + #real
 ```
 
-After `atlas init` this materialises into roughly:
+After `grunnr init` this materialises into roughly:
 
 ```
 features:        1 (billing.subscribe)
@@ -78,7 +78,7 @@ with Go symbols of the same short name in cross-language queries.
 
 ## Tagging Python code for feature-level grouping (optional)
 
-Atlas associates symbols with features through `@atlas:<kind> <id>`
+Grunnr associates symbols with features through `@atlas:<kind> <id>`
 annotations — the same grammar used in Go and TypeScript. For Python,
 two recognition modes are supported and may be mixed freely within a
 project.
@@ -105,12 +105,12 @@ the canonical grammar in [`docs/annotations.md`](../annotations.md).
 ### Mode 2 — decorator-style (idiomatic Python)
 
 A `@atlas.feature("id")` decorator (or `@feature("id")` when imported
-as `from atlas import feature`) is functionally equivalent to the
-comment form. Atlas reads the decorator name and its first string
+as `from grunnr import feature`) is functionally equivalent to the
+comment form. Grunnr reads the decorator name and its first string
 argument statically; at runtime the decorator is a no-op.
 
 ```python
-from atlas import feature, aggregate
+from grunnr import feature, aggregate
 
 @feature("ship-orders")
 def ship_one(order_id: str) -> str:
@@ -123,8 +123,8 @@ class BatchShipper:
 ```
 
 To use the decorator form, drop the 3-line helper module shipped at
-[`assets/python/atlas.py`](../../assets/python/atlas.py) into your
-project (e.g. as `atlas.py` at a package root, or anywhere on
+[`assets/python/grunnr.py`](../../assets/python/grunnr.py) into your
+project (e.g. as `grunnr.py` at a package root, or anywhere on
 `PYTHONPATH`). The helper has no pip dependencies — it provides
 identity-decorators for the id-shaped kinds (`feature`, `contract`,
 `bc`, `aggregate`, `aggregate_service`, `saga`, `consumer`,
@@ -158,7 +158,7 @@ class BatchShipper:
         ...  # inherits ship-orders.batch
 ```
 
-`atlas chain ship-orders.batch` then returns the call chains of the
+`grunnr chain ship-orders.batch` then returns the call chains of the
 methods, not just the class declaration line. This works with both
 the comment form (`# @atlas:feature ...` above the `class`) and the
 decorator form.
@@ -166,14 +166,14 @@ decorator form.
 ### Verifying the linkage
 
 ```
-# Run from the project root after `atlas init`:
-$ atlas chain ship-orders.batch
+# Run from the project root after `grunnr init`:
+$ grunnr chain ship-orders.batch
 ship-orders.batch
 └─ annotated_decorator.BatchShipper.enqueue       annotated_decorator.py:40
 └─ annotated_decorator.BatchShipper.flush         annotated_decorator.py:44
 ```
 
-If `atlas chain` returns nothing, the most likely cause is that the
+If `grunnr chain` returns nothing, the most likely cause is that the
 annotation's id failed the strict id-grammar (`^[a-z0-9_-]+(\.[a-z0-9_-]+)*$`)
 — see [`docs/annotations.md`](../annotations.md) §id grammar.
 
@@ -182,16 +182,16 @@ annotation's id failed the strict id-grammar (`^[a-z0-9_-]+(\.[a-z0-9_-]+)*$`)
 ### Find a class
 
 ```
-# Run from: /tmp/atlas-fixture (with a py/billing.py fixture file)
-$ atlas codebase find BillingService
+# Run from: /tmp/grunnr-fixture (with a py/billing.py fixture file)
+$ grunnr codebase find BillingService
 py.billing.BillingService  py/billing.py:13  [type]
 ```
 
 ### Find a method
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas codebase find BillingHandler.subscribe
+# Run from: /tmp/grunnr-fixture
+$ grunnr codebase find BillingHandler.subscribe
 py.billing.BillingHandler.subscribe  py/billing.py:8  [method]
 ```
 
@@ -203,8 +203,8 @@ qualified `py.<module>.<class>.<method>` form.
 ### Triage a symptom against Python bodies
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas diagnose "create_subscription" --min-confidence 0.1
+# Run from: /tmp/grunnr-fixture
+$ grunnr diagnose "create_subscription" --min-confidence 0.1
   0.450  py.billing.BillingService.create_subscription   py/billing.py:14  [feature=-]
     matched whole symptom 1x in body; matched 1 symptom tokens
   0.225  py.billing.BillingHandler.subscribe             py/billing.py:8  [feature=-]
@@ -213,7 +213,7 @@ $ atlas diagnose "create_subscription" --min-confidence 0.1
 
 The `[feature=-]` tag means the symbol isn't linked to a feature — the
 fixture's `BillingHandler` carries `@atlas:feature billing.subscribe`
-only at the class level, and atlas doesn't propagate that linkage to
+only at the class level, and grunnr doesn't propagate that linkage to
 nested methods (see Gotcha #1 below).
 
 ## Common gotchas
@@ -231,9 +231,9 @@ def process(handler):
 `scanner.py` records `process` and (via decorator edges) any decorators
 applied to it — but it cannot know which `handle` method `handler` refers
 to, because `handler` could be any object at runtime. The edge is
-silently absent from `atlas chain`.
+silently absent from `grunnr chain`.
 
-**Practical impact**: Python `atlas chain` chains are shallow compared to
+**Practical impact**: Python `grunnr chain` chains are shallow compared to
 Go traces. A Python function that dispatches through a `dict` of
 handlers, a class registry, or `getattr(obj, name)()` will look like a
 dead-end node in the trace.
@@ -254,15 +254,15 @@ def login():
     ...
 ```
 
-Atlas emits an edge `login -> flask_app.route` but doesn't know `login`
+Grunnr emits an edge `login -> flask_app.route` but doesn't know `login`
 is now an HTTP handler. Route extraction for Python is **not** wired in
-v0.3.0 (the Go-side `atlas contract list` Route extractor is Chi / Echo /
+v0.3.0 (the Go-side `grunnr contract list` Route extractor is Chi / Echo /
 Huma / stdlib only).
 
-**Practical impact**: there's no `atlas contract list --kind route`
+**Practical impact**: there's no `grunnr contract list --kind route`
 support for Python today. If you need HTTP-route extraction across
 Python services, open an issue at
-<https://github.com/sosalejandro/atlas/issues>.
+<https://github.com/sosalejandro/grunnr/issues>.
 
 ### 3. Annotations on a class auto-propagate to methods (RESOLVED in v0.4.0)
 
@@ -295,7 +295,7 @@ NOT considered part of the class API surface and do not inherit.
 unqualified callee names (`echo`, `Base`, `style`) because Python's
 dynamic dispatch makes full name resolution at AST time infeasible.
 Prior to v0.5.0 those bare names became `external:py:1` stubs at
-ingest time, so `atlas chain` chains terminated at the first
+ingest time, so `grunnr chain` chains terminated at the first
 cross-module hop.
 
 The Go-side resolver
@@ -308,7 +308,7 @@ lookup (first match wins):
    dot target like `mypkg.db.models.Case` matched against the index of
    every dot-segmented tail of every emitted symbol id. Resolves when
    exactly one internal symbol's id ends with the target at a dot
-   boundary. This is the rule that bridges atlas's path-rooted symbol
+   boundary. This is the rule that bridges grunnr's path-rooted symbol
    ids (`packages.db.src.mypkg.db.models.Case`) and the canonical
    Python module paths users actually type in `from … import …`,
    enabling cross-package import edges in monorepo / `src/`-layout
@@ -355,7 +355,7 @@ in every language. To support the new kind via the **decorator-form**
 in Python, also add it to the `decoratable` map in
 [`packages/codeindex/py/scanner.py`](../../packages/codeindex/py/scanner.py)
 and to the helper module at
-[`assets/python/atlas.py`](../../assets/python/atlas.py).
+[`assets/python/grunnr.py`](../../assets/python/grunnr.py).
 
 ## Related
 

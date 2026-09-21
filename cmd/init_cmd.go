@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
-	"github.com/sosalejandro/atlas/internal/app"
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/app"
+	"github.com/sosalejandro/grunnr/internal/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -177,8 +177,8 @@ func groupRoutesIntoDomains(routes []adapters.RouteMapping) []domain.DomainFile 
 	// "server/handlers/health/health.go" → "health"
 	// "server/modules/interactions/enroll/enroll.handler.go" → "enroll"
 	type featureGroup struct {
-		domain   string
-		routes   []adapters.RouteMapping
+		domain string
+		routes []adapters.RouteMapping
 	}
 
 	domainMap := make(map[string]*featureGroup)

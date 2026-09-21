@@ -1,4 +1,4 @@
-# Atlas SQLite Schema — v1 Reference (Phase 0)
+# Grunnr SQLite Schema — v1 Reference (Phase 0)
 
 Status: **draft / Phase 0 capture**. The schema described here is the target
 shape for `packages/store/schema/0001_initial.up.sql`. It is the authoritative
@@ -10,7 +10,7 @@ in one of the two and must be reconciled before merge.
 
 ## 1. Purpose
 
-Atlas persists **derived state** in a single SQLite database file per project.
+Grunnr persists **derived state** in a single SQLite database file per project.
 The **source of truth lives in code** — `@atlas:<kind> <id>` annotations,
 Go/TS/SQL source files, test outputs. SQLite is:
 
@@ -30,7 +30,7 @@ code. The only state that lives _only_ in SQLite is:
   underlying test framework, but the SQLite copy is the indexed view).
 
 If a developer's database gets into a weird state, the answer is always
-`rm atlas-state.db && atlas init` — never schema surgery by hand.
+`rm grunnr-state.db && grunnr init` — never schema surgery by hand.
 
 ---
 
@@ -55,7 +55,7 @@ Per table:
 | --------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `config`                          | Registry | Authored knobs, not derived from source.                                                                                                 |
 | `features`                        | Registry | The capability list. Authored via annotations, versioned with the code that carries them.                                                |
-| `symbols`                         | Index    | Both classes (§5.19). Rebuilt by `atlas scan`.                                                                                            |
+| `symbols`                         | Index    | Both classes (§5.19). Rebuilt by `grunnr scan`.                                                                                            |
 | `edges`                           | Index    |                                                                                                                                          |
 | `feature_symbols`                 | Index    | The *link* is derived by resolving an authored annotation against a scanned symbol; the annotation is Registry, the resolution is not.    |
 | `file_hashes`                     | Index    | The incremental-scan driver; meaningless off this machine.                                                                                |
@@ -64,28 +64,28 @@ Per table:
 | `coverage_results`                | Evidence |                                                                                                                                          |
 | `coverage_run_gaps`               | Evidence | What a run could NOT attribute — evidence about the evidence.                                                                            |
 | `coverage_symbol_spans`           | Evidence | The span a result was measured against.                                                                                                  |
-| `coverage_history`                | Evidence | The per-commit series behind `atlas trend`.                                                                                              |
+| `coverage_history`                | Evidence | The per-commit series behind `grunnr trend`.                                                                                              |
 | `test_coverage`                   | Evidence | Per-test execution.                                                                                                                      |
 | `sql_operations`, `sql_operation_tables`, `sql_operation_predicates`, `sql_tables`, `sql_indexes` | Index | The data-access layer read out of source. |
 | `cfg_symbols`, `cfg_blocks`, `cfg_edges`, `cfg_findings` | Index | Control flow, derived per symbol.                                                                              |
 | `cfg_decision_coverage`           | Evidence | Derived control flow crossed with a profile — it cannot exist without a run.                                                             |
 | `skipped_files`                   | Index    | The exclusion ledger for one scan.                                                                                                       |
 | `snapshots`                       | Evidence | A point-in-time capture, appended.                                                                                                       |
-| `audit_snapshot_runs`             | Evidence | One row per `atlas health` run that was recorded.                                                                                        |
+| `audit_snapshot_runs`             | Evidence | One row per `grunnr health` run that was recorded.                                                                                        |
 | `coverage_history_features`       | Evidence | The per-feature detail of a `coverage_history` point.                                                                                    |
-| `schema_migrations`               | —        | golang-migrate's own bookkeeping; not Atlas data.                                                                                        |
+| `schema_migrations`               | —        | golang-migrate's own bookkeeping; not Grunnr data.                                                                                        |
 
 Health scores, matrices and diagrams appear in NO table. That is the Views
 plane doing its job: a score is a pure function of Index + Registry +
 Evidence, and storing one as truth is how a number outlives the data that
-justified it. `atlas health` recomputes on every invocation; `atlas snapshot`
+justified it. `grunnr health` recomputes on every invocation; `grunnr snapshot`
 stores a score only as an explicitly-labelled historical Evidence row, never
 as an answer to "what is the score now".
 
 The planes also explain a boundary the code already respects: the Index is
 the only plane a scan may delete rows from. `pruneStaleSymbolsTx` removing a
 declaration the source no longer has is routine; the same operation against
-`features` would be Atlas deciding a capability no longer exists because it
+`features` would be Grunnr deciding a capability no longer exists because it
 could not find it, which is a different and much worse claim.
 
 ---
@@ -99,11 +99,11 @@ JSON API was still unfrozen (#101), and none of them would have been after.
 
 | Was          | Is                                            | Why                                                                                                                                                        |
 | ------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `atlas trace`| `atlas chain`                                 | "Trace" is a distributed trace to every engineer who has opened Jaeger, and #94 ingests real OTel spans. **`trace` is now reserved for the runtime concept.** |
-| `coverage`   | `execution` / `verification` / `attribution`  | One word for three things: which statements RAN, whether a capability is VERIFIED by passing tests, and how much of the execution atlas could PLACE against a symbol. |
+| `grunnr trace`| `grunnr chain`                                 | "Trace" is a distributed trace to every engineer who has opened Jaeger, and #94 ingests real OTel spans. **`trace` is now reserved for the runtime concept.** |
+| `coverage`   | `execution` / `verification` / `attribution`  | One word for three things: which statements RAN, whether a capability is VERIFIED by passing tests, and how much of the execution grunnr could PLACE against a symbol. |
 | `contract`   | `contract` / `chain` / `drift`                | The intended interface (OpenAPI, Goa, proto) keeps the word. The actual path is a `chain`. The difference between them is `drift`.                          |
-| `symbol`     | `declaration` / `anchor`                      | The table mixed real code with vertices atlas invented. Now a column — see §5.19.                                                                            |
-| `atlas audit`| `atlas health`                                | The command said audit, the type said `FeatureHealth`, the docs said score. `audit` stays as an alias; the compliance reading of the word is an asset.       |
+| `symbol`     | `declaration` / `anchor`                      | The table mixed real code with vertices grunnr invented. Now a column — see §5.19.                                                                            |
+| `grunnr audit`| `grunnr health`                                | The command said audit, the type said `FeatureHealth`, the docs said score. `audit` stays as an alias; the compliance reading of the word is an asset.       |
 | `bc_path`    | `domain`                                      | "Bounded context" is DDD's word. A repo that does not do DDD still has product areas. Kept as the display name, dropped as the schema's claim.                |
 
 **Every renamed CLI verb keeps a working alias for one minor version**, and
@@ -130,7 +130,7 @@ mapped through, nothing else differs. Verified two ways: a fresh scan with
 each binary over the same working tree, and a v18 store built by the old
 binary then opened (and migrated) by the new one. The declaration/anchor
 backfill classifies exactly the 79 rows the old `external:py` prefix check
-excluded, and `atlas codebase dead` returns the same 5124 candidates.
+excluded, and `grunnr codebase dead` returns the same 5124 candidates.
 
 Still carrying the old vocabulary, deliberately out of scope for #112 and
 worth a follow-up:
@@ -140,7 +140,7 @@ worth a follow-up:
   public API would expose, was renamed to `ChainFrom` / `ChainNode`.
 - The `@atlas:bc` annotation kind still says `bc`. Renaming an annotation kind
   is a change to authored source in other people's repositories, which is what
-  `atlas migrate-annotations` exists for and what the issue's "taxonomy pass"
+  `grunnr migrate-annotations` exists for and what the issue's "taxonomy pass"
   note anticipates.
 - The MCP tool names (`symbol_info`, `coverage_for`) are unchanged.
 
@@ -148,16 +148,16 @@ worth a follow-up:
 
 ## 2. Storage Location
 
-Default path: `atlas-state.db` at the project root (sibling of `.atlas.yaml`).
+Default path: `grunnr-state.db` at the project root (sibling of `.atlas.yaml`).
 
 Overrides (precedence high → low):
 
-1. `--state <path>` CLI flag on any `atlas` subcommand.
-2. `ATLAS_STATE` environment variable.
+1. `--state <path>` CLI flag on any `grunnr` subcommand.
+2. `GRUNNR_STATE` environment variable.
 3. `state_path:` field in `.atlas.yaml`.
-4. Default `./atlas-state.db`.
+4. Default `./grunnr-state.db`.
 
-**Gitignored by default.** `atlas init` appends `atlas-state.db` (and any
+**Gitignored by default.** `grunnr init` appends `grunnr-state.db` (and any
 `-wal` / `-shm` siblings) to the repo's `.gitignore` if not already present.
 The database is local-only cache; committing it would create merge conflicts
 on every branch and leak per-developer scan timestamps.
@@ -181,11 +181,11 @@ DSN pragmas, one per `_pragma=...` parameter:
 | Pragma                | Value | Why                                                                                                                                                |
 | --------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `journal_mode`        | `WAL` | Concurrent readers don't block on a single writer; crash recovery is a checkpoint replay, not a full rollback.                                     |
-| `foreign_keys`        | `1`   | SQLite ships with FK enforcement off by default. Atlas relies on `ON DELETE CASCADE` for `feature_symbols`, `coverage_results`, etc.               |
+| `foreign_keys`        | `1`   | SQLite ships with FK enforcement off by default. Grunnr relies on `ON DELETE CASCADE` for `feature_symbols`, `coverage_results`, etc.               |
 | `busy_timeout`        | `5000`| Five-second wait before `SQLITE_BUSY` surfaces. Lets a long-running scan finish before a read aborts.                                              |
 
-One writer per process is the contract. Multiple Atlas processes against the
-same DB file are not supported (Atlas always runs as a single CLI invocation).
+One writer per process is the contract. Multiple Grunnr processes against the
+same DB file are not supported (Grunnr always runs as a single CLI invocation).
 
 `Open(ctx, path)` runs the embedded migration runner before returning a
 `*DB`. Callers do not see un-migrated state.
@@ -213,19 +213,19 @@ modernc-backed `sqlite` driver). The runner:
    from the embedded filesystem and orders them by the numeric prefix.
 2. **Track** — golang-migrate creates and maintains its default
    `schema_migrations` table (`version BIGINT PRIMARY KEY, dirty BOOLEAN`)
-   the first time `m.Up()` runs. Atlas never writes to that table directly;
+   the first time `m.Up()` runs. Grunnr never writes to that table directly;
    `Store.SchemaVersion(ctx)` is a read-only convenience that returns
    `MAX(version)`.
 3. **Apply** — each pending migration runs in a per-statement transaction
    driven by the sqlite driver. On crash mid-migration the row is flagged
    `dirty=1`; resolving that state requires `migrate force <version>` at
-   the CLI (Atlas does not auto-resolve dirty state — we surface it instead
+   the CLI (Grunnr does not auto-resolve dirty state — we surface it instead
    so the operator decides).
 
-**Up-only migrations.** Atlas does NOT ship `*.down.sql` files (locked
+**Up-only migrations.** Grunnr does NOT ship `*.down.sql` files (locked
 decision in `docs/architecture.md` §3.7). golang-migrate tolerates their
 absence — it simply loses the ability to step down past a version, which
-Atlas doesn't need. Rollback is "delete the file and re-init" — safe
+Grunnr doesn't need. Rollback is "delete the file and re-init" — safe
 because the database is a re-derivable cache, not the source of truth.
 If a migration needs to be reversed, ship a new forward-direction
 migration that undoes it.
@@ -251,9 +251,9 @@ first time `Open` runs — it is not part of `0001_initial.up.sql`.
 
 ### 5.1 `schema_migrations` (managed by golang-migrate)
 
-Created and maintained by the migration runner. Atlas reads it via
+Created and maintained by the migration runner. Grunnr reads it via
 `Store.SchemaVersion(ctx)` for diagnostics and CLI commands like
-`atlas doctor`; nothing in Atlas writes to it directly.
+`grunnr doctor`; nothing in Grunnr writes to it directly.
 
 | Column    | Type    | Notes                                                                  |
 | --------- | ------- | ---------------------------------------------------------------------- |
@@ -276,22 +276,22 @@ CREATE TABLE config (
 | `value`      | TEXT      | Raw string. JSON-encoded for structured values; the application layer parses on read.   |
 | `updated_at` | TIMESTAMP | Touched on every successful `INSERT OR REPLACE`.                                       |
 
-Read-only at scan time. Written exclusively by `atlas config set <key>
-<value>`. The initial population of this table is part of `atlas init` — the
+Read-only at scan time. Written exclusively by `grunnr config set <key>
+<value>`. The initial population of this table is part of `grunnr init` — the
 fields from `.atlas.yaml` get mirrored here so the running binary doesn't
 need to re-parse YAML for every CLI invocation.
 
-Reserved keys (Atlas v0):
+Reserved keys (Grunnr v0):
 
 - `log.level` — `debug | info | warn | error`. Default `info`.
 - `scan.default_scope` — comma-separated list of paths; e.g. `src,apps`.
 - `cache.ttl_minutes` — integer. How long a file-hash row is trusted before
-  Atlas re-stats the file. Default `60`.
+  Grunnr re-stats the file. Default `60`.
 - `annotations.legacy_testreg` — `true | false`. When true, `@testreg <id>`
   is accepted as an alias for `@atlas:feature <id>`. Default `true` until
   Phase 9 cutover completes, then settable to `false`.
 
-### 5.3 `features` — Atlas's notion of a "feature"
+### 5.3 `features` — Grunnr's notion of a "feature"
 
 ```sql
 CREATE TABLE features (
@@ -315,7 +315,7 @@ CREATE TABLE features (
 | `kind`             | TEXT      | `feature` (default) — testable product behaviour. `contract` — an API contract surface (no separate test cycle). |
 | `deprecated_since` | TEXT      | Optional. Free-form version/date string from `@atlas:deprecated`. Drives audit warnings.                          |
 | `introduced_in`    | TEXT      | Optional. Free-form version/date string from `@atlas:since`. Useful for changelog generation.                    |
-| `created_at`       | TIMESTAMP | First time Atlas saw this ID.                                                                                    |
+| `created_at`       | TIMESTAMP | First time Grunnr saw this ID.                                                                                    |
 | `updated_at`       | TIMESTAMP | Touched on any metadata change.                                                                                  |
 
 Backed by the `Feature` domain type at
@@ -325,7 +325,7 @@ recomputed views (see §7 read patterns).
 
 ### 5.4 `symbols` — every named entity discovered by the scanner
 
-> **Plane: Index.** Derived from source, disposable, rebuilt by `atlas scan`.
+> **Plane: Index.** Derived from source, disposable, rebuilt by `grunnr scan`.
 
 ```sql
 CREATE TABLE symbols (
@@ -361,7 +361,7 @@ CREATE INDEX symbols_node_class_idx ON symbols(node_class);
 | `domain`          | TEXT      | Product-area path, e.g. `src/contexts/identity` — "bounded context" is the DDD-flavoured display name. Computed on insert from `file_path`. NULL for code outside the convention. Was `bc_path` before migration 0019. |
 | `created_at`      | TIMESTAMP | First time this symbol was indexed.                                                                                            |
 | `pattern_matches` | TEXT      | JSON-encoded `[]patterns.Match` set produced by codeindex/patterns recognisers (Phase 6f). NULL when the symbol has no hits.    |
-| `node_class`      | TEXT      | `declaration` (authored code) or `anchor` (a vertex Atlas minted so an edge has somewhere to land). See §5.19. |
+| `node_class`      | TEXT      | `declaration` (authored code) or `anchor` (a vertex Grunnr minted so an edge has somewhere to land). See §5.19. |
 
 The unique constraint on `qualified_name` is the cache key. Re-scanning the
 same file yields the same qualified name, so subsequent runs `INSERT OR
@@ -371,7 +371,7 @@ IGNORE` and skip duplicates without writes.
 
 The Go scanner registers a declaration under its **short** id — `Type.Method`
 for methods, `pkg.Func` for plain functions — because that is what
-`@atlas:feature` annotations, `atlas chain` arguments and stored feature links
+`@atlas:feature` annotations, `grunnr chain` arguments and stored feature links
 refer to. Short ids are not globally unique: any monorepo where two bounded
 contexts each declare a `Chat` or a `NewAvailabilityService` produces
 collisions. When a short id is already taken by a declaration in a **different
@@ -389,7 +389,7 @@ unattributable (issue #85).
 `end_line` matters for the same reason: the coverage ingest charges an
 executed statement to the symbol whose `[line, end_line]` span contains it.
 When `end_line` is NULL the span is guessed from the next symbol's start line,
-so statements belonging to declarations atlas did not index get charged to
+so statements belonging to declarations grunnr did not index get charged to
 whichever neighbour precedes them, and the last symbol in a file absorbs
 everything to EOF. The Go scanner always emits it.
 
@@ -448,7 +448,7 @@ both would double-count it in every walk and every histogram.
 
 #### 5.5.1 `resolution_tier` — provenance per edge (issue #146)
 
-Atlas derives the same relationship by mechanisms of wildly different
+Grunnr derives the same relationship by mechanisms of wildly different
 reliability. A callee found in the caller's package scope and a callee
 guessed from a case-insensitive substring match on a variable name are
 identical in every other column of this table. Without this one, no test
@@ -464,7 +464,7 @@ histograms incomparable, which defeats the purpose.
 | Tier            | Mechanism                                   | Claims                                                        | Produced today by |
 | --------------- | ------------------------------------------- | ------------------------------------------------------------- | ----------------- |
 | `typed`         | a type checker (`go/packages` + callgraph)  | exact, including interface dispatch and generic instantiation | nothing yet — this is what #87 lands |
-| `name_resolved` | scope-aware name binding                    | the name was bound to a declaration atlas actually indexed    | the Go scanner (`resolveInScope` hits); the Python scanner (imports / base classes / decorators whose target resolved to an indexed symbol) |
+| `name_resolved` | scope-aware name binding                    | the name was bound to a declaration grunnr actually indexed    | the Go scanner (`resolveInScope` hits); the Python scanner (imports / base classes / decorators whose target resolved to an indexed symbol) |
 | `syntactic`     | the shape of the source, no cross-file binding | a plausible target; it may not exist, and may be the wrong one of several same-named candidates | the Go scanner (fuzzy + DI + unresolved-guess paths, route and `@api` edges, external stubs); the TypeScript scanner (all edges); the Python scanner (all calls, and any target that did not resolve) |
 | `imported`      | somebody else's indexer, via SCIP           | whatever that indexer knew                                    | nothing yet — #105 step 1 |
 
@@ -490,7 +490,7 @@ Rules:
   true of every such row, and biases the first post-#87 histogram
   against showing an improvement — the safe direction for a change
   detector to be wrong in. Real per-row tiers come from re-running
-  `atlas scan`.
+  `grunnr scan`.
 
 `ambiguous` is `graph.Edge.Ambiguous`, computed by the resolver since
 v0.4 and, until 0018, discarded at the storage boundary. It is
@@ -498,7 +498,7 @@ orthogonal to the tier and both are kept: a `name_resolved` edge can be
 ambiguous (two packages declare the short name) and a `syntactic` one
 can be unambiguous (one substring matched — still a guess).
 
-`atlas doctor`'s `index.edge_provenance` check reports the
+`grunnr doctor`'s `index.edge_provenance` check reports the
 (language, tier) histogram, with the language derived from the edge's
 file extension. It warns when a language's edges are *all* syntactic —
 the only threshold applied, and deliberately the degenerate one.
@@ -522,7 +522,7 @@ CREATE TABLE feature_symbols (
 | `feature_id` | TEXT    | FK → `features(id)`. Cascades on delete.                                                                                                           |
 | `symbol_id`  | INTEGER | FK → `symbols(id)`. Cascades on delete.                                                                                                            |
 | `role`       | TEXT    | `test` — symbol is a test that exercises the feature. `impl` — symbol is part of the feature's implementation. `contract` — symbol defines the feature's API surface. |
-| `source`     | TEXT    | `annotation` — derived from an `@atlas:feature` (or legacy `@testreg`) comment. `inferred` — Atlas walked the graph and concluded membership.       |
+| `source`     | TEXT    | `annotation` — derived from an `@atlas:feature` (or legacy `@testreg`) comment. `inferred` — Grunnr walked the graph and concluded membership.       |
 
 The composite PK `(feature_id, symbol_id, role)` is the uniqueness
 invariant: a symbol can be both an `impl` and a `test` for the same
@@ -547,7 +547,7 @@ CREATE INDEX file_hashes_last_scanned_idx ON file_hashes(last_scanned);
 | `file_path`    | TEXT PK   | Project-relative path.                                                                                                         |
 | `content_hash` | TEXT      | Hex SHA-256 of the file contents at last scan. Cheap to compute, sufficient to detect any edit.                                |
 | `mtime`        | TIMESTAMP | File modification time at last scan. Lets the incremental scanner short-circuit (skip hash compute) when mtime is unchanged.    |
-| `last_scanned` | TIMESTAMP | When Atlas last walked this file. Drives `cache.ttl_minutes` invalidation.                                                     |
+| `last_scanned` | TIMESTAMP | When Grunnr last walked this file. Drives `cache.ttl_minutes` invalidation.                                                     |
 
 The scan loop is:
 
@@ -579,7 +579,7 @@ CREATE INDEX coverage_runs_framework_idx ON coverage_runs(framework, finished_at
 | Column         | Type      | Notes                                                                                                            |
 | -------------- | --------- | ---------------------------------------------------------------------------------------------------------------- |
 | `id`           | INTEGER   | Surrogate PK.                                                                                                    |
-| `framework`    | TEXT      | One of `go-test`, `playwright`, `vitest`, `jest`, `maestro`. Atlas's v0 supported set.                            |
+| `framework`    | TEXT      | One of `go-test`, `playwright`, `vitest`, `jest`, `maestro`. Grunnr's v0 supported set.                            |
 | `started_at`   | TIMESTAMP | From the framework's report if available; otherwise the ingest start time.                                       |
 | `finished_at`  | TIMESTAMP | From the report; otherwise the ingest end time.                                                                  |
 | `raw_path`     | TEXT      | Optional. Path to the raw test output (e.g. `go test -json` JSONL file, Playwright HTML report dir).             |
@@ -605,12 +605,12 @@ CREATE INDEX coverage_runs_group_idx ON coverage_runs(run_group, finished_at);
 | Column               | Type    | Notes                                                                                                                                                                                                             |
 | -------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `files_in_report`    | INTEGER | Files the coverage report named. Zero for a run with no accounting (pre-0011, or a pass/fail framework) -- see the all-zero rule below.                                                                            |
-| `files_matched`      | INTEGER | Of those, files atlas resolved to indexed symbols.                                                                                                                                                                |
-| `files_unmatched`    | INTEGER | Files whose execution atlas could not charge to any symbol.                                                                                                                                                       |
+| `files_matched`      | INTEGER | Of those, files grunnr resolved to indexed symbols.                                                                                                                                                                |
+| `files_unmatched`    | INTEGER | Files whose execution grunnr could not charge to any symbol.                                                                                                                                                       |
 | `stmts_attributed`   | INTEGER | Statements charged to a symbol.                                                                                                                                                                                   |
 | `stmts_unattributed` | INTEGER | Statements that ran but reached no symbol. This is the honest size of the coverage blind spot, and it stays exact however the per-file enumeration in `coverage_run_gaps` was capped.                              |
 | `gaps_truncated`     | INTEGER | How many gap FILES did not fit the store's per-run cap. Written by the gap insert, not the run insert, so the count and the list are committed together.                                                           |
-| `run_group`          | TEXT    | Nullable correlation key (a git SHA, a CI run id) tying several syncs into one measurement. Atlas never interprets it. NULL means the run stands alone, which is the pre-0012 behaviour every existing row keeps. |
+| `run_group`          | TEXT    | Nullable correlation key (a git SHA, a CI run id) tying several syncs into one measurement. Grunnr never interprets it. NULL means the run stands alone, which is the pre-0012 behaviour every existing row keeps. |
 
 An **all-zero counter set is not a perfect attribution**. A run predating 0011,
 or one from a framework with no statement coverage, leaves every counter at 0;
@@ -670,7 +670,7 @@ store scores each feature by the best evidence it has.
 
 > **Status:** removed by migration `0006_drop_unused_audit_snapshots` (issue
 > #21). The per-feature, per-snapshot shape this section originally described
-> never matched a real workflow — nothing in Atlas ever wrote to the table.
+> never matched a real workflow — nothing in Grunnr ever wrote to the table.
 > Phase 6a added `audit_snapshot_runs` (§5.12) for the whole-project JSON
 > blob the algorithm actually persists; the legacy table was dropped as
 > tech-debt cleanup in the follow-up. The original schema is preserved
@@ -699,9 +699,9 @@ CREATE INDEX audit_snapshots_feature_idx ON audit_snapshots(feature_id, taken_at
 | `feature_id`             | TEXT      | FK → `features(id)`. Cascades.                                                                                 |
 | `score`                  | INTEGER   | `0`–`100`. Computed by `packages/audit/score.go` from the ported `audit_feature.go` algorithm.                 |
 | `layer_scores_json`      | TEXT      | JSON object, e.g. `{"handler": 80, "service": 70, "repo": 90}`. Matches `domain.LayerCoverage`.                |
-| `blocking_findings_json` | TEXT      | JSON array of `domain.AuditGap`-shaped objects. Drives the "must-fix before release" list in `atlas health`.    |
+| `blocking_findings_json` | TEXT      | JSON array of `domain.AuditGap`-shaped objects. Drives the "must-fix before release" list in `grunnr health`.    |
 
-Snapshots accumulate over time so `atlas diff` can compare commits.
+Snapshots accumulate over time so `grunnr diff` can compare commits.
 
 ### 5.11 `annotations` — raw extracted annotations (pre-resolution)
 
@@ -712,14 +712,14 @@ CREATE TABLE annotations (
   line      INTEGER NOT NULL,
   kind      TEXT    NOT NULL,
   value     TEXT    NOT NULL,
-  source    TEXT    NOT NULL DEFAULT 'atlas',
+  source    TEXT    NOT NULL DEFAULT 'grunnr',
   parsed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CHECK (kind IN (
     'feature', 'contract', 'owner', 'deprecated', 'since',
     'bc', 'aggregate', 'aggregate-service', 'saga', 'consumer',
     'event-emit', 'outbox-publish'
   )),
-  CHECK (source IN ('atlas', 'testreg'))
+  CHECK (source IN ('grunnr', 'testreg'))
 );
 
 CREATE INDEX annotations_file_idx ON annotations(file_path);
@@ -737,9 +737,9 @@ CHECK set and copies existing rows over.
 | `id`        | INTEGER   | Surrogate PK.                                                                                                                               |
 | `file_path` | TEXT      | Project-relative path.                                                                                                                      |
 | `line`      | INTEGER   | 1-based line of the comment.                                                                                                                |
-| `kind`      | TEXT      | One of the twelve kinds in the CHECK clause above. Matches Atlas's annotation grammar verbs from `docs/annotations.md` §Known kinds.        |
+| `kind`      | TEXT      | One of the twelve kinds in the CHECK clause above. Matches Grunnr's annotation grammar verbs from `docs/annotations.md` §Known kinds.        |
 | `value`     | TEXT      | Raw value after the kind keyword. e.g. for `// @atlas:feature auth.login`: `value = "auth.login"`. Tags are part of the raw value string.   |
-| `source`    | TEXT      | `atlas` for new-style `@atlas:<kind>`, `testreg` for legacy `// @testreg <id>`. Lets the migration tool target only legacy rows.            |
+| `source`    | TEXT      | `grunnr` for new-style `@atlas:<kind>`, `testreg` for legacy `// @testreg <id>`. Lets the migration tool target only legacy rows.            |
 | `parsed_at` | TIMESTAMP | When the parser saw this annotation.                                                                                                        |
 
 The unique constraint `(file_path, line, kind)` enforces the invariant that
@@ -801,7 +801,7 @@ CREATE INDEX coverage_run_gaps_loss_idx ON coverage_run_gaps(run_id, stmts DESC)
 ```
 
 The per-file enumeration behind `coverage_runs.stmts_unattributed`: which
-files executed statements atlas could not charge to any symbol, and why (no
+files executed statements grunnr could not charge to any symbol, and why (no
 indexed symbol for the file at all, or execution outside every known symbol
 span).
 
@@ -835,23 +835,23 @@ CREATE TABLE coverage_history_features (
 ) WITHOUT ROWID;
 ```
 
-Written by `atlas trend record` and by `atlas trend`'s backfill, read by
-`atlas trend` and its `--compare-to` regression gate (issue #92). Every other
+Written by `grunnr trend record` and by `grunnr trend`'s backfill, read by
+`grunnr trend` and its `--compare-to` regression gate (issue #92). Every other
 table here answers "what is true now"; this pair answers "is it getting
 better or worse".
 
-**Who writes rows.** `atlas trend record` writes the point for a commit,
-scored through the audit. `atlas trend` additionally **backfills** the points
+**Who writes rows.** `grunnr trend record` writes the point for a commit,
+scored through the audit. `grunnr trend` additionally **backfills** the points
 it can derive from `coverage_runs` / `coverage_results` that have no point
 yet — statement coverage over each feature's linked impl symbols, one point
 per run group, keyed by `run_group` (which CI is encouraged to set to the
 commit sha) or by `coverage-run:<id>` when there is none. Backfill never
 overwrites an existing point and is skipped under `--no-backfill`. Nothing
-else writes here: `atlas cov sync` and `atlas health` do not.
+else writes here: `grunnr cov sync` and `grunnr health` do not.
 
 | Column        | Type      | Notes                                                                                                                                                       |
 | ------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `commit_sha`  | TEXT      | Free text like `snapshots.git_ref` -- Atlas never forks git to validate it, and CI systems legitimately record tags or synthetic ids. UNIQUE; see below.     |
+| `commit_sha`  | TEXT      | Free text like `snapshots.git_ref` -- Grunnr never forks git to validate it, and CI systems legitimately record tags or synthetic ids. UNIQUE; see below.     |
 | `measured_at` | TIMESTAMP | Orders the series and tells the reader how stale a point is. Updated on a re-measurement.                                                                    |
 | `score`       | REAL      | **NULLABLE, and this is the load-bearing decision.** NULL means no coverage evidence at that commit, which is NOT the same fact as a score of zero.          |
 | `denominator` | INTEGER   | The size of the surface the score was computed over, **in the same unit as the score** — statements when statement coverage exists, else scored symbols. See below. |
@@ -861,7 +861,7 @@ else writes here: `atlas cov sync` and `atlas health` do not.
 `FeatureHealth.Score`. The overall audit score re-normalises a blend of
 statement coverage, decision coverage (#140), annotation freshness, pattern
 compliance and contract drift;
-recording that in a table `atlas trend` gates on as a coverage regression
+recording that in a table `grunnr trend` gates on as a coverage regression
 would fire the gate on a stale annotation and let a real coverage drop hide
 behind another component rising.
 
@@ -878,7 +878,7 @@ back to the count of scored symbols so the unit still matches the score.
 
 **Why `score` is nullable.** Coverage evidence is routinely absent for a
 commit: the docs-only PR nobody ran the suite on, the CI job that died before
-`cov sync`. Storing 0 there would make `atlas trend` draw a cliff that never
+`cov sync`. Storing 0 there would make `grunnr trend` draw a cliff that never
 happened and make the regression gate fail an innocent PR. NULL means "not
 measured"; readers skip the point rather than plotting or comparing it as a
 zero. `coverage_history_features.score` carries the same rule per feature.
@@ -886,21 +886,21 @@ zero. `coverage_history_features.score` carries the same rule per feature.
 **Why `commit_sha` is UNIQUE rather than `(commit_sha, measured_at)`.** The
 logical key of a point is the pair, but a commit's score is a function of the
 commit: a re-measurement is a correction, not a second observation. A CI job
-that retries, or a developer who runs `atlas trend record` twice, must leave
+that retries, or a developer who runs `grunnr trend record` twice, must leave
 ONE point behind. `store.History.Record` upserts on this index and replaces
 the child rows, so last-write-wins is the recorded semantic and stale
 per-feature rows never survive a shrinking feature set.
 
-**Retention.** `atlas trend record --retain <window>` deletes points older
+**Retention.** `grunnr trend record --retain <window>` deletes points older
 than the window; `ON DELETE CASCADE` carries the breakdown with them, so
-there is no second statement to forget. Atlas does not roll old points up
+there is no second statement to forget. Grunnr does not roll old points up
 into daily aggregates -- a rollup must pick a representative score per day,
 and every choice makes the retained series disagree with the raw one it
 replaced.
 
 **Durability caveat.** The store is a re-derivable cache (§10), but this is
 the one table that cannot be rebuilt from the working tree: deleting
-`atlas.db` loses the series. Teams that need it durable should record it from
+`grunnr.db` loses the series. Teams that need it durable should record it from
 CI into a committed artifact as well.
 
 ### 5.15 `sql_operations` and friends — the data access layer as data (migration 0014)
@@ -984,19 +984,19 @@ CREATE TABLE sql_indexes (
 ) WITHOUT ROWID;
 ```
 
-Written by `atlas sql scan`, read by `atlas sql list` and `atlas sql advise`
+Written by `grunnr sql scan`, read by `grunnr sql list` and `grunnr sql advise`
 (issue #126). Every other table here describes code; these describe what the
 code *asks the database to do* — the statement kind, the tables read and
 written, the columns filtered on, and whether the read is bounded.
 
-**Who writes rows.** Only `atlas sql scan`, and it **replaces** both sets
+**Who writes rows.** Only `grunnr sql scan`, and it **replaces** both sets
 wholesale: `sql_operations` in one transaction, `sql_tables` + `sql_indexes`
 in another. An incremental upsert would leave rows behind for queries that
 were deleted, and an advisory pointing at a line that no longer exists costs
-more trust than the merge saves work. `atlas scan` and `atlas init` do not
+more trust than the merge saves work. `grunnr scan` and `grunnr init` do not
 write here.
 
-**`resolved` is the load-bearing column.** A query Atlas could not statically
+**`resolved` is the load-bearing column.** A query Grunnr could not statically
 resolve — assembled by a builder, spliced across functions, read from config —
 is stored with `resolved = 0` and an `unresolved_reason`, **not dropped**.
 Every consumer must filter on it before reading the shape columns, because an
@@ -1017,7 +1017,7 @@ that count is the number every report leads with.
 | `offset_bound` | Where the OFFSET's value comes from. `parameter` is the one that degrades with depth. |
 | `row_scan` | What the call site does with the rows. `slice` vs `single` is the difference between a LIMIT-less read that loads a table into memory and one that reads a row by primary key. |
 | `interpolation` / `caller_data` | How the query text was built, and whether the spliced value traces to a parameter of the enclosing function. The injection advisory grades its confidence on the second. |
-| `suppressions` | Comma-packed advisory codes from an `atlas:sql-ignore` directive at the call site. |
+| `suppressions` | Comma-packed advisory codes from an `grunnr:sql-ignore` directive at the call site. |
 
 **Why predicates and table accesses are child tables** rather than JSON
 columns: the questions they answer are set questions — "which capabilities
@@ -1029,7 +1029,7 @@ migration review actually needs.
 **The capability rollup** is that reverse lookup spelled out:
 `feature_symbols → sql_operations → sql_operation_tables`, grouped by
 `feature_id`, exposed as `SQLOps.CapabilityTables` and printed by
-`atlas sql capabilities`. Two facts travel with every row and neither is
+`grunnr sql capabilities`. Two facts travel with every row and neither is
 optional. Operations are counted `DISTINCT` on `sql_operations.id`, because a
 symbol linked to a feature under two roles reaches it through two
 `feature_symbols` rows and one query must not count as two. And the unresolved
@@ -1044,12 +1044,12 @@ answers.
 identifier lists that cannot contain a comma, and neither is ever queried by
 element. Anything richer would want a child table.
 
-**`sql_tables` and `sql_indexes` are what Atlas READ**, not a mirror of a live
+**`sql_tables` and `sql_indexes` are what Grunnr READ**, not a mirror of a live
 database. `sql_indexes` includes the indexes implied by `PRIMARY KEY` and
 `UNIQUE` declarations (`origin` says which), because without them every
 lookup by primary key would report as unindexed. An index check consults
 `sql_tables` first and reports "did not run" for a table that is absent:
-claiming an index is missing from a schema Atlas never read is the one wrong
+claiming an index is missing from a schema Grunnr never read is the one wrong
 answer that looks authoritative.
 
 They hold the schema **as of the last migration**, not the union of every
@@ -1059,14 +1059,14 @@ dropped once in the inventory. Within the files that are read, `DROP TABLE`,
 `DROP INDEX` and `ALTER TABLE … RENAME TO` are applied in order: a dropped
 table leaves and takes its indexes with it, a renamed one carries them across.
 Column-level `ALTER`s are not applied, so the *columns* of an index row remain
-additive; rewriting an index definition from a rename Atlas never re-read
+additive; rewriting an index definition from a rename Grunnr never re-read
 would be a guess dressed as a fact.
 
 ### 5.16 control flow inside a symbol -- `cfg_*` (migration 0015)
 
 Added by issue #127. Until this migration a symbol was an opaque box with a
 line range: whether its body was a straight line, a five-way switch, or a loop
-containing a database call was invisible. That blind spot is why atlas could
+containing a database call was invisible. That blind spot is why grunnr could
 report 90% statement coverage on a function whose every error path was
 unexercised -- statement coverage says the line ran, never that the branch was
 taken both ways.
@@ -1213,8 +1213,8 @@ CREATE TABLE skipped_files (
 CREATE INDEX skipped_files_rule_idx ON skipped_files(rule);
 ```
 
-Written by `atlas scan` / `atlas init` inside the ingest transaction, read by
-`atlas scan --skipped` (issue #137). It sits next to `file_hashes` because
+Written by `grunnr scan` / `grunnr init` inside the ingest transaction, read by
+`grunnr scan --skipped` (issue #137). It sits next to `file_hashes` because
 both describe what the WALK did — one records the files that were indexed,
 the other the files that were not.
 
@@ -1257,11 +1257,11 @@ it explains describing the same scan.
 
 **Every ingest owns it, so every ingest must walk the same way.** Because the
 write is a replace and it rides `Store.Ingest`, ANY command that ingests
-rewrites the ledger — `atlas init`, `atlas scan` and `atlas snapshot` all do.
+rewrites the ledger — `grunnr init`, `grunnr scan` and `grunnr snapshot` all do.
 That is only safe while they build their index with the same scan options: an
 ingest from a differently-configured walk would leave `--skipped` answering
-about a configuration the operator never ran. `atlas snapshot` therefore goes
-through the same option-derivation path as `atlas scan` rather than assembling
+about a configuration the operator never ran. `grunnr snapshot` therefore goes
+through the same option-derivation path as `grunnr scan` rather than assembling
 its own `codeindex.Options`, and both pass `IngestOptions.GeneratedGlobs` so
 `detail` names a real config line. An ingest given no globs still records the
 rule; it just has no pattern to name.
@@ -1278,7 +1278,7 @@ ledger write also stamps a `config` row:
 
 It is written through the ingest's transaction handle like the rows, so a
 rolled-back ingest leaves neither behind, and it is the one `config` key not
-written by `atlas config set`. `atlas scan --skipped` reads it before the
+written by `grunnr config set`. `grunnr scan --skipped` reads it before the
 rows and reports "no exclusion ledger has been recorded" instead of "the last
 scan excluded no files" when it is absent — an absence is not a measurement.
 `--json` exposes the distinction as `ledger_present`.
@@ -1381,7 +1381,7 @@ whichever run finished last.
 **Carryforward does not run at all on an ungrouped frontier**, which is the
 default for any store that does not pass `cov sync --run-group`. That is
 reported (`store.ResolvedCoverage.SkipReason`, surfaced as `carry.ran` /
-`carry.skip_reason` in `atlas cov status --json`) rather than rendered as an
+`carry.skip_reason` in `grunnr cov status --json`) rather than rendered as an
 empty carry, because "nothing needed carrying" and "the question was never
 asked" are the same empty list and different facts. For the same reason a
 source build older than the ordinal scan reached reports
@@ -1402,7 +1402,7 @@ have to store it under a name from a book it did not read. The DERIVATION is
 unchanged — still the `src/contexts/<name>/` prefix, still
 `packages/store/paths.go` — because renaming a column is not a licence to
 invent a second way of computing it. "Bounded context" survives as the
-DDD-flavoured display name in `atlas onboard` and in the docs.
+DDD-flavoured display name in `grunnr onboard` and in the docs.
 
 **`node_class` — `declaration` vs `anchor`.** The `symbols` table has always
 held two different kinds of thing:
@@ -1410,13 +1410,13 @@ held two different kinds of thing:
 | Class         | What it is                                                                 | Examples                                                              |
 | ------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `declaration` | Parsed out of a source file someone in this repository wrote.               | `auth.Login`, `AuthHandler.ServeHTTP`, `src/pages/Login.tsx::Login`    |
-| `anchor`      | A vertex Atlas minted so an edge would have somewhere to land.               | `route:/login`, `sql:GetUserByEmail`, `endpoint:POST /v1/login`, the `external:py` stubs pyscan emits for unresolvable imports |
+| `anchor`      | A vertex Grunnr minted so an edge would have somewhere to land.               | `route:/login`, `sql:GetUserByEmail`, `endpoint:POST /v1/login`, the `external:py` stubs pyscan emits for unresolvable imports |
 
 Nothing recorded which was which. Every query that meant "real code"
 re-derived the split by string-matching a reserved prefix on the id or the
 path — `file_path NOT LIKE 'external:py%'` in the dead-code query,
 `strings.HasPrefix(id, "route:")` in the graph's root picker,
-`strings.HasPrefix(qn, "sql:")` in `atlas flow`. One rule, four copies, two
+`strings.HasPrefix(qn, "sql:")` in `grunnr flow`. One rule, four copies, two
 of them in SQL and two in Go, and nothing able to notice them drifting apart.
 The prefix convention was load-bearing and untyped, which is the actual
 defect behind the rename.
@@ -1495,7 +1495,7 @@ WHERE f.id = ?
 ORDER BY fs.role, s.file_path, s.line;
 ```
 
-Used by `atlas chain <feature-id>` to enumerate the implementation surface
+Used by `grunnr chain <feature-id>` to enumerate the implementation surface
 before walking the edge graph.
 
 ### 7.2 Call chain from a graph entry point (recursive CTE)
@@ -1540,7 +1540,7 @@ GROUP BY f.id, f.title
 ORDER BY f.id;
 ```
 
-Powers `atlas cov status`. The `LEFT JOIN` pattern is deliberate: features
+Powers `grunnr cov status`. The `LEFT JOIN` pattern is deliberate: features
 with zero coverage rows still appear in the output (as the "you should
 write tests" list).
 
@@ -1568,7 +1568,7 @@ ORDER BY h.measured_at DESC
 LIMIT 20;
 ```
 
-Drives `atlas trend --feature <id>`. The join is a LEFT JOIN on purpose: a
+Drives `grunnr trend --feature <id>`. The join is a LEFT JOIN on purpose: a
 commit whose breakdown has no row for the feature is still a point on the
 axis, with a NULL score. Inner-joining it away would silently close the gap
 and make a feature that STOPPED being measured look continuous.
@@ -1586,16 +1586,16 @@ API which is responsible for the SQL.
 
 | Package          | Tables it writes                                          | Trigger                                                                                       |
 | ---------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `codeindex/go`   | `symbols`, `edges`, `file_hashes`                         | `atlas scan` (or `atlas init`); subsequent runs only re-write rows for files whose hash changed. |
+| `codeindex/go`   | `symbols`, `edges`, `file_hashes`                         | `grunnr scan` (or `grunnr init`); subsequent runs only re-write rows for files whose hash changed. |
 | `codeindex/ts`   | `symbols`, `edges`, `file_hashes`                         | Same as Go scanner, on the `apps/**` + `packages/**` trees.                                   |
 | `codeindex/annotations` | `annotations`, `feature_symbols`                  | Runs after `codeindex/{go,ts}` so the symbols already exist for FK resolution.                |
-| `coverage`       | `coverage_runs`, `coverage_results`                       | `atlas cov sync` after a framework-specific ingest.                                           |
-| `audit`          | `audit_snapshot_runs`                                     | `atlas health` — one whole-project JSON blob per run (§5.10 for why the per-feature table went). |
-| `trend`          | `coverage_history`, `coverage_history_features`           | `atlas trend record` — one point per commit, upserted so a CI retry corrects rather than appends. |
-| `cfg`            | `cfg_blocks`, `cfg_edges`, `cfg_symbols`, `cfg_decision_coverage`, `cfg_findings` | `atlas flow build` -- one whole-symbol rewrite per function, so a rebuild that finds fewer blocks shrinks the stored graph rather than interleaving two generations. |
-| `cli/config`     | `config`                                                  | `atlas config set <key> <value>`. Read-only for everyone else.                                |
+| `coverage`       | `coverage_runs`, `coverage_results`                       | `grunnr cov sync` after a framework-specific ingest.                                           |
+| `audit`          | `audit_snapshot_runs`                                     | `grunnr health` — one whole-project JSON blob per run (§5.10 for why the per-feature table went). |
+| `trend`          | `coverage_history`, `coverage_history_features`           | `grunnr trend record` — one point per commit, upserted so a CI retry corrects rather than appends. |
+| `cfg`            | `cfg_blocks`, `cfg_edges`, `cfg_symbols`, `cfg_decision_coverage`, `cfg_findings` | `grunnr flow build` -- one whole-symbol rewrite per function, so a rebuild that finds fewer blocks shrinks the stored graph rather than interleaving two generations. |
+| `cli/config`     | `config`                                                  | `grunnr config set <key> <value>`. Read-only for everyone else.                                |
 | `cli/init`       | `config`, `features`                                      | Bootstraps the DB; for YAML imports, also seeds `features` + `feature_symbols`.               |
-| `migrate-annotations` | `annotations` (status flip from `testreg` → `atlas`) | `atlas migrate-annotations --apply`. Idempotent.                                              |
+| `migrate-annotations` | `annotations` (status flip from `testreg` → `grunnr`) | `grunnr migrate-annotations --apply`. Idempotent.                                              |
 
 **Transaction discipline:**
 
@@ -1651,11 +1651,11 @@ Candidate v2+ migrations identified during Phase 0 (not yet committed):
   `internal/domain/audit.go`). Likely needs `benchmark_runs` +
   `benchmark_results` mirroring the coverage pair.
 - `0003_contract_types` — persist `domain.ContractType` /
-  `domain.ContractField` so `atlas contract` doesn't re-extract on every
+  `domain.ContractField` so `grunnr contract` doesn't re-extract on every
   invocation. Probably a `contract_layers` + `contract_fields` pair plus a
   `feature_contracts` link table.
 - `0004_diagnose_symptoms` — store
-  `internal/domain/symptom.go`'s symptom→symbol mapping so `atlas
+  `internal/domain/symptom.go`'s symptom→symbol mapping so `grunnr
   diagnose` is index-driven rather than regex-scanning on every call.
 
 None of those land in v1; each gets its own migration file when the matching
@@ -1667,13 +1667,13 @@ package goes in.
 
 | Situation                                | Command                                       |
 | ---------------------------------------- | --------------------------------------------- |
-| DB corrupted or in a weird state         | `rm atlas-state.db && atlas init`             |
-| Want a fully fresh scan                  | `atlas init --force` (recreates, re-scans)    |
-| Inspect what's currently in the DB       | `atlas debug schema` (planned; dumps tables + row counts) |
-| Need a one-off SQL session               | `sqlite3 atlas-state.db` (read-only safe)     |
-| Just want the migration version          | `sqlite3 atlas-state.db 'SELECT MAX(version) FROM schema_version;'` |
+| DB corrupted or in a weird state         | `rm grunnr-state.db && grunnr init`             |
+| Want a fully fresh scan                  | `grunnr init --force` (recreates, re-scans)    |
+| Inspect what's currently in the DB       | `grunnr debug schema` (planned; dumps tables + row counts) |
+| Need a one-off SQL session               | `sqlite3 grunnr-state.db` (read-only safe)     |
+| Just want the migration version          | `sqlite3 grunnr-state.db 'SELECT MAX(version) FROM schema_version;'` |
 
-`rm atlas-state.db` is **always safe**. The DB is per-developer cache; no
+`rm grunnr-state.db` is **always safe**. The DB is per-developer cache; no
 shared state is lost. The longest-running command in a recovery flow is the
 re-scan itself, which Phase 4's acceptance criteria caps at <60s for first
 run on nutrition-v2-go.
@@ -1681,11 +1681,11 @@ run on nutrition-v2-go.
 Because the WAL is a sidecar file, a full reset is technically:
 
 ```bash
-rm -f atlas-state.db atlas-state.db-wal atlas-state.db-shm
+rm -f grunnr-state.db grunnr-state.db-wal grunnr-state.db-shm
 ```
 
 The `-wal` and `-shm` files are auto-recreated by SQLite on next `Open`.
-`atlas init --force` runs the equivalent removal internally.
+`grunnr init --force` runs the equivalent removal internally.
 
 ---
 
@@ -1701,9 +1701,9 @@ initial migration but each will need a one-line decision before merge.
 2. **Should `audit_snapshots.layer_scores_json` be a separate table?**
    Storing it as JSON is faster to write but resists SQL aggregation. v1
    keeps it as JSON; a v2 normalised version becomes worthwhile only when
-   someone runs `atlas health trend --by-layer`.
+   someone runs `grunnr health trend --by-layer`.
 3. **Cross-project DB sharing?** v0 says no — one DB per project root,
-   gitignored. If a workspace ever needs a shared atlas DB across multiple
+   gitignored. If a workspace ever needs a shared grunnr DB across multiple
    project roots (e.g. a monorepo with multiple `.atlas.yaml` files), the
    scope key shifts from "project" to "(project_root, file_path)" and most
    FKs above need an additional `project_id` column. Out of scope for v1.

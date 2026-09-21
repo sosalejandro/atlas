@@ -199,7 +199,7 @@ func TestResolveBuildInfo_StampedReleaseAllThreeBaked(t *testing.T) {
 	}
 
 	// Also assert the user-visible rendering matches the acceptance
-	// criterion from issue #43: `atlas version vX.Y.Z (commit <sha>,
+	// criterion from issue #43: `grunnr version vX.Y.Z (commit <sha>,
 	// built <date>)` — no "unknown" anywhere.
 	root := NewRootCmd()
 	want := stampedVersion + " (commit " + stampedCommit + ", built " + stampedBuildDate + ")"
@@ -268,7 +268,7 @@ func TestResolveBuildInfo_SourceStampsShadowModuleInfo(t *testing.T) {
 // modernc.org/sqlite precisely so no C toolchain is needed).
 //
 // Someone holding a downloaded binary cannot see the build command that
-// produced it. These tests pin the projection that lets `atlas version
+// produced it. These tests pin the projection that lets `grunnr version
 // --json` tell them.
 // ---------------------------------------------------------------------------
 
@@ -444,7 +444,7 @@ func TestVersionCmd_RegisteredOnRoot(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("atlas version is not registered on the root command")
+		t.Error("grunnr version is not registered on the root command")
 	}
 }
 
@@ -468,7 +468,7 @@ func TestVersionCmd_JSONEnvelopeCarriesProvenanceFields(t *testing.T) {
 	withLdflagsVars(t, "v1.4.0", "0badc0d", "2026-06-01T00:00:00Z")
 	out, err := runVersionCmd(t, "--json")
 	if err != nil {
-		t.Fatalf("atlas version --json: %v", err)
+		t.Fatalf("grunnr version --json: %v", err)
 	}
 	var env struct {
 		Command string `json:"command"`
@@ -513,7 +513,7 @@ func TestVersionCmd_HumanOutputIsHonestAboutUnverifiedReproducibility(t *testing
 	withLdflagsVars(t, "v1.4.0", "0badc0d", "2026-06-01T00:00:00Z")
 	out, err := runVersionCmd(t)
 	if err != nil {
-		t.Fatalf("atlas version: %v", err)
+		t.Fatalf("grunnr version: %v", err)
 	}
 	for _, want := range []string{"v1.4.0", "0badc0d", "2026-06-01T00:00:00Z", runtime.GOOS} {
 		if !strings.Contains(out, want) {

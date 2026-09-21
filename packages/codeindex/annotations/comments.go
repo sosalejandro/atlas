@@ -85,7 +85,7 @@ func unwrapBlockComments(content []byte, style CommentStyle) []logicalLine {
 // a CRLF file arrived at the matchers already normalised to LF. Nobody chose
 // that; it fell out of the reader. Now that ParseRelative hands over the
 // file's real bytes, the normalisation has to happen here or not at all, and
-// "not at all" would change what atlas reports for CRLF sources. Note the
+// "not at all" would change what grunnr reports for CRLF sources. Note the
 // asymmetry, which is also ScanLines': a "\r" that does NOT precede a "\n"
 // is ordinary content, so a classic-Mac CR-only file stays one long line.
 // lineendings_test.go pins all of it.

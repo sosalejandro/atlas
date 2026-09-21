@@ -1,12 +1,12 @@
-# Installing atlas
+# Installing grunnr
 
-atlas is a single static binary. It has no C dependencies — the store is
+grunnr is a single static binary. It has no C dependencies — the store is
 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite), which is pure
 Go — so every build ships with `CGO_ENABLED=0` and there is nothing to
 install alongside it.
 
 Optional runtime dependencies (`node` for the TypeScript scanner, `python3`
-for the Python scanner) are described in the README; atlas warns and carries
+for the Python scanner) are described in the README; grunnr warns and carries
 on without them.
 
 - [In GitHub Actions](#in-github-actions)
@@ -22,18 +22,18 @@ on without them.
 ## In GitHub Actions
 
 ```yaml
-- uses: sosalejandro/atlas/.github/actions/atlas@v0.14.0
+- uses: sosalejandro/grunnr/.github/actions/grunnr@v0.14.0
   with:
     args: health --json
 ```
 
 `v0.14.0` here stands for whichever release you want; pin a real one from
-the [releases page](https://github.com/sosalejandro/atlas/releases). The
+the [releases page](https://github.com/sosalejandro/grunnr/releases). The
 same goes for every version number in the examples below.
 
 That installs the release matching the ref you pinned the action to,
 verifies its checksum, its Sigstore signature and its SLSA provenance, puts
-`atlas` on `PATH`, and runs it.
+`grunnr` on `PATH`, and runs it.
 
 The version comes from the ref, so the binary cannot float away from the
 action. If you pin the action by commit SHA instead of by tag, pass
@@ -43,33 +43,33 @@ tell you so rather than 404 on a URL built from a hash.
 | Input | Default | Meaning |
 | --- | --- | --- |
 | `version` | the action's own ref | Release to install (`v0.14.0`, or `edge`) |
-| `args` | `''` | Arguments for atlas. Empty installs only, leaving it on `PATH` for later steps |
+| `args` | `''` | Arguments for grunnr. Empty installs only, leaving it on `PATH` for later steps |
 | `working-directory` | `.` | Where to run |
 | `verify` | `true` | Check the Sigstore signature |
 | `verify-provenance` | `true` | Check the SLSA attestation with `gh attestation verify` |
-| `repository` | `sosalejandro/atlas` | Where to download from (forks, testing) |
+| `repository` | `sosalejandro/grunnr` | Where to download from (forks, testing) |
 
-Install-only, for a workflow that runs several atlas commands:
+Install-only, for a workflow that runs several grunnr commands:
 
 ```yaml
-- uses: sosalejandro/atlas/.github/actions/atlas@v0.14.0
+- uses: sosalejandro/grunnr/.github/actions/grunnr@v0.14.0
 - run: |
-    atlas scan
-    atlas health --json > audit.json
+    grunnr scan
+    grunnr health --json > audit.json
 ```
 
 ## Download a release
 
-Every [release](https://github.com/sosalejandro/atlas/releases) ships **two
+Every [release](https://github.com/sosalejandro/grunnr/releases) ships **two
 binaries** per platform, named `<binary>_<version>_<os>_<arch>` (`.exe` on
 Windows):
 
 | Binary | What it is | Needs the network? |
 | --- | --- | --- |
-| `atlas` | The CLI. Scans, indexes, answers, gates CI. **This is the one you want.** | **It cannot open a socket at all** — enforced by a build-failing test. |
-| `atlas-serve` | A local HTTP API over an index `atlas` already built, for the desktop app and other local UIs. Optional. | Listens on loopback only, and never dials out. Also enforced by tests. |
+| `grunnr` | The CLI. Scans, indexes, answers, gates CI. **This is the one you want.** | **It cannot open a socket at all** — enforced by a build-failing test. |
+| `grunnr-serve` | A local HTTP API over an index `grunnr` already built, for the desktop app and other local UIs. Optional. | Listens on loopback only, and never dials out. Also enforced by tests. |
 
-Two binaries rather than one because `atlas` reads your source and
+Two binaries rather than one because `grunnr` reads your source and
 [docs/security.md](security.md) guarantees it cannot send it anywhere. An HTTP
 API needs `net/http`, so it lives in a separate binary rather than weakening
 that guarantee for everyone who never runs a UI.
@@ -83,12 +83,12 @@ Alongside them:
 | `atlas_<version>_sbom.spdx.json` | SPDX SBOM of the source tree |
 
 Both binaries carry SLSA provenance and are covered by the signed manifest.
-Homebrew installs `atlas` only; take `atlas-serve` from the release when you
+Homebrew installs `grunnr` only; take `grunnr-serve` from the release when you
 want it.
 
 ```bash
 VERSION=v0.14.0
-BASE="https://github.com/sosalejandro/atlas/releases/download/$VERSION"
+BASE="https://github.com/sosalejandro/grunnr/releases/download/$VERSION"
 curl -fsSLO "$BASE/atlas_${VERSION}_linux_amd64"
 curl -fsSLO "$BASE/SHA256SUMS"
 curl -fsSLO "$BASE/SHA256SUMS.cosign.bundle"
@@ -115,7 +115,7 @@ that was replaced along with the binary.
 cosign verify-blob \
   --bundle SHA256SUMS.cosign.bundle \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github.com/sosalejandro/atlas/\.github/workflows/(release|edge)\.yml@refs/' \
+  --certificate-identity-regexp '^https://github.com/sosalejandro/grunnr/\.github/workflows/(release|edge)\.yml@refs/' \
   SHA256SUMS
 ```
 
@@ -131,12 +131,12 @@ Releases are signed by cosign v3.1.3, pinned in `.github/workflows/release.yml`.
 **3. Which workflow run and which commit built this binary?**
 
 ```bash
-gh attestation verify atlas_${VERSION}_linux_amd64 --repo sosalejandro/atlas
+gh attestation verify atlas_${VERSION}_linux_amd64 --repo sosalejandro/grunnr
 ```
 
 This checks the SLSA provenance attestation, which binds the artifact to the
 workflow, the commit and the run that produced it. The signature says "the
-atlas release job signed this manifest"; the attestation says "this exact
+grunnr release job signed this manifest"; the attestation says "this exact
 binary came out of that run of that job on that commit".
 
 **4. And, if you want to leave nothing to trust at all — rebuild it.**
@@ -144,17 +144,17 @@ binary came out of that run of that job on that commit".
 ## `go install`
 
 ```bash
-go install github.com/sosalejandro/atlas/cmd/atlas@v0.14.0
+go install github.com/sosalejandro/grunnr/cmd/grunnr@v0.14.0
 ```
 
-Free, and how most Go developers will first try atlas. Note the trade-off:
+Free, and how most Go developers will first try grunnr. Note the trade-off:
 `go install` compiles on your machine with your toolchain and your
 environment, so the result is *not* byte-identical to the published release
 and there is nothing to verify a signature against. What you get instead is
 the module proxy's checksum-database guarantee that the source is the source
 that was published under that tag.
 
-What `atlas version` reports after a `go install` needs stating precisely,
+What `grunnr version` reports after a `go install` needs stating precisely,
 because it is not what you might assume.
 
 release-please bakes literal `Version` / `Commit` / `BuildDate` values into
@@ -169,8 +169,8 @@ consults `runtime/debug.ReadBuildInfo()` when it does. So:
 - **From a branch or commit ref** (`@main`, `@<sha>`): you get the *same*
   baked values as the last stamped release, not `dev` and not the ref you
   asked for. A `go build` in a clone behaves the same way. Measured on a
-  clone 39 commits past `v0.11.0`: `go run ./cmd/atlas version` printed
-  `atlas v0.13.0`, `commit fba0d11`, `built 2026-05-24T01:31:52Z`.
+  clone 39 commits past `v0.11.0`: `go run ./cmd/grunnr version` printed
+  `grunnr v0.13.0`, `commit fba0d11`, `built 2026-05-24T01:31:52Z`.
 
 So the version string from a non-tag install is *not* evidence of what you
 installed. If you need that, install a tag, or use a release binary and
@@ -178,7 +178,7 @@ verify its provenance attestation, which is bound to a run and a commit
 rather than to a string in a file.
 
 The build flags differ too: `go install` passes neither `-trimpath` nor
-`CGO_ENABLED=0`, so `atlas version` on such a build reports `trimpath:
+`CGO_ENABLED=0`, so `grunnr version` on such a build reports `trimpath:
 false`, whatever cgo your machine defaults to, and
 `reproducible_flags: false`. That is correct — it says this binary is not
 one anybody can reproduce byte-for-byte.
@@ -190,7 +190,7 @@ Every release generates a Homebrew formula from that release's signed
 published cannot disagree. Publishing it needs a tap — a second repository
 named `<owner>/homebrew-<tap>` — which is an operator decision rather than a
 script, so **`brew install` is not available unless the maintainers have set
-one up**; check the [releases page](https://github.com/sosalejandro/atlas/releases)
+one up**; check the [releases page](https://github.com/sosalejandro/grunnr/releases)
 or the repository's README for a tap name before assuming it exists.
 
 When no tap is configured the release run generates the formula anyway and
@@ -201,8 +201,8 @@ it (`HOMEBREW_TAP_REPO`, `HOMEBREW_TAP_TOKEN`). See
 ## Build from source
 
 ```bash
-git clone https://github.com/sosalejandro/atlas
-cd atlas
+git clone https://github.com/sosalejandro/grunnr
+cd grunnr
 make build-dev        # host platform, into dist/
 ```
 
@@ -210,11 +210,11 @@ make build-dev        # host platform, into dist/
 pinned toolchain (`.github/scripts/toolchain.txt`) and is the target to use
 when you intend the output to match a release.
 
-`atlas version` reports how the binary in front of you was built:
+`grunnr version` reports how the binary in front of you was built:
 
 ```
 $ ./dist/atlas_v0.11.0-39-g189e713_linux_amd64 version
-atlas v0.11.0-39-g189e713
+grunnr v0.11.0-39-g189e713
   commit:      189e713
   built:       2026-09-06T07:44:19Z
   go:          go1.26.4-X:nodwarf5
@@ -241,7 +241,7 @@ which is why every field looks the way it does:
 A release binary prints the same shape with a `vX.Y.Z` version. The numbers
 above are one machine's, on one commit; do not read them as a release's.
 
-`atlas version --json` emits the same fields in the standard envelope:
+`grunnr version --json` emits the same fields in the standard envelope:
 `version`, `commit`, `build_date`, `go_version`, `os`, `arch`, `trimpath`,
 `cgo_enabled`, `reproducible_flags`.
 
@@ -262,8 +262,8 @@ unknown is safely reported as `false`.
 Every release is built so that anyone can produce the same bytes:
 
 ```bash
-git clone https://github.com/sosalejandro/atlas
-cd atlas
+git clone https://github.com/sosalejandro/grunnr
+cd grunnr
 git checkout v0.14.0
 make build VERSION=v0.14.0        # or: VERSION=v0.14.0 .github/scripts/build.sh
 sha256sum dist/atlas_v0.14.0_linux_amd64
@@ -290,7 +290,7 @@ What makes this work, and what will break it:
   git clone. The version, commit and date arrive via `-ldflags` instead.
 - **The Go toolchain is pinned** in `.github/scripts/toolchain.txt`. Two Go
   patch releases do not produce the same bytes; `build.sh` refuses to run
-  against a different one unless you set `ATLAS_SKIP_TOOLCHAIN_CHECK=1`, in
+  against a different one unless you set `GRUNNR_SKIP_TOOLCHAIN_CHECK=1`, in
   which case the output will not match the published digests and it says so.
 - **Go environment variables are pinned, not inherited.** `GOFLAGS`,
   `GOEXPERIMENT`, `GODEBUG` and the micro-architecture levels `GOAMD64` /
@@ -351,12 +351,12 @@ many commits past it, and which commit. Under semver precedence that sorts
 the convention and the reason edge carries no ordering promise relative to
 stable.
 
-That string is what `atlas version` prints; it is **not** in the filename.
+That string is what `grunnr version` prints; it is **not** in the filename.
 Edge assets are named `atlas_edge_<os>_<arch>` and stay at that name across
 commits, because a rolling channel needs a download URL that does not move:
 
 ```bash
-BASE="https://github.com/sosalejandro/atlas/releases/download/edge"
+BASE="https://github.com/sosalejandro/grunnr/releases/download/edge"
 curl -fsSLO "$BASE/atlas_edge_linux_amd64"
 curl -fsSLO "$BASE/SHA256SUMS"
 grep " atlas_edge_linux_amd64$" SHA256SUMS | sha256sum -c -

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // readFixture loads a *.fixture file from testdata/. We use the .fixture
@@ -95,7 +95,7 @@ func TestParseBytes_TSFixtureWithBlockComments(t *testing.T) {
 	// Multi-id in block comment must produce 2 IDs.
 	var multi shared.Annotation
 	for _, a := range got {
-		if len(a.IDs) == 2 && a.Source == shared.SourceAtlas {
+		if len(a.IDs) == 2 && a.Source == shared.SourceGrunnr {
 			multi = a
 			break
 		}
@@ -356,8 +356,8 @@ func TestParseBytes_EDA_AllKindsRoundTrip(t *testing.T) {
 		if ann.Kind != wantKinds[i] {
 			t.Fatalf("ann[%d].Kind = %s; want %s", i, ann.Kind, wantKinds[i])
 		}
-		if ann.Source != shared.SourceAtlas {
-			t.Fatalf("ann[%d].Source = %s; want atlas", i, ann.Source)
+		if ann.Source != shared.SourceGrunnr {
+			t.Fatalf("ann[%d].Source = %s; want grunnr", i, ann.Source)
 		}
 		if len(ann.IDs) == 0 {
 			t.Fatalf("ann[%d] (%s) has no IDs", i, ann.Kind)
@@ -514,8 +514,8 @@ func TestParseBytes_DashedIDs_AllStrictKindsRoundTrip(t *testing.T) {
 		if len(ann.IDs) == 0 || ann.IDs[0] != wantIDs[i] {
 			t.Fatalf("ann[%d] (kind=%s) IDs = %v; want first id = %q", i, ann.Kind, ann.IDs, wantIDs[i])
 		}
-		if ann.Source != shared.SourceAtlas {
-			t.Fatalf("ann[%d].Source = %s; want atlas", i, ann.Source)
+		if ann.Source != shared.SourceGrunnr {
+			t.Fatalf("ann[%d].Source = %s; want grunnr", i, ann.Source)
 		}
 	}
 
@@ -599,5 +599,44 @@ func TestParseBytes_DashedIDs_NegativeShapesStillRejected(t *testing.T) {
 	// annotations from any of these 5 lines.
 	if len(got) != 0 {
 		t.Fatalf("expected all 5 malformed shapes rejected; got %d (%+v)", len(got), got)
+	}
+}
+
+// The rename must not break a repository that did nothing wrong.
+//
+// `@atlas:` lives in USERS' source files. A rename that stopped reading it
+// would drop every feature link in their repo, and the failure would present
+// as "found no features" -- indistinguishable from a project that genuinely
+// has none. `@testreg` has been honoured indefinitely for the same reason;
+// this is that promise applied to the second rename.
+func TestParse_AtlasPrefixIsHonouredAfterTheRename(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "billing.go")
+	src := "package billing\n\n" +
+		"// @grunnr:feature billing.pay\n" +
+		"func Pay() {}\n\n" +
+		"// @atlas:feature billing.refund\n" +
+		"func Refund() {}\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	anns, err := ParseRelative(context.Background(), path, "billing.go")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, a := range anns {
+		for _, id := range a.IDs {
+			got[id] = true
+		}
+	}
+	if !got["billing.pay"] {
+		t.Error("the new @grunnr: prefix was not parsed")
+	}
+	if !got["billing.refund"] {
+		t.Error("the legacy @atlas: prefix was dropped; every feature link in an " +
+			"un-migrated repository would vanish, and it would look like the repo has no features")
 	}
 }

@@ -4,8 +4,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 func sym(id int64, name, path string, line int, end *int) store.SymbolRow {
@@ -20,7 +20,7 @@ func sym(id int64, name, path string, line int, end *int) store.SymbolRow {
 
 func intp(v int) *int { return &v }
 
-// covered/uncovered/partial symbols in one indexed file, plus a file atlas
+// covered/uncovered/partial symbols in one indexed file, plus a file grunnr
 // has never seen. This is the shape every assertion below leans on.
 func baseInput() Input {
 	return Input{
@@ -65,7 +65,7 @@ func TestScore_KnownFractionIsLineWeighted(t *testing.T) {
 }
 
 // A partially covered symbol contributes its fraction of its changed lines --
-// atlas knows the symbol's ratio, not which of ITS lines ran, so claiming
+// grunnr knows the symbol's ratio, not which of ITS lines ran, so claiming
 // either all or none of the changed lines would be a fabrication.
 func TestScore_PartialSymbolContributesItsFraction(t *testing.T) {
 	in := baseInput()
@@ -79,7 +79,7 @@ func TestScore_PartialSymbolContributesItsFraction(t *testing.T) {
 	if len(r.Partial) != 1 || r.Partial[0].SymbolID != 3 {
 		t.Errorf("partial symbol not reported: %+v", r.Partial)
 	}
-	// It is NOT in the uncovered list: atlas cannot name which of its lines
+	// It is NOT in the uncovered list: grunnr cannot name which of its lines
 	// are the gap, and printing lines it cannot vouch for is worse than
 	// printing none.
 	if len(r.Uncovered) != 0 {
@@ -87,9 +87,9 @@ func TestScore_PartialSymbolContributesItsFraction(t *testing.T) {
 	}
 }
 
-// The reason this feature has a third state: a changed line atlas has no
+// The reason this feature has a third state: a changed line grunnr has no
 // symbol for is UNKNOWN, not uncovered. Scoring it as uncovered fires the
-// gate on files atlas simply cannot see, which trains teams to switch the
+// gate on files grunnr simply cannot see, which trains teams to switch the
 // gate off; scoring it as covered hides real gaps.
 func TestScore_UnknownIsItsOwnBucketAndDoesNotMoveThePercentage(t *testing.T) {
 	in := baseInput()
@@ -161,7 +161,7 @@ func TestScore_UncoveredChangedLinesAreNamed(t *testing.T) {
 	}
 }
 
-// A symbol atlas indexed but the frontier never measured (a type decl, a
+// A symbol grunnr indexed but the frontier never measured (a type decl, a
 // language whose runs carry only pass/fail) has no statement counts. That is
 // unknown too -- scoring it 0% would gate on the absence of a measurement.
 func TestScore_SymbolWithoutStatementCountsIsUnknown(t *testing.T) {
@@ -185,7 +185,7 @@ func TestScore_SymbolWithoutStatementCountsIsUnknown(t *testing.T) {
 // symbol in a file run to EOF (which the profile ingest can afford, because
 // its input only ever names real code) would silently charge a freshly
 // appended, never-indexed function to whatever happened to precede it --
-// inventing coverage for code atlas has never seen.
+// inventing coverage for code grunnr has never seen.
 func TestScore_MissingEndLineDoesNotSwallowTheFileTail(t *testing.T) {
 	in := Input{
 		Changes: []FileChange{{Path: "web/app.ts", Ranges: []LineRange{

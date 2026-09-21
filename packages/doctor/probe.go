@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 	"os"
 
 	// The "sqlite" driver name is registered by modernc.org/sqlite's init.
@@ -69,7 +69,7 @@ func openReadOnly(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// IsAtlasStore reports whether path holds a database atlas has already
+// IsAtlasStore reports whether path holds a database grunnr has already
 // migrated -- and answers WITHOUT writing to it.
 //
 // It exists because "does the file exist?" is not the same question.
@@ -77,16 +77,16 @@ func openReadOnly(path string) (*sql.DB, error) {
 // store.Open. But store.Open runs the embedded migrations, so anything
 // that happened to be sitting at the state path -- a 0-byte placeholder
 // left by an interrupted init, an unrelated SQLite file, a stray
-// download -- got an atlas schema written into it by the one command
+// download -- got an grunnr schema written into it by the one command
 // whose stated contract is that a diagnostic must not conjure the state
 // it was asked to inspect.
 //
 // The test is golang-migrate's own bookkeeping table, because its
-// presence is exactly what makes a SQLite file an atlas store. A file
+// presence is exactly what makes a SQLite file an grunnr store. A file
 // that has it is safe to open read-write: at worst store.Open applies
 // pending migrations to a store that was already ours. A file that does
 // not is reported here, so the schema check can say "this is not an
-// atlas store" instead of the migrator quietly making it into one.
+// grunnr store" instead of the migrator quietly making it into one.
 func IsAtlasStore(ctx context.Context, path string) error {
 	db, err := openReadOnly(path)
 	if err != nil {
@@ -100,7 +100,7 @@ func IsAtlasStore(ctx context.Context, path string) error {
 	}
 	if !present {
 		return fmt.Errorf(
-			"doctor: %s is not an atlas state database (it carries no schema_migrations table)", path)
+			"doctor: %s is not an grunnr state database (it carries no schema_migrations table)", path)
 	}
 	return nil
 }
@@ -146,7 +146,7 @@ func (e *Env) closeProbe() {
 //
 // The table holds at most one row. Neither a missing row nor a missing
 // TABLE is an error here: both mean no migration has ever been applied,
-// which for an atlas store means the file is not an atlas store at all
+// which for an grunnr store means the file is not an grunnr store at all
 // -- reported as version 0, which the schema check turns into a fail
 // rather than pretending it is merely behind.
 func (p *probe) migrationState(ctx context.Context) (version int, dirty bool, err error) {

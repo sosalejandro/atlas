@@ -66,7 +66,7 @@ func paramNames(fn *ast.FuncDecl) map[string]bool {
 
 // collectBody records single-assignment locals and notices append(). A name
 // written twice goes into `rebound` and resolves to nothing: picking either
-// value would be a guess about control flow, and the query Atlas reports must
+// value would be a guess about control flow, and the query Grunnr reports must
 // be one that can actually run.
 func (s *funcScope) collectBody(body *ast.BlockStmt) {
 	ast.Inspect(body, func(n ast.Node) bool {
@@ -189,7 +189,7 @@ func (s *funcScope) resolveBinary(b *ast.BinaryExpr, consts map[string]string, d
 
 // resolveCall handles the one call shape that carries query text: a formatting
 // call whose format string is a literal. Everything else is a query builder,
-// a helper, or a value from somewhere Atlas cannot follow -- all of which are
+// a helper, or a value from somewhere Grunnr cannot follow -- all of which are
 // unresolved, and none of which are guessed at.
 func (s *funcScope) resolveCall(c *ast.CallExpr, consts map[string]string, depth int) resolution {
 	if !isFormattingCall(c) || len(c.Args) == 0 {
@@ -217,7 +217,7 @@ func (s *funcScope) resolveCall(c *ast.CallExpr, consts map[string]string, depth
 func (s *funcScope) formattedCallerArg(format string, args []ast.Expr) (string, bool) {
 	ops, ok := formatOperands(format)
 	if !ok {
-		// A directive Atlas could not account for means it cannot say which
+		// A directive Grunnr could not account for means it cannot say which
 		// argument reaches the query text. What it must not do is conclude
 		// that none of them does: on an injection check a silent miss is the
 		// expensive failure, so every argument is weighed instead.
@@ -284,7 +284,7 @@ func (f *formatScanner) run() bool {
 		}
 		f.i++
 		if f.i >= len(f.src) {
-			return false // a trailing '%' is not a directive atlas can read.
+			return false // a trailing '%' is not a directive grunnr can read.
 		}
 		if f.src[f.i] == '%' {
 			continue // an escaped percent consumes nothing.
@@ -350,7 +350,7 @@ func (f *formatScanner) starOrDigits() bool {
 		return true
 	}
 	f.skipWhile("0123456789")
-	// A second `[n]` here is Go's `%[2]*[1]d`. Atlas does not read it rather
+	// A second `[n]` here is Go's `%[2]*[1]d`. Grunnr does not read it rather
 	// than reading it wrong.
 	return !f.at('[')
 }

@@ -34,7 +34,7 @@ func TestRenamedVerbs_OldNamesStillResolve(t *testing.T) {
 				t.Fatalf("root.Find(%q): %v", old, err)
 			}
 			if cmd.Name() != canonical {
-				t.Fatalf("`atlas %s` resolved to %q, want %q", old, cmd.Name(), canonical)
+				t.Fatalf("`grunnr %s` resolved to %q, want %q", old, cmd.Name(), canonical)
 			}
 		})
 	}
@@ -54,7 +54,7 @@ func TestRenamedVerbs_AliasesAreDeclaredOnTheCommand(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("`atlas %s` does not declare %q in its Aliases (has %v)",
+			t.Errorf("`grunnr %s` does not declare %q in its Aliases (has %v)",
 				canonical, old, cmd.Aliases)
 		}
 	}
@@ -74,10 +74,10 @@ func TestRenamedVerbs_ChainAliasWarnsOnStderrOnly(t *testing.T) {
 
 	_, stderr, err := runChainCmd(t, fix, "pkg.Root")
 	if err != nil {
-		t.Fatalf("`atlas chain` failed: %v\nstderr:\n%s", err, stderr)
+		t.Fatalf("`grunnr chain` failed: %v\nstderr:\n%s", err, stderr)
 	}
 	if strings.Contains(stderr, "renamed") {
-		t.Errorf("`atlas chain` printed a rename note it should not: %q", stderr)
+		t.Errorf("`grunnr chain` printed a rename note it should not: %q", stderr)
 	}
 
 	root := NewRootCmd()
@@ -86,10 +86,10 @@ func TestRenamedVerbs_ChainAliasWarnsOnStderrOnly(t *testing.T) {
 	root.SetErr(&se)
 	root.SetArgs([]string{"trace", "--db-path", fix.dbPath, "pkg.Root"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("`atlas trace` (alias) failed: %v\nstderr:\n%s", err, se.String())
+		t.Fatalf("`grunnr trace` (alias) failed: %v\nstderr:\n%s", err, se.String())
 	}
 	note := se.String()
-	if !strings.Contains(note, "`atlas trace`") || !strings.Contains(note, "`atlas chain`") {
+	if !strings.Contains(note, "`grunnr trace`") || !strings.Contains(note, "`grunnr chain`") {
 		t.Errorf("note should name both verbs, got %q", note)
 	}
 	if strings.Count(strings.TrimSpace(note), "\n") != 0 {
@@ -101,7 +101,7 @@ func TestRenamedVerbs_ChainAliasWarnsOnStderrOnly(t *testing.T) {
 }
 
 // The renamed verbs must actually run under the old name, not merely
-// resolve. `atlas audit` against an empty store is the cheapest end-to-end
+// resolve. `grunnr audit` against an empty store is the cheapest end-to-end
 // path through the alias.
 func TestRenamedVerbs_AuditAliasRunsAndWarns(t *testing.T) {
 	fix := newChainFixture(t)
@@ -114,10 +114,10 @@ func TestRenamedVerbs_AuditAliasRunsAndWarns(t *testing.T) {
 	root.SetErr(&stderr)
 	root.SetArgs([]string{"audit", "--db-path", fix.dbPath})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("`atlas audit` (alias) failed: %v\nstderr:\n%s", err, stderr.String())
+		t.Fatalf("`grunnr audit` (alias) failed: %v\nstderr:\n%s", err, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "renamed to `atlas health`") {
-		t.Errorf("`atlas audit` printed no rename note; stderr = %q", stderr.String())
+	if !strings.Contains(stderr.String(), "renamed to `grunnr health`") {
+		t.Errorf("`grunnr audit` printed no rename note; stderr = %q", stderr.String())
 	}
 	if strings.Contains(stdout.String(), "renamed") {
 		t.Errorf("rename note leaked into stdout: %q", stdout.String())
@@ -134,10 +134,10 @@ func TestRenamedVerbs_HealthCanonicalNameIsSilent(t *testing.T) {
 	root.SetErr(&stderr)
 	root.SetArgs([]string{"health", "--db-path", fix.dbPath})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("`atlas health` failed: %v\nstderr:\n%s", err, stderr.String())
+		t.Fatalf("`grunnr health` failed: %v\nstderr:\n%s", err, stderr.String())
 	}
 	if strings.Contains(stderr.String(), "renamed") {
-		t.Errorf("`atlas health` printed a rename note it should not: %q", stderr.String())
+		t.Errorf("`grunnr health` printed a rename note it should not: %q", stderr.String())
 	}
 }
 
@@ -155,10 +155,10 @@ func TestRenamedVerbs_JSONEnvelopeUsesTheCanonicalVerb(t *testing.T) {
 		root.SetErr(&stderr)
 		root.SetArgs([]string{invoked, "--json", "--db-path", fix.dbPath})
 		if err := root.Execute(); err != nil {
-			t.Fatalf("`atlas %s --json` failed: %v\nstderr:\n%s", invoked, err, stderr.String())
+			t.Fatalf("`grunnr %s --json` failed: %v\nstderr:\n%s", invoked, err, stderr.String())
 		}
 		if !strings.Contains(stdout.String(), `"command": "health"`) {
-			t.Errorf("`atlas %s --json` envelope does not name health: %s", invoked, stdout.String())
+			t.Errorf("`grunnr %s --json` envelope does not name health: %s", invoked, stdout.String())
 		}
 	}
 }

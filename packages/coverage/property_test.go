@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage/gocover"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
-	atlastest "github.com/sosalejandro/atlas/packages/testing"
+	"github.com/sosalejandro/grunnr/packages/coverage/gocover"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
+	atlastest "github.com/sosalejandro/grunnr/packages/testing"
 )
 
 // The attribution property layer.
@@ -22,7 +22,7 @@ import (
 // evidence the arithmetic is right, and it covers exactly one input.
 //
 // These are the other half. They generate profiles nobody chose — with the
-// duplicated block sets `-coverpkg=./...` emits, files atlas has no symbols
+// duplicated block sets `-coverpkg=./...` emits, files grunnr has no symbols
 // for, statements between declarations, and part of the symbol index withheld
 // — and assert what has to hold for all of them. Issue #85 is the reason the
 // distinction matters: the acceptance-shaped test for it would have been "a
@@ -88,7 +88,7 @@ func totalStmts(byFile map[string][]gocover.Block) int {
 // input. Attribution walked the profile, charged what it could to symbols,
 // and dropped the rest — no counter, no gap row, no log line. The percentage
 // it printed was internally consistent and externally false, because its
-// denominator was "statements atlas could place" while the label said
+// denominator was "statements grunnr could place" while the label said
 // "statements".
 //
 // Conservation is the one assertion dropping input cannot satisfy: every
@@ -130,8 +130,8 @@ func TestProperty_Attribution_ChargesEachStatementOnce(t *testing.T) {
 		c := atlastest.GenCoverageCase(r, atlastest.CoverageCaseOptions{})
 		rep, byFile := attributeCase(t, c, c.Indexed)
 
-		// Keyed by the PROFILE's path, not atlas's: a profile qualifies
-		// files with the module path and atlas stores them repo-relative,
+		// Keyed by the PROFILE's path, not grunnr's: a profile qualifies
+		// files with the module path and grunnr stores them repo-relative,
 		// and the suffix reconciliation between the two is itself a step
 		// where whole files have gone missing.
 		fileOf := make(map[int64]string, len(c.Indexed))
@@ -180,7 +180,7 @@ func TestProperty_Attribution_ChargesEachStatementOnce(t *testing.T) {
 // found. When a symbol's end_line is NULL, indexSymbolsByFile has to guess
 // its span, and the guess for the LAST symbol in a file is end-of-file
 // (1<<30). That symbol therefore absorbs every trailing statement in the
-// file, including statements belonging to a declaration atlas has not indexed
+// file, including statements belonging to a declaration grunnr has not indexed
 // yet. Restore that declaration and it takes its own statements back, leaving
 // any trailing gap genuinely unattributed — a decrease. Nothing is broken:
 // the wider index is the more truthful one and the narrower one was
@@ -243,7 +243,7 @@ func TestProperty_Attribution_IsDeterministic(t *testing.T) {
 //
 // The per-test path folds one report per test, and every one of those
 // profiles describes the SAME codebase: with -coverpkg every profile names
-// every file, so a file atlas cannot index appears in all of them. merge
+// every file, so a file grunnr cannot index appears in all of them. merge
 // therefore takes the per-file MAXIMUM rather than the sum — union, not
 // addition. Idempotence is the sharpest statement of that: folding a report
 // into itself must change nothing. If merge ever regresses to summation, a
@@ -283,7 +283,7 @@ func TestProperty_Attribution_ReIngestIsStable(t *testing.T) {
 	atlastest.ForEachSeed(t, 12, func(t *testing.T, r *atlastest.Rand) {
 		c := atlastest.GenCoverageCase(r, atlastest.CoverageCaseOptions{})
 		ctx := context.Background()
-		s, err := store.Open(ctx, filepath.Join(t.TempDir(), "atlas.db"))
+		s, err := store.Open(ctx, filepath.Join(t.TempDir(), "grunnr.db"))
 		if err != nil {
 			t.Fatalf("store.Open: %v", err)
 		}
@@ -391,7 +391,7 @@ func FuzzAttribution_ConservesStatements(f *testing.F) {
 //
 // The shape: an index in which some symbols have no end_line. The last symbol
 // in a file is then given an end of 1<<30 and absorbs every trailing
-// statement, including statements belonging to declarations atlas has not
+// statement, including statements belonging to declarations grunnr has not
 // indexed yet. Widening the index corrects that downward.
 //
 // This is deliberately a characterisation test, not an aspiration. If a

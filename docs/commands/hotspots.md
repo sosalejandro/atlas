@@ -1,9 +1,9 @@
-# atlas hotspots
+# grunnr hotspots
 
-`atlas hotspots` ranks the backlog by **change frequency x health gap**
+`grunnr hotspots` ranks the backlog by **change frequency x health gap**
 instead of by the gap alone.
 
-`atlas health` and `atlas sprint` both score a feature on how bad its
+`grunnr health` and `grunnr sprint` both score a feature on how bad its
 numbers are. That puts a gap in code nobody has touched in two years next
 to a gap in the file three people edited last week, at the same rank. Only
 the second is worth a sprint. The multiplier that separates them is how
@@ -11,7 +11,7 @@ often the code actually changes, and it is free: it is already in git.
 
 The idea is not new — CodeScene's *hotspots* are change frequency x
 complexity, and Code Climate and SonarQube both surface churn-weighted
-views — but the useful part is that atlas already knows the gap, so the
+views — but the useful part is that grunnr already knows the gap, so the
 only missing half is the history.
 
 Churn mining lives in [`packages/churn/`](../../packages/churn/); the
@@ -20,7 +20,7 @@ ranking lives in [`packages/sprintplan/`](../../packages/sprintplan/).
 ## Usage
 
 ```
-atlas hotspots [flags]
+grunnr hotspots [flags]
 ```
 
 ## Flags
@@ -35,7 +35,7 @@ atlas hotspots [flags]
 | `--no-default-exclusions`       | off                | Do not apply the built-in chore/style/formatter subject exclusions.                          |
 | `--no-author-diversity`         | off                | Score on commit frequency alone, ignoring how many people touch the file.                    |
 | `--config` *(global)*           | `.atlas.yaml`      | Explicit config path.                                                                        |
-| `--db-path` *(global)*          | `.atlas/atlas.db`  | Override the SQLite state path.                                                              |
+| `--db-path` *(global)*          | `.grunnr/grunnr.db`  | Override the SQLite state path.                                                              |
 | `--json` *(global)*             | off                | Emit the stable JSON envelope instead of human-friendly text.                                |
 
 ## Example
@@ -45,11 +45,11 @@ atlas hotspots [flags]
 > `billing.refunds`, `auth.session` and `legacy.importer` are invented
 > feature ids and the file paths under them do not exist in this
 > repository — do not read the numbers as a measurement of anything. The
-> same applies to the JSON and `atlas sprint` samples further down. Run
+> same applies to the JSON and `grunnr sprint` samples further down. Run
 > the command against your own repository for real numbers.
 
 ```
-$ atlas hotspots --top 3
+$ grunnr hotspots --top 3
 hotspots: churn x gap over 365d of history, half-life 90d (141 commits counted, 2 skipped as bulk, 22 by subject)
  1. billing.refunds                                hotspot= 41.23  gap= 68.00  churn= 60.63  cost=M
     churn: 12 commits by 3 author(s), last 2026-05-28, hottest packages/billing/refund.go
@@ -63,7 +63,7 @@ hotspots: churn x gap over 365d of history, half-life 90d (141 commits counted, 
 ```
 
 The invented `legacy.importer` row is there because it is the case the
-whole command exists for. A feature like it sits near the top of `atlas
+whole command exists for. A feature like it sits near the top of `grunnr
 sprint`: a 94-point gap on a large surface. Under `hotspots` it falls to
 the bottom, because nothing about it has changed in a year. That is the
 correct answer — it is not where this quarter's risk lives.
@@ -134,13 +134,13 @@ off with `--no-author-diversity`.
 
 ### Generated files are not measured at all
 
-Generated code churns constantly and means nothing. atlas does **not**
+Generated code churns constantly and means nothing. grunnr does **not**
 re-classify it here: the scanner already made that determination (issue
 #96 — a `// Code generated ... DO NOT EDIT.` header, a `scan.generated`
 glob, or a `generated/` path segment), and a second copy of those rules
 would drift from the first.
 
-Instead, churn is rolled up only over the file paths atlas has **indexed**.
+Instead, churn is rolled up only over the file paths grunnr has **indexed**.
 A generated file is absent from the symbol table precisely because the
 scanner declined it, so its churn can never reach a score.
 
@@ -166,7 +166,7 @@ common cases and both matter:
 Both are reported as `status: "unknown"` and scored a neutral **50** —
 the midpoint, because zero would drop them and 100 would put them all at
 the top. Shallow clones additionally emit a warning on **stdout**,
-alongside the ranking — every warning `atlas` prints goes to stdout, so
+alongside the ranking — every warning `grunnr` prints goes to stdout, so
 one command's warnings are not on a different stream from the next's —
 and in the JSON envelope's `warnings` array:
 
@@ -188,7 +188,7 @@ same directory by construction:
 - **Churn paths** come from `git`, so they are relative to the repository
   top level.
 - **Index paths** come from the symbol table, so they are relative to the
-  root `atlas scan` was pointed at — which `atlas scan --root <subdir>`
+  root `grunnr scan` was pointed at — which `grunnr scan --root <subdir>`
   makes a different directory.
 
 Joining those by string equality when they differ misses *every* file, and
@@ -220,7 +220,7 @@ the window it was taken under. Rather than silently substitute the default
 and then report it, the command fails:
 
 ```
-$ atlas hotspots --window-days 0
+$ grunnr hotspots --window-days 0
 Error: hotspots: --window-days must be at least 1 (got 0): a zero-length history window has no churn to mine
 ```
 
@@ -230,7 +230,7 @@ Error: hotspots: --window-days must be at least 1 (got 0): a zero-length history
 ## JSON
 
 ```
-$ atlas hotspots --json --top 1
+$ grunnr hotspots --json --top 1
 {
   "schema_version": "v1",
   "command": "hotspots",
@@ -277,9 +277,9 @@ interpretable without the window and half-life it was taken under, and the
 skip counters are how you find out that a filter removed more than you
 meant it to.
 
-## The same ranking inside `atlas sprint`
+## The same ranking inside `grunnr sprint`
 
-`atlas sprint --rank churn` applies the identical weighting to the sprint
+`grunnr sprint --rank churn` applies the identical weighting to the sprint
 backlog, mined with the identical flags: `--window-days`,
 `--half-life-days`, `--max-files-per-commit`, `--exclude-message`,
 `--no-default-exclusions` and `--no-author-diversity` all mean the same
@@ -291,7 +291,7 @@ because you believe it did something.
 The same illustrative caveat as above applies to this transcript:
 
 ```
-$ atlas sprint --rank churn --top 2
+$ grunnr sprint --rank churn --top 2
  1. billing.refunds                                     priority= 60.00 cost=M churn= 60.63 weighted= 36.38
     - Score 32 (low), 17 linked symbols, cost=M
     - churn 61: 12 commits by 3 author(s), hottest packages/billing/refund.go
@@ -333,6 +333,6 @@ you want to argue about where the risk is rather than what to schedule.
 
 ## See also
 
-- [`atlas sprint`](./sprint.md) — the gap-weighted backlog this reranks.
-- [`atlas health`](./health.md) — where the health score, and so the gap,
+- [`grunnr sprint`](./sprint.md) — the gap-weighted backlog this reranks.
+- [`grunnr health`](./health.md) — where the health score, and so the gap,
   comes from.

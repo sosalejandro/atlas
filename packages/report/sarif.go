@@ -34,7 +34,7 @@ type Tool struct {
 
 	// SemanticVersion is a semver string. A leading "v" is NOT semver and
 	// some ingests reject the document over it, so RenderSARIF strips one
-	// rather than trusting the caller — atlas's own Version constant
+	// rather than trusting the caller — grunnr's own Version constant
 	// carries the prefix.
 	SemanticVersion string
 }
@@ -163,7 +163,7 @@ func RenderSARIF(w io.Writer, tool Tool, findings []Finding) error {
 //
 // Only referenced rules are declared: a driver advertising rules that produced
 // no results reads, in GitHub's UI, as "these checks ran and passed", which is
-// a claim atlas is not making — a rule is absent here when its producer was not
+// a claim grunnr is not making — a rule is absent here when its producer was not
 // asked to run at all.
 func sarifRulesFor(findings []Finding) ([]sarifRule, map[string]int, error) {
 	seen := map[string]bool{}

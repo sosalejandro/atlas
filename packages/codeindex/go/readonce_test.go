@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
+	"github.com/sosalejandro/grunnr/packages/codeindex/annotations"
 )
 
 // THE READ COUNTER, AND WHY IT COUNTS BYTES RATHER THAN CALLS.
@@ -106,7 +106,7 @@ func writeReadOnceFixture(t *testing.T) (root, bigRel string) {
 // this package: one Scan, one read of each .go file.
 //
 // SkipTypedResolution is set because go/packages reads every file again
-// inside x/tools, where atlas has no say. That read is real and the issue
+// inside x/tools, where grunnr has no say. That read is real and the issue
 // records it; it is not what this test can hold anyone to.
 func TestScan_ReadsEachFileOnce(t *testing.T) {
 	if runtime.GOOS != "linux" {

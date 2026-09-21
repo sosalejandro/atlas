@@ -1,6 +1,6 @@
 # Test strategy
 
-Atlas sells one claim: *the numbers are true*. The first repository that claim
+Grunnr sells one claim: *the numbers are true*. The first repository that claim
 has to survive is this one.
 
 This document describes the layers the suite is built from, what each is for,
@@ -19,7 +19,7 @@ depth.
 | **Acceptance** | does the output match an external ground truth | `test/acceptance/pipeline_test.go` |
 | **CLI / e2e** | does the command surface behave, `--json` shape included | `test/acceptance/cli_test.go` |
 | Determinism | same input, same bytes | `packages/codeindex/go/determinism_test.go`, `packages/store/determinism_test.go` |
-| **Dogfood** | does atlas hold up when run against atlas | `test/acceptance/dogfood_test.go` (tag `dogfood`) |
+| **Dogfood** | does grunnr hold up when run against grunnr | `test/acceptance/dogfood_test.go` (tag `dogfood`) |
 
 The four bold rows are what issue #122 added. The generators and invariant
 checks they share live in [`packages/testing`](../../packages/testing) as
@@ -64,7 +64,7 @@ decoration.
 | `TestProperty_FindCycles_ReportsOnlyRealComponents` | `graph` | Checked against the definition of a strongly-connected component, not against a previous run. |
 | `TestProperty_MergeNode_KeepsTheGraphReferentiallyClosed` | `graph` | #97 in memory: a forgotten edge retarget leaves an edge pointing at a deleted node. |
 | `TestProperty_Adjacency_AgreesWithTheEdgeSlice` | `graph` | A missed cache invalidation, whose stale answer is a previously-correct answer. |
-| `TestProperty_Symbols_RoundTrip` | `store` | A field that does not survive persistence. Everything atlas prints is a join over these rows. |
+| `TestProperty_Symbols_RoundTrip` | `store` | A field that does not survive persistence. Everything grunnr prints is a join over these rows. |
 | `TestProperty_Symbols_InsertIsIdempotent` | `store` | #97 at the port. A re-scan must not renumber a symbol. |
 | `TestProperty_Edges_EndpointsSurvivePersistence` | `store` | The same, for edges, compared through qualified names. |
 | `TestProperty_Ingest_ReScanNeverRenumbersAnExistingSymbol` | `store` | The incremental path, which runs on every commit. |
@@ -100,7 +100,7 @@ the path of the suite that certifies the tool.
 **Attribution is not monotone when `end_line` is NULL.** With no end line,
 `indexSymbolsByFile` guesses the span, and the guess for the last symbol in a
 file is end-of-file (`1<<30`). That symbol absorbs every trailing statement,
-including statements belonging to a declaration atlas has not indexed. Restore
+including statements belonging to a declaration grunnr has not indexed. Restore
 the declaration and it takes its statements back — a *decrease*. Nothing is
 broken; the wider index is the more truthful one. So the property is stated for
 indexes where every symbol carries a real end line, and
@@ -108,10 +108,10 @@ indexes where every symbol carries a real end line, and
 exhibit it) so the caveat stays executable rather than becoming a comment
 nobody rechecks.
 
-**`atlas scan --json` under-reports.** `features_materialized`,
+**`grunnr scan --json` under-reports.** `features_materialized`,
 `feature_symbols_linked` **and** `orphan_annotations_skipped` are always `0`,
 because `internal/cli/scan.go` builds its result field by field from
-`store.IngestStats` and never copies those three. `atlas init` copies all
+`store.IngestStats` and never copies those three. `grunnr init` copies all
 three from the same struct, which is what makes the divergence provable rather
 than merely suspected.
 `TestAcceptance_CLI_ScanOmitsTheIngestFeatureCounts` characterises the defect
@@ -126,7 +126,7 @@ layers *compose*? Nothing in `test/acceptance` is mocked.
 
 `testdata/shopfixture` is a real Go module with real tests.
 `cover.coverprofile` is the untouched output of running them. The per-symbol
-fractions atlas produces are compared against **`go tool cover -func` invoked
+fractions grunnr produces are compared against **`go tool cover -func` invoked
 live on that same profile** — live rather than a checked-in expectation,
 because the claim is not "these seven numbers" but "our arithmetic agrees with
 the compiler's". When a toolchain upgrade changes how statements are counted,
@@ -153,7 +153,7 @@ Measured on the committed fixture profile: 14 statements, 11 attributed across
 7 declarations, 3 reported as one `outside-symbol-spans` gap. `go tool cover
 -func` puts the whole fixture at 63.6%.
 
-## Atlas gating atlas
+## Grunnr gating grunnr
 
 The headline. `test/acceptance/dogfood_test.go` runs the shipped commands
 against this repository and checks the answers.
@@ -162,7 +162,7 @@ against this repository and checks the answers.
 ./test/acceptance/run.sh
 ```
 
-In CI it is the `atlas gates atlas (blocking)` job in
+In CI it is the `grunnr gates grunnr (blocking)` job in
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). Three details of
 that job are load-bearing:
 
@@ -173,9 +173,9 @@ that job are load-bearing:
   `go test ./... -race -coverprofile=cover.coverprofile
   -coverpkg=./packages/...,./internal/...` and uploads the result as the
   `repo-coverprofile` artifact; the dogfood job downloads it and passes it in
-  through `ATLAS_DOGFOOD_PROFILE`. Without that, `run.sh` regenerates one,
+  through `GRUNNR_DOGFOOD_PROFILE`. Without that, `run.sh` regenerates one,
   which means running the whole suite a second time to measure the same code.
-- **It checks out with `fetch-depth: 0`.** `atlas cov diff` needs a base ref.
+- **It checks out with `fetch-depth: 0`.** `grunnr cov diff` needs a base ref.
   On the default single-commit checkout there is neither `origin/main` nor
   `HEAD~1`, and `run.sh` then hands the suite an empty base — which the suite
   reports as not-applicable rather than failing. The gate would stay green
@@ -188,11 +188,11 @@ behind the `dogfood` build tag, which `go test ./...` does not set.
 
 | Command | Assertion |
 | --- | --- |
-| `atlas scan` | the index is not nearly empty — floors of 2,000 symbols and 2,000 edges |
-| `atlas cov sync` | the attributed share of executed statements is at or above a committed floor |
-| `atlas doctor` | no check fails, and none reports `n/a` when its inputs were prepared |
-| `atlas sql scan` | the resolved fraction is at or above a committed floor |
-| `atlas cov diff` | it reaches an *answer*: a percentage over a real denominator, or an explicit "no measurable change" |
+| `grunnr scan` | the index is not nearly empty — floors of 2,000 symbols and 2,000 edges |
+| `grunnr cov sync` | the attributed share of executed statements is at or above a committed floor |
+| `grunnr doctor` | no check fails, and none reports `n/a` when its inputs were prepared |
+| `grunnr sql scan` | the resolved fraction is at or above a committed floor |
+| `grunnr cov diff` | it reaches an *answer*: a percentage over a real denominator, or an explicit "no measurable change" |
 
 `cov diff` is deliberately not gated on a threshold. Patch coverage is a
 property of the branch, so a target would fail on a legitimate docs-only commit
@@ -221,7 +221,7 @@ it without anything being wrong.
 **The SQL floor has almost no margin left.** It was set at 0.97 when the
 observation was 0.9922; the observation is now 0.9710, so one more unresolvable
 operation (134/138 → 133/138 = 0.9638) turns the gate red. That is the floor
-behaving as designed — an unresolvable query is one atlas cannot advise on, and
+behaving as designed — an unresolvable query is one grunnr cannot advise on, and
 adding one should be a deliberate act — but it is a gate a contributor will
 trip without knowing why, so it is recorded here rather than discovered in CI.
 Deciding whether to fix the four unresolved operations or restate the floor is
@@ -236,7 +236,7 @@ edges inserted before the fix and **9,281** after, and the `edges` table holds
 9,281 rows in both cases. The old number over-reported by 1,904.
 
 **Ratchet upward in a PR that says why. Never downward without one.** Re-measure
-with `ATLAS_DOGFOOD_KEEP=1 ./test/acceptance/run.sh`, which logs every observed
+with `GRUNNR_DOGFOOD_KEEP=1 ./test/acceptance/run.sh`, which logs every observed
 value beside its floor.
 
 ## Cost
@@ -291,38 +291,38 @@ the plain `go test ./...` that `build-and-test` executes:
 The reason all three outstanding rows are outstanding is the same one, and it
 is a real constraint rather than a preference: each needs a second toolchain in
 the test environment. `nyc`/vitest and a Gherkin runner are Node and would put
-`npm install` on the critical path of the suite that certifies atlas; the whole
+`npm install` on the critical path of the suite that certifies grunnr; the whole
 Go suite currently runs on a container with no Node at all, and
 `packages/coverage`'s Istanbul tests are hermetic for that reason. The concrete
 next step is not "write the test" but "decide whether CI grows a Node job":
 until that is decided, an Istanbul acceptance test would either be skipped in
-CI (a green check measuring nothing) or would compare atlas against a
-reimplementation of `nyc` living in this repo, which is pinning atlas to
+CI (a green check measuring nothing) or would compare grunnr against a
+reimplementation of `nyc` living in this repo, which is pinning grunnr to
 itself under another name. Diagram verify (#111) has no external tool to pin
 against at all — the honest ground truth there is a hand-checked fixture, which
 is example-based, and it belongs in #111's own change rather than here.
 
-### 3. `.atlas/features/` declares atlas's own capabilities, CI fails on regression — **partly, and the weaker part**
+### 3. `.grunnr/features/` declares grunnr's own capabilities, CI fails on regression — **partly, and the weaker part**
 
 CI does now fail on regression against a committed threshold: the dogfood job
-blocks, and `atlas cov sync`'s attributed share is gated at 0.95 with `atlas
-sql scan` gated at 0.97. What does *not* exist is `.atlas/features/`, so the
+blocks, and `grunnr cov sync`'s attributed share is gated at 0.95 with `grunnr
+sql scan` gated at 0.97. What does *not* exist is `.grunnr/features/`, so the
 gate is repo-wide rather than per capability — exactly the single global
 percentage this tool exists to replace.
 
 This is issue #106's deliverable, not something the test layer can supply on
-its own: writing feature declarations is a claim about what atlas's
+its own: writing feature declarations is a claim about what grunnr's
 capabilities *are*, and inventing that taxonomy inside a testing change would
 produce a feature map nobody reviewed and a per-capability floor derived from
-whatever it happened to measure on the day. Once `.atlas/features/` exists,
+whatever it happened to measure on the day. Once `.grunnr/features/` exists,
 `dogfood_test.go` gains a per-capability assertion beside the repo-wide one;
-the harness for it (`runAtlas` + `atlas health --json`) is already in that file.
+the harness for it (`runAtlas` + `grunnr health --json`) is already in that file.
 
-### 4. The README shows atlas's own feature matrix, regenerated on release — **not started**
+### 4. The README shows grunnr's own feature matrix, regenerated on release — **not started**
 
 The dogfood run prints the raw material — attributed share, per-feature audit
 scores, SQL resolution — and nothing publishes it. Two things are missing: a
-renderer (`atlas health --json` → a Markdown table) and a release-time step to
+renderer (`grunnr health --json` → a Markdown table) and a release-time step to
 regenerate it. Neither is a test, which is why neither is here; the blocker for
 the *matrix* specifically is criterion 3, since a feature matrix with no
 declared features is a table of one row.

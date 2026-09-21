@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Framework returns the constant identifying this parser. Stable.
@@ -210,7 +210,7 @@ func secondsToDuration(s float64) time.Duration {
 	return time.Duration(s * float64(time.Second))
 }
 
-// qualifiedName turns a Go test event into Atlas's "pkg.Func" symbol id.
+// qualifiedName turns a Go test event into Grunnr's "pkg.Func" symbol id.
 //
 // We use the last segment of the package path as the short name (mirrors
 // what codeindex/go emits when scanning the source), and we strip subtest

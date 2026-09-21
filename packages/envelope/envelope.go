@@ -1,6 +1,6 @@
-// Package envelope is the JSON contract every atlas surface answers in.
+// Package envelope is the JSON contract every grunnr surface answers in.
 //
-// It exists because atlas is about to have two of them. The CLI's `--json`
+// It exists because grunnr is about to have two of them. The CLI's `--json`
 // and the HTTP API (#101) return the same shapes computed by the same
 // packages, and the only durable way to keep them from drifting is for the
 // envelope to be one type that both import rather than two that happen to

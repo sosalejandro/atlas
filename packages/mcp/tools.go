@@ -146,7 +146,7 @@ func (a *toolArgs) optionalLimit(capValue int) (int, error) {
 // arguments it has to guess: with no schema it invents plausible field names,
 // gets -32602 back, and burns the turn. Every property carries a description
 // for the same reason — `feature_id` is not self-explanatory to a model that
-// has never seen an atlas annotation.
+// has never seen an grunnr annotation.
 // ---------------------------------------------------------------------------
 
 func objectSchema(props map[string]any, required ...string) map[string]any {

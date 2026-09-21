@@ -1,11 +1,11 @@
-# Migration from testreg → Atlas
+# Migration from testreg → Grunnr
 
 This is the cutover guide for projects that adopted testreg (the predecessor)
-and are moving to Atlas. It covers annotation compatibility, the YAML registry
+and are moving to Grunnr. It covers annotation compatibility, the YAML registry
 retirement, the CLI rename map, config + taskfile rewrites, the ordered
 cutover checklist, rollback, and a FAQ at the end.
 
-If you are starting greenfield with Atlas and never used testreg, you do
+If you are starting greenfield with Grunnr and never used testreg, you do
 not need this document — read `docs/architecture.md` and `docs/annotations.md`
 instead.
 
@@ -15,13 +15,13 @@ instead.
 
 If you just want the happy path, this is it. Five steps, in order:
 
-1. `go install github.com/sosalejandro/atlas/cmd/atlas@latest`
+1. `go install github.com/sosalejandro/grunnr/cmd/grunnr@latest`
 2. `cd path/to/your/repo`
-3. `atlas init` — creates `.atlas/atlas.db` and a minimal `.atlas.yaml`.
-4. `atlas health --worst 10` — health-scored top offenders for the codebase.
-5. `atlas chain <a-feature-id>` — walk the call graph for any feature you
+3. `grunnr init` — creates `.grunnr/grunnr.db` and a minimal `.atlas.yaml`.
+4. `grunnr health --worst 10` — health-scored top offenders for the codebase.
+5. `grunnr chain <a-feature-id>` — walk the call graph for any feature you
    already annotated. Saga walks use the `saga:<id>` prefix:
-   `atlas chain saga:meal-prep-flow`.
+   `grunnr chain saga:meal-prep-flow`.
 
 The sections below explain the cutover in detail: annotation grammar, what
 happens to the YAML registry, the CLI rename map, the `.atlas.yaml` schema,
@@ -29,7 +29,7 @@ taskfile rewrites, and rollback.
 
 ---
 
-## 1. Why Atlas (one paragraph)
+## 1. Why Grunnr (one paragraph)
 
 testreg grew into a single 36k-LOC Go binary covering 8+ distinct concerns
 (AST parsing, registry storage, coverage analysis, sprint planning,
@@ -37,9 +37,9 @@ dashboards, diagnostics, contract extraction, dependency tracing). It works,
 but the surface area is too large for one tool: every concern lives in one
 binary's release cycle, and the hand-maintained YAML registry was the
 primary drift point because it required parallel human upkeep alongside
-code changes. Atlas keeps every testreg strength (the AST scanners, the
+code changes. Grunnr keeps every testreg strength (the AST scanners, the
 graph model, the DI resolvers, the health-scoring algorithm) but splits
-them into SRP-focused library packages under one `atlas` CLI, and moves
+them into SRP-focused library packages under one `grunnr` CLI, and moves
 the registry into a derived SQLite store re-built from code annotations
 on every scan — so feature membership cannot drift from code.
 
@@ -48,7 +48,7 @@ on every scan — so feature membership cannot drift from code.
 ## 2. Annotation compatibility
 
 **Existing `// @testreg <id>` annotations continue to work, untouched.**
-You do not have to rename anything to adopt Atlas. The scanner accepts both
+You do not have to rename anything to adopt Grunnr. The scanner accepts both
 grammars:
 
 | Form                            | Status                | Notes                          |
@@ -66,9 +66,9 @@ the parser. The 9-character cost per annotation is paid once.
 ### Bulk renaming when ready (opt-in)
 
 ```bash
-atlas migrate-annotations --dry-run         # show what would change
-atlas migrate-annotations --apply           # rewrite in place
-atlas migrate-annotations --apply --path src/contexts/identity
+grunnr migrate-annotations --dry-run         # show what would change
+grunnr migrate-annotations --apply           # rewrite in place
+grunnr migrate-annotations --apply --path src/contexts/identity
 ```
 
 Renaming is **not required** at any phase. Defer it if you're mid-refactor or
@@ -85,18 +85,18 @@ for which symbols belonged to which feature. Humans hand-maintained these
 files; every code-level membership change required a parallel YAML edit.
 This was the dominant drift source.
 
-**Atlas does not use the YAML registry as source of truth.** Feature
-membership is re-derived from code annotations on every `atlas scan`. In
+**Grunnr does not use the YAML registry as source of truth.** Feature
+membership is re-derived from code annotations on every `grunnr scan`. In
 Phase 9 the source of truth is in-code annotations; the legacy YAML files
-contain no data Atlas doesn't already pick up from `@testreg` / `@atlas:*`
+contain no data Grunnr doesn't already pick up from `@testreg` / `@atlas:*`
 comments on the symbols themselves.
 
 There is no YAML import step. Run a normal scan and the SQLite store
 materializes from annotations alone:
 
 ```bash
-atlas init        # creates .atlas/atlas.db + minimal .atlas.yaml
-atlas scan        # populates symbols, annotations, features
+grunnr init        # creates .grunnr/grunnr.db + minimal .atlas.yaml
+grunnr scan        # populates symbols, annotations, features
 ```
 
 Then move the legacy YAML directory aside so it isn't accidentally edited:
@@ -113,7 +113,7 @@ The `_legacy/` directory is reference-only post-cutover. It is kept for:
   vs. what code annotations actually say. Useful for catching annotations
   that got lost during the testreg era.
 
-`atlas dump --format yaml --feature <id>` can re-emit a YAML view of any
+`grunnr dump --format yaml --feature <id>` can re-emit a YAML view of any
 feature from the SQLite store at any time. The YAML format is now an
 **output**, not an input.
 
@@ -121,39 +121,39 @@ feature from the SQLite store at any time. The YAML format is now an
 
 ## 4. CLI rename map
 
-| testreg command          | Atlas equivalent                | Notes                                                              |
+| testreg command          | Grunnr equivalent                | Notes                                                              |
 | ------------------------ | ------------------------------- | ------------------------------------------------------------------ |
-| `testreg scan`           | `atlas scan`                    | Same role: walk source, refresh symbol graph.                      |
-| `testreg trace <id>`     | `atlas chain <id>`              | Same chain output; default format `text`, `--format json` stable.  |
-| `testreg audit`          | `atlas health`                   | Same health-scoring algo (regressed within ±5%).                   |
-| `testreg sprint`         | `atlas sprint`                  | Same gap-weighted prioritization.                                  |
-| `testreg init`           | `atlas init`                    | Creates `.atlas/atlas.db` + a minimal `.atlas.yaml`. No YAML import — annotations are the source of truth.  |
+| `testreg scan`           | `grunnr scan`                    | Same role: walk source, refresh symbol graph.                      |
+| `testreg trace <id>`     | `grunnr chain <id>`              | Same chain output; default format `text`, `--format json` stable.  |
+| `testreg audit`          | `grunnr health`                   | Same health-scoring algo (regressed within ±5%).                   |
+| `testreg sprint`         | `grunnr sprint`                  | Same gap-weighted prioritization.                                  |
+| `testreg init`           | `grunnr init`                    | Creates `.grunnr/grunnr.db` + a minimal `.atlas.yaml`. No YAML import — annotations are the source of truth.  |
 | `testreg serve`          | **DROPPED**                     | No dashboard in v0. JSON outputs are stable; see §9.               |
-| `testreg gaps`           | `atlas cov status --uncovered`  | Subsumed under the `cov` verb namespace.                           |
-| `testreg report`         | `atlas health --format markdown` | Or `--format json`. Same data, new flag plumbing.                  |
-| `testreg diff`           | `atlas diff`                    | Snapshot diff; same semantics.                                     |
-| `testreg contract`       | `atlas contract`                | Contract extraction; Huma router added in addition to Chi/Echo.    |
-| `testreg diagnose`       | `atlas diagnose`                | Error → code matching; unchanged.                                  |
-| `testreg debug-scan`     | `atlas scan --debug`            | Promoted from sub-binary verb to a flag.                           |
-| `testreg update --gotest`| `atlas cov ingest --gotest`     | Coverage ingestion lives under `cov`.                              |
-| `testreg update --playwright` | `atlas cov ingest --playwright` | Same for every framework.                                    |
-| `testreg update --vitest`     | `atlas cov ingest --vitest`     |                                                                |
-| `testreg update --jest`       | `atlas cov ingest --jest`       |                                                                |
-| `testreg update --maestro`    | `atlas cov ingest --maestro`    |                                                                |
+| `testreg gaps`           | `grunnr cov status --uncovered`  | Subsumed under the `cov` verb namespace.                           |
+| `testreg report`         | `grunnr health --format markdown` | Or `--format json`. Same data, new flag plumbing.                  |
+| `testreg diff`           | `grunnr diff`                    | Snapshot diff; same semantics.                                     |
+| `testreg contract`       | `grunnr contract`                | Contract extraction; Huma router added in addition to Chi/Echo.    |
+| `testreg diagnose`       | `grunnr diagnose`                | Error → code matching; unchanged.                                  |
+| `testreg debug-scan`     | `grunnr scan --debug`            | Promoted from sub-binary verb to a flag.                           |
+| `testreg update --gotest`| `grunnr cov ingest --gotest`     | Coverage ingestion lives under `cov`.                              |
+| `testreg update --playwright` | `grunnr cov ingest --playwright` | Same for every framework.                                    |
+| `testreg update --vitest`     | `grunnr cov ingest --vitest`     |                                                                |
+| `testreg update --jest`       | `grunnr cov ingest --jest`       |                                                                |
+| `testreg update --maestro`    | `grunnr cov ingest --maestro`    |                                                                |
 
 **Verb-namespaced subcommands** (matches bmad-cli ergonomics):
 
-- `atlas chain` / `atlas scan` / `atlas init` / `atlas diff` / `atlas health` /
-  `atlas sprint` / `atlas contract` / `atlas diagnose` / `atlas migrate-annotations`
-- `atlas cov ingest` / `atlas cov status` / `atlas cov sync`
-- `atlas dump` (read-only views from SQLite store)
+- `grunnr chain` / `grunnr scan` / `grunnr init` / `grunnr diff` / `grunnr health` /
+  `grunnr sprint` / `grunnr contract` / `grunnr diagnose` / `grunnr migrate-annotations`
+- `grunnr cov ingest` / `grunnr cov status` / `grunnr cov sync`
+- `grunnr dump` (read-only views from SQLite store)
 
 Saga walks reuse the `chain` verb with a `saga:<id>` prefix on the argument
-(there is no separate `atlas codebase saga` verb):
+(there is no separate `grunnr codebase saga` verb):
 
 ```bash
 # Walk a named saga's step sequence
-atlas chain saga:meal-prep-flow
+grunnr chain saga:meal-prep-flow
 ```
 
 Every subcommand has stable JSON output behind `--format json`. The schema
@@ -164,7 +164,7 @@ is documented under `docs/api/` and is part of the v0 contract — see §9.
 ## 5. Config rename — `.testreg.yaml` → `.atlas.yaml`
 
 The repo-root config file is renamed. The **v0 schema is intentionally
-narrow** — Atlas only reads the fields it actively uses. Anything the binary
+narrow** — Grunnr only reads the fields it actively uses. Anything the binary
 doesn't consume is silently ignored, so a kitchen-sink config copied from
 testreg won't error, but it won't do anything either. The supported fields
 are defined by the `Config` struct in
@@ -174,7 +174,7 @@ are defined by the `Config` struct in
 
 | Field                            | Type        | Default                  | Purpose                                                            |
 | -------------------------------- | ----------- | ------------------------ | ------------------------------------------------------------------ |
-| `db_path`                        | string      | `.atlas/atlas.db`        | SQLite store path. Relative paths anchor at the git repo root.     |
+| `db_path`                        | string      | `.grunnr/grunnr.db`        | SQLite store path. Relative paths anchor at the git repo root.     |
 | `scan.skip_dirs`                 | []string    | `[vendor, node_modules, dist, build]` | Directory names skipped by the scanner.                |
 | `scan.include_nested_repos`      | bool        | `false`                               | Index git repositories nested inside the scan root (clones, submodules, worktrees) as part of this codebase. See below. |
 | `scan.skip_ts`                   | bool        | `false`                  | Skip the TS scanner entirely (Go-only mode).                       |
@@ -182,7 +182,7 @@ are defined by the `Config` struct in
 | `scan.include_generated`         | bool        | `false`                  | Index generated files instead of excluding them.                   |
 | `audit.freshness_window_days`    | int         | `30`                     | How recently a feature must have been touched to count "fresh".    |
 | `audit.contract_drift_window_days` | int       | `30`                     | Grace window before contract drift gets flagged.                   |
-| `sprint.default_top_n`           | int         | `10`                     | Default `--top` for `atlas sprint` when the flag is omitted.       |
+| `sprint.default_top_n`           | int         | `10`                     | Default `--top` for `grunnr sprint` when the flag is omitted.       |
 
 Additional config fields will be added as new phases require them; testreg's
 broader config surface is intentionally pared back for v0. Fields the binary
@@ -193,7 +193,7 @@ not write them into your config.
 
 ### Transition behavior
 
-Atlas reads `.atlas.yaml` at the repo root (the directory `git rev-parse
+Grunnr reads `.atlas.yaml` at the repo root (the directory `git rev-parse
 --show-toplevel` reports), falling back to the current working directory when
 not inside a repo. If no config file exists, the built-in defaults apply —
 running with no config is a supported workflow. Specify a non-default path
@@ -207,7 +207,7 @@ cutover commit.
 ```yaml
 # All fields are optional; this example shows every supported key with the
 # default value spelled out. Omit any field to take the default.
-db_path: .atlas/atlas.db
+db_path: .grunnr/grunnr.db
 
 scan:
   skip_dirs: [vendor, node_modules, dist, build]
@@ -226,9 +226,9 @@ sprint:
 
 ---
 
-## 6. Taskfile rewrite — `taskfiles/testreg.yml` → `taskfiles/atlas.yml`
+## 6. Taskfile rewrite — `taskfiles/testreg.yml` → `taskfiles/grunnr.yml`
 
-Atlas subcommands map cleanly onto testreg's task targets. Below are
+Grunnr subcommands map cleanly onto testreg's task targets. Below are
 BEFORE / AFTER side-by-sides for the three most common tasks. The full
 rewrite of `taskfiles/testreg.yml` follows the same shape.
 
@@ -246,19 +246,19 @@ sync:
     - "{{.TESTREG_BIN}} audit"
 ```
 
-**AFTER — `taskfiles/atlas.yml`:**
+**AFTER — `taskfiles/grunnr.yml`:**
 
 ```yaml
 sync:
   desc: Scan, ingest test results, audit
   cmds:
-    - atlas scan
-    - atlas cov sync               # discovers + ingests all framework outputs
-    - atlas health
+    - grunnr scan
+    - grunnr cov sync               # discovers + ingests all framework outputs
+    - grunnr health
 ```
 
-`atlas cov sync` replaces the manual `import:go` / `import:playwright` /
-`import:vitest` chain — it walks `.atlas-results/`, detects each framework's
+`grunnr cov sync` replaces the manual `import:go` / `import:playwright` /
+`import:vitest` chain — it walks `.grunnr-results/`, detects each framework's
 JSON shape, and ingests in one pass.
 
 ### Task `audit`
@@ -279,8 +279,8 @@ audit:
 audit:
   desc: Print health audit + write markdown report
   cmds:
-    - atlas health
-    - atlas health --format markdown > audit-report.md
+    - grunnr health
+    - grunnr health --format markdown > audit-report.md
 ```
 
 ### Task `gaps`
@@ -300,7 +300,7 @@ gaps:
 gaps:
   desc: List uncovered features
   cmds:
-    - atlas cov status --uncovered
+    - grunnr cov status --uncovered
 ```
 
 ### Tasks that are dropped
@@ -308,7 +308,7 @@ gaps:
 | Dropped task                     | Why                                                  |
 | -------------------------------- | ---------------------------------------------------- |
 | `dashboard`                      | `serve` is dropped from v0. See §9.                  |
-| `import:*` (per-framework)       | Subsumed by `atlas cov sync`.                        |
+| `import:*` (per-framework)       | Subsumed by `grunnr cov sync`.                        |
 | Any explicit YAML edit task      | YAML registry is retired; derived from code.         |
 
 ### Full template
@@ -317,41 +317,41 @@ gaps:
 version: '3'
 
 vars:
-  ATLAS_RESULTS: .atlas-results
+  GRUNNR_RESULTS: .grunnr-results
 
 tasks:
-  setup:    { cmds: [mkdir -p {{.ATLAS_RESULTS}}], status: [test -d {{.ATLAS_RESULTS}}] }
-  scan:     { desc: Refresh code-graph,         cmds: [atlas scan] }
-  sync:     { desc: Scan + ingest + audit,      cmds: [atlas scan, atlas cov sync, atlas health] }
-  audit:    { desc: Health audit,               cmds: [atlas health, "atlas health --format markdown > audit-report.md"] }
-  gaps:     { desc: List uncovered features,    cmds: ["atlas cov status --uncovered"] }
-  trace:    { desc: "Trace feature (FEATURE=)", cmds: ["atlas chain {{.FEATURE}}"] }
-  sprint:   { desc: Gap-weighted sprint plan,   cmds: [atlas sprint] }
+  setup:    { cmds: [mkdir -p {{.GRUNNR_RESULTS}}], status: [test -d {{.GRUNNR_RESULTS}}] }
+  scan:     { desc: Refresh code-graph,         cmds: [grunnr scan] }
+  sync:     { desc: Scan + ingest + audit,      cmds: [grunnr scan, grunnr cov sync, grunnr health] }
+  audit:    { desc: Health audit,               cmds: [grunnr health, "grunnr health --format markdown > audit-report.md"] }
+  gaps:     { desc: List uncovered features,    cmds: ["grunnr cov status --uncovered"] }
+  trace:    { desc: "Trace feature (FEATURE=)", cmds: ["grunnr chain {{.FEATURE}}"] }
+  sprint:   { desc: Gap-weighted sprint plan,   cmds: [grunnr sprint] }
 
   test:go:
     deps: [setup]
     dir: src
     cmds:
-      - go test -json -race -count=1 ./... > ../{{.ATLAS_RESULTS}}/go-test.json 2>&1 || true
+      - go test -json -race -count=1 ./... > ../{{.GRUNNR_RESULTS}}/go-test.json 2>&1 || true
 
   test:playwright:
     deps: [setup]
     cmds:
-      - pnpm --filter=@nutrition-platform/web-nutritionist exec playwright test --reporter=json > {{.ATLAS_RESULTS}}/playwright-nutritionist.json 2>&1 || true
-      - pnpm --filter=@nutrition-platform/web-patient      exec playwright test --reporter=json > {{.ATLAS_RESULTS}}/playwright-patient.json      2>&1 || true
+      - pnpm --filter=@nutrition-platform/web-nutritionist exec playwright test --reporter=json > {{.GRUNNR_RESULTS}}/playwright-nutritionist.json 2>&1 || true
+      - pnpm --filter=@nutrition-platform/web-patient      exec playwright test --reporter=json > {{.GRUNNR_RESULTS}}/playwright-patient.json      2>&1 || true
 ```
 
 ---
 
-## 7. Cutover steps (Atlas-first, not parallel-run)
+## 7. Cutover steps (Grunnr-first, not parallel-run)
 
 **Ordered checklist.** Do these in one PR so the repo never sits in a
 half-migrated state on `main`.
 
-1. **Install Atlas locally:**
+1. **Install Grunnr locally:**
    ```bash
-   go install github.com/sosalejandro/atlas/cmd/atlas@latest
-   atlas --version    # confirm it's on PATH
+   go install github.com/sosalejandro/grunnr/cmd/grunnr@latest
+   grunnr --version    # confirm it's on PATH
    ```
 
 2. **Rename the config file:**
@@ -363,20 +363,20 @@ half-migrated state on `main`.
 
 3. **Rewrite the taskfile:**
    ```bash
-   git mv taskfiles/testreg.yml taskfiles/atlas.yml
+   git mv taskfiles/testreg.yml taskfiles/grunnr.yml
    # then edit per the template in §6
    ```
-   Update `Taskfile.yml`'s `includes:` block to point at `taskfiles/atlas.yml`
+   Update `Taskfile.yml`'s `includes:` block to point at `taskfiles/grunnr.yml`
    in the same commit.
 
 4. **Build the SQLite store from code annotations:**
    ```bash
-   atlas init     # creates .atlas/atlas.db + minimal .atlas.yaml
-   atlas scan     # walks the repo, materializes features from annotations
+   grunnr init     # creates .grunnr/grunnr.db + minimal .atlas.yaml
+   grunnr scan     # walks the repo, materializes features from annotations
    ```
    In Phase 9 the source of truth is in-code annotations. There is no YAML
    import step — the 40-ish YAML files under `docs/testing/registry/`
-   contain no data atlas doesn't already pick up from the `@testreg` /
+   contain no data grunnr doesn't already pick up from the `@testreg` /
    `@atlas:*` comments on the symbols themselves. First scan takes
    ~30–60s on a 1k-feature codebase; subsequent runs are incremental (~5s).
 
@@ -386,14 +386,14 @@ half-migrated state on `main`.
    git mv docs/testing/registry/*.yaml docs/testing/registry/_legacy/
    ```
    Keep `_legacy/` checked in as reference-only material so rollback (§8) is
-   one `git revert` away. Nothing in Atlas reads from `_legacy/`.
+   one `git revert` away. Nothing in Grunnr reads from `_legacy/`.
 
 6. **Verify parity vs. the last testreg sync:**
    ```bash
-   task atlas:sync
+   task grunnr:sync
    # diff against your last captured `task testreg:sync` output
    ```
-   Acceptance: `atlas health` health scores should be within ±5% of the
+   Acceptance: `grunnr health` health scores should be within ±5% of the
    last testreg audit. Feature counts should match exactly (annotations
    are the source of truth in both tools).
 
@@ -429,7 +429,7 @@ If a regression surfaces post-cutover and you need to bail:
    ```bash
    git mv docs/testing/registry/_legacy/*.yaml docs/testing/registry/
    ```
-   testreg will read it on next scan; no data was lost (Atlas only ever
+   testreg will read it on next scan; no data was lost (Grunnr only ever
    imported from it, never wrote to it).
 
 3. **Reinstall testreg:**
@@ -439,33 +439,33 @@ If a regression surfaces post-cutover and you need to bail:
    testreg's archived repo is still installable; the archive freezes the
    binary, it doesn't remove it.
 
-4. **File the Atlas regression on `sosalejandro/atlas`** (not on testreg,
+4. **File the Grunnr regression on `sosalejandro/grunnr`** (not on testreg,
    which is archived and not accepting issues). Tag the issue
    `regression-during-cutover` so the maintainer can prioritize.
 
-**Important:** the project policy is **hotfix Atlas, don't fall back**.
+**Important:** the project policy is **hotfix Grunnr, don't fall back**.
 Rollback exists for emergency-only use (production-impacting regression
-with no Atlas fix in sight within 24h). The cutover is intentionally
+with no Grunnr fix in sight within 24h). The cutover is intentionally
 not parallel-run precisely because parallel-run breeds drift; we'd
 rather take the hit, fix forward, and stay on one tool.
 
 ---
 
-## 9. What testreg features are NOT in Atlas v0
+## 9. What testreg features are NOT in Grunnr v0
 
-| testreg feature      | Atlas v0 status | Replacement / plan                                   |
+| testreg feature      | Grunnr v0 status | Replacement / plan                                   |
 | -------------------- | --------------- | ---------------------------------------------------- |
 | `testreg serve` dashboard (htmx + Go templates) | **DROPPED** | CLI-only. Future React SPA can layer on stable JSON. |
 | Python scanner       | **DROPPED**     | 26 files in primary consumer doesn't justify the runtime dep. Revisit if Python codebase grows. |
-| YAML registry as source-of-truth | **REPLACED** | Code annotations are now the only source of truth; YAML is an output (`atlas dump --format yaml`). |
-| `testreg update --metrics` flag  | **REPLACED** | `atlas cov ingest` always emits metrics; flag removed. |
+| YAML registry as source-of-truth | **REPLACED** | Code annotations are now the only source of truth; YAML is an output (`grunnr dump --format yaml`). |
+| `testreg update --metrics` flag  | **REPLACED** | `grunnr cov ingest` always emits metrics; flag removed. |
 
 ### The JSON output contract (what keeps the dashboard door open)
 
-Every Atlas subcommand emits stable JSON behind `--format json`. The
+Every Grunnr subcommand emits stable JSON behind `--format json`. The
 schema is versioned (`schema_version` field on every payload) and lives
 under `docs/api/`. **A future dashboard can be built by any team without
-touching Atlas core** — it can shell out to `atlas chain ... --format json`,
+touching Grunnr core** — it can shell out to `grunnr chain ... --format json`,
 or import the `packages/store` SQLite reader directly, and assemble its
 own UI.
 
@@ -482,42 +482,42 @@ contract is in scope and treated as a public API. Breaking-change rules:
 
 **Q. What about my 1,000+ existing `@testreg` annotations?**
 
-Atlas reads them. No forced rename. They behave identically to
+Grunnr reads them. No forced rename. They behave identically to
 `@atlas:feature <id>` — same id resolution, same graph membership, same
-audit weight. Run `atlas migrate-annotations --apply` on your own
+audit weight. Run `grunnr migrate-annotations --apply` on your own
 schedule, or never. Both grammars are first-class for v0 and v1.
 
 ---
 
-**Q. Can I run testreg and atlas in parallel during cutover?**
+**Q. Can I run testreg and grunnr in parallel during cutover?**
 
-Discouraged. The cutover model is **Atlas-first, testreg archived from day
-one of your cutover PR**. Parallel-run breeds the exact drift Atlas was built
-to eliminate (two registries, neither trusted). If Atlas regresses post-cutover,
-hotfix Atlas — don't fall back. §8's rollback is for emergencies only.
+Discouraged. The cutover model is **Grunnr-first, testreg archived from day
+one of your cutover PR**. Parallel-run breeds the exact drift Grunnr was built
+to eliminate (two registries, neither trusted). If Grunnr regresses post-cutover,
+hotfix Grunnr — don't fall back. §8's rollback is for emergencies only.
 
 ---
 
 **Q. Where did my dashboard go?**
 
 Dropped from v0. The htmx-based `testreg serve` console is reference-only in
-the atlas repo (`internal/server/`) until Phase 7 cleanup. The stable
+the grunnr repo (`internal/server/`) until Phase 7 cleanup. The stable
 `--format json` contract (§9) lets a future dashboard (React SPA, TUI, Slack
-bot, anything) layer on without touching Atlas core.
+bot, anything) layer on without touching Grunnr core.
 
 ---
 
 **Q. Will my CI break?**
 
 Only if your CI directly invokes `testreg` — rewrite those invocations
-to `atlas` per §4's command map. The most common cases:
+to `grunnr` per §4's command map. The most common cases:
 
-- `testreg audit` in a PR check → `atlas health`.
-- `testreg scan` in a nightly job → `atlas scan`.
-- `testreg gaps` in a release gate → `atlas cov status --uncovered`.
+- `testreg audit` in a PR check → `grunnr health`.
+- `testreg scan` in a nightly job → `grunnr scan`.
+- `testreg gaps` in a release gate → `grunnr cov status --uncovered`.
 
 If your CI invokes `task testreg:sync`, rename the task to
-`task atlas:sync` (per §6) and the CI doesn't need to know about the
+`task grunnr:sync` (per §6) and the CI doesn't need to know about the
 underlying binary swap.
 
 ---
@@ -526,32 +526,32 @@ underlying binary swap.
 
 Small footprint in the primary consumer codebase (26 .py vs. 2,320 Go and
 2,139 TS/TSX — under 1%). Revisit if Python grows past ~10% or a second
-consumer adopts Atlas with a Python-heavy codebase. Tracking issue:
-`sosalejandro/atlas#future-python`.
+consumer adopts Grunnr with a Python-heavy codebase. Tracking issue:
+`sosalejandro/grunnr#future-python`.
 
 ---
 
 **Q. Is the YAML registry totally gone?**
 
-**As a source of truth, yes** — Atlas re-derives feature membership from code
+**As a source of truth, yes** — Grunnr re-derives feature membership from code
 annotations on every scan. **As an output format, available** via
-`atlas dump --format yaml --feature <id>` (or `--all`) for tooling that still
+`grunnr dump --format yaml --feature <id>` (or `--all`) for tooling that still
 consumes the YAML shape. Nobody hand-edits it anymore (no more drift).
 
 ---
 
 **Q. What about my `task testreg:dashboard` muscle memory?**
 
-Replaced by `atlas serve` in a future phase (no ETA — gated on dashboard SPA
+Replaced by `grunnr serve` in a future phase (no ETA — gated on dashboard SPA
 work being in scope). For now: use the CLI, or pipe `--format json` into your
 editor / Slack / whatever you actually use. The dashboard was the
 least-used surface of testreg, so dropping it is intentional, not incidental.
 
 ---
 
-**Q. Does Atlas support Huma routers?**
+**Q. Does Grunnr support Huma routers?**
 
-Yes. testreg's `route_parser.go` handled Chi, Echo, and net/http; Atlas
+Yes. testreg's `route_parser.go` handled Chi, Echo, and net/http; Grunnr
 adds Huma in `packages/routeparse` (the primary consumer migrated to
 Huma during 2025). Other router parsers from testreg are carried over
 unchanged.

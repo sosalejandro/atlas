@@ -15,26 +15,26 @@ import (
 // docs/security.md leads with "nothing leaves the machine". That sentence is
 // the only reason the rest of the document is worth reading, and a sentence
 // is not an enforcement mechanism -- so this test walks the import graph of
-// the atlas binary and fails if any first-party package pulls in a standard
+// the grunnr binary and fails if any first-party package pulls in a standard
 // library package that can open a socket.
 //
 // The check is deliberately bounded, and the document says so in the same
-// words: it covers github.com/sosalejandro/atlas packages reachable from
-// cmd/atlas, and it does not audit third-party dependencies. Its value is
+// words: it covers github.com/sosalejandro/grunnr packages reachable from
+// cmd/grunnr, and it does not audit third-party dependencies. Its value is
 // that the specific mistake it prevents -- someone adding a telemetry ping,
 // an update check or a crash reporter to a CLI verb -- is a first-party
 // change, and it cannot land quietly while this test exists.
 //
 // Reachability matters rather than a whole-tree grep: internal/server does
 // import net/http, and it belongs to the legacy `testreg` binary at the
-// module root, which cmd/atlas has never imported. A grep would either fail
-// on code the atlas binary does not contain or teach the next person to add
+// module root, which cmd/grunnr has never imported. A grep would either fail
+// on code the grunnr binary does not contain or teach the next person to add
 // an exception list.
 
-const modulePath = "github.com/sosalejandro/atlas"
+const modulePath = "github.com/sosalejandro/grunnr"
 
 // networkPackages are the standard library packages that can open a network
-// connection. os/exec is deliberately absent: atlas shells out to git, node
+// connection. os/exec is deliberately absent: grunnr shells out to git, node
 // and python by design, and those are local processes.
 var networkPackages = map[string]bool{
 	"net":      true,
@@ -43,7 +43,7 @@ var networkPackages = map[string]bool{
 	"net/smtp": true,
 }
 
-func TestAtlasBinary_ImportsNoNetworkPackage(t *testing.T) {
+func TestGrunnrBinary_ImportsNoNetworkPackage(t *testing.T) {
 	root := repoRoot(t)
 	reached := map[string]bool{}
 	var offenders []string
@@ -65,10 +65,10 @@ func TestAtlasBinary_ImportsNoNetworkPackage(t *testing.T) {
 			}
 		}
 	}
-	walk(modulePath + "/cmd/atlas")
+	walk(modulePath + "/cmd/grunnr")
 
 	// A floor, not a measurement. The walk covers the first-party packages
-	// `go list -deps ./cmd/atlas` reports, and that number moves with every
+	// `go list -deps ./cmd/grunnr` reports, and that number moves with every
 	// package split, so no exact figure is asserted here or in
 	// docs/security.md. 30 leaves room for consolidation while still failing
 	// loudly if the directory mapping ever breaks and the check starts
@@ -79,25 +79,25 @@ func TestAtlasBinary_ImportsNoNetworkPackage(t *testing.T) {
 	}
 	if len(offenders) > 0 {
 		sort.Strings(offenders)
-		t.Errorf("the atlas binary reaches network code:\n  %s\n"+
+		t.Errorf("the grunnr binary reaches network code:\n  %s\n"+
 			"If this is intentional, docs/security.md must stop claiming that "+
 			"nothing leaves the machine BEFORE this test is changed.",
 			strings.Join(offenders, "\n  "))
 	}
 }
 
-// TestAtlasBinary_ReachesTheCommandTree is a guard on the guard: if the walk
+// TestGrunnrBinary_ReachesTheCommandTree is a guard on the guard: if the walk
 // above ever stopped resolving package directories it would pass vacuously.
-func TestAtlasBinary_ReachesTheCommandTree(t *testing.T) {
+func TestGrunnrBinary_ReachesTheCommandTree(t *testing.T) {
 	root := repoRoot(t)
-	imports := importsOf(t, filepath.Join(root, "cmd", "atlas"))
+	imports := importsOf(t, filepath.Join(root, "cmd", "grunnr"))
 	want := modulePath + "/internal/cli"
 	for _, i := range imports {
 		if i == want {
 			return
 		}
 	}
-	t.Fatalf("cmd/atlas does not import %s; imports were %v", want, imports)
+	t.Fatalf("cmd/grunnr does not import %s; imports were %v", want, imports)
 }
 
 // importsOf returns the import paths of every non-test Go file in dir.

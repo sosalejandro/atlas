@@ -2,7 +2,7 @@
 // of a tool that reads a whole proprietary codebase: if I hand you this
 // database, what am I handing you?
 //
-// Atlas is pitched at regulated industries and at a hosted tier. "Trust us"
+// Grunnr is pitched at regulated industries and at a hosted tier. "Trust us"
 // is not an answer either audience accepts, and a wiki page is not an
 // answer either -- documents drift from the schema they describe within one
 // migration. So the data-handling statement in docs/security.md is written
@@ -17,7 +17,7 @@
 //     leaves the database, and internal/cli/security_test.go checks the
 //     list against the real command tree.
 //
-//   - egress_test.go walks the import graph of the atlas binary and fails
+//   - egress_test.go walks the import graph of the grunnr binary and fails
 //     if any first-party package reaches network code, which is what turns
 //     "nothing leaves the machine" from a promise into a check.
 //
@@ -41,7 +41,7 @@
 // The detector is tuned to under-report, and the reason is that the two
 // errors do not cost the same. A missed weak password is a credential an
 // operator could have found by reading the file. A false positive silently
-// rewrites a legitimate query that `atlas sql` then analyses and reports on
+// rewrites a legitimate query that `grunnr sql` then analyses and reports on
 // as though it were the code -- a wrong answer that looks authoritative,
 // which is the failure mode this repository rejects everywhere else.
 // Everything redacted is therefore recorded and shown, never merely logged.

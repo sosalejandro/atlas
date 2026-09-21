@@ -4,9 +4,9 @@
 //
 // # Why it exists
 //
-// Every signal atlas computes -- coverage per capability, the audit gate,
+// Every signal grunnr computes -- coverage per capability, the audit gate,
 // the sprint ranking -- is gated behind someone having annotated the code
-// first. On a repository where nobody has done that yet, atlas can report a
+// first. On a repository where nobody has done that yet, grunnr can report a
 // symbol count and nothing else, which is not a reason to keep going. This
 // package closes that gap by inferring groupings from what a scan already
 // knows: HTTP route registrations, the SQL each file issues, test names,
@@ -15,7 +15,7 @@
 //
 // # Inferred is not declared
 //
-// The registry is atlas's ground truth. Its value comes entirely from the
+// The registry is grunnr's ground truth. Its value comes entirely from the
 // fact that a human wrote every entry in it, so an inferred grouping must
 // never enter it, and must never be presentable as though it had.
 //
@@ -29,8 +29,8 @@
 //     ingest -- the same path a hand-written annotation takes.
 //   - Every record this package emits carries Provisional=true, is addressed
 //     through the "provisional:" namespace (see Capability.Ref), and is
-//     persisted under .atlas/provisional/ rather than anywhere the rest of
-//     atlas reads as declared state.
+//     persisted under .grunnr/provisional/ rather than anywhere the rest of
+//     grunnr reads as declared state.
 //
 // # What the proposals are made of
 //
@@ -53,7 +53,7 @@
 //
 // # Refusing to name (#177)
 //
-// A grouping atlas cannot name honestly is reported UNNAMED: its size, its
+// A grouping grunnr cannot name honestly is reported UNNAMED: its size, its
 // file breakdown and its evidence, with no label. Measured on spf13/cobra,
 // the naming heuristics produced provisional:root.no, provisional:root.bash
 // and provisional:root.root -- leading words scraped off test names, and a
@@ -64,5 +64,5 @@
 // grouping with 118 symbols and "command.go 70" under it is something a
 // reader can act on, and naming it is the one judgement this package leaves
 // to them (Capability.Rename, reached through `promote --as`). Consistent
-// with everywhere else in atlas: refuse rather than invent.
+// with everywhere else in grunnr: refuse rather than invent.
 package onboard

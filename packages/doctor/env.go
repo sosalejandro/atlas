@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Default thresholds. They are package constants rather than flags
 // because a threshold a user has to choose is a threshold nobody sets --
-// the point of `atlas doctor` is that it works with no arguments. A team
+// the point of `grunnr doctor` is that it works with no arguments. A team
 // that wants a different gate tightens --fail-on instead, which changes
 // which severities matter without changing what "stale" means.
 const (
@@ -34,8 +34,8 @@ const (
 // unchanged to every check.
 //
 // Store is allowed to be nil. That is not an oversight: the single most
-// useful moment for `atlas doctor` is when the store will not open at
-// all, which is exactly when every other atlas command dies in a wall of
+// useful moment for `grunnr doctor` is when the store will not open at
+// all, which is exactly when every other grunnr command dies in a wall of
 // golang-migrate output. With Store nil and StoreErr set, the schema
 // check still reports the store's recorded (version, dirty) state from
 // the database file directly, and every other check reports
@@ -126,6 +126,6 @@ func (e *Env) requireStore() (Result, bool) {
 		Finding: fmt.Sprintf(
 			"the state database at %s could not be opened, so there is nothing to examine "+
 				"(the store.schema check carries the reason)", e.DBPath),
-		Remediation: "atlas init",
+		Remediation: "grunnr init",
 	}, false
 }

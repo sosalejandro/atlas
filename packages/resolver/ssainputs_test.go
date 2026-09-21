@@ -17,7 +17,7 @@ import (
 // These tests pin the two things a reader of issue #152 will want to
 // change and cannot: the fields of types.Info this package pays for, and
 // the set of packages SSA is constructed over. Both look like waste from
-// the outside — atlas itself never reads types.Info.Types, and it never
+// the outside — grunnr itself never reads types.Info.Types, and it never
 // walks a dependency's call sites — and both are load-bearing through
 // go/ssa. Each test is the measurement that says so, kept executable so
 // the answer stays true against a future x/tools rather than being a
@@ -99,7 +99,7 @@ func invokeSites(prog *ssa.Program) int {
 
 // Issue #152 counted go/types.(*Checker).recordTypeAndValue as the single
 // largest allocator in a scan — 100.22 MB, 12.5% — and observed that
-// nothing in atlas reads the map it fills. Both halves are true and the
+// nothing in grunnr reads the map it fills. Both halves are true and the
 // conclusion does not follow: go/ssa reads it. ssa.Function.typeOf calls
 // types.Info.TypeOf, whose only fallback for a nil Types map is
 // ObjectOf, which answers for *ast.Ident and nothing else, so the first
@@ -443,7 +443,7 @@ func TestSSA_DependencyPackagesAreLoadBearing(t *testing.T) {
 	}
 
 	// Only the one package. Its imports are deliberately not created,
-	// which is what "narrow the SSA scope to what atlas indexes" would
+	// which is what "narrow the SSA scope to what grunnr indexes" would
 	// mean if taken literally.
 	prog := ssa.NewProgram(fset, ssa.BuilderMode(0))
 	pkg := prog.CreatePackage(withImports.Types, withImports.Syntax, withImports.TypesInfo, false)

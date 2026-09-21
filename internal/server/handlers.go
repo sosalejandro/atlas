@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
-	"github.com/sosalejandro/atlas/internal/app"
-	"github.com/sosalejandro/atlas/internal/domain"
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/app"
+	"github.com/sosalejandro/grunnr/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 // ─── View Models ────────────────────────────────────────────────────────────
@@ -157,13 +157,13 @@ type SprintGroup struct {
 
 // GraphVM holds the dependency graph page data.
 type GraphVM struct {
-	FeatureID   string
-	FeatureName string
-	Priority    string
-	Traces      []*GraphTraceVM
-	TotalNodes  int
-	MaxDepth    int
-	Confidence  float64
+	FeatureID     string
+	FeatureName   string
+	Priority      string
+	Traces        []*GraphTraceVM
+	TotalNodes    int
+	MaxDepth      int
+	Confidence    float64
 	ConfidencePct int
 }
 
@@ -178,16 +178,16 @@ type GraphTraceVM struct {
 
 // SVGNode represents a positioned node in the SVG tree layout.
 type SVGNode struct {
-	X        int
-	Y        int
-	Width    int
-	Height   int
-	Label    string
-	Kind     string
-	IsCycle  bool
-	File     string
-	Line     int
-	ID       string
+	X       int
+	Y       int
+	Width   int
+	Height  int
+	Label   string
+	Kind    string
+	IsCycle bool
+	File    string
+	Line    int
+	ID      string
 }
 
 // SVGEdge represents a connector line between two nodes.
@@ -208,17 +208,17 @@ type SVGGraphVM struct {
 
 // GraphNodeVM is a single node in the dependency tree.
 type GraphNodeVM struct {
-	ID          string
-	Name        string
-	Kind        string
-	File        string
-	Line        int
-	Children    []*GraphNodeVM
-	Depth       int
-	IsCycle     bool
-	KindBorder  string
-	KindLabel   string
-	KindBadge   string
+	ID         string
+	Name       string
+	Kind       string
+	File       string
+	Line       int
+	Children   []*GraphNodeVM
+	Depth      int
+	IsCycle    bool
+	KindBorder string
+	KindLabel  string
+	KindBadge  string
 }
 
 // FeatureDetailVM holds the feature detail slide-over data.
@@ -238,34 +238,34 @@ type FeatureDetailVM struct {
 
 // LayerCoverageVM is a single layer in the feature detail panel.
 type LayerCoverageVM struct {
-	Layer  string
-	Pct    int
-	Tested int
-	Total  int
+	Layer    string
+	Pct      int
+	Tested   int
+	Total    int
 	BarClass string
 }
 
 // GapVM is a single coverage gap in the feature detail panel.
 type GapVM struct {
-	NodeID string
-	Kind   string
-	File   string
-	Line   int
-	Reason string
+	NodeID    string
+	Kind      string
+	File      string
+	Line      int
+	Reason    string
 	KindLabel string
 }
 
 // MetricsVM holds quality signals for the metrics page.
 type MetricsVM struct {
-	SlowestTests  []TestMetricVM
-	FlakyTests    []TestMetricVM
-	RaceTests     []TestMetricVM
-	MemoryHogs    []TestMetricVM
-	HasPerfData   bool
-	HasSignals    bool
-	Signals       *domain.QualitySignals
-	TrendPoints   []TrendPointVM
-	TrendChart    TrendChartVM
+	SlowestTests []TestMetricVM
+	FlakyTests   []TestMetricVM
+	RaceTests    []TestMetricVM
+	MemoryHogs   []TestMetricVM
+	HasPerfData  bool
+	HasSignals   bool
+	Signals      *domain.QualitySignals
+	TrendPoints  []TrendPointVM
+	TrendChart   TrendChartVM
 }
 
 // TestMetricVM is a single test metric row.
@@ -321,9 +321,9 @@ type DiffVM struct {
 
 // SnapshotVM is a row in the snapshots table.
 type SnapshotVM struct {
-	Name     string
-	Date     string
-	Features int
+	Name      string
+	Date      string
+	Features  int
 	HealthPct int
 }
 
@@ -1366,11 +1366,11 @@ func buildSVGGraph(root *GraphNodeVM) *SVGGraphVM {
 	// Each node gets a "subtreeWidth" that is the total horizontal space
 	// its descendants require.
 	type layoutNode struct {
-		vm            *GraphNodeVM
-		children      []*layoutNode
-		subtreeWidth  int // total pixel width of this subtree
-		nodeWidth     int
-		x, y          int
+		vm           *GraphNodeVM
+		children     []*layoutNode
+		subtreeWidth int // total pixel width of this subtree
+		nodeWidth    int
+		x, y         int
 	}
 
 	var buildLayout func(n *GraphNodeVM, depth int) *layoutNode

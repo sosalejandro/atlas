@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // TestExtractFeatureIDsFromAnnotation_DropsNonDottedPhantoms is the issue-#77

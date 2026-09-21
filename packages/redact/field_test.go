@@ -16,7 +16,7 @@ func leakyQuery() string {
 }
 
 // TestField_RedactsARedactableColumnOnTheWayIn is the ingest-time half of
-// the promise `atlas security` could previously only make about a store it
+// the promise `grunnr security` could previously only make about a store it
 // had already let the credential into.
 func TestField_RedactsARedactableColumnOnTheWayIn(t *testing.T) {
 	res := Field("sql_operations", "sql_text", leakyQuery())
@@ -26,7 +26,7 @@ func TestField_RedactsARedactableColumnOnTheWayIn(t *testing.T) {
 	if strings.Contains(res.Text, leakedDSNPassword) {
 		t.Errorf("the credential survived Field: %q", res.Text)
 	}
-	// The row has to stay analysable: `atlas sql` reports on this text.
+	// The row has to stay analysable: `grunnr sql` reports on this text.
 	for _, keep := range []string{"dblink", "postgres://", "reporting", "warehouse.internal"} {
 		if !strings.Contains(res.Text, keep) {
 			t.Errorf("Field destroyed %q: %q", keep, res.Text)
@@ -75,7 +75,7 @@ func TestField_UnregisteredColumnIsNotRewritten(t *testing.T) {
 	}
 }
 
-// TestField_AgreesWithTheRegistry: Field and `atlas security redact` have to
+// TestField_AgreesWithTheRegistry: Field and `grunnr security redact` have to
 // rewrite exactly the same set of columns, because they are documented as
 // one rule. Driving both off Columns() is what makes that true rather than a
 // coincidence, and this is the check.

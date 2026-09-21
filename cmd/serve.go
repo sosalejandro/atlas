@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/sosalejandro/atlas/internal/server"
+	"github.com/sosalejandro/grunnr/internal/server"
 	"github.com/spf13/cobra"
 )
 

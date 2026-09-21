@@ -1,16 +1,16 @@
 // Package scip ingests an index produced by somebody else's indexer.
 //
-// This is #105's Tier 3, and it is the tier that costs atlas nothing to
+// This is #105's Tier 3, and it is the tier that costs grunnr nothing to
 // support: SCIP is a published interchange format with existing indexers for
 // Java, Python, Ruby, C#, Rust and more, so ingesting it buys polyglot
-// coverage without atlas writing a scanner, a grammar, or a binding rule for
+// coverage without grunnr writing a scanner, a grammar, or a binding rule for
 // any of them.
 //
 // What it does NOT buy is a claim about correctness, and the whole design
 // here turns on keeping those apart. Every edge produced by this package is
 // graph.TierImported, whose doc comment states the reason plainly: "scip-go
 // said so" and "we type-checked it" are different claims even when they
-// usually agree. Atlas can offer the coverage and still tell a user exactly
+// usually agree. Grunnr can offer the coverage and still tell a user exactly
 // how much of their graph rests on someone else's work, because every
 // consumer already gates on tiers.
 //
@@ -29,8 +29,8 @@ import (
 	"strings"
 
 	upstream "github.com/scip-code/scip/bindings/go/scip"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // roleDefinition is SCIP's SymbolRole bit for "this occurrence declares the
@@ -49,7 +49,7 @@ type Result struct {
 	Symbols []shared.Symbol
 	Edges   []graph.Edge
 
-	// Languages counts definitions per SCIP language tag, so `atlas scip
+	// Languages counts definitions per SCIP language tag, so `grunnr scip
 	// ingest` can say WHAT it imported rather than only how much.
 	Languages map[string]int
 
@@ -70,7 +70,7 @@ type Stats struct {
 	// Definitions became symbols.
 	Definitions int `json:"definitions"`
 	// DefinitionsLocal were function-scoped ("local 4"). They cannot be
-	// referenced from another file and atlas keys symbols by qualified
+	// referenced from another file and grunnr keys symbols by qualified
 	// name, so they are dropped -- counted, not hidden.
 	DefinitionsLocal int `json:"definitions_local"`
 	// References is every non-definition occurrence.
@@ -119,7 +119,7 @@ func Read(r io.Reader) (*upstream.Index, error) {
 	return &idx, nil
 }
 
-// Convert maps a parsed index onto atlas symbols and edges.
+// Convert maps a parsed index onto grunnr symbols and edges.
 //
 // Paths are taken from the SCIP document's RelativePath verbatim, which is
 // already project-root-relative by the format's definition. They are NOT
@@ -138,7 +138,7 @@ func Convert(idx *upstream.Index) Result {
 	}
 
 	// Pass 1: every definition in the index, so pass 2 can tell a reference
-	// atlas can attribute from one that leads out of the index.
+	// grunnr can attribute from one that leads out of the index.
 	defs := map[string]*definition{}
 	for _, doc := range idx.GetDocuments() {
 		res.Stats.Documents++
@@ -189,13 +189,13 @@ func collectDefinitions(doc *upstream.Document, defs map[string]*definition, res
 				// KindFunc for everything, deliberately. SCIP carries a
 				// SymbolInformation.Kind, but it is optional and most
 				// indexers leave it unset; inventing a distinction from
-				// the descriptor suffix would be atlas guessing about
+				// the descriptor suffix would be grunnr guessing about
 				// someone else's index, which is exactly what TierImported
 				// exists to avoid claiming.
 				Kind: shared.KindFunc,
 				Position: shared.FilePosition{
 					Path: rel,
-					// SCIP lines are 0-indexed; atlas's are 1-indexed, and
+					// SCIP lines are 0-indexed; grunnr's are 1-indexed, and
 					// every consumer that joins a diff against a span
 					// depends on that. Off by one here is off by one in
 					// every coverage attribution downstream.
@@ -265,7 +265,7 @@ func collectEdges(doc *upstream.Document, defs map[string]*definition, res *Resu
 			continue
 		}
 		if caller.sym.ID == td.sym.ID {
-			// A recursive call is a real edge, but atlas's graph treats a
+			// A recursive call is a real edge, but grunnr's graph treats a
 			// self-edge as a cycle of length one, and every renderer then
 			// draws it. Counted as attributed rather than dropped.
 			res.Stats.ReferencesOutsideDefinition++
@@ -303,7 +303,7 @@ func enclosing(defs []*definition, line int32) *definition {
 }
 
 // qualifiedName renders a SCIP symbol string as something a human can read
-// and atlas can key on.
+// and grunnr can key on.
 //
 // SCIP symbols look like:
 //

@@ -11,8 +11,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/coverage/vitest"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/coverage/vitest"
 )
 
 // Framework returns the constant identifying this parser.

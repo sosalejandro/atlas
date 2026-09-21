@@ -14,7 +14,7 @@ import (
 	"golang.org/x/tools/go/ssa/ssautil"
 )
 
-// selfRepo is the atlas checkout these benchmarks run on. Issue #152's
+// selfRepo is the grunnr checkout these benchmarks run on. Issue #152's
 // numbers were taken on this tree, and a resolver benchmark on a synthetic
 // fixture would price a different program: the cost being measured here is
 // dominated by how many packages import each other, which the golden
@@ -112,7 +112,7 @@ func BenchmarkPackagesLoad(b *testing.B) {
 }
 
 // BenchmarkDispatchStage prices the interface-dispatch stage on its own,
-// both ways: the go/types index atlas ships since issue #155, and the SSA
+// both ways: the go/types index grunnr ships since issue #155, and the SSA
 // + class-hierarchy analysis it replaced, over exactly the same packages
 // in the same process.
 //
@@ -155,7 +155,7 @@ func BenchmarkDispatchStage(b *testing.B) {
 // whole repository, which `go test ./...` runs under -race in CI and
 // should not be made to pay for.
 //
-// Since issue #155 it prices something atlas no longer does. It is kept
+// Since issue #155 it prices something grunnr no longer does. It is kept
 // because the census is the evidence for the two claims #152 and #155
 // rest on -- that SSA was never built over dependency syntax, and that
 // the SSA stage was nevertheless 245 MB of the load -- and because the
@@ -171,7 +171,7 @@ func BenchmarkDispatchStage(b *testing.B) {
 // The metrics answer the two questions the issue left open.
 //
 // bodiesOutsideSrc is the number of SSA function bodies built from the
-// SYNTAX of a package atlas does not index. It is 0, and that is the
+// SYNTAX of a package grunnr does not index. It is 0, and that is the
 // question the issue was actually asking: ssautil.Packages hands syntax
 // only to the packages it was given, so a dependency becomes an
 // ssa.Package of declarations with no code and there is nothing to build.
@@ -322,7 +322,7 @@ func coveredBy(files []map[string]bool, i int) bool {
 //
 // The claim under test: go/types.(*Checker).recordTypeAndValue was the
 // largest single allocator in a scan (100.22 MB, 12.5%) filling
-// types.Info.Types, which atlas never reads. Both sub-benchmarks
+// types.Info.Types, which grunnr never reads. Both sub-benchmarks
 // type-check the same syntax with the same checker and differ only in
 // whether Types is allocated, so the difference between them is exactly
 // what leaving it nil would save.
@@ -333,7 +333,7 @@ func coveredBy(files []map[string]bool, i int) bool {
 // over. Two further costs are invisible here and matter at least as much
 // as the bytes. Driving types.Config.Check directly means reimplementing
 // what packages.Load does with per-package errors — the degradation path
-// issue #87 built, which is what lets atlas run mid-edit — and it puts the
+// issue #87 built, which is what lets grunnr run mid-edit — and it puts the
 // caller in charge of where dependency types come from, which is the
 // single most expensive decision in the load: doc.go's NeedDeps A/B prices
 // dependency types from source at 3.16 s and 2,131 MB of cumulative

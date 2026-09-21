@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
 )
 
 // TestIngest_PythonScanner_EdgeKindsLandInStore is the regression test for
@@ -272,7 +272,7 @@ func distinctCallFromCount(t *testing.T, s *Store) int {
 
 // callEdgesFromModuleSymbols returns any rows where a call-edge's
 // from_symbol_id resolves to a symbol whose qualified_name has no dot
-// (i.e. a top-level module). The Atlas Python schema stores module
+// (i.e. a top-level module). The Grunnr Python schema stores module
 // symbols as kind=func (the rawKindToSymbolKind fallback) but their
 // qualified_name is always dot-free at the top level, which lets the
 // test detect a regression without depending on kind labeling.

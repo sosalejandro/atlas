@@ -26,7 +26,7 @@ const (
 
 	// KindConnectionString is the password half of a scheme://user:pass@host
 	// URL. Only the password is covered: leaving the scheme, user and host
-	// in place keeps the row useful to `atlas sql` while removing the part
+	// in place keeps the row useful to `grunnr sql` while removing the part
 	// that grants access.
 	KindConnectionString Kind = "connection-string"
 
@@ -49,7 +49,7 @@ const digestLen = 12
 //
 // Everything here is safe to print, log, and put in a JSON envelope. That is
 // deliberate and load-bearing: a report about secrets that quotes the
-// secrets is a second copy of the leak, and this struct is what `atlas
+// secrets is a second copy of the leak, and this struct is what `grunnr
 // security` renders.
 type Finding struct {
 	Kind Kind `json:"kind"`
@@ -171,7 +171,7 @@ var connectionStringRe = regexp.MustCompile(
 // The optional backslashes are what let this reach into a JSON blob. Doc
 // comments live inside snapshots.index_json as JSON strings, so a credential
 // quoted in one arrives as `apiKey = \"sk_live_...\"` -- and index_json is
-// the largest disclosure atlas creates, so a detector that could not read it
+// the largest disclosure grunnr creates, so a detector that could not read it
 // would be blind exactly where it matters most. The optional quote after the
 // name covers the other JSON shape, `"client_secret": "..."`.
 var secretAssignmentRe = regexp.MustCompile(
@@ -201,7 +201,7 @@ func quotedValueRe(quote string) string {
 // 32-hex-character API key (3.9) and a base64 token (>4.5) are caught. The
 // cost of the two errors is not symmetric: a missed weak password is a
 // credential the operator could have found by reading the file, whereas a
-// false positive silently rewrites a query that `atlas sql` then analyses
+// false positive silently rewrites a query that `grunnr sql` then analyses
 // and reports on as if it were the code.
 const (
 	minAssignedLength  = 16

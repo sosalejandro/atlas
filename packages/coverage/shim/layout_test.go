@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage/shim"
+	"github.com/sosalejandro/grunnr/packages/coverage/shim"
 )
 
 // The layout is a contract between two processes that never talk: the shim
@@ -87,7 +87,7 @@ func TestPlanFor_FallsBackToTheDefaultMode(t *testing.T) {
 }
 
 // A missing plan is not an error: the shim is usable with nothing but
-// ATLAS_COV_DIR set, and then every package is per-test.
+// GRUNNR_COV_DIR set, and then every package is per-test.
 func TestLoadPlan_MissingFileIsPerTest(t *testing.T) {
 	got, err := shim.LoadPlan(filepath.Join(t.TempDir(), "absent.json"))
 	if err != nil {

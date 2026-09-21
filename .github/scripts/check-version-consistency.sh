@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Assert that every place atlas records its own version agrees.
+# Assert that every place grunnr records its own version agrees.
 #
 # Usage: check-version-consistency.sh [--root DIR] [--tag vX.Y.Z]
 #
 # Issue #121 names this as a configuration-management defect rather than a
 # cosmetic one: at the time of writing, internal/cli.Version said v0.13.0
 # while .release-please-manifest.json said 0.8.0 and CHANGELOG.md stopped at
-# 0.8.0. A user who reports a bug from "atlas v0.13.0" is reporting it
+# 0.8.0. A user who reports a bug from "grunnr v0.13.0" is reporting it
 # against a version that was never released, and nobody can map that back to
 # a commit.
 #
@@ -40,8 +40,8 @@ while [ $# -gt 0 ]; do
 		shift 2
 		;;
 	*)
-		atlas_err "unknown argument: $1"
-		atlas_err "usage: check-version-consistency.sh [--root DIR] [--tag vX.Y.Z]"
+		grunnr_err "unknown argument: $1"
+		grunnr_err "usage: check-version-consistency.sh [--root DIR] [--tag vX.Y.Z]"
 		exit 2
 		;;
 	esac
@@ -59,7 +59,7 @@ changelog="$ROOT/CHANGELOG.md"
 
 for f in "$root_go" "$manifest" "$changelog"; do
 	if [ ! -f "$f" ]; then
-		atlas_err "missing: $f"
+		grunnr_err "missing: $f"
 		exit 2
 	fi
 done
@@ -69,13 +69,13 @@ done
 # the var fails loudly here instead of silently reading nothing.
 binver="$(sed -n 's/^[[:space:]]*Version[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' "$root_go" | head -1)"
 if [ -z "$binver" ]; then
-	atlas_err "could not read Version from $root_go"
+	grunnr_err "could not read Version from $root_go"
 	exit 2
 fi
 
 manver="$(sed -n 's/.*"\.":[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -1)"
 if [ -z "$manver" ]; then
-	atlas_err "could not read the '.' entry from $manifest"
+	grunnr_err "could not read the '.' entry from $manifest"
 	exit 2
 fi
 
@@ -83,7 +83,7 @@ fi
 # heading. Take the first one; everything below it is history.
 logver="$(sed -n 's/^##[[:space:]]*\[\([0-9][^]]*\)\].*$/\1/p' "$changelog" | head -1)"
 if [ -z "$logver" ]; then
-	atlas_err "could not read the newest release heading from $changelog"
+	grunnr_err "could not read the newest release heading from $changelog"
 	exit 2
 fi
 
@@ -98,22 +98,22 @@ printf 'changelog (CHANGELOG.md): %s\n' "$logver"
 
 rc=0
 if [ "$b" != "$m" ]; then
-	atlas_err "MISMATCH: binary says $binver, release-please manifest says $manver"
+	grunnr_err "MISMATCH: binary says $binver, release-please manifest says $manver"
 	rc=1
 fi
 if [ "$m" != "$l" ]; then
-	atlas_err "MISMATCH: release-please manifest says $manver, changelog's newest entry is $logver"
+	grunnr_err "MISMATCH: release-please manifest says $manver, changelog's newest entry is $logver"
 	rc=1
 fi
 if [ -n "$TAG" ] && [ "$(strip_v "$TAG")" != "$b" ]; then
-	atlas_err "MISMATCH: tag $TAG does not match the version in the tree ($binver)"
+	grunnr_err "MISMATCH: tag $TAG does not match the version in the tree ($binver)"
 	rc=1
 fi
 
 if [ "$rc" -ne 0 ]; then
-	atlas_err ""
-	atlas_err "These four numbers must be produced by one mechanism (release-please)."
-	atlas_err "A hand-edited version constant is how they drift apart; see docs/releasing.md."
+	grunnr_err ""
+	grunnr_err "These four numbers must be produced by one mechanism (release-please)."
+	grunnr_err "A hand-edited version constant is how they drift apart; see docs/releasing.md."
 	exit 1
 fi
 

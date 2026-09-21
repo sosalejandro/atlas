@@ -5,8 +5,8 @@ import (
 	"math"
 	"sort"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Verdict is the outcome of comparing one scope between two commits.

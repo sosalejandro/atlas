@@ -1,12 +1,12 @@
-# atlas health
+# grunnr health
 
-`atlas health` computes the per-feature health score from the SQLite store and
+`grunnr health` computes the per-feature health score from the SQLite store and
 prints the results ordered worst-first. Each feature's score is a weighted
 roll-up across the audit signals implemented in
 [`packages/audit/`](../../packages/audit/) — statement coverage, decision
 coverage, annotation freshness, pattern compliance, contract drift.
 
-> **Renamed from `atlas audit` (issue #112).** `atlas audit` still works and
+> **Renamed from `grunnr audit` (issue #112).** `grunnr audit` still works and
 > prints a one-line deprecation note on stderr; it is supported for one minor
 > version. The command said audit, the type said `FeatureHealth`, and the docs
 > said score — three words for one number. `health` is the one that matched
@@ -15,9 +15,9 @@ coverage, annotation freshness, pattern compliance, contract drift.
 > The `coverage` component key was renamed to `verification` in the same pass.
 > A capability's *verification* is whether it has passing tests over its
 > surface; *execution* is which statements a profile recorded as run; and
-> *attribution* is how much of that execution atlas could place against a
+> *attribution* is how much of that execution grunnr could place against a
 > symbol. They were all called coverage, which is why a reader could not tell
-> `coverage: 40` — "60% of this never ran" — from `coverage: 40` — "atlas
+> `coverage: 40` — "60% of this never ran" — from `coverage: 40` — "grunnr
 > could not work out where 60% of the runs belonged".
 
 Without `--feature`, every feature in the store is scored. With `--feature`,
@@ -33,7 +33,7 @@ why a signal with no data must report *unavailable* rather than *0* — see
 ## Usage
 
 ```
-atlas health [flags]
+grunnr health [flags]
 ```
 
 ## Flags
@@ -43,7 +43,7 @@ atlas health [flags]
 | `--feature`                   | (all)                 | Score only this feature id. Errors if the id isn't in the store.                                       |
 | `--worst`                     | `0` (no cap)          | Cap output to the worst-scoring N features. `--worst 10` is the standard "what needs attention" call. |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                                  |
-| `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                        |
+| `--db-path` *(global)*        | `.grunnr/grunnr.db`     | Override the SQLite state path.                                                                        |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                          |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                                                                         |
 
@@ -52,8 +52,8 @@ atlas health [flags]
 ### Full audit (worst first)
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas health
+# Run from: /tmp/grunnr-fixture
+$ grunnr health
 billing.subscribe                                   score=  0.00
     - no audit signals available (no coverage, no aggregate, no contract, no annotation source)
 auth.login                                          score=100.00
@@ -68,8 +68,8 @@ operator the feature exists but has nothing to score.
 ### Cap to the worst N
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas health --worst 2
+# Run from: /tmp/grunnr-fixture
+$ grunnr health --worst 2
 billing.subscribe                                   score=  0.00
     - no audit signals available (no coverage, no aggregate, no contract, no annotation source)
 auth.login                                          score=100.00
@@ -77,13 +77,13 @@ auth.login                                          score=100.00
 ```
 
 Same shape, capped at 2 rows. On a real-world codebase with hundreds of
-features, `atlas health --worst 10` is the daily-driver flag.
+features, `grunnr health --worst 10` is the daily-driver flag.
 
 ### Single feature
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas health --feature auth.login
+# Run from: /tmp/grunnr-fixture
+$ grunnr health --feature auth.login
 auth.login                                          score=100.00
     annotation_freshness   100.00
 ```
@@ -91,8 +91,8 @@ auth.login                                          score=100.00
 ### JSON envelope
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas health --feature auth.login --json
+# Run from: /tmp/grunnr-fixture
+$ grunnr health --feature auth.login --json
 {
   "schema_version": "v1",
   "command": "health",
@@ -127,12 +127,12 @@ runs.
 3. Evaluate each signal over that surface. Every signal independently reports
    whether it is available:
    - `verification` — does this capability have passing tests over its
-     surface? Read off the current [`atlas cov`](./cov.md) frontier.
+     surface? Read off the current [`grunnr cov`](./cov.md) frontier.
      Line-weighted (executed statements over total statements) when the run
      carries statement counts; otherwise the fraction of surface symbols with
      a passing result. Called `coverage` before issue #112.
    - `decision_coverage` — branch outcomes taken over branch outcomes a
-     profile could judge, from [`atlas flow`](./flow.md). See below.
+     profile could judge, from [`grunnr flow`](./flow.md). See below.
    - `annotation_freshness` — how many `@atlas:feature` / `@atlas:contract`
      sites were last touched inside the freshness window (git blame).
    - `pattern_compliance` — how many linked `@atlas:aggregate-service`
@@ -154,20 +154,20 @@ runs.
 | `annotation_presence`   | 0.10   | A *floor*, not a blended signal: it applies only when nothing else is available, so an annotated-but-unverified feature scores 10 rather than 0.   |
 
 When a feature has no signal at all — no verification, no aggregate, no contract,
-no annotation source — atlas emits the "no audit signals available" line
+no annotation source — grunnr emits the "no audit signals available" line
 instead of a numerical zero, so the operator can tell *unscoreable* apart from
 *poorly scored*.
 
 ## Decision coverage: a separate signal, not a blend
 
-`atlas cov` answers *did the line run*. [`atlas flow`](./flow.md) answers *was
+`grunnr cov` answers *did the line run*. [`grunnr flow`](./flow.md) answers *was
 the branch taken both ways*. A function with an untested error path can show
 90% statement coverage while every failure mode in it is unexercised, so the
 audit carries both numbers and never folds one into the other. `--json` reports
 them as two components with two availability flags; a single composite would
 satisfy the letter of "reports both" and destroy the reason for it.
 
-Decision coverage appears once you have run `atlas flow build --profile
+Decision coverage appears once you have run `grunnr flow build --profile
 <coverprofile>`. Until then it is absent, and absent means absent.
 
 ### Availability, never zero
@@ -177,12 +177,12 @@ operator acts differently on each:
 
 | State                                                                       | `components.decision_coverage` | `decision_coverage` object | Effect on the score                                                         |
 | --------------------------------------------------------------------------- | ------------------------------ | -------------------------- | --------------------------------------------------------------------------- |
-| No symbol on the surface was ever analysed                                  | absent                         | absent                     | **none** — the feature scores exactly what it scored before `atlas flow`    |
+| No symbol on the surface was ever analysed                                  | absent                         | absent                     | **none** — the feature scores exactly what it scored before `grunnr flow`    |
 | Analysed; some symbols measured, some not                                   | present                        | `symbols_unmeasured > 0`   | scored over the measured symbols only, and weighted in proportion to them   |
 | Analysed; nothing judgeable (every outcome is a short-circuit operand)      | absent                         | `available: false`         | **none** — but the reading is still reported                                |
 | Analysed and judgeable                                                      | present                        | `available: true`          | blended                                                                     |
 
-Reporting 0 for an unmeasured feature would mean that adopting `atlas flow`
+Reporting 0 for an unmeasured feature would mean that adopting `grunnr flow`
 drops the score of every feature it has not yet measured, which is how a signal
 gets switched off in its first week. So the rule is availability, not zero.
 
@@ -194,9 +194,9 @@ denominator. Decision coverage is `taken / decidable`, never `taken / total`.
 ### Why the two coverage signals share one weight
 
 Statement and decision coverage answer the same question at two resolutions,
-and atlas derives them from the same artefact: `atlas flow` decides a branch
+and grunnr derives them from the same artefact: `grunnr flow` decides a branch
 outcome by asking whether the statements on either side of it ran, using the
-counters `atlas cov` already ingested. They are not two independent witnesses.
+counters `grunnr cov` already ingested. They are not two independent witnesses.
 So when both are available they **split** the 0.40 coverage budget rather than
 each drawing their own — otherwise one measurement, counted twice, would take
 roughly 57% of a score that also has to carry pattern compliance and contract
@@ -211,7 +211,7 @@ only over the *decidable* outcomes, and everything outside that — short-circui
 operands, symbols with no CFG row — is exactly what the statement half still
 sees.
 
-When `atlas flow` has measured a feature that `atlas cov` has not, decision
+When `grunnr flow` has measured a feature that `grunnr cov` has not, decision
 coverage holds the whole 0.40 budget: it is the only reading of the question,
 and leaving the budget unspent would let freshness and drift decide a
 coverage-shaped score.
@@ -225,7 +225,7 @@ silence the old one.
 
 Availability keeps an unmeasured feature out of the signal entirely, but it
 says nothing about a *partially* measured one, and a partially measured feature
-is the normal case while `atlas flow` is being rolled out. Scoring the ratio
+is the normal case while `grunnr flow` is being rolled out. Scoring the ratio
 over the measured symbols is only half the answer: applied at its full share, a
 single symbol carrying a CFG row out of a hundred would move 0.24 of the 0.40
 budget — 60% of everything the score says about testing — onto a reading whose
@@ -243,18 +243,18 @@ whatever value it took. When statement coverage is unavailable there is no
 other half to hand the remainder to, so it goes unspent and the weighted
 average re-normalises it away — the same treatment an absent signal gets.
 
-## Worked example: before and after `atlas flow`
+## Worked example: before and after `grunnr flow`
 
 The fixture is a four-package Go module. `auth.Login` has two `if`s and a test
 that only walks the happy path; `billing.Charge` guards on `amount > 0 && live`;
 `gate.Allow` is a bare `return a && b`; `report.Summarise` is outside the test
 run entirely. The coverprofile comes from `go test -covermode=count` and is
-ingested with `atlas cov sync --framework go-cover`.
+ingested with `grunnr cov sync --framework go-cover`.
 
 Statement coverage alone:
 
 ```
-$ atlas health
+$ grunnr health
 report.summary                                      score=  0.00
     coverage                 0.00
     - coverage: 0/1 symbols passing in latest run
@@ -271,7 +271,7 @@ gate.allow                                          score=100.00
 Then the branch verdicts land:
 
 ```
-$ atlas flow build --profile cover.out
+$ grunnr flow build --profile cover.out
 flow build: 8 symbol(s) across 7 file(s)
   most complex: auth.Login (cyclomatic 3)
   conditions: 9 (9 independently exercisable in principle)
@@ -279,7 +279,7 @@ flow build: 8 symbol(s) across 7 file(s)
   findings: flow.untested-branch x5
   [the MC/DC and "not statement coverage" notes flow always prints are elided here]
 
-$ atlas health
+$ grunnr health
 report.summary                                      score=  0.00
     coverage                 0.00
     - coverage: 0/1 symbols passing in latest run
@@ -322,7 +322,7 @@ Read the four rows:
 `billing.charge`, where the signal is available:
 
 ```
-$ atlas health --feature billing.charge --json
+$ grunnr health --feature billing.charge --json
 {
   "schema_version": "v1",
   "command": "health",
@@ -363,7 +363,7 @@ $ atlas health --feature billing.charge --json
 at all, while the object still reports what happened:
 
 ```
-$ atlas health --feature gate.allow --json
+$ grunnr health --feature gate.allow --json
 {
   "schema_version": "v1",
   "command": "health",

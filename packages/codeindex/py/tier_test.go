@@ -3,8 +3,8 @@ package pyscan
 import (
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // tierOf returns the tier of the first edge from->to in res.
@@ -78,7 +78,7 @@ func TestMapToResult_BoundImportsAndBasesAreNameResolved(t *testing.T) {
 
 // A target the resolver could not bind gets a synthetic external stub.
 // The edge then points at a rendering of the source text rather than at
-// anything atlas has seen, which is tier C however explicit the import
+// anything grunnr has seen, which is tier C however explicit the import
 // statement looked.
 func TestMapToResult_UnboundTargetsAreSyntactic(t *testing.T) {
 	res := (&Scanner{}).mapToResult(pyFixture())

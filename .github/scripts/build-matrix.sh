@@ -2,7 +2,7 @@
 # Build every shipped target from one host, and assert the property that
 # makes that possible.
 #
-# atlas cross-compiles to six targets from a single Linux runner because the
+# grunnr cross-compiles to six targets from a single Linux runner because the
 # store is modernc.org/sqlite (pure Go) and CGO_ENABLED=0. That is not a
 # happy accident, it is a design constraint, and it fails silently: the day
 # someone adds a dependency that needs cgo, the build still succeeds on the
@@ -26,9 +26,9 @@ DIST="${DIST:-$REPO_ROOT/dist}"
 # would let the clock move between the first and last build, and six
 # artifacts of one release carrying two different build dates is a
 # provenance defect that no test would catch.
-VERSION="$(atlas_resolve_version "$REPO_ROOT")"
-COMMIT="$(atlas_resolve_commit "$REPO_ROOT")"
-SOURCE_DATE_EPOCH="$(atlas_source_date_epoch "$REPO_ROOT")"
+VERSION="$(grunnr_resolve_version "$REPO_ROOT")"
+COMMIT="$(grunnr_resolve_commit "$REPO_ROOT")"
+SOURCE_DATE_EPOCH="$(grunnr_source_date_epoch "$REPO_ROOT")"
 export VERSION COMMIT SOURCE_DATE_EPOCH
 
 mkdir -p "$DIST"
@@ -54,8 +54,8 @@ for goos in linux darwin windows; do
 	fi
 done
 
-for cmd in $ATLAS_COMMANDS; do
-	for target in $ATLAS_TARGETS; do
+for cmd in $GRUNNR_COMMANDS; do
+	for target in $GRUNNR_TARGETS; do
 		goos="${target%%/*}"
 		goarch="${target##*/}"
 		GOOS="$goos" GOARCH="$goarch" DIST="$DIST" CMD="$cmd" \
@@ -65,14 +65,14 @@ done
 
 printf '\nverifying build settings of every artifact\n' >&2
 failures=0
-for cmd in $ATLAS_COMMANDS; do
-for target in $ATLAS_TARGETS; do
+for cmd in $GRUNNR_COMMANDS; do
+for target in $GRUNNR_TARGETS; do
 	goos="${target%%/*}"
 	goarch="${target##*/}"
-	name="$(atlas_artifact_name "$VERSION" "$goos" "$goarch" "$cmd")"
+	name="$(grunnr_artifact_name "$VERSION" "$goos" "$goarch" "$cmd")"
 	path="$DIST/$name"
 	if [ ! -f "$path" ]; then
-		atlas_err "missing artifact: $name"
+		grunnr_err "missing artifact: $name"
 		failures=$((failures + 1))
 		continue
 	fi
@@ -87,8 +87,8 @@ for target in $ATLAS_TARGETS; do
 	printf '%s' "$settings" | grep -q "GOARCH=$goarch" ||
 		problem="$problem wrong-goarch"
 	if [ -n "$problem" ]; then
-		atlas_err "$name:$problem"
-		atlas_err "$settings"
+		grunnr_err "$name:$problem"
+		grunnr_err "$settings"
 		failures=$((failures + 1))
 	else
 		printf '  ok  %s (%s/%s, cgo-free, trimpath)\n' "$name" "$goos" "$goarch" >&2
@@ -97,8 +97,8 @@ done
 done
 
 if [ "$failures" -ne 0 ]; then
-	atlas_err "$failures artifact(s) failed the cross-compile invariants"
+	grunnr_err "$failures artifact(s) failed the cross-compile invariants"
 	exit 1
 fi
 
-printf 'built %s of [%s] for: %s\n' "$VERSION" "$ATLAS_COMMANDS" "$ATLAS_TARGETS" >&2
+printf 'built %s of [%s] for: %s\n' "$VERSION" "$GRUNNR_COMMANDS" "$GRUNNR_TARGETS" >&2

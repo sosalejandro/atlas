@@ -7,13 +7,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // IndexOrigin says which declaration produced an index. It matters for the
-// advisories: an index Atlas inferred from a PRIMARY KEY is as real as one
+// advisories: an index Grunnr inferred from a PRIMARY KEY is as real as one
 // spelled CREATE INDEX, but a reader who sees "no index on this column" is
-// entitled to know which declarations Atlas actually read.
+// entitled to know which declarations Grunnr actually read.
 type IndexOrigin string
 
 // The closed set of index origins.
@@ -23,13 +23,13 @@ const (
 	OriginUniqueConstraint IndexOrigin = "unique-constraint"
 )
 
-// SchemaTable is one table Atlas found a CREATE TABLE for.
+// SchemaTable is one table Grunnr found a CREATE TABLE for.
 type SchemaTable struct {
 	Name     string              `json:"name"`
 	Position shared.FilePosition `json:"position"`
 }
 
-// Index is one index Atlas can see. Columns are in declaration order, which is
+// Index is one index Grunnr can see. Columns are in declaration order, which is
 // the only order that matters: an index serves a lookup on its leading column.
 type Index struct {
 	Table     string              `json:"table"`
@@ -41,7 +41,7 @@ type Index struct {
 	Position  shared.FilePosition `json:"position"`
 }
 
-// Schema is the DDL Atlas managed to read. It is explicitly a partial view:
+// Schema is the DDL Grunnr managed to read. It is explicitly a partial view:
 // Known reports whether a given table was in the files scanned, and every
 // index check consults it first so an unscanned schema produces "did not
 // check", never "no index exists".
@@ -157,7 +157,7 @@ func (s *Schema) addFile(path, root string) error {
 // the inventory overstates the schema and `sql.orphan-table` fires on a table
 // that no longer exists. Everything else is ignored -- ALTER TABLE ADD COLUMN,
 // views, triggers and data seeds all live in migration files and none of them
-// change the index picture Atlas reasons about. The inventory is therefore
+// change the index picture Grunnr reasons about. The inventory is therefore
 // exact in its tables and indexes and additive in its columns: an ALTER that
 // drops or renames a column is not applied.
 func (s *Schema) absorb(toks []sqlToken, pos shared.FilePosition) {
@@ -232,7 +232,7 @@ func droppedNames(toks []sqlToken, i int) []string {
 // absorbAlter applies `ALTER TABLE [IF EXISTS] [ONLY] old RENAME TO new`.
 //
 // Only the table rename is applied. `RENAME COLUMN` is deliberately skipped:
-// rewriting an index definition Atlas never re-read from a column rename would
+// rewriting an index definition Grunnr never re-read from a column rename would
 // be a guess dressed as a fact, and the index columns are what the
 // missing-index check reasons over.
 func (s *Schema) absorbAlter(toks []sqlToken) {
@@ -273,7 +273,7 @@ func (s *Schema) dropTable(name string) {
 }
 
 // dropIndex forgets one index by name. A synthetic constraint index is never
-// matched: `DROP INDEX users_pk` names a real declaration, and the ones Atlas
+// matched: `DROP INDEX users_pk` names a real declaration, and the ones Grunnr
 // inferred from PRIMARY KEY carry names it made up.
 func (s *Schema) dropIndex(name string) {
 	kept := s.Indexes[:0]
@@ -324,7 +324,7 @@ func (s *Schema) absorbTable(toks []sqlToken, i int, pos shared.FilePosition) {
 // `CREATE INDEX CONCURRENTLY i ON t` as an index named `i` against a table
 // called `i`, which does not exist -- while t went on looking unindexed and
 // the missing-index advisory fired on it. Anchoring the table on the keyword
-// means a spelling atlas has not met records nothing rather than something
+// means a spelling grunnr has not met records nothing rather than something
 // false.
 func (s *Schema) absorbIndex(toks []sqlToken, i int, pos shared.FilePosition, unique bool) {
 	i = skipKeywords(toks, skipConcurrently(toks, i), "IF", "NOT", "EXISTS")
@@ -412,7 +412,7 @@ func constraintColumns(def []sqlToken, table, suffix string) ([]string, string) 
 
 // partialPredicate renders the WHERE clause of a partial index back to text.
 // It is stored verbatim and never interpreted: a partial index that does not
-// cover a query's rows is a judgement Atlas is not equipped to make, and
+// cover a query's rows is a judgement Grunnr is not equipped to make, and
 // showing the predicate lets the reader make it.
 func partialPredicate(toks []sqlToken, i int) string {
 	i = skipKeywords(toks, i, "WHERE")

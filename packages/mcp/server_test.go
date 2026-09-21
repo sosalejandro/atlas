@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // newProtocolServer builds a server over an empty (migrated but never scanned)
 // store. The protocol tests deliberately use one: the wire contract must hold
-// before anybody has run `atlas scan`, which is exactly when an agent first
+// before anybody has run `grunnr scan`, which is exactly when an agent first
 // meets this server.
 func newProtocolServer(t *testing.T) *Server {
 	t.Helper()
@@ -279,7 +279,7 @@ func TestUnscannedStoreReturnsNoDataNotAnEmptyList(t *testing.T) {
 	if !ok {
 		t.Fatalf("find_feature on an unscanned store = %v, want a no_data envelope", sc)
 	}
-	if run, _ := nd["run"].(string); !strings.Contains(run, "atlas scan") && !strings.Contains(run, "atlas init") {
+	if run, _ := nd["run"].(string); !strings.Contains(run, "grunnr scan") && !strings.Contains(run, "grunnr init") {
 		t.Errorf("no_data.run = %q, want the command that would produce the data", run)
 	}
 	if _, bad := sc["features"]; bad {

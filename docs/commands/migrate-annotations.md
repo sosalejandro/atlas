@@ -1,11 +1,11 @@
-# atlas migrate-annotations
+# grunnr migrate-annotations
 
-`atlas migrate-annotations` walks every source file under `--root` and
+`grunnr migrate-annotations` walks every source file under `--root` and
 rewrites each `// @testreg <id> [#tag ...]` comment in place to the
 canonical `// @atlas:feature <id> [tag ...]` form, preserving trailing tags
 verbatim (the leading `#` is dropped per the new grammar's tag convention).
 
-It's the one-shot bulk-rewrite verb used during the testreg → atlas
+It's the one-shot bulk-rewrite verb used during the testreg → grunnr
 cutover. After running it, every annotation is the canonical
 `@atlas:feature` form and the legacy reader path goes idle.
 
@@ -13,7 +13,7 @@ The verb refuses to touch:
 
 - Files inside `vendor/` or `node_modules/`.
 - Files containing the magic suppressor comment
-  `// nolint:atlas-migrate` — useful for fixtures that intentionally
+  `// nolint:grunnr-migrate` — useful for fixtures that intentionally
   keep the legacy spelling for parser tests.
 
 You **must** pass exactly one of `--dry-run` or `--apply`. The default is
@@ -22,7 +22,7 @@ a no-op so a CI script that forgot to pick a mode fails loud.
 ## Usage
 
 ```
-atlas migrate-annotations [flags]
+grunnr migrate-annotations [flags]
 ```
 
 ## Flags
@@ -33,7 +33,7 @@ atlas migrate-annotations [flags]
 | `--apply`                     | (required if no `--dry-run`) | Rewrite candidates in place.                                                          |
 | `--root`                      | repo root / cwd       | Project root to walk.                                                                        |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                        |
-| `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path. (Unused by `migrate-annotations` but accepted globally.)     |
+| `--db-path` *(global)*        | `.grunnr/grunnr.db`     | Override the SQLite state path. (Unused by `migrate-annotations` but accepted globally.)     |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                                                               |
 
@@ -42,8 +42,8 @@ atlas migrate-annotations [flags]
 ### Dry-run first
 
 ```
-# Run from: /tmp/atlas-fixture (with a file containing `// @testreg auth.legacy #real`)
-$ atlas migrate-annotations --dry-run
+# Run from: /tmp/grunnr-fixture (with a file containing `// @testreg auth.legacy #real`)
+$ grunnr migrate-annotations --dry-run
 migrate-annotations: dry-run mode
   files_scanned=5  files_touched=0  candidates=1
   legacy.go:3
@@ -63,8 +63,8 @@ after the ids.
 ### Apply
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas migrate-annotations --apply
+# Run from: /tmp/grunnr-fixture
+$ grunnr migrate-annotations --apply
 migrate-annotations: apply mode
   files_scanned=5  files_touched=1  candidates=1
   legacy.go:3
@@ -72,7 +72,7 @@ migrate-annotations: apply mode
     + // @atlas:feature auth.legacy real
 ```
 
-Same diff, `files_touched=1`. The rewrite is atomic — atlas writes to a
+Same diff, `files_touched=1`. The rewrite is atomic — grunnr writes to a
 sibling temp file and renames over the original, so a crash mid-write
 can't corrupt the source.
 
@@ -81,8 +81,8 @@ can't corrupt the source.
 Running the same `--apply` twice is a no-op the second time:
 
 ```
-# Run from: /tmp/atlas-fixture (immediately after the apply above)
-$ atlas migrate-annotations --dry-run
+# Run from: /tmp/grunnr-fixture (immediately after the apply above)
+$ grunnr migrate-annotations --dry-run
 migrate-annotations: dry-run mode
   files_scanned=5  files_touched=0  candidates=0
 ```
@@ -97,14 +97,14 @@ To exclude a single file from the rewrite — typically a parser test that
 needs the legacy comment verbatim — add the suppressor:
 
 ```go
-// nolint:atlas-migrate
+// nolint:grunnr-migrate
 package parser_test
 
 // @testreg legacy_parser_test  // <-- preserved through migrate-annotations
 func TestLegacyAnnotation(t *testing.T) { /* ... */ }
 ```
 
-The suppressor must appear on its own line; atlas matches the comment
+The suppressor must appear on its own line; grunnr matches the comment
 text exactly.
 
 ## How it works

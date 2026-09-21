@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/report"
+	"github.com/sosalejandro/grunnr/packages/report"
 )
 
 // fixtureTool is the driver identity every test renders with. Pinned so the
 // golden files don't churn when the CLI's build version moves.
 var fixtureTool = report.Tool{
-	Name:            "atlas",
-	InformationURI:  "https://github.com/sosalejandro/atlas",
+	Name:            "grunnr",
+	InformationURI:  "https://github.com/sosalejandro/grunnr",
 	SemanticVersion: "v0.13.0",
 }
 
@@ -36,7 +36,7 @@ func fixtureFindings() []report.Finding {
 			Message:  "118 statements executed but charged to no indexed symbol (reason: no-indexed-symbol)",
 		},
 		{
-			// atlas/feature-uncovered defaults to warning; FromAudit
+			// grunnr/feature-uncovered defaults to warning; FromAudit
 			// raises a feature under --error-below to an error. This is
 			// the real override, and it is what a `fail-on: error` gate
 			// reads.
@@ -49,7 +49,7 @@ func fixtureFindings() []report.Finding {
 			Message:  "feature billing.invoice scores 12.0/100 (coverage 4.0)",
 		},
 		{
-			// atlas/dead-code defaults to note; this one is pinned to
+			// grunnr/dead-code defaults to note; this one is pinned to
 			// warning so the divergence is exercised in both directions
 			// (a rule default above AND below the finding's level).
 			RuleID:   report.RuleDeadCode,
@@ -156,7 +156,7 @@ func TestSARIF_EveryResultRuleIsDeclared(t *testing.T) {
 // valid-looking SARIF upload where the finding is invisible.
 func TestSARIF_UnknownRuleIsRejected(t *testing.T) {
 	findings := []report.Finding{{
-		RuleID:   "atlas/not-a-real-rule",
+		RuleID:   "grunnr/not-a-real-rule",
 		Severity: report.SeverityWarning,
 		Path:     "a.go",
 		Line:     1,
@@ -166,7 +166,7 @@ func TestSARIF_UnknownRuleIsRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error for an undeclared rule id, got nil")
 	}
-	if !strings.Contains(err.Error(), "atlas/not-a-real-rule") {
+	if !strings.Contains(err.Error(), "grunnr/not-a-real-rule") {
 		t.Errorf("error should name the offending rule; got %v", err)
 	}
 }
@@ -239,7 +239,7 @@ func TestSARIF_HeaderIsWellFormed(t *testing.T) {
 		}
 	}
 	// SARIF semanticVersion is a semver string, and a leading "v" is not
-	// semver. atlas's own Version constant carries one, so the writer has
+	// semver. grunnr's own Version constant carries one, so the writer has
 	// to strip it rather than pass the CLI's string through.
 	if got := driver["semanticVersion"].(string); strings.HasPrefix(got, "v") {
 		t.Errorf("semanticVersion = %q; the v-prefix is not valid semver", got)
@@ -330,12 +330,12 @@ func TestNormalizePaths_RejectsWhatGitHubWouldSilentlyDrop(t *testing.T) {
 		{RuleID: report.RuleDeadCode, Path: "./pkg/b.go", Line: 1},
 		{RuleID: report.RuleDeadCode, Path: `pkg\windows\c.go`, Line: 1},
 		{RuleID: report.RuleDeadCode, Path: "/etc/passwd", Line: 1},
-		{RuleID: report.RuleDeadCode, Path: "github.com/sosalejandro/atlas/pkg/d.go", Line: 1},
+		{RuleID: report.RuleDeadCode, Path: "github.com/sosalejandro/grunnr/pkg/d.go", Line: 1},
 		{RuleID: report.RuleDeadCode, Path: "", Line: 1},
 	}
 	kept, dropped := report.NormalizePaths(root, in)
 
-	wantKept := []string{"pkg/a.go", "pkg/b.go", "pkg/windows/c.go", "github.com/sosalejandro/atlas/pkg/d.go"}
+	wantKept := []string{"pkg/a.go", "pkg/b.go", "pkg/windows/c.go", "github.com/sosalejandro/grunnr/pkg/d.go"}
 	if len(kept) != len(wantKept) {
 		t.Fatalf("kept %d findings, want %d: %+v", len(kept), len(wantKept), kept)
 	}
@@ -447,7 +447,7 @@ func TestRenderGitHub_EscapesWorkflowCommandMetacharacters(t *testing.T) {
 	// Note the asymmetry, which is the runner's and not a typo here: ':' and
 	// ',' are escaped in the property VALUE and left alone in the message,
 	// where they are ordinary text.
-	want := "::warning file=pkg/a%2Cb%3Ac.go,line=3,title=atlas/dead-code::100%25 of%0Athe: thing, went wrong"
+	want := "::warning file=pkg/a%2Cb%3Ac.go,line=3,title=grunnr/dead-code::100%25 of%0Athe: thing, went wrong"
 	if got != want {
 		t.Errorf("annotation mismatch\n got: %s\nwant: %s", got, want)
 	}

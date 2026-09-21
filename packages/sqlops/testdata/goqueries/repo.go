@@ -89,7 +89,7 @@ func (r *UserRepo) ExpandIn(ctx context.Context, ids []int64) error {
 	return err
 }
 
-// Dynamic hands over a query built somewhere Atlas cannot see.
+// Dynamic hands over a query built somewhere Grunnr cannot see.
 func (r *UserRepo) Dynamic(ctx context.Context, b *builder) error {
 	_, err := r.db.ExecContext(ctx, b.SQL())
 	return err
@@ -102,7 +102,7 @@ func (r *UserRepo) Touch(ctx context.Context, id int64) error {
 }
 
 // AllTenants is knowingly unbounded; the directive says so.
-// atlas:sql-ignore sql.unbounded-list
+// grunnr:sql-ignore sql.unbounded-list
 func (r *UserRepo) AllTenants(ctx context.Context) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT id FROM tenants")
 	if err != nil {

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // SQLTableAccess is one table an operation touches, and how.
@@ -66,12 +66,12 @@ type SQLOperationRecord struct {
 }
 
 // SQLCapabilityTables is one capability's data footprint: the tables the
-// queries inside it read, the tables they write, and how much of it Atlas
+// queries inside it read, the tables they write, and how much of it Grunnr
 // could actually read.
 //
 // Unresolved is not decoration. A capability with unresolved operations has a
 // table set that is a LOWER BOUND -- some of its queries were assembled where
-// Atlas could not see them, and any table only those queries touch is missing
+// Grunnr could not see them, and any table only those queries touch is missing
 // from Reads and Writes. A privacy or migration review that reads this list as
 // complete when it is not is exactly the wrong answer to give confidently, so
 // the count travels with the rollup and every renderer prints it.
@@ -91,14 +91,14 @@ type SQLCapabilityTables struct {
 // the table set is the whole footprint rather than a lower bound on it.
 func (c SQLCapabilityTables) Complete() bool { return c.Unresolved == 0 }
 
-// SQLTableRow is one table Atlas read a CREATE TABLE for.
+// SQLTableRow is one table Grunnr read a CREATE TABLE for.
 type SQLTableRow struct {
 	Name     string `json:"name"`
 	FilePath string `json:"file_path"`
 	Line     int    `json:"line"`
 }
 
-// SQLIndexRow is one index Atlas read out of the DDL, including the ones
+// SQLIndexRow is one index Grunnr read out of the DDL, including the ones
 // implied by PRIMARY KEY and UNIQUE constraints.
 type SQLIndexRow struct {
 	Table     string   `json:"table"`
@@ -131,13 +131,13 @@ type SQLOps interface {
 	// position.
 	List(ctx context.Context) ([]SQLOperationRecord, error)
 
-	// Tables returns the tables whose DDL Atlas read.
+	// Tables returns the tables whose DDL Grunnr read.
 	Tables(ctx context.Context) ([]SQLTableRow, error)
 
-	// Indexes returns the indexes Atlas read.
+	// Indexes returns the indexes Grunnr read.
 	Indexes(ctx context.Context) ([]SQLIndexRow, error)
 
-	// Resolution returns how many operations Atlas could and could not
+	// Resolution returns how many operations Grunnr could and could not
 	// analyse -- the honesty counter every report leads with.
 	Resolution(ctx context.Context) (resolved, unresolved int, err error)
 
@@ -147,7 +147,7 @@ type SQLOps interface {
 
 	// CapabilityTables rolls the operation inventory up to the capability:
 	// per feature, the tables its symbols read and write, and how many of its
-	// queries atlas could not resolve.
+	// queries grunnr could not resolve.
 	CapabilityTables(ctx context.Context) ([]SQLCapabilityTables, error)
 }
 
@@ -189,14 +189,14 @@ func (o *sqlOpsStore) Replace(ctx context.Context, ops []SQLOperationRecord) err
 // sql_operations.sql_text is THE case issue #131 names: a hardcoded
 // connection string inside a query is stored verbatim, so a query built
 // against a DSN literal put a live credential in the state database every
-// time anyone ran `atlas sql`. It is replaced here rather than only being
-// reported later by `atlas security`, because a report about a database
+// time anyone ran `grunnr sql`. It is replaced here rather than only being
+// reported later by `grunnr security`, because a report about a database
 // that already holds the credential is a report, not a control.
 //
 // Redacting is not free of consequence and it is not hidden: the placeholder
-// names the rule and a digest, `atlas sql` analyses the rewritten text, and
+// names the rule and a digest, `grunnr sql` analyses the rewritten text, and
 // every replacement is logged with the operation ref so the operator can go
-// and rotate the credential at the source, which atlas cannot do for them.
+// and rotate the credential at the source, which grunnr cannot do for them.
 func insertOperation(
 	ctx context.Context, logger shared.Logger, qtx *sqlc.Queries, op SQLOperationRecord,
 ) error {

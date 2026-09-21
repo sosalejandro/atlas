@@ -7,16 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // openTestStore is the same helper used by audit_test.go.
 func openTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "atlas-state.db")
+	path := filepath.Join(dir, "grunnr-state.db")
 	s, err := store.Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -288,7 +288,7 @@ func TestRank_NoRecencyMeansLowerPriority(t *testing.T) {
 	// Only `recency.hot` gets an annotation site.
 	_ = s.Annotations().Upsert(ctx, store.AnnotationRow{
 		FilePath: "hot.go", Line: 1, Kind: shared.AnnFeature,
-		Value: "recency.hot", Source: shared.SourceAtlas,
+		Value: "recency.hot", Source: shared.SourceGrunnr,
 	})
 
 	p := New(s, a, Options{

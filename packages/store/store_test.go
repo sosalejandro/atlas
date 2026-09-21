@@ -14,7 +14,7 @@ import (
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "atlas-state.db")
+	path := filepath.Join(dir, "grunnr-state.db")
 	s, err := Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -43,7 +43,7 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	// 11 by issue #100 (coverage_runs attribution counters + coverage_run_gaps),
 	// and 12 by issue #86 (coverage_runs.run_group for named coverage frontiers),
 	// and 13 by issue #92 (coverage_history + coverage_history_features: the
-	// per-commit measurement series behind `atlas trend`), and
+	// per-commit measurement series behind `grunnr trend`), and
 	// 17 by issue #136 (coverage_symbol_spans + its AFTER INSERT trigger: the
 	// span each coverage result was measured against, which is what lets a
 	// carried result be invalidated when the symbol moves), and
@@ -52,8 +52,11 @@ func TestOpen_AppliesMigrations(t *testing.T) {
 	// changes every guess into a claim with no test able to see it), and
 	// 19 by issue #112 (symbols.bc_path -> symbols.domain, and
 	// symbols.node_class: declaration vs anchor as a column, so no query
-	// has to re-derive "is this real code" from a string prefix).
-	const expected = 19
+	// has to re-derive "is this real code" from a string prefix), and 20 by
+	// the rename (#176: the annotations CHECK allowed only 'atlas', so every
+	// ingest failed the moment the parser started writing 'grunnr' -- and
+	// the error said "constraint failed" with nothing about a rename).
+	const expected = 20
 	if v != expected {
 		t.Fatalf("schema_version = %d, want %d", v, expected)
 	}
@@ -67,7 +70,7 @@ func TestOpen_PathRequired(t *testing.T) {
 
 func TestReopen_IdempotentNoNewRows(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "atlas-state.db")
+	path := filepath.Join(dir, "grunnr-state.db")
 	ctx := context.Background()
 
 	s1, err := Open(ctx, path)
@@ -141,7 +144,7 @@ func TestOpen_AllTablesCreated(t *testing.T) {
 // surfaced "migrate.Up: <wrapped err>" with no version/dirty context.
 func TestRunMigrations_DirtyStateSurfacesInError(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "atlas-state.db")
+	path := filepath.Join(dir, "grunnr-state.db")
 	ctx := context.Background()
 
 	// First open creates the DB + applies migrations cleanly.

@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// covDiffFixture is a throwaway git repo plus an atlas store describing it.
+// covDiffFixture is a throwaway git repo plus an grunnr store describing it.
 // `cov diff` joins the two, so a test that stubbed either half would not be
 // testing the join.
 type covDiffFixture struct {
@@ -36,8 +36,8 @@ func (f *covDiffFixture) git(t *testing.T, args ...string) {
 	cmd.Env = append(os.Environ(),
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_SYSTEM=/dev/null",
-		"GIT_AUTHOR_NAME=atlas", "GIT_AUTHOR_EMAIL=atlas@example.test",
-		"GIT_COMMITTER_NAME=atlas", "GIT_COMMITTER_EMAIL=atlas@example.test",
+		"GIT_AUTHOR_NAME=grunnr", "GIT_AUTHOR_EMAIL=grunnr@example.test",
+		"GIT_COMMITTER_NAME=grunnr", "GIT_COMMITTER_EMAIL=grunnr@example.test",
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -78,14 +78,14 @@ func newCovDiffFixture(t *testing.T) *covDiffFixture {
 		t.Skip("git is not on PATH")
 	}
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".atlas"), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	if err := os.MkdirAll(filepath.Join(root, ".grunnr"), 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
-	f := &covDiffFixture{root: root, dbPath: filepath.Join(root, ".atlas", "atlas.db")}
+	f := &covDiffFixture{root: root, dbPath: filepath.Join(root, ".grunnr", "grunnr.db")}
 
 	f.git(t, "init", "-q", "-b", "main")
 	f.write(t, "pkg/a.go", numberedGo(40, "", nil))
-	f.write(t, "docs/readme.md", "# atlas\n")
+	f.write(t, "docs/readme.md", "# grunnr\n")
 	f.git(t, "add", "-A")
 	f.git(t, "commit", "-q", "-m", "base")
 	return f
@@ -139,7 +139,7 @@ func (f *covDiffFixture) seedSymbolsAndCoverage(t *testing.T) {
 	}
 }
 
-// indexFilesAtHEAD records the content hash of each file the way `atlas scan`
+// indexFilesAtHEAD records the content hash of each file the way `grunnr scan`
 // running at HEAD would.
 //
 // Every test that expects a changed file to be SCORED has to call this after
@@ -211,7 +211,7 @@ func (f *covDiffFixture) touchBothSymbols(t *testing.T) {
 }
 
 // execCovDiff drives the real command tree, from the fixture's working
-// directory so config resolution finds the fixture repo rather than atlas's.
+// directory so config resolution finds the fixture repo rather than grunnr's.
 func execCovDiff(t *testing.T, f *covDiffFixture, args ...string) (string, error) {
 	t.Helper()
 	t.Chdir(f.root)
@@ -228,7 +228,7 @@ func TestCovDiff_FlagsWired(t *testing.T) {
 	cmd := newCovDiffCmd()
 	for _, name := range []string{"base", "fail-under"} {
 		if cmd.Flags().Lookup(name) == nil {
-			t.Errorf("atlas cov diff is missing --%s", name)
+			t.Errorf("grunnr cov diff is missing --%s", name)
 		}
 	}
 	var found bool
@@ -267,7 +267,7 @@ func TestCovDiff_FailUnderDecidesTheExitCode(t *testing.T) {
 func TestCovDiff_NoMeasurableChangeExitsZero(t *testing.T) {
 	f := newCovDiffFixture(t)
 	f.seedSymbolsAndCoverage(t)
-	f.write(t, "docs/readme.md", "# atlas\n\nnow with prose\n")
+	f.write(t, "docs/readme.md", "# grunnr\n\nnow with prose\n")
 	f.git(t, "add", "-A")
 	f.git(t, "commit", "-q", "-m", "docs only")
 
@@ -318,7 +318,7 @@ func TestCovDiff_JSONCarriesEveryBucket(t *testing.T) {
 		changed[i] = true
 	}
 	f.write(t, "pkg/a.go", numberedGo(40, "touched", changed))
-	f.write(t, "docs/readme.md", "# atlas\nline\nline\nline\n")
+	f.write(t, "docs/readme.md", "# grunnr\nline\nline\nline\n")
 	f.git(t, "add", "-A")
 	f.git(t, "commit", "-q", "-m", "code and docs")
 	f.indexFilesAtHEAD(t, "pkg/a.go")
@@ -443,7 +443,7 @@ func TestCovDiff_BaseIsRequired(t *testing.T) {
 
 // gitOut runs a git command in the fixture repo and returns its stdout, for
 // the tests that need to check what git itself produced before asserting on
-// what atlas made of it.
+// what grunnr made of it.
 func (f *covDiffFixture) gitOut(t *testing.T, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -556,20 +556,20 @@ func TestCovDiff_StaleIndexIsRefusedRatherThanMisattributed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cov diff: %v\n%s", err, text)
 	}
-	for _, want := range []string{"STALE INDEX", "pkg/a.go", "atlas scan"} {
+	for _, want := range []string{"STALE INDEX", "pkg/a.go", "grunnr scan"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text output missing %q:\n%s", want, text)
 		}
 	}
 }
 
-// A file that atlas has no symbols for is reported as file-not-indexed, not
+// A file that grunnr has no symbols for is reported as file-not-indexed, not
 // as a stale index: the remedies are different, and the freshness guard must
 // not swallow the sharper answer.
 func TestCovDiff_UnindexedFileIsNotReportedAsStale(t *testing.T) {
 	f := newCovDiffFixture(t)
 	f.seedSymbolsAndCoverage(t)
-	f.write(t, "docs/readme.md", "# atlas\n\nnow with prose\n")
+	f.write(t, "docs/readme.md", "# grunnr\n\nnow with prose\n")
 	f.git(t, "add", "-A")
 	f.git(t, "commit", "-q", "-m", "docs only")
 
@@ -744,7 +744,7 @@ func TestCovDiff_FailUnderPassesOnExactEquality(t *testing.T) {
 func TestCovDiff_JSONEmptyBucketsAreArraysNotNull(t *testing.T) {
 	f := newCovDiffFixture(t)
 	f.seedSymbolsAndCoverage(t)
-	f.write(t, "docs/readme.md", "# atlas\n\nnow with prose\n")
+	f.write(t, "docs/readme.md", "# grunnr\n\nnow with prose\n")
 	f.git(t, "add", "-A")
 	f.git(t, "commit", "-q", "-m", "docs only")
 

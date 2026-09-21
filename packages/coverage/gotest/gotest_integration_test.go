@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
-	"github.com/sosalejandro/atlas/packages/coverage/gotest"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/coverage/gotest"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // TestIngest_GoTestFixture is the end-to-end smoke test that exercises
@@ -21,7 +21,7 @@ import (
 func TestIngest_GoTestFixture(t *testing.T) {
 	ctx := context.Background()
 
-	dbPath := filepath.Join(t.TempDir(), "atlas.db")
+	dbPath := filepath.Join(t.TempDir(), "grunnr.db")
 	s, err := store.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)

@@ -6,25 +6,25 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/coverage"
 )
 
 // goldenMixed exercises pass/fail/skip + subtests + @atlas:feature
 // annotation in the output stream + a non-JSON build banner that must be
 // tolerated.
-const goldenMixed = `# github.com/atlas/example
-{"Time":"2026-05-18T10:00:00Z","Action":"run","Package":"github.com/atlas/example/auth","Test":"TestLogin"}
-{"Time":"2026-05-18T10:00:00.001Z","Action":"output","Package":"github.com/atlas/example/auth","Test":"TestLogin","Output":"    auth_test.go:42: @atlas:feature auth.login\n"}
-{"Time":"2026-05-18T10:00:00.500Z","Action":"pass","Package":"github.com/atlas/example/auth","Test":"TestLogin","Elapsed":0.5}
-{"Time":"2026-05-18T10:00:00.600Z","Action":"run","Package":"github.com/atlas/example/auth","Test":"TestLogin/case=invalid"}
-{"Time":"2026-05-18T10:00:00.700Z","Action":"fail","Package":"github.com/atlas/example/auth","Test":"TestLogin/case=invalid","Elapsed":0.1}
-{"Time":"2026-05-18T10:00:00.800Z","Action":"run","Package":"github.com/atlas/example/auth","Test":"TestLogout"}
-{"Time":"2026-05-18T10:00:00.801Z","Action":"output","Package":"github.com/atlas/example/auth","Test":"TestLogout","Output":"    --- SKIP: TestLogout (0.00s)\n"}
-{"Time":"2026-05-18T10:00:00.802Z","Action":"skip","Package":"github.com/atlas/example/auth","Test":"TestLogout","Elapsed":0}
-{"Time":"2026-05-18T10:00:00.900Z","Action":"run","Package":"github.com/atlas/example/auth","Test":"TestRegister"}
-{"Time":"2026-05-18T10:00:00.910Z","Action":"output","Package":"github.com/atlas/example/auth","Test":"TestRegister","Output":"--- FAIL: TestRegister (0.01s)\n        expected 200 got 401\n"}
-{"Time":"2026-05-18T10:00:01.000Z","Action":"output","Package":"github.com/atlas/example/auth","Test":"TestRegister","Output":"    @testreg auth.register\n"}
-{"Time":"2026-05-18T10:00:01.000Z","Action":"fail","Package":"github.com/atlas/example/auth","Test":"TestRegister","Elapsed":0.1}
+const goldenMixed = `# github.com/grunnr/example
+{"Time":"2026-05-18T10:00:00Z","Action":"run","Package":"github.com/grunnr/example/auth","Test":"TestLogin"}
+{"Time":"2026-05-18T10:00:00.001Z","Action":"output","Package":"github.com/grunnr/example/auth","Test":"TestLogin","Output":"    auth_test.go:42: @atlas:feature auth.login\n"}
+{"Time":"2026-05-18T10:00:00.500Z","Action":"pass","Package":"github.com/grunnr/example/auth","Test":"TestLogin","Elapsed":0.5}
+{"Time":"2026-05-18T10:00:00.600Z","Action":"run","Package":"github.com/grunnr/example/auth","Test":"TestLogin/case=invalid"}
+{"Time":"2026-05-18T10:00:00.700Z","Action":"fail","Package":"github.com/grunnr/example/auth","Test":"TestLogin/case=invalid","Elapsed":0.1}
+{"Time":"2026-05-18T10:00:00.800Z","Action":"run","Package":"github.com/grunnr/example/auth","Test":"TestLogout"}
+{"Time":"2026-05-18T10:00:00.801Z","Action":"output","Package":"github.com/grunnr/example/auth","Test":"TestLogout","Output":"    --- SKIP: TestLogout (0.00s)\n"}
+{"Time":"2026-05-18T10:00:00.802Z","Action":"skip","Package":"github.com/grunnr/example/auth","Test":"TestLogout","Elapsed":0}
+{"Time":"2026-05-18T10:00:00.900Z","Action":"run","Package":"github.com/grunnr/example/auth","Test":"TestRegister"}
+{"Time":"2026-05-18T10:00:00.910Z","Action":"output","Package":"github.com/grunnr/example/auth","Test":"TestRegister","Output":"--- FAIL: TestRegister (0.01s)\n        expected 200 got 401\n"}
+{"Time":"2026-05-18T10:00:01.000Z","Action":"output","Package":"github.com/grunnr/example/auth","Test":"TestRegister","Output":"    @testreg auth.register\n"}
+{"Time":"2026-05-18T10:00:01.000Z","Action":"fail","Package":"github.com/grunnr/example/auth","Test":"TestRegister","Elapsed":0.1}
 `
 
 // parseGolden parses goldenMixed once and indexes results by TestName.
@@ -51,7 +51,7 @@ func parseGolden(t *testing.T) (coverage.Run, map[string]coverage.Result) {
 
 func TestParse_GoldenPassRow(t *testing.T) {
 	_, byName := parseGolden(t)
-	login, ok := byName["github.com/atlas/example/auth.TestLogin"]
+	login, ok := byName["github.com/grunnr/example/auth.TestLogin"]
 	if !ok {
 		t.Fatal("missing TestLogin result")
 	}
@@ -68,7 +68,7 @@ func TestParse_GoldenPassRow(t *testing.T) {
 
 func TestParse_GoldenSubtestFail(t *testing.T) {
 	_, byName := parseGolden(t)
-	sub, ok := byName["github.com/atlas/example/auth.TestLogin/case=invalid"]
+	sub, ok := byName["github.com/grunnr/example/auth.TestLogin/case=invalid"]
 	if !ok {
 		t.Fatal("missing subtest result")
 	}
@@ -82,7 +82,7 @@ func TestParse_GoldenSubtestFail(t *testing.T) {
 
 func TestParse_GoldenSkipRow(t *testing.T) {
 	_, byName := parseGolden(t)
-	logout, ok := byName["github.com/atlas/example/auth.TestLogout"]
+	logout, ok := byName["github.com/grunnr/example/auth.TestLogout"]
 	if !ok {
 		t.Fatal("missing TestLogout result")
 	}
@@ -93,7 +93,7 @@ func TestParse_GoldenSkipRow(t *testing.T) {
 
 func TestParse_GoldenFailRowAndLegacyAnnotation(t *testing.T) {
 	run, byName := parseGolden(t)
-	reg, ok := byName["github.com/atlas/example/auth.TestRegister"]
+	reg, ok := byName["github.com/grunnr/example/auth.TestRegister"]
 	if !ok {
 		t.Fatal("missing TestRegister result")
 	}
@@ -126,9 +126,9 @@ func TestParse_EmptyInput(t *testing.T) {
 
 func TestParse_MalformedJSONTolerated(t *testing.T) {
 	input := `not json at all
-{"Action":"run","Package":"github.com/atlas/example","Test":"TestX"}
+{"Action":"run","Package":"github.com/grunnr/example","Test":"TestX"}
 {this is broken
-{"Action":"pass","Package":"github.com/atlas/example","Test":"TestX","Elapsed":0.01}
+{"Action":"pass","Package":"github.com/grunnr/example","Test":"TestX","Elapsed":0.01}
 `
 	_, results, err := Parse(strings.NewReader(input))
 	if err != nil {
@@ -144,7 +144,7 @@ func TestParse_MalformedJSONTolerated(t *testing.T) {
 
 func TestParse_TruncatedStream(t *testing.T) {
 	// "run" but no terminal event — must surface as fail with a hint.
-	input := `{"Action":"run","Package":"github.com/atlas/example","Test":"TestDangling"}
+	input := `{"Action":"run","Package":"github.com/grunnr/example","Test":"TestDangling"}
 `
 	_, results, err := Parse(strings.NewReader(input))
 	if err != nil {
@@ -165,8 +165,8 @@ func TestParse_LargeRun(t *testing.T) {
 	const N = 1200
 	var buf bytes.Buffer
 	for i := 0; i < N; i++ {
-		fmt.Fprintf(&buf, `{"Action":"run","Package":"github.com/atlas/example/bulk","Test":"TestBulk%d"}`+"\n", i)
-		fmt.Fprintf(&buf, `{"Action":"pass","Package":"github.com/atlas/example/bulk","Test":"TestBulk%d","Elapsed":0.001}`+"\n", i)
+		fmt.Fprintf(&buf, `{"Action":"run","Package":"github.com/grunnr/example/bulk","Test":"TestBulk%d"}`+"\n", i)
+		fmt.Fprintf(&buf, `{"Action":"pass","Package":"github.com/grunnr/example/bulk","Test":"TestBulk%d","Elapsed":0.001}`+"\n", i)
 	}
 	_, results, err := Parse(&buf)
 	if err != nil {

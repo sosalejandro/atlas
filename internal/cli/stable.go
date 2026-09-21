@@ -1,6 +1,6 @@
 package cli
 
-import "github.com/sosalejandro/atlas/packages/envelope"
+import "github.com/sosalejandro/grunnr/packages/envelope"
 
 // The volatility policy lives in packages/envelope, because the HTTP API
 // (#101) needs the same answer to "which fields are not about the code" and

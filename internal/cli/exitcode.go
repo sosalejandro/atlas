@@ -1,12 +1,12 @@
 // Exit codes are a contract, not a detail.
 //
 // Until this file existed, `os.Exit` appeared exactly once in the whole tree
-// -- cmd/atlas/main.go, with a literal 1 -- so every command was binary: it
+// -- cmd/grunnr/main.go, with a literal 1 -- so every command was binary: it
 // worked, or it did not. A caller could not distinguish "I checked, and the
 // thing you asked me to gate on does not hold" from "I could not check."
 //
 // That distinction is not academic in this repository. It is the specific bug
-// atlas has shipped, twice:
+// grunnr has shipped, twice:
 //
 //   - .gitleaks.toml's worktree allowlist was unanchored, so it matched the
 //     ABSOLUTE path and any scan rooted inside .claude/worktrees allowlisted
@@ -37,8 +37,8 @@ import (
 )
 
 // The process status contract. A CI job that treats any non-zero as failure
-// still fails closed; a job that wants to tell "atlas found untested code"
-// from "atlas could not tell" now can.
+// still fails closed; a job that wants to tell "grunnr found untested code"
+// from "grunnr could not tell" now can.
 const (
 	// ExitOK means the command ran and whatever it gates on holds.
 	ExitOK = 0
@@ -63,7 +63,7 @@ const (
 )
 
 // ExitError carries a process status alongside an error. Commands return it
-// from RunE like any other error; cmd/atlas/main.go asks ExitCodeFor what to
+// from RunE like any other error; cmd/grunnr/main.go asks ExitCodeFor what to
 // exit with. Wrapping is preserved, so errors.Is and errors.As still reach
 // whatever the command wrapped.
 type ExitError struct {
@@ -76,7 +76,7 @@ func (e *ExitError) Unwrap() error { return e.Err }
 
 // undeterminedf builds an ExitUndetermined error. The message should say what
 // could not be established and what would establish it -- "the index is
-// stale" is a diagnosis the user cannot act on, "run atlas scan" is one they
+// stale" is a diagnosis the user cannot act on, "run grunnr scan" is one they
 // can.
 func undeterminedf(format string, a ...any) error {
 	return &ExitError{Code: ExitUndetermined, Err: fmt.Errorf(format, a...)}

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/indexfresh"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/indexfresh"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -260,7 +260,7 @@ func TestSelect_UnindexedFileForcesRunAll(t *testing.T) {
 	sel := mustSelect(t, newInputs(git, &fakeSymbols{rows: baseSymbols()}, ev))
 
 	if !sel.RunAll() {
-		t.Fatalf("outcome = %q, want run-all for a file atlas has no symbols for", sel.Outcome)
+		t.Fatalf("outcome = %q, want run-all for a file grunnr has no symbols for", sel.Outcome)
 	}
 	if got := fallbackReasons(sel); len(got) != 1 || got[0] != ReasonUnindexedFile {
 		t.Fatalf("fallback reasons = %v, want [%s]", got, ReasonUnindexedFile)
@@ -347,7 +347,7 @@ func TestSelect_NoIndexedTestsForcesRunAll(t *testing.T) {
 	sel := mustSelect(t, newInputs(git, &fakeSymbols{rows: prodOnly}, ev))
 
 	if !sel.RunAll() {
-		t.Fatalf("outcome = %q, want run-all when atlas has indexed no tests", sel.Outcome)
+		t.Fatalf("outcome = %q, want run-all when grunnr has indexed no tests", sel.Outcome)
 	}
 	if got := fallbackReasons(sel); len(got) != 1 || got[0] != ReasonNoTestsIndexed {
 		t.Fatalf("fallback reasons = %v, want [%s]", got, ReasonNoTestsIndexed)
@@ -500,7 +500,7 @@ func TestSelect_NoChangedFilesSelectsNothing(t *testing.T) {
 }
 
 // Documentation-only changes must not bankrupt the reduction. The inert set is
-// deliberately tiny and named, so a reader can audit exactly what atlas is
+// deliberately tiny and named, so a reader can audit exactly what grunnr is
 // willing to ignore.
 func TestSelect_InertPathsDoNotForceRunAll(t *testing.T) {
 	git := &fakeGit{

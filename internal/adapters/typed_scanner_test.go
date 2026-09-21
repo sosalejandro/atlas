@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 func TestTypedScanner_NewCreatesWithFallback(t *testing.T) {
@@ -312,4 +312,3 @@ func Other() {}
 		t.Fatal("expected non-nil graph from fallback")
 	}
 }
-

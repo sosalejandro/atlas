@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // The determinism suite. See docs/testing/determinism.md for the why.
@@ -103,7 +103,7 @@ func TestDeterminism_GoScanner_ScanIsReproducible(t *testing.T) {
 // differently-named temp directories and asserts the two scans are
 // byte-identical.
 //
-// Every position Atlas persists is repo-relative by contract
+// Every position Grunnr persists is repo-relative by contract
 // (shared.FilePosition). A single absolute path leaking into a SymbolID,
 // a signature or a position would make the store non-portable across
 // worktrees and machines — and would show up here as a diff on every line.

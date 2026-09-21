@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/onboard"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/onboard"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // onboardFixture is a real, scannable Go project with no annotations in it.
@@ -63,7 +63,7 @@ func Settle(db *sql.DB, id string) error {
 	return err
 }
 `)
-	return &onboardFixture{root: dir, dbPath: filepath.Join(dir, ".atlas", "atlas.db")}
+	return &onboardFixture{root: dir, dbPath: filepath.Join(dir, ".grunnr", "grunnr.db")}
 }
 
 func execOnboard(t *testing.T, fix *onboardFixture, args ...string) (string, string, error) {
@@ -89,13 +89,13 @@ func TestOnboard_RegisteredAndFlagged(t *testing.T) {
 			found = true
 			for _, f := range []string{"root", "skip-sql", "skip-churn", "top"} {
 				if c.Flags().Lookup(f) == nil {
-					t.Errorf("atlas onboard is missing --%s", f)
+					t.Errorf("grunnr onboard is missing --%s", f)
 				}
 			}
 		}
 	}
 	if !found {
-		t.Fatal("atlas onboard is not registered on the root command")
+		t.Fatal("grunnr onboard is not registered on the root command")
 	}
 }
 
@@ -138,9 +138,9 @@ func TestOnboard_ReportHasFindingsLimitsAndCISnippet(t *testing.T) {
 		t.Fatalf("onboard: %v\nstderr:\n%s", err, stderr)
 	}
 	for _, want := range []string{
-		"WHAT ATLAS CANNOT SEE",
-		"atlas health", // the CI snippet turns the map into a gate
-		"atlas onboard promote",
+		"WHAT GRUNNR CANNOT SEE",
+		"grunnr health", // the CI snippet turns the map into a gate
+		"grunnr onboard promote",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("output is missing %q:\n%s", want, stdout)
@@ -342,7 +342,7 @@ func TestOnboardPromote_TwoAnnotationsInOneFileBothLandOnTheirDeclaration(t *tes
 	// slip is unambiguous rather than merely untidy.
 	//
 	// Ship and BulkShip both HEAD with the cluster word, which is what makes
-	// "ship" a name atlas will use at all (#177): with only Ship heading it,
+	// "ship" a name grunnr will use at all (#177): with only Ship heading it,
 	// the cluster dissolves, everything falls to the directory grouping, and
 	// this file would carry one annotation instead of the two the bug needs.
 	shipping := filepath.Join(fix.root, "internal", "shipping")
@@ -451,7 +451,7 @@ func TestOnboardPromote_WithoutAMapExplainsItself(t *testing.T) {
 	if err == nil {
 		t.Fatal("promote succeeded with no provisional map")
 	}
-	if !strings.Contains(err.Error(), "atlas onboard") {
+	if !strings.Contains(err.Error(), "grunnr onboard") {
 		t.Errorf("error does not point at the command that fixes it: %v", err)
 	}
 }

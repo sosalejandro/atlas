@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // noCoverageIngested is the shared not-applicable Result for the two
@@ -19,7 +19,7 @@ func noCoverageIngested() Result {
 	return Result{
 		Severity:    SeverityNotApplicable,
 		Finding:     "no coverage run has been ingested, so there is nothing to assess",
-		Remediation: "atlas cov sync --framework go-cover --input coverage.out",
+		Remediation: "grunnr cov sync --framework go-cover --input coverage.out",
 	}
 }
 
@@ -29,14 +29,14 @@ func noCoverageIngested() Result {
 // Two ways they stop doing so, and both are silent. The frontier simply
 // ages -- a percentage from six weeks ago is about six-week-old code --
 // and, more sharply, the index can move underneath it: when the index
-// holds file content NEWER than the coverage run, atlas is scoring code
+// holds file content NEWER than the coverage run, grunnr is scoring code
 // that run never executed, so the two halves of the picture are about
 // different repos.
 //
 // "Newer" is measured against indexed content, not against scan time.
 // A scan is not evidence that anything changed (see
 // newestIndexedContent), and a check that fired every time someone ran
-// `atlas scan` would be indistinguishable from noise.
+// `grunnr scan` would be indistinguishable from noise.
 type coverageFreshness struct{}
 
 func (coverageFreshness) Name() string { return "coverage.freshness" }
@@ -130,7 +130,7 @@ func coverageFreshnessVerdict(
 			Severity: SeverityWarn,
 			Finding: "the coverage frontier no longer tracks the working tree: " +
 				strings.Join(complaints, "; "),
-			Remediation: "atlas cov sync --framework go-cover --input coverage.out",
+			Remediation: "grunnr cov sync --framework go-cover --input coverage.out",
 			Details:     details,
 		}
 	}
@@ -146,7 +146,7 @@ func coverageFreshnessVerdict(
 					"it could not be determined: the store records no file hashes to date its "+
 					"indexed content from",
 				len(frontier.Runs), roundDuration(age)),
-			Remediation: "atlas scan --hash-files",
+			Remediation: "grunnr scan --hash-files",
 			Details:     details,
 		}
 	}
@@ -173,7 +173,7 @@ func frontierFinishedAt(f store.CoverageFrontier) time.Time {
 	return newest
 }
 
-// newestIndexedContent is the mtime of the newest file content atlas
+// newestIndexedContent is the mtime of the newest file content grunnr
 // holds in its index: max(file_hashes.mtime). Zero when nothing has been
 // hashed.
 //
@@ -182,8 +182,8 @@ func frontierFinishedAt(f store.CoverageFrontier) time.Time {
 // last_scanned for EVERY file on EVERY scan, unchanged ones included --
 // "always, even unchanged files get last_scanned refreshed so the cache
 // TTL stays warm" (packages/store/ingest.go, step 5). So the newest
-// last_scanned moved whenever anyone ran `atlas scan`, and any frontier
-// older than the last scan was accused of describing "code atlas has
+// last_scanned moved whenever anyone ran `grunnr scan`, and any frontier
+// older than the last scan was accused of describing "code grunnr has
 // since re-read" even when that scan re-read byte-identical files. The
 // check fired on essentially every scan, which is how a check gets muted.
 //
@@ -221,7 +221,7 @@ func roundDuration(d time.Duration) string {
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
-// coverageAttribution measures atlas's blind spot: the share of executed
+// coverageAttribution measures grunnr's blind spot: the share of executed
 // statements the ingest could not charge to any symbol.
 //
 // It matters because the blind spot is invisible in the direction that
@@ -278,7 +278,7 @@ func (c coverageAttribution) Run(ctx context.Context, env *Env) (Result, error) 
 			Severity: SeverityNotApplicable,
 			Finding: "the frontier's runs recorded no attribution accounting " +
 				"(a pass/fail framework, or an ingest predating schema 0011)",
-			Remediation: "atlas cov sync --framework go-cover --input coverage.out",
+			Remediation: "grunnr cov sync --framework go-cover --input coverage.out",
 			Details:     details,
 		}, nil
 	}
@@ -290,21 +290,21 @@ func (c coverageAttribution) Run(ctx context.Context, env *Env) (Result, error) 
 
 	finding := fmt.Sprintf(
 		"%.1f%% of executed statements (%d of %d) could not be charged to a symbol, "+
-			"so every coverage figure atlas reports is understated by that much",
+			"so every coverage figure grunnr reports is understated by that much",
 		frac*100, unattributed, total)
 	switch {
 	case frac >= env.UnattributedFail:
 		return Result{
 			Severity:    SeverityFail,
 			Finding:     finding,
-			Remediation: "atlas cov status --gaps",
+			Remediation: "grunnr cov status --gaps",
 			Details:     details,
 		}, nil
 	case frac >= env.UnattributedWarn:
 		return Result{
 			Severity:    SeverityWarn,
 			Finding:     finding,
-			Remediation: "atlas cov status --gaps",
+			Remediation: "grunnr cov status --gaps",
 			Details:     details,
 		}, nil
 	default:

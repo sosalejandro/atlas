@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // TestExecution is one test's execution of one production symbol: the

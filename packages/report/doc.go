@@ -1,9 +1,9 @@
-// Package report renders atlas findings into the three formats CI actually
+// Package report renders grunnr findings into the three formats CI actually
 // displays.
 //
-// Atlas's other packages answer questions; this one carries the answers to
+// Grunnr's other packages answer questions; this one carries the answers to
 // where the decision is made. A terminal report or a JSON envelope is invisible
-// on a pull request, so every team that wanted atlas as a gate had to write
+// on a pull request, so every team that wanted grunnr as a gate had to write
 // their own glue: parse the envelope, decide what fails, map findings back to
 // lines, render a comment. The industry already converged on three shapes and
 // this package emits all three from one Finding type:

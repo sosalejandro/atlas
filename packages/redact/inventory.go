@@ -19,7 +19,7 @@ type Inventory struct {
 	// SizeBytes is the main database file. SidecarBytes is the write-ahead
 	// log and shared-memory files beside it, which hold committed data that
 	// has not been checkpointed and travel with the database in practice:
-	// anyone copying atlas.db without atlas.db-wal may be copying a stale
+	// anyone copying grunnr.db without grunnr.db-wal may be copying a stale
 	// database, which is worth knowing before quoting a size.
 	SizeBytes    int64 `json:"size_bytes"`
 	SidecarBytes int64 `json:"sidecar_bytes"`
@@ -138,8 +138,8 @@ type liveTable struct {
 // liveSchema enumerates the user tables and their TEXT columns.
 //
 // sqlite_% tables are excluded: sqlite_sequence and the autoindexes are the
-// engine's bookkeeping, not atlas's data, and reporting them as content
-// atlas stores would be false.
+// engine's bookkeeping, not grunnr's data, and reporting them as content
+// grunnr stores would be false.
 func liveSchema(ctx context.Context, db *sql.DB) ([]liveTable, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
@@ -209,7 +209,7 @@ func describeTable(ctx context.Context, db *sql.DB, name string) (liveTable, err
 // isTextType reports whether a declared column type is TEXT.
 //
 // Exact match rather than SQLite's affinity rules (which would make VARCHAR,
-// CLOB and even BLOB-with-a-TEXT-substring count). Every column in the atlas
+// CLOB and even BLOB-with-a-TEXT-substring count). Every column in the grunnr
 // schema is declared with one of a handful of literal type names, so an
 // affinity emulation here would add ways to be subtly wrong without adding
 // a single column to the result.
@@ -260,7 +260,7 @@ func fileSizes(path string) (main int64, sidecar int64) {
 	return main, sidecar
 }
 
-// identRe is the shape every atlas table and column name has. Used as a
+// identRe is the shape every grunnr table and column name has. Used as a
 // guard before an identifier is interpolated into SQL.
 var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 

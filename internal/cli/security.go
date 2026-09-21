@@ -18,11 +18,11 @@ import (
 	// same driver twice is not possible: the blank import runs one init.
 	_ "modernc.org/sqlite"
 
-	"github.com/sosalejandro/atlas/packages/redact"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/redact"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
-// newSecurityCmd implements `atlas security`.
+// newSecurityCmd implements `grunnr security`.
 //
 // The command exists because of a question no other verb answers: "if I send
 // you this database, what am I sending?" Every security review asks it, and
@@ -47,13 +47,13 @@ than from a document describing one:
                     and signature of every symbol.
 
   What leaves       every surface through which indexed content leaves the
-                    database. All of them are local files or streams; atlas
+                    database. All of them are local files or streams; grunnr
                     makes no network calls of any kind.
 
   What is exposed   credentials found in the stored text. Source contains
                     them more often than anyone admits, and a hardcoded
                     connection string lands in sql_operations.sql_text as
-                    query text. Run ` + "`atlas security redact`" + ` to replace them.
+                    query text. Run ` + "`grunnr security redact`" + ` to replace them.
 
 Nothing here is printed that would repeat a leak: findings carry the rule,
 the location and a digest, never the credential.
@@ -70,7 +70,7 @@ See docs/security.md for the written statement this command is derived from.`,
 	return cmd
 }
 
-// newSecurityRedactCmd implements `atlas security redact`.
+// newSecurityRedactCmd implements `grunnr security redact`.
 func newSecurityRedactCmd() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
@@ -114,11 +114,11 @@ type egressStatement struct {
 	EnforcedBy   string `json:"enforced_by"`
 }
 
-const egressSentence = "nothing leaves this machine: atlas makes no network calls, " +
+const egressSentence = "nothing leaves this machine: grunnr makes no network calls, " +
 	"sends no telemetry, checks for no updates and reports no crashes"
 
 const egressEnforcement = "packages/redact/egress_test.go walks the import graph of the " +
-	"atlas binary and fails if any first-party package reaches network code; " +
+	"grunnr binary and fails if any first-party package reaches network code; " +
 	"the check does not audit third-party dependencies"
 
 func currentEgress() egressStatement {
@@ -128,7 +128,7 @@ func currentEgress() egressStatement {
 	}
 }
 
-// securityResult is the JSON payload for `atlas security`.
+// securityResult is the JSON payload for `grunnr security`.
 type securityResult struct {
 	Store             redact.Inventory   `json:"store"`
 	Egress            egressStatement    `json:"egress"`
@@ -137,7 +137,7 @@ type securityResult struct {
 	Secrets           redact.SweepReport `json:"secrets"`
 }
 
-// securityRedactResult is the JSON payload for `atlas security redact`.
+// securityRedactResult is the JSON payload for `grunnr security redact`.
 type securityRedactResult struct {
 	Path   string             `json:"path"`
 	DryRun bool               `json:"dry_run"`
@@ -149,11 +149,11 @@ type stateDBAccess int
 
 const (
 	// accessReadOnly opens the file with SQLite's own read-only mode and
-	// query_only on top of it. Used by `atlas security` and by
-	// `atlas security redact --dry-run`.
+	// query_only on top of it. Used by `grunnr security` and by
+	// `grunnr security redact --dry-run`.
 	accessReadOnly stateDBAccess = iota
 
-	// accessReadWrite is `atlas security redact` doing the one thing in this
+	// accessReadWrite is `grunnr security redact` doing the one thing in this
 	// command tree that is supposed to write.
 	accessReadWrite
 )
@@ -167,13 +167,13 @@ const (
 // exactly the wrong surprise: the artifact you were auditing is not the
 // artifact you now have, and on a copy taken for evidence that matters.
 //
-// So `atlas security` opens read-only (SQLite's mode=ro plus query_only, so
+// So `grunnr security` opens read-only (SQLite's mode=ro plus query_only, so
 // a stray write is an error rather than a silent change) and reports the
 // schema version it finds, whatever it is. A database older than this binary
 // is a fact worth reporting, not a thing to fix behind the operator's back.
 //
 // Raw SQL rather than the store's typed ports is likewise deliberate. The
-// ports expose the tables atlas reads for its own features; a security
+// ports expose the tables grunnr reads for its own features; a security
 // inventory has to enumerate what is THERE, including a table nobody wrote a
 // port for yet, or it will keep reporting completeness it does not have.
 //
@@ -187,7 +187,7 @@ func openStateDB(ctx context.Context, access stateDBAccess) (*sql.DB, string, er
 	}
 	if _, statErr := os.Stat(dbPath); statErr != nil {
 		return nil, "", fmt.Errorf(
-			"security: no state database at %s (run `atlas init` first): %w", dbPath, statErr)
+			"security: no state database at %s (run `grunnr init` first): %w", dbPath, statErr)
 	}
 	// No journal_mode pragma in either DSN: setting it on a database this
 	// command did not migrate would rewrite the header of the file being
@@ -255,8 +255,8 @@ func resolveExports(cmd *cobra.Command, verb string) ([]redact.Export, error) {
 	}
 	path := strings.Fields(verb)
 	found, _, err := cmd.Root().Find(path)
-	if err != nil || found.CommandPath() != "atlas "+strings.Join(path, " ") {
-		return nil, fmt.Errorf("security: --export %q is not an atlas command", verb)
+	if err != nil || found.CommandPath() != "grunnr "+strings.Join(path, " ") {
+		return nil, fmt.Errorf("security: --export %q is not an grunnr command", verb)
 	}
 	matched := redact.ExportsFor(verb)
 	if len(matched) == 0 {
@@ -278,7 +278,7 @@ func securityWarnings(res securityResult) []string {
 	var out []string
 	if n := len(res.Store.Unclassified); n > 0 {
 		out = append(out, fmt.Sprintf(
-			"%d table(s)/column(s) in this database are not described by atlas: %s. "+
+			"%d table(s)/column(s) in this database are not described by grunnr: %s. "+
 				"The inventory above is incomplete.",
 			n, strings.Join(res.Store.Unclassified, ", ")))
 	}
@@ -290,7 +290,7 @@ func securityWarnings(res securityResult) []string {
 	}
 	if n := len(res.Secrets.Hits); n > 0 {
 		out = append(out, fmt.Sprintf(
-			"%d credential(s) are stored in this database; run `atlas security redact`, "+
+			"%d credential(s) are stored in this database; run `grunnr security redact`, "+
 				"and rotate them at the source", n))
 	}
 	return out
@@ -338,7 +338,7 @@ func printSecurityStore(w io.Writer, inv redact.Inventory) {
 	fmt.Fprintf(w, "  size            %s", humanBytes(inv.SizeBytes))
 	if inv.SidecarBytes > 0 {
 		// -wal and -shm, named rather than folded into one figure: a copy of
-		// atlas.db taken without its -wal can be a stale database, and the
+		// grunnr.db taken without its -wal can be a stale database, and the
 		// size a person quotes should not hide that.
 		fmt.Fprintf(w, " + %s in sidecar files (-wal, -shm)", humanBytes(inv.SidecarBytes))
 	}
@@ -346,7 +346,7 @@ func printSecurityStore(w io.Writer, inv redact.Inventory) {
 
 	nonEmpty := inv.NonEmptyTables()
 	if len(nonEmpty) == 0 {
-		fmt.Fprintf(w, "  Every table is empty. Run `atlas scan` to populate the index.\n\n")
+		fmt.Fprintf(w, "  Every table is empty. Run `grunnr scan` to populate the index.\n\n")
 		return
 	}
 	fmt.Fprintf(w, "  %8s  %-26s %s\n", "ROWS", "TABLE", "HOLDS")
@@ -357,7 +357,7 @@ func printSecurityStore(w io.Writer, inv redact.Inventory) {
 		fmt.Fprintf(w, "  (%d further table(s) hold no rows)\n", empty)
 	}
 	if len(inv.Unclassified) > 0 {
-		fmt.Fprintf(w, "\n  NOT DESCRIBED BY ATLAS: %s\n"+
+		fmt.Fprintf(w, "\n  NOT DESCRIBED BY GRUNNR: %s\n"+
 			"  This inventory is incomplete; treat the unlisted items as unknown content.\n",
 			strings.Join(inv.Unclassified, ", "))
 	}
@@ -387,7 +387,7 @@ func printSecurityEgress(w io.Writer, e egressStatement, exports []redact.Export
 		if verb == "" {
 			verb = "(every verb)"
 		} else {
-			verb = "atlas " + verb
+			verb = "grunnr " + verb
 		}
 		fmt.Fprintf(w, "    %s -- %s\n", verb, x.Surface)
 		fmt.Fprintf(w, "        to      %s\n", x.Destination)
@@ -417,7 +417,7 @@ func printSecuritySecrets(w io.Writer, s redact.SweepReport) {
 		fmt.Fprintln(w)
 	}
 	if s.Unredactable < len(s.Hits) {
-		fmt.Fprintf(w, "  Run `atlas security redact` to replace the redactable ones.\n")
+		fmt.Fprintf(w, "  Run `grunnr security redact` to replace the redactable ones.\n")
 	}
 	fmt.Fprintf(w, "  Redaction does not remove anything from your repository. Rotate them.\n")
 }
@@ -447,7 +447,7 @@ func printSecurityRedact(w io.Writer, res securityRedactResult) {
 	if res.DryRun {
 		mode, summary = "would redact", "would be replaced"
 	}
-	fmt.Fprintf(w, "atlas security redact  %s\n", res.Path)
+	fmt.Fprintf(w, "grunnr security redact  %s\n", res.Path)
 	printSweptScope(w, res.Sweep)
 	if res.Sweep.Clean() {
 		fmt.Fprintf(w, "  nothing to redact.\n")
@@ -465,7 +465,7 @@ func printSecurityRedact(w io.Writer, res securityRedactResult) {
 	// WOULD change rather than the 0 it used to print over a store full of
 	// secrets. It counts distinct values, not rows: one credential in nine
 	// queries is one leak to rotate.
-	fmt.Fprintf(w, "  %d distinct value(s) %s; %d finding(s) in columns atlas will not rewrite.\n",
+	fmt.Fprintf(w, "  %d distinct value(s) %s; %d finding(s) in columns grunnr will not rewrite.\n",
 		res.Sweep.ValuesRewritten, summary, res.Sweep.Unredactable)
 	if res.DryRun {
 		fmt.Fprintf(w, "  Nothing was written: --dry-run opens the database read-only.\n")

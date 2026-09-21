@@ -55,7 +55,7 @@ var testInfraDirs = map[string]bool{
 	"testfixture": true,
 }
 
-// inertExts / inertBases enumerate what atlas is willing to ignore outright.
+// inertExts / inertBases enumerate what grunnr is willing to ignore outright.
 // Prose and images have no compiled representation, so no test outcome can
 // depend on them.
 var inertExts = map[string]bool{
@@ -95,7 +95,7 @@ func classify(p string) fileClass {
 }
 
 // classifyDetail is the human sentence that goes with a fallback class. It
-// says what atlas cannot rule out, not what the file is — the reader already
+// says what grunnr cannot rule out, not what the file is — the reader already
 // has the path.
 func classifyDetail(c fileClass) (reason, detail string) {
 	switch c {

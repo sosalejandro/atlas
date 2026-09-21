@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
 )
 
 // TestIngest_PythonScanner_DeferredImportScopesPersist is the

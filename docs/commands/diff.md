@@ -1,18 +1,18 @@
-# atlas diff
+# grunnr diff
 
-`atlas diff` loads two snapshot rows from the store and emits the structured
+`grunnr diff` loads two snapshot rows from the store and emits the structured
 delta produced by [`packages/diff/`](../../packages/diff/): added / removed /
 changed counts across features, symbols, edges, annotations, contracts,
 pattern matches, audit scores, and coverage runs.
 
 It's the regression detector for CI — capture a baseline snapshot on `main`
-with [`atlas snapshot`](./snapshot.md), then diff the PR head against it to
+with [`grunnr snapshot`](./snapshot.md), then diff the PR head against it to
 surface "what changed shape-wise".
 
 ## Usage
 
 ```
-atlas diff <ref-a> <ref-b> [flags]
+grunnr diff <ref-a> <ref-b> [flags]
 ```
 
 Each `<ref-a>` / `<ref-b>` argument can be either:
@@ -21,7 +21,7 @@ Each `<ref-a>` / `<ref-b>` argument can be either:
 - A git ref string (e.g. `main`, `f3a2b1c`) — the latest snapshot row with
   that `git_ref` wins.
 
-Use `atlas snapshot --ref <ref>` to capture a snapshot before running diff
+Use `grunnr snapshot --ref <ref>` to capture a snapshot before running diff
 if your CI hasn't already.
 
 ## Flags
@@ -30,7 +30,7 @@ if your CI hasn't already.
 | ----------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
 | `--audit-noise-floor`         | `5`                   | Audit score delta below which `Changed` entries are suppressed. Filters out one-point score wiggle.   |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                                 |
-| `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                       |
+| `--db-path` *(global)*        | `.grunnr/grunnr.db`     | Override the SQLite state path.                                                                       |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                         |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                                                                        |
 
@@ -39,8 +39,8 @@ if your CI hasn't already.
 ### Diff two snapshot ids
 
 ```
-# Run from: /tmp/atlas-fixture (after `atlas snapshot` ×2 with no code change)
-$ atlas diff 1 2
+# Run from: /tmp/grunnr-fixture (after `grunnr snapshot` ×2 with no code change)
+$ grunnr diff 1 2
 diff df106e98ebce8be115380459375cc247644cf572 -> df106e98ebce8be115380459375cc247644cf572
   features:    +0 / -0 / ~0
   symbols:     +0 / -0 / ~0
@@ -56,14 +56,14 @@ diff df106e98ebce8be115380459375cc247644cf572 -> df106e98ebce8be115380459375cc24
 The header line carries the git refs from each snapshot row (identical
 here because both snapshots were captured against the same HEAD). The
 counts read as `+added / -removed / ~changed` — for `edges` and
-`patterns`, atlas tracks only adds and removes (no notion of a "changed"
+`patterns`, grunnr tracks only adds and removes (no notion of a "changed"
 edge). `(no differences)` is printed when every slice is zero.
 
 ### Diff two git refs
 
 ```
 # Hypothetical: CI baseline snapshot on `main`, current HEAD on a feature branch
-$ atlas diff main HEAD
+$ grunnr diff main HEAD
 diff a1b2c3d4 -> e5f6a7b8
   features:    +2 / -0 / ~1
   symbols:     +7 / -3 / ~12
@@ -86,8 +86,8 @@ slice; six features had their score change by more than
 When CI noise is high, raise the floor:
 
 ```
-# Run from: any repo with snapshot rows in atlas.db
-$ atlas diff main HEAD --audit-noise-floor 15
+# Run from: any repo with snapshot rows in grunnr.db
+$ grunnr diff main HEAD --audit-noise-floor 15
 ```
 
 This hides any feature whose audit score moved by < 15 points between the

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // This file isolates every os/exec call site so the validation and
@@ -116,11 +116,12 @@ func validatePythonBin(s string) error {
 // also enforces filepath.IsAbs) and args (validated by buildScannerArgs /
 // validateScannerArg) are CLI-controlled config, never raw user input.
 //
-//nolint:gosec // bin + args validated by resolvePythonBin / buildScannerArgs; bin is filepath.IsAbs
 // nosemgrep: go.lang.security.audit.dangerous-command-write
 // nosemgrep: go.lang.security.audit.dangerous-exec-command
 // nosemgrep: rules.dangerous-command-write
 // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+//
+//nolint:gosec // bin + args validated by resolvePythonBin / buildScannerArgs; bin is filepath.IsAbs
 func newPythonCommand(ctx context.Context, bin string, args []string) (*exec.Cmd, error) {
 	if err := validatePythonBin(bin); err != nil {
 		return nil, fmt.Errorf("pyscan: invalid python binary: %w", err)

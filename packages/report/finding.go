@@ -77,7 +77,7 @@ type Finding struct {
 // FingerprintKey is the partialFingerprints key SARIF results carry. GitHub
 // treats the key as opaque but compares per-key, so changing this string
 // re-reports every open finding once; treat it as a wire constant.
-const FingerprintKey = "atlasFindingV1"
+const FingerprintKey = "grunnrFindingV1"
 
 // Fingerprint is the stable identity GitHub dedupes on across pushes.
 //
@@ -205,7 +205,7 @@ func normalizePath(root, p string) (string, bool) {
 // either of the two forms that reach us.
 //
 // This is deliberately NOT filepath.IsAbs: that answers for the OS running
-// atlas, and the path in a finding was produced wherever the scan ran. A
+// grunnr, and the path in a finding was produced wherever the scan ran. A
 // Windows runner's "C:/src/repo/pkg/a.go" is repo-relative to a Linux
 // filepath.IsAbs, so it would sail through unrelativised and then vanish from
 // the Files view — the exact silent failure NormalizePaths exists to catch.

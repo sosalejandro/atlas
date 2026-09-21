@@ -9,19 +9,19 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/sqlops"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/sqlops"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newSQLCmd builds the `atlas sql` verb group: the data access layer as
+// newSQLCmd builds the `grunnr sql` verb group: the data access layer as
 // something you can query.
 //
 // The split is deliberate. `scan` reads the working tree and writes the
 // inventory; `list` and `advise` read the inventory back out of the store.
 // Advisories are therefore computed from persisted rows, which means CI and a
 // developer's terminal are looking at the same evidence, and a stale answer
-// is visibly stale (`atlas sql list` shows the file:line it came from) rather
+// is visibly stale (`grunnr sql list` shows the file:line it came from) rather
 // than quietly recomputed from a tree that has since moved on.
 func newSQLCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -34,7 +34,7 @@ the parameter count, and whether the read is bounded.
 It then turns that shape into advisories -- unbounded reads, unstable and
 deep pagination, caller data reaching query text, filters no index can serve.
 
-Atlas reads SQL only where it is statically visible: string literals passed
+Grunnr reads SQL only where it is statically visible: string literals passed
 to database/sql methods, constants holding query text, and the .sql files
 sqlc generates from. A query assembled by a builder or across functions is
 recorded as UNRESOLVED with the reason, never dropped, and every command
@@ -56,7 +56,7 @@ func newSQLScanCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "scan [path]",
-		Short: "Extract SQL operations and schema into the Atlas store",
+		Short: "Extract SQL operations and schema into the Grunnr store",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := loaded.repoRoot
@@ -80,7 +80,7 @@ func newSQLScanCmd() *cobra.Command {
 	return cmd
 }
 
-// sqlScanResult is the --json payload for `atlas sql scan`.
+// sqlScanResult is the --json payload for `grunnr sql scan`.
 type sqlScanResult struct {
 	Root             string   `json:"root"`
 	SchemaDirs       []string `json:"schema_dirs,omitempty"`
@@ -168,7 +168,7 @@ func renderSQLScan(w io.Writer, res sqlScanResult, rep sqlops.Report) {
 	for _, warn := range rep.Warnings {
 		fmt.Fprintf(w, "  warn: %s\n", warn)
 	}
-	fmt.Fprintf(w, "\n  next: atlas sql advise\n\n")
+	fmt.Fprintf(w, "\n  next: grunnr sql advise\n\n")
 }
 
 // --- list ----------------------------------------------------------------
@@ -187,13 +187,13 @@ func newSQLListCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&onlyUnresolved, "unresolved", false,
-		"list only the operations atlas could not statically resolve")
+		"list only the operations grunnr could not statically resolve")
 	cmd.Flags().StringVar(&table, "table", "",
 		"list only operations touching this table")
 	return cmd
 }
 
-// sqlListResult is the --json payload for `atlas sql list`.
+// sqlListResult is the --json payload for `grunnr sql list`.
 type sqlListResult struct {
 	Operations       []store.SQLOperationRecord `json:"operations"`
 	Resolved         int                        `json:"resolved"`
@@ -233,7 +233,7 @@ func runSQLList(cmd *cobra.Command, onlyUnresolved bool, table string) error {
 func renderSQLList(w io.Writer, res sqlListResult, total int) {
 	fmt.Fprintln(w)
 	if total == 0 {
-		fmt.Fprintln(w, "  no SQL operations recorded -- run `atlas sql scan` first")
+		fmt.Fprintln(w, "  no SQL operations recorded -- run `grunnr sql scan` first")
 		fmt.Fprintln(w)
 		return
 	}
@@ -316,7 +316,7 @@ write -- the data footprint a privacy review, a migration blast radius or a
 per-capability ERD is drawn from.
 
 The footprint is a LOWER BOUND wherever a capability has unresolved queries.
-Those queries touch tables atlas could not see, so every row carries the count
+Those queries touch tables grunnr could not see, so every row carries the count
 and the output says "partial" rather than letting the set read as complete.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -328,7 +328,7 @@ and the output says "partial" rather than letting the set read as complete.`,
 	return cmd
 }
 
-// sqlCapabilitiesResult is the --json payload for `atlas sql capabilities`.
+// sqlCapabilitiesResult is the --json payload for `grunnr sql capabilities`.
 type sqlCapabilitiesResult struct {
 	Capabilities []store.SQLCapabilityTables `json:"capabilities"`
 	// Linked is how many operations reached a capability at all. An operation
@@ -402,14 +402,14 @@ func linkedOperations(caps []store.SQLCapabilityTables) int {
 func renderSQLCapabilities(w io.Writer, res sqlCapabilitiesResult) {
 	fmt.Fprintln(w)
 	if res.Operations == 0 {
-		fmt.Fprintln(w, "  no SQL operations recorded -- run `atlas sql scan` first")
+		fmt.Fprintln(w, "  no SQL operations recorded -- run `grunnr sql scan` first")
 		fmt.Fprintln(w)
 		return
 	}
 	fmt.Fprintf(w, "  %s\n", coverageLine(res.Resolved, res.Unresolved))
 	if len(res.Capabilities) == 0 {
 		fmt.Fprintln(w, "\n  no capability owns any recorded query -- link features to the symbols")
-		fmt.Fprintln(w, "  that issue them (`atlas scan` indexes the annotations) and re-run")
+		fmt.Fprintln(w, "  that issue them (`grunnr scan` indexes the annotations) and re-run")
 		fmt.Fprintln(w)
 		return
 	}
@@ -451,13 +451,13 @@ func newSQLAdviseCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringSliceVar(&suppress, "suppress", nil,
-		"advisory codes to silence globally (repeatable); per-site suppression uses an `// atlas:sql-ignore <code>` comment")
+		"advisory codes to silence globally (repeatable); per-site suppression uses an `// grunnr:sql-ignore <code>` comment")
 	cmd.Flags().StringVar(&minConfidence, "min-confidence", "low",
 		"drop advisories below this confidence (low|medium|high)")
 	return cmd
 }
 
-// sqlAdviseResult is the --json payload for `atlas sql advise`.
+// sqlAdviseResult is the --json payload for `grunnr sql advise`.
 //
 // ResolvedFraction and SkippedChecks are part of the contract, not decoration:
 // a consumer that gates a build on this output needs to know how much of the
@@ -516,7 +516,7 @@ func runSQLAdvise(cmd *cobra.Command, suppress []string, minConfidence string) e
 func renderSQLAdvise(w io.Writer, res sqlAdviseResult) {
 	fmt.Fprintln(w)
 	if res.Operations == 0 {
-		fmt.Fprintln(w, "  no SQL operations recorded -- run `atlas sql scan` first")
+		fmt.Fprintln(w, "  no SQL operations recorded -- run `grunnr sql scan` first")
 		fmt.Fprintln(w)
 		return
 	}

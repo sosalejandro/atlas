@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // SnapshotRecord is one row of the `snapshots` table introduced in
@@ -38,7 +38,7 @@ type SnapshotRecord struct {
 // into JSON before calling; the store package never imports codeindex or
 // audit directly, so it cannot do the marshalling for the caller.
 //
-// Why the caller marshals: Atlas has a directed dependency graph
+// Why the caller marshals: Grunnr has a directed dependency graph
 // (codeindex → store, audit → store, diff → store + codeindex + audit).
 // Putting the marshal logic in store/ would invert that graph.
 type CaptureInput struct {

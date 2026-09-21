@@ -1,8 +1,8 @@
 package tsscan
 
 import (
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // RouterKind narrows the TypeScript scanner to one (or more) frontend router
@@ -55,7 +55,7 @@ type Result struct {
 
 // rawScannerOutput is the JSON contract emitted by the embedded scanner.ts.
 // It is intentionally a near-1:1 of the testreg ts-scanner output (so we
-// keep semantic parity with the legacy tooling), then mapped to Atlas's
+// keep semantic parity with the legacy tooling), then mapped to Grunnr's
 // shared.Symbol + graph.Edge shapes in the Go layer.
 type rawScannerOutput struct {
 	Nodes    []rawNode  `json:"nodes"`
@@ -84,7 +84,7 @@ type rawStats struct {
 	APICallsFound int `json:"api_calls_found"`
 }
 
-// rawKindToSymbolKind maps the scanner.ts node.kind strings onto Atlas's
+// rawKindToSymbolKind maps the scanner.ts node.kind strings onto Grunnr's
 // closed shared.SymbolKind enum. Unknown kinds fall back to KindComponent
 // so the node still lands in the graph (a warning is appended in scanner.go).
 func rawKindToSymbolKind(k string) shared.SymbolKind {

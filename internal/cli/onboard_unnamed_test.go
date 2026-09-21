@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/onboard"
+	"github.com/sosalejandro/grunnr/packages/onboard"
 )
 
 // withUnnamedRoot adds two declarations at the repository ROOT, which is the
-// shape atlas refuses to name (#177): capabilityIDFromDir would call them
+// shape grunnr refuses to name (#177): capabilityIDFromDir would call them
 // "root.root", a name no author typed.
 func withUnnamedRoot(t *testing.T, fix *onboardFixture) {
 	t.Helper()
@@ -30,7 +30,7 @@ func Version() string { return "0.0.1" }
 }
 
 // The ordering half of #177, and the reason it is a blocker rather than a
-// papercut: the section that volunteers what atlas cannot see is the reason
+// papercut: the section that volunteers what grunnr cannot see is the reason
 // to trust the rest, and a reader who meets the map first has already judged
 // the tool by its weakest entry.
 func TestOnboard_LimitsComeBeforeTheMap(t *testing.T) {
@@ -40,12 +40,12 @@ func TestOnboard_LimitsComeBeforeTheMap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("onboard: %v\n%s", err, stderr)
 	}
-	found := strings.Index(stdout, "WHAT ATLAS FOUND")
-	limits := strings.Index(stdout, "WHAT ATLAS CANNOT SEE")
+	found := strings.Index(stdout, "WHAT GRUNNR FOUND")
+	limits := strings.Index(stdout, "WHAT GRUNNR CANNOT SEE")
 	mapAt := strings.Index(stdout, "PROVISIONAL CAPABILITY MAP")
 	next := strings.Index(stdout, "\nNEXT\n")
 	for name, at := range map[string]int{
-		"WHAT ATLAS FOUND": found, "WHAT ATLAS CANNOT SEE": limits,
+		"WHAT GRUNNR FOUND": found, "WHAT GRUNNR CANNOT SEE": limits,
 		"PROVISIONAL CAPABILITY MAP": mapAt, "NEXT": next,
 	} {
 		if at < 0 {
@@ -109,9 +109,9 @@ func TestOnboard_UnnamedSectionCarriesItsBreakdownAndItsCommand(t *testing.T) {
 	if mapAt < 0 {
 		t.Fatalf("no map in:\n%s", stdout)
 	}
-	rel := strings.Index(stdout[mapAt:], "groupings atlas would not name")
+	rel := strings.Index(stdout[mapAt:], "groupings grunnr would not name")
 	if rel < 0 {
-		t.Fatalf("the map has no section for the groupings atlas refused to name:\n%s", stdout)
+		t.Fatalf("the map has no section for the groupings grunnr refused to name:\n%s", stdout)
 	}
 	at := mapAt + rel
 	section := stdout[at:]
@@ -136,7 +136,7 @@ func TestOnboard_UnnamedSectionCarriesItsBreakdownAndItsCommand(t *testing.T) {
 	if !breakdown {
 		t.Errorf("the unnamed section has no per-file breakdown (want a line \"2  demo.go\"):\n%s", section)
 	}
-	// It prints LAST: a reader meets what atlas was willing to name first.
+	// It prints LAST: a reader meets what grunnr was willing to name first.
 	if strings.Index(stdout, "from code structure and test names") > at {
 		t.Error("the refused groupings print above the named proposals")
 	}
@@ -180,7 +180,7 @@ func TestOnboardPromote_AsNamesAnUnnamedGrouping(t *testing.T) {
 	}
 }
 
-// --as is refused on a proposal atlas DID name: the user is reading a map
+// --as is refused on a proposal grunnr DID name: the user is reading a map
 // that says provisional:internal.billing, and silently writing a different id
 // for it would make the report in front of them wrong.
 func TestOnboardPromote_AsIsRefusedOnNamedProposalsAndOnBadIDs(t *testing.T) {

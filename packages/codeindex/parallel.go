@@ -12,9 +12,9 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/sosalejandro/atlas/packages/codeindex/annotations"
-	"github.com/sosalejandro/atlas/packages/codeindex/patterns"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex/annotations"
+	"github.com/sosalejandro/grunnr/packages/codeindex/patterns"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // The orchestrator's two per-file passes, parallelised (issue #109).

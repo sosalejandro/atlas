@@ -9,7 +9,7 @@ import (
 //
 // TestClient_CreateOrder is the client-side half of the create-order
 // feature. The annotation sits on the test, not on the transport code it
-// exercises — that is the attribution convention Atlas is built around.
+// exercises — that is the attribution convention Grunnr is built around.
 func TestClient_CreateOrder(t *testing.T) {
 	client := New("http://localhost:8080")
 	if err := client.CreateOrder(context.Background(), "ord-1"); err != nil {

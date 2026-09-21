@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // The ingest half of the performance harness (issue #109).
@@ -45,8 +45,8 @@ type ingestShape struct {
 var benchIngestShape = ingestShape{
 	name:        "repo_sized",
 	files:       661,
-	symsPerFile: 8,  // 661*8 = 5,288 symbols (repo: 4,999)
-	edgeFanout:  2,  // 10,576 edges (repo: 12,728)
+	symsPerFile: 8, // 661*8 = 5,288 symbols (repo: 4,999)
+	edgeFanout:  2, // 10,576 edges (repo: 12,728)
 	annotations: 200,
 }
 
@@ -106,7 +106,7 @@ func buildBenchIndex(shape ingestShape) *codeindex.Index {
 			Kind:     shared.AnnFeature,
 			IDs:      []string{fmt.Sprintf("bench.feature%03d", i%37)},
 			Raw:      fmt.Sprintf("bench.feature%03d", i%37),
-			Source:   shared.SourceAtlas,
+			Source:   shared.SourceGrunnr,
 			Position: shared.FilePosition{Path: fmt.Sprintf("src/pkg%03d/file%03d.go", f/16, f), Line: 1},
 		})
 	}
@@ -124,7 +124,7 @@ func buildBenchIndex(shape ingestShape) *codeindex.Index {
 
 func benchStore(b *testing.B) *Store {
 	b.Helper()
-	st, err := Open(context.Background(), filepath.Join(b.TempDir(), "atlas-state.db"))
+	st, err := Open(context.Background(), filepath.Join(b.TempDir(), "grunnr-state.db"))
 	if err != nil {
 		b.Fatalf("open store: %v", err)
 	}
@@ -133,7 +133,7 @@ func benchStore(b *testing.B) *Store {
 }
 
 // BenchmarkIngest_Fresh times the cold path: an empty database, every
-// symbol and edge new. This is `atlas init` and it is the worst case.
+// symbol and edge new. This is `grunnr init` and it is the worst case.
 func BenchmarkIngest_Fresh(b *testing.B) {
 	idx := buildBenchIndex(benchIngestShape)
 	ctx := context.Background()
@@ -154,7 +154,7 @@ func BenchmarkIngest_Fresh(b *testing.B) {
 	}
 }
 
-// BenchmarkIngest_RescanChanged times the path `atlas scan` actually takes
+// BenchmarkIngest_RescanChanged times the path `grunnr scan` actually takes
 // after an edit: every row already exists, but the file hashes differ, so
 // nothing is skipped and every symbol is re-checked and repositioned.
 //
@@ -240,7 +240,7 @@ func BenchmarkIngest_Fresh_RowAtATime(b *testing.B) {
 
 // BenchmarkIngest_RescanChanged_RowAtATime is BenchmarkIngest_RescanChanged
 // with the same switch thrown. This is the pair that matters: the rescan is
-// the path `atlas scan` takes after every edit, and it is where the
+// the path `grunnr scan` takes after every edit, and it is where the
 // row-at-a-time writer paid an INSERT, an UPDATE and a SELECT for every
 // already-known symbol.
 func BenchmarkIngest_RescanChanged_RowAtATime(b *testing.B) {

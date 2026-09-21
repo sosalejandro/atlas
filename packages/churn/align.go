@@ -11,7 +11,7 @@ import (
 // The two namespaces are NOT the same by construction. Churn is mined at
 // the git top level, so its paths are relative to that; the paths a caller
 // rolls up are relative to whatever root the code was indexed from, which
-// `atlas scan --root <subdir>` makes a different directory. Joining the two
+// `grunnr scan --root <subdir>` makes a different directory. Joining the two
 // by string equality then misses every single file, and the roll-up reports
 // "unknown churn" for the whole repository — a number-shaped answer to a
 // question git was never asked.

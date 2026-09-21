@@ -3,12 +3,12 @@
 // routes, Huma operations, and GraphQL operations — into a flat list of
 // ContractDef records.
 //
-// A ContractDef is the unit Atlas persists into the `features` table with
+// A ContractDef is the unit Grunnr persists into the `features` table with
 // kind = "contract"; the source symbols that participate in the contract
 // (handler funcs, helper types) are linked via `feature_symbols`.
 //
 // Phase 6c (per docs/plans/abstract-questing-engelbart.md §Phase 6 contract
-// bullet) is the LIBRARY layer only. The CLI surface (`atlas contract`)
+// bullet) is the LIBRARY layer only. The CLI surface (`grunnr contract`)
 // lands in Phase 7 and is intentionally out of scope here.
 //
 // Supported router/operation frameworks:

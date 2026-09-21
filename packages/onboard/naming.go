@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // validID reports whether an inferred id could actually be promoted into an
@@ -54,7 +54,7 @@ func skippableSegment(s string) bool {
 // buys nothing a reader can use. The domain is the nearest ancestor
 // directory that names a subject rather than a layout; when there is no
 // ancestor at all (a top-level directory, or the repository root) it is
-// "root", which reads honestly as "atlas had nothing to qualify this with".
+// "root", which reads honestly as "grunnr had nothing to qualify this with".
 //
 // Directory is the grouping of last resort, used for the code that no
 // stronger signal claimed. It is the weakest proposal in the report and is
@@ -164,7 +164,7 @@ func capabilityIDFromRoute(method, path string) string {
 }
 
 // isPathParam reports whether a route segment is a placeholder rather than a
-// name: {id}, :id and * across the router libraries atlas reads.
+// name: {id}, :id and * across the router libraries grunnr reads.
 func isPathParam(seg string) bool {
 	if seg == "" {
 		return false
@@ -332,11 +332,11 @@ func sanitizeSegment(s string) string {
 // and provisional:root.root -- leading words scraped off TestNoFileCompletions
 // and TestGenBashCompletionFile. None of them is a capability, and a reader
 // who meets root.no first stops reading before the section that says what
-// atlas cannot see.
+// grunnr cannot see.
 //
 // The rule these functions implement is: a word may name a grouping only when
 // the PRODUCTION code carries that word as the head of a declaration, at least
-// twice. Everything else is grouped, sized and reported as unnamed. Atlas
+// twice. Everything else is grouped, sized and reported as unnamed. Grunnr
 // never labels a grouping with a word it cannot point at in the code.
 
 // wordsOf splits an identifier into lowercased words. It is the word-boundary
@@ -407,7 +407,7 @@ func headWitnesses(names []string, w string) []string {
 // requiring two costs cobra's root.usage proposal (Usage is the only
 // declaration in the repository whose head word is "usage"; UsageString is a
 // string, UsageTemplate is a template) and buys the refusal of root.read on
-// golang-migrate and cli.root on atlas's own tree.
+// golang-migrate and cli.root on grunnr's own tree.
 //
 // len(headWitnesses) >= 2 implies at least two members, so the older "a
 // cluster needs two or more symbols" rule is subsumed rather than repeated: a
@@ -417,7 +417,7 @@ func nameEarned(names []string, w string) bool {
 	return len(headWitnesses(names, w)) >= 2
 }
 
-// namableDir reports whether a directory's own name is a subject atlas can
+// namableDir reports whether a directory's own name is a subject grunnr can
 // honestly hand to a grouping.
 //
 // Two shapes fail it. The repository root, where capabilityIDFromDir returns

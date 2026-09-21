@@ -18,7 +18,7 @@ func insertAttributedRun(t *testing.T, s *Store, a CoverageRun) int64 {
 }
 
 // The run-level counters are the headline of issue #100: without them the
-// question "how much of what ran can atlas actually see?" is answerable only
+// question "how much of what ran can grunnr actually see?" is answerable only
 // by re-running the ingest. They must survive a write/read round trip on
 // every read path (GetRun and ListRuns both feed consumers).
 func TestCoverageRun_AttributionRoundTrip(t *testing.T) {

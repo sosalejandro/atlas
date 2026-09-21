@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // cfgTestSymbol inserts a symbol to hang flow rows off. Every control-flow

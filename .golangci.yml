@@ -1,4 +1,4 @@
-# golangci-lint configuration for Atlas
+# golangci-lint configuration for Grunnr
 # https://golangci-lint.run/usage/configuration/
 # v2 schema (golangci-lint v2.x — verified against v2.12.x)
 
@@ -59,11 +59,11 @@ linters:
       comparison: true
 
     wrapcheck:
-      # Project boundary: anything inside github.com/sosalejandro/atlas does NOT
+      # Project boundary: anything inside github.com/sosalejandro/grunnr does NOT
       # need wrapping (it's our own code). External errors must be wrapped with
       # %w so callers can errors.Is / errors.As across the boundary.
       ignore-package-globs:
-        - github.com/sosalejandro/atlas/*
+        - github.com/sosalejandro/grunnr/*
 
     interfacebloat:
       # 10 is the lib default; explicit so a future reviewer sees the intent.
@@ -94,8 +94,8 @@ linters:
           - errcheck
           - gocyclo
 
-      # cmd/atlas main wires cobra; long but linear.
-      - path: cmd/atlas/main\.go
+      # cmd/grunnr main wires cobra; long but linear.
+      - path: cmd/grunnr/main\.go
         linters:
           - funlen
           - gocyclo

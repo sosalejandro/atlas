@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Node is one entry in the call graph. Each node corresponds to exactly one
@@ -72,7 +72,7 @@ type Edge struct {
 	// The zero value (TierUnset) means "this producer did not say",
 	// and packages/store refuses to persist it. That is deliberate:
 	// the graph layer is also used for in-memory work that never
-	// reaches a database (packages/diff, `atlas chain` fixtures),
+	// reaches a database (packages/diff, `grunnr chain` fixtures),
 	// so a constructor without a tier still has to exist — but an
 	// edge that came from one of those must never be filed away as
 	// though a scanner had vouched for it. Closes issue #146.
@@ -188,7 +188,7 @@ func (g *Graph) MergeNode(oldID shared.SymbolID, resolved *Node) {
 // packages/store refuses an edge whose producer never said which
 // mechanism resolved it). They remain because the graph layer is also
 // used for work that never reaches a database: packages/diff, the
-// `atlas chain` fixtures, and the cycle tests here. A scanner uses
+// `grunnr chain` fixtures, and the cycle tests here. A scanner uses
 // AddEdgeTier / AddEdgeKindLineTier / AddEdgeKindLineMetaTier /
 // AddAmbiguousEdgeTier instead.
 func (g *Graph) AddEdge(from, to shared.SymbolID) {
@@ -215,7 +215,7 @@ func (g *Graph) AddEdgeKind(from, to shared.SymbolID, kind string) {
 //
 // This is the entry point sub-scanners use when they know the
 // precise origin line and want it persisted on the edge row (issue
-// atlas-internal #17: Python import edges all reported line=1 before
+// grunnr-internal #17: Python import edges all reported line=1 before
 // the wire-through).
 func (g *Graph) AddEdgeKindLine(from, to shared.SymbolID, kind string, line int) {
 	g.AddEdgeKindLineMeta(from, to, kind, line, "")
@@ -315,7 +315,7 @@ func (g *Graph) AddAmbiguousEdge(from, to shared.SymbolID) {
 // edge can be ambiguous (two packages declare the short name) and a
 // syntactic one can be unambiguous (one substring match, still a
 // guess). Both are persisted, because collapsing them would throw away
-// the finer of the two signals — which is precisely what atlas did with
+// the finer of the two signals — which is precisely what grunnr did with
 // Ambiguous before #146: computed on every edge, dropped at the storage
 // boundary.
 func (g *Graph) AddAmbiguousEdgeTier(from, to shared.SymbolID, tier ResolutionTier) {

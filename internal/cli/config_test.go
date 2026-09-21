@@ -12,7 +12,7 @@ import (
 // before a `.atlas.yaml` is written.
 func TestDefaultConfig_Shape(t *testing.T) {
 	cfg := defaultConfig()
-	if cfg.DBPath != filepath.Join(".atlas", "atlas.db") {
+	if cfg.DBPath != filepath.Join(".grunnr", "grunnr.db") {
 		t.Fatalf("DBPath default = %q", cfg.DBPath)
 	}
 	if cfg.Audit.FreshnessWindowDays != 30 {
@@ -49,7 +49,7 @@ func TestConfig_WindowAccessors(t *testing.T) {
 // fields and leave the rest at defaults.
 func TestLoadConfig_ExplicitFile(t *testing.T) {
 	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "atlas.yaml")
+	cfgPath := filepath.Join(dir, "grunnr.yaml")
 	body := `
 db_path: my-state.db
 scan:
@@ -91,7 +91,7 @@ sprint:
 // TestLoadConfig_MissingExplicitFatal confirms an explicit --config that
 // points at a non-existent file errors out (not a silent default).
 func TestLoadConfig_MissingExplicitFatal(t *testing.T) {
-	_, err := loadConfig("/non/existent/path/atlas.yaml")
+	_, err := loadConfig("/non/existent/path/grunnr.yaml")
 	if err == nil {
 		t.Fatal("expected error for missing explicit config")
 	}
@@ -107,7 +107,7 @@ func TestResolveDBPath_Override(t *testing.T) {
 	cfg.repoRoot = dir
 
 	// 1) flag override.
-	override := filepath.Join(dir, "custom", "atlas.db")
+	override := filepath.Join(dir, "custom", "grunnr.db")
 	got, err := resolveDBPath(cfg, override)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)

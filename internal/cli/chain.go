@@ -14,12 +14,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
-	tsscan "github.com/sosalejandro/atlas/packages/codeindex/ts"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	goscan "github.com/sosalejandro/grunnr/packages/codeindex/go"
+	tsscan "github.com/sosalejandro/grunnr/packages/codeindex/ts"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // defaultChainDepth is the depth that --depth defaults to when the caller
@@ -28,18 +28,18 @@ import (
 // output stays scannable. -1 means "unlimited" (with cycle detection).
 const defaultChainDepth = 3
 
-// newChainCmd implements `atlas chain <id>` — walk the call graph from a
+// newChainCmd implements `grunnr chain <id>` — walk the call graph from a
 // feature or symbol id. Supports `saga:<id>` for saga walks via the store's
 // EDA query, and `feature:` / `symbol:` prefixes for explicit disambiguation.
 //
-// The verb was `atlas trace` until issue #112. "Trace" is the industry's word
-// for a distributed trace, and #94 puts real OTel spans into atlas, so the
+// The verb was `grunnr trace` until issue #112. "Trace" is the industry's word
+// for a distributed trace, and #94 puts real OTel spans into grunnr, so the
 // static call path and the runtime one would have shared a name inside one
 // tool. The old name remains a working alias for one minor version (see
 // renames.go); it is reserved for the runtime concept thereafter.
 //
-// As of atlas#29 the default path reads from the cached `.atlas/atlas.db`
-// (populated by `atlas init` / `atlas scan`) so repeated invocations land in
+// As of grunnr#29 the default path reads from the cached `.grunnr/grunnr.db`
+// (populated by `grunnr init` / `grunnr scan`) so repeated invocations land in
 // well under a second. The previous re-walk-from-disk behaviour now lives
 // behind the opt-in `--fresh` flag — escape hatch only.
 //
@@ -60,10 +60,10 @@ func newChainCmd() *cobra.Command {
 		Use:     "chain <id>",
 		Aliases: aliasesFor("chain"),
 		Short:   "Walk the call graph from a feature, symbol id, or saga",
-		Long: `chain walks Atlas's call graph starting from the supplied id and
+		Long: `chain walks Grunnr's call graph starting from the supplied id and
 emits the path as text (default) or JSON.
 
-Renamed from 'atlas trace' by issue #112 -- the old verb still works for one
+Renamed from 'grunnr trace' by issue #112 -- the old verb still works for one
 minor version, and is reserved for runtime traces (OTel) from then on.
 
 The id can be one of:
@@ -83,11 +83,11 @@ On no-feature, it falls back to symbol resolution. When the same id matches
 BOTH a feature and a symbol's qualified-name suffix, chain errors and asks
 the caller to disambiguate with the explicit prefix.
 
-By default chain reads from the cached SQLite store at .atlas/atlas.db (run
-'atlas init' first to populate it). Pass --fresh to re-walk the codebase
+By default chain reads from the cached SQLite store at .grunnr/grunnr.db (run
+'grunnr init' first to populate it). Pass --fresh to re-walk the codebase
 from disk — that's the pre-#29 behaviour and costs minutes on real
 codebases; only use it when you suspect the cached graph is wrong AND
-'atlas scan' hasn't caught the drift.
+'grunnr scan' hasn't caught the drift.
 
 --depth caps the recursive walk (default 3). --depth -1 walks unlimited
 with cycle detection — duplicate visits stop recursion and are tagged
@@ -135,7 +135,7 @@ func pickEffectiveDepth(cmd *cobra.Command, depth, maxDepth int) int {
 	return defaultChainDepth
 }
 
-// chainWalkResult is the JSON payload for `atlas chain`.
+// chainWalkResult is the JSON payload for `grunnr chain`.
 //
 // As of issue #61 it carries both the legacy flat `chain` (preserved so
 // downstream consumers keep working) AND a nested `tree` of TraceTreeNode
@@ -194,7 +194,7 @@ type chainSagaStep struct {
 // staleStateWarning is emitted (verbatim) when the file_hashes table points
 // at a file whose on-disk SHA-256 no longer matches the cached one. Exposed
 // as a const so tests can pin the exact wording.
-const staleStateWarning = "atlas state may be stale; run 'atlas scan' to refresh"
+const staleStateWarning = "grunnr state may be stale; run 'grunnr scan' to refresh"
 
 func runChain(cmd *cobra.Command, target, rootArg string, maxDepth int, nodeModulesPaths []string, fresh bool) error {
 	ctx := cmd.Context()
@@ -240,9 +240,9 @@ func runChainCached(cmd *cobra.Command, ctx context.Context, input string, maxDe
 	}
 	// The DB file must exist — we never silently fall back to a re-walk.
 	if _, statErr := os.Stat(dbPath); errors.Is(statErr, os.ErrNotExist) {
-		return fmt.Errorf("no atlas state found at %s. Run 'atlas init' first", dbPath)
+		return fmt.Errorf("no grunnr state found at %s. Run 'grunnr init' first", dbPath)
 	} else if statErr != nil {
-		return fmt.Errorf("stat atlas state %s: %w", dbPath, statErr)
+		return fmt.Errorf("stat grunnr state %s: %w", dbPath, statErr)
 	}
 
 	s, err := store.Open(ctx, dbPath)
@@ -279,7 +279,7 @@ func runChainCached(cmd *cobra.Command, ctx context.Context, input string, maxDe
 	switch {
 	case featureFound && symMatch:
 		return fmt.Errorf(
-			"input %q matches both feature %q and symbol %q. Disambiguate with 'atlas chain feature:%s' or 'atlas chain symbol:%s'",
+			"input %q matches both feature %q and symbol %q. Disambiguate with 'grunnr chain feature:%s' or 'grunnr chain symbol:%s'",
 			input, input, symRow.QualifiedName, input, input)
 	case featureFound:
 		return chainByFeature(cmd, ctx, s, shared.FeatureID(input), maxDepth, warnings)
@@ -663,7 +663,7 @@ func resolveByID(ctx context.Context, s *store.Store, id int64, cache map[shared
 
 // flattenTree produces the legacy chainEntry slice from the tree.
 // Walks depth-first to preserve the pre-issue-#61 chain ordering that
-// downstream consumers (testreg migration scripts, atlas's own chain
+// downstream consumers (testreg migration scripts, grunnr's own chain
 // validation) already depend on. Cycle markers are NOT re-emitted in
 // the chain — they're tree-only metadata.
 func flattenTree(root *chainTreeNode) []chainEntry {

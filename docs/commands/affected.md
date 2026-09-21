@@ -1,14 +1,14 @@
-# atlas affected
+# grunnr affected
 
 ```
-atlas affected --since <ref> [--kind test|package|feature] [--fallback-exit-code N] [--json]
+grunnr affected --since <ref> [--kind test|package|feature] [--fallback-exit-code N] [--json]
 ```
 
-`atlas affected` answers one question: **given this diff, what do I actually
+`grunnr affected` answers one question: **given this diff, what do I actually
 need to run?** It maps the changes between `<ref>` and `HEAD` onto the symbols
-atlas has indexed, then names the tests that recorded executing those symbols.
+grunnr has indexed, then names the tests that recorded executing those symbols.
 
-CI reruns the whole suite for a three-line change. Atlas already stores, per
+CI reruns the whole suite for a three-line change. Grunnr already stores, per
 test, exactly which symbols that test executed (`test_coverage`, migration
 0010, issue #104). Read backwards that table is a precise inverse index: given
 the symbols a diff touched, it names the tests that reach them.
@@ -20,7 +20,7 @@ command never confuses them.**
 
 To a CI runner, a list of zero tests is indistinguishable from "nothing needs
 testing" — so a tool like this ships a broken build by being silently
-confident. Every uncertainty in `atlas affected` therefore resolves to an
+confident. Every uncertainty in `grunnr affected` therefore resolves to an
 explicit `run-all` outcome instead of a small list. The failure mode of being
 too conservative is a slow pipeline; the failure mode of being too clever is a
 shipped regression.
@@ -30,7 +30,7 @@ The outcome is always one of three values:
 | `outcome`    | Meaning                                                                |
 | ------------ | ---------------------------------------------------------------------- |
 | `selected`   | The diff was narrowed. Run `selected_tests` / `run_pattern`.            |
-| `run-all`    | Atlas could **not** narrow it. Run the whole suite. `fallbacks` says why. |
+| `run-all`    | Grunnr could **not** narrow it. Run the whole suite. `fallbacks` says why. |
 | `no-changes` | The diff is empty. Running nothing is correct — and this is not a bail-out. |
 
 ## Prerequisites
@@ -38,11 +38,11 @@ The outcome is always one of three values:
 `affected` reads two things from the store, and says so plainly when either is
 missing:
 
-1. An up-to-date symbol index — `atlas init` / `atlas scan`. "Up to date" is
+1. An up-to-date symbol index — `grunnr init` / `grunnr scan`. "Up to date" is
    checked, not assumed: a changed file that no longer matches the hash the
    scanner recorded cannot be mapped by line number, and widens instead. See
    [Index freshness](#index-freshness).
-2. Per-test coverage evidence — `atlas cov sync --per-test` (see
+2. Per-test coverage evidence — `grunnr cov sync --per-test` (see
    [cov-per-test.md](cov-per-test.md)). Whole-run coverage is **not** enough:
    it records that a symbol ran, not which test ran it.
 
@@ -52,7 +52,7 @@ With no per-test rows for the current coverage frontier, the outcome is
 ## Example
 
 ```
-$ atlas affected --since origin/main
+$ grunnr affected --since origin/main
 
   1 of 132 tests selected (99% of the suite skipped)
   since origin/main · 1 changed file · 1 changed symbol
@@ -77,9 +77,9 @@ $ atlas affected --since origin/main
 And when it cannot narrow:
 
 ```
-$ atlas affected --since origin/main
+$ grunnr affected --since origin/main
 
-  RUN EVERYTHING — atlas could not narrow this diff (2 changed files)
+  RUN EVERYTHING — grunnr could not narrow this diff (2 changed files)
 
   why:
     [build-config] go.mod
@@ -118,18 +118,18 @@ for it.
 
 | `reason`           | Trigger                                                                    |
 | ------------------ | -------------------------------------------------------------------------- |
-| `unindexed-file`   | A changed file atlas holds no symbols for — an unscanned language, generated output, or a file newer than the last `atlas scan`. |
+| `unindexed-file`   | A changed file grunnr holds no symbols for — an unscanned language, generated output, or a file newer than the last `grunnr scan`. |
 | `build-config`     | `go.mod`, `go.sum`, `Makefile`, `Dockerfile`, lockfiles, anything under `.github/`. A dependency bump changes what every package compiles against. |
 | `test-infra`       | Shared test scaffolding: a `testdata/` fixture, a `testutil` package, `conftest.py`. Coverage records the *production* symbols a test ran, never which helpers it called, so a fixture's consumers are unknowable. |
 | `no-test-evidence` | The coverage frontier is empty, or carries no per-test rows. |
-| `no-tests-indexed` | Atlas has indexed no test symbols, so there is no suite to take a subset of. |
+| `no-tests-indexed` | Grunnr has indexed no test symbols, so there is no suite to take a subset of. |
 | `unrunnable-test`  | A changed symbol in a test file that `go test` will not dispatch by name from a `-run` pattern — a helper, a fixture builder, `TestMain`, **or a benchmark** (see [Benchmarks, fuzz targets and examples](#benchmarks-fuzz-targets-and-examples)). |
-| `unverifiable-spans` | Atlas could not determine whether its stored spans still describe a changed file — it could not be hashed, or the path escaped the repo root. Every other freshness verdict widens; this one is the absence of a verdict. |
+| `unverifiable-spans` | Grunnr could not determine whether its stored spans still describe a changed file — it could not be hashed, or the path escaped the repo root. Every other freshness verdict widens; this one is the absence of a verdict. |
 
 ### Index freshness
 
 The diff's line numbers describe the working tree **now**. `symbols.line` and
-`symbols.end_line` describe the tree as of the last `atlas scan`. Those two are
+`symbols.end_line` describe the tree as of the last `grunnr scan`. Those two are
 only comparable if nothing moved in between, and when they disagree the failure
 is silent and directional: insert twenty lines at the top of a file and every
 symbol below shifts down by twenty on disk while the stored spans stay put, so
@@ -151,7 +151,7 @@ the safe side:
 | unreadable, or a path outside the repo root | **run-all**, fallback reason `unverifiable-spans`. |
 
 Every one of those is reported by path, in `widenings` and in the human output,
-with the remedy: re-run `atlas scan`. A stale index never silently narrows —
+with the remedy: re-run `grunnr scan`. A stale index never silently narrows —
 but it does cost you the reduction, which is the visible symptom to act on.
 
 ### Inert paths
@@ -178,7 +178,7 @@ whose spans cannot be trusted widens to its package — see
 
 `reason` is one of `unmapped-line`, `no-hunks`, `stale-index`, `deleted-file`
 or `unverifiable-spans`. The last three mean the *index* is at fault rather
-than the diff, and `atlas scan` fixes them.
+than the diff, and `grunnr scan` fixes them.
 
 **What a widening claims, and what it does not.** Widening to a package pulls
 in that package's production symbols and the changed file's own symbols. It
@@ -235,9 +235,9 @@ for the same reason: a team needs to see when test selection stops paying off.
 
 Two different kinds of staleness matter here, and only one of them is checked:
 
-- **The symbol index** (`atlas scan`) — checked per changed file. Out of date
+- **The symbol index** (`grunnr scan`) — checked per changed file. Out of date
   means the selection widens, loudly. See [Index freshness](#index-freshness).
-- **The coverage evidence** (`atlas cov sync --per-test`) — *not* checkable.
+- **The coverage evidence** (`grunnr cov sync --per-test`) — *not* checkable.
   Nothing records the tests that would execute a symbol today, only the tests
   that did at measurement time, so evidence older than the code can omit a test
   without any signal. `evidence.age_seconds` is the only handle you have on it.
@@ -260,12 +260,12 @@ touched.
 
 ```bash
 set +e
-atlas affected --since "origin/${BASE_BRANCH}" --json --fallback-exit-code 75 > affected.json
+grunnr affected --since "origin/${BASE_BRANCH}" --json --fallback-exit-code 75 > affected.json
 status=$?
 set -e
 
 if [ "$status" -eq 75 ]; then
-  echo "atlas bailed out; running the full suite"
+  echo "grunnr bailed out; running the full suite"
   go test ./...
   exit $?
 fi
@@ -286,7 +286,7 @@ fi
 # test in the index reaches. Skipping it here is a green build that tested
 # none of the change, so fall back to the full suite (and fix the gap).
 if [ -z "$pattern" ]; then
-  echo "atlas selected NO tests for a non-empty diff; nothing covers this change."
+  echo "grunnr selected NO tests for a non-empty diff; nothing covers this change."
   jq -r '.result.uncovered_symbols[]?.qualified_name' affected.json
   go test ./...
   exit $?
@@ -308,7 +308,7 @@ Three things about the ordering:
 ## JSON
 
 ```
-atlas affected --since origin/main --json
+grunnr affected --since origin/main --json
 ```
 
 The envelope is the standard `schema_version: v1` shape (see
@@ -346,7 +346,7 @@ machine-readable `reason`, and a `detail` sentence. Alerting on
   is silently absent from the selection. This is a genuine gap, not a
   conservative one: the run-all rules cover missing evidence, never wrong
   evidence, and a merged frontier from an old commit looks exactly like a fresh
-  one apart from `evidence.age_seconds`. Re-run `atlas cov sync --per-test`
+  one apart from `evidence.age_seconds`. Re-run `grunnr cov sync --per-test`
   often enough that the age you see is one you would bet a release on.
 - Index staleness, by contrast, *is* detected — a changed file whose spans no
   longer describe it widens rather than resolving. See

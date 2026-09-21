@@ -3,8 +3,8 @@ package contract
 import (
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // extractGoFuncs walks idx.Symbols and emits one KindFunc ContractDef per
@@ -85,10 +85,11 @@ func (e *Extractor) extractGoFuncs(idx *codeindex.Index, annIdx *annotationIndex
 }
 
 // simpleFuncName returns the trailing component of a Go SymbolID.
-//   "AuthHandler.Login"   -> "Login"
-//   "handlers.NewHandler" -> "NewHandler"
-//   "auth.helper"         -> "helper"
-//   "handler"             -> "handler"   (no separator)
+//
+//	"AuthHandler.Login"   -> "Login"
+//	"handlers.NewHandler" -> "NewHandler"
+//	"auth.helper"         -> "helper"
+//	"handler"             -> "handler"   (no separator)
 func simpleFuncName(id string) string {
 	if idx := strings.LastIndex(id, "."); idx >= 0 {
 		return id[idx+1:]

@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // ---------------------------------------------------------------------------
-// coverage_history — the measurement series behind `atlas trend` (issue #92).
+// coverage_history — the measurement series behind `grunnr trend` (issue #92).
 //
 // Every other port here answers "what is true now". This one answers "is it
 // getting better or worse", which is the question that makes a coverage tool

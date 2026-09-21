@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // ExtractOptions tunes the Go-source sweep.
@@ -38,15 +38,15 @@ var defaultSkipDirs = []string{
 }
 
 // defaultHandleNames is the receiver-name allowlist for the one case where
-// Atlas has nothing else to go on.
+// Grunnr has nothing else to go on.
 //
 // The problem: `x.Query(something)` where `something` is a query builder gives
 // no text to inspect, so "is this SQL?" cannot be answered from the argument.
 // Type-checking would answer it properly, but that needs a fully resolvable
-// build of the target repository, which Atlas cannot assume. The name of the
+// build of the target repository, which Grunnr cannot assume. The name of the
 // handle is the cheap signal that remains. Getting it wrong in the permissive
 // direction would put non-SQL calls into the inventory; getting it wrong in
-// the strict direction loses a query Atlas was never going to analyse anyway
+// the strict direction loses a query Grunnr was never going to analyse anyway
 // and records nothing false. Strict it is.
 var defaultHandleNames = []string{
 	"db", "conn", "tx", "q", "queries", "dbtx", "pool", "sqldb", "database",
@@ -273,7 +273,7 @@ func (fx *fileExtract) walkFunc(fn *ast.FuncDecl) {
 }
 
 // operationFor turns one call expression into an Operation, or reports that
-// the call is none of Atlas's business.
+// the call is none of Grunnr's business.
 func (fx *fileExtract) operationFor(
 	call *ast.CallExpr, fn *ast.FuncDecl, scope *funcScope, docSuppress []string,
 ) (Operation, bool) {
@@ -308,7 +308,7 @@ func (fx *fileExtract) operationFor(
 }
 
 // classify decides the resolved/unresolved verdict. A statement that resolved
-// textually but has no recognisable verb is unresolved too: a shape Atlas
+// textually but has no recognisable verb is unresolved too: a shape Grunnr
 // cannot read must never inherit the zero value of Statement, because that
 // zero value looks exactly like an unbounded SELECT.
 func (fx *fileExtract) classify(op *Operation, res resolution) {

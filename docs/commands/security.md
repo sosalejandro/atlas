@@ -1,9 +1,9 @@
-# atlas security
+# grunnr security
 
-`atlas security` answers the question every security review actually asks and
+`grunnr security` answers the question every security review actually asks and
 no other verb answers: **if I hand you this database, what am I handing you?**
 
-Atlas reads an entire proprietary codebase. The state database it writes is
+Grunnr reads an entire proprietary codebase. The state database it writes is
 not metadata about that code — it holds SQL query text verbatim, the source
 text of every branch condition, and, inside a snapshot, every symbol's doc
 comment and signature. Until this verb existed the only way to establish that
@@ -33,8 +33,8 @@ print identically, so the report names the unread columns under `NOT SWEPT`
 swept**". On a matched binary and store that list is empty; a non-empty one
 means the binary is older than the database.
 
-**It never modifies the database it describes.** `atlas security` and
-`atlas security redact --dry-run` open the store **read-only** — SQLite's
+**It never modifies the database it describes.** `grunnr security` and
+`grunnr security redact --dry-run` open the store **read-only** — SQLite's
 `mode=ro` with `query_only` on top — and run **no migrations**. Pointed at a
 path with no database, the command fails rather than creating one. Inspecting
 an artifact must not change it, and for a store copied off a machine as
@@ -47,29 +47,29 @@ the row, the byte length and a 12-hex-character digest — never the secret. The
 ## Usage
 
 ```
-atlas security                     # the whole report: store, egress, secrets
-atlas security --json              # the same, as a stable envelope
-atlas security --export report     # what one verb would disclose
-atlas security redact --dry-run    # what redaction would change
-atlas security redact              # replace the credentials it can
+grunnr security                     # the whole report: store, egress, secrets
+grunnr security --json              # the same, as a stable envelope
+grunnr security --export report     # what one verb would disclose
+grunnr security redact --dry-run    # what redaction would change
+grunnr security redact              # replace the credentials it can
 ```
 
 ## The three sections
 
 ### STATE DATABASE — what is stored
 
-Path, size (with `-wal`/`-shm` named separately, because a copy of `atlas.db`
+Path, size (with `-wal`/`-shm` named separately, because a copy of `grunnr.db`
 taken without its `-wal` can be a stale database), schema version, and every
 table with its row count and content classes.
 
 A table or column the registry does not describe is listed under
-`NOT DESCRIBED BY ATLAS`, and the inventory says it is incomplete rather than
+`NOT DESCRIBED BY GRUNNR`, and the inventory says it is incomplete rather than
 quietly omitting it.
 
 ### VERBATIM SOURCE TEXT — the uncomfortable half
 
 The columns holding text copied out of your repository, each with what it
-holds. This is the list that refutes "atlas stores only structure".
+holds. This is the list that refutes "grunnr stores only structure".
 
 ### EGRESS — what leaves
 
@@ -77,12 +77,12 @@ The no-network statement plus its enforcement, then every surface through
 which indexed content leaves the database: the verb, the destination, the
 content classes it can carry, and why.
 
-Two things deserve attention. `atlas mcp` carries `features.title`, which is
+Two things deserve attention. `grunnr mcp` carries `features.title`, which is
 source text lifted out of your annotation comments, and its destination is
 usually an editor talking to a model provider. And three verbs write into your
 working tree: `migrate-annotations --apply`, `cov shim init` and
 `onboard promote --apply` — the last being the only one that puts something
-atlas derived (an inferred feature id) into your source.
+grunnr derived (an inferred feature id) into your source.
 
 ### SECRETS — what is exposed
 
@@ -95,7 +95,7 @@ connection string inside a query is stored as query text.
 
 **At ingest**, the write paths run values bound for redactable columns through
 the detector before they are stored, so the credential does not land in the
-first place. **After the fact**, `atlas security redact` sweeps a store that
+first place. **After the fact**, `grunnr security redact` sweeps a store that
 already holds one. [docs/security.md §5](../security.md) lists which columns
 are covered where, and the four detection rules.
 
@@ -112,7 +112,7 @@ still in your source file either way.
 
 ## `--export <verb>`
 
-`atlas security --export 'report sarif'` narrows the egress section to one
+`grunnr security --export 'report sarif'` narrows the egress section to one
 command. A verb that exists but has no artifact of its own gets the
 cross-cutting surfaces back (the `--json` envelope and the state database); a
 verb that does not exist is an **error**. A typo must never read as "this
@@ -130,7 +130,7 @@ command discloses nothing".
 ## Example
 
 Transcript from a throwaway fixture: one Go file whose query embeds a DSN
-password, indexed with `atlas scan` and `atlas sql scan`. The figures below
+password, indexed with `grunnr scan` and `grunnr sql scan`. The figures below
 are that fixture's, not yours — `swept N ... over M value(s)` moves with the
 size of your store.
 
@@ -142,7 +142,7 @@ SECRETS
   none detected in what was swept.
 ```
 
-With the credential written straight into the store (as an older atlas would
+With the credential written straight into the store (as an older grunnr would
 have left it), the same command finds it and does not repeat it:
 
 ```
@@ -154,17 +154,17 @@ SECRETS
         connection-string  16 bytes  digest 1e9742d3294a
         context postgres://reporting:<redacted>@warehouse.internal
 
-  Run `atlas security redact` to replace the redactable ones.
+  Run `grunnr security redact` to replace the redactable ones.
   Redaction does not remove anything from your repository. Rotate them.
 ```
 
 The dry run reports what it would change, and writes nothing:
 
 ```
-atlas security redact  .atlas/atlas.db
+grunnr security redact  .grunnr/grunnr.db
   swept 80 registered TEXT column(s) over 28 value(s)
   would redact sql_operations.sql_text row 1  connection-string digest 1e9742d3294a
-  1 distinct value(s) would be replaced; 0 finding(s) in columns atlas will not rewrite.
+  1 distinct value(s) would be replaced; 0 finding(s) in columns grunnr will not rewrite.
   Nothing was written: --dry-run opens the database read-only.
   This did not touch your repository. Rotate the credentials.
 ```
@@ -178,7 +178,7 @@ the envelope's `warnings` rather than having to be inferred from counts: an
 inventory that is incomplete because the schema drifted, and a store holding
 credentials.
 
-`atlas security redact --json` carries `path`, `dry_run` and `sweep`. Inside
+`grunnr security redact --json` carries `path`, `dry_run` and `sweep`. Inside
 the sweep, `values_rewritten` is the count of **distinct values** — computed
 in both modes, so a dry run reports what it *would* replace — and each hit's
 `applied` says whether the database was actually written.
@@ -186,11 +186,11 @@ in both modes, so a dry run reports what it *would* replace — and each hit's
 ## Limits
 
 - **The no-network check covers first-party code.** It walks the import graph
-  of the `atlas` binary and fails if any first-party package reaches `net`,
+  of the `grunnr` binary and fails if any first-party package reaches `net`,
   `net/http`, `net/rpc` or `net/smtp`. It does not audit third-party
   dependencies and does not prove a dependency could not open a socket.
 - **The detector is tuned to under-report.** A false positive silently
-  rewrites a legitimate query that `atlas sql` then analyses as though it were
+  rewrites a legitimate query that `grunnr sql` then analyses as though it were
   your code — a wrong answer that looks authoritative, which costs more than a
   missed weak password you could have found by reading the file.
 - **Not every redactable column is redacted at ingest yet.** Snapshot blobs,
@@ -206,5 +206,5 @@ in both modes, so a dry run reports what it *would* replace — and each hit's
 - [../../SECURITY.md](../../SECURITY.md) — reporting a vulnerability, and what
   is in and out of scope
 - [sql.md](sql.md) — the verb that populates `sql_operations.sql_text`
-- [snapshot.md](snapshot.md) — the largest single disclosure atlas creates
+- [snapshot.md](snapshot.md) — the largest single disclosure grunnr creates
 - [mcp.md](mcp.md) — the surface where indexed content reaches a third party

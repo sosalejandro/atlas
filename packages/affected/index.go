@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // symbolIndex is the whole symbol table, arranged the three ways the selector
@@ -28,7 +28,7 @@ type symbolIndex struct {
 	// tests is the indexed suite: symbol id -> `go test -run` token, for every
 	// symbol a plain `go test` dispatches BY NAME — TestXxx, FuzzXxx and
 	// ExampleXxx. Its size is the denominator of the reduction — the number of
-	// tests CI would run without atlas.
+	// tests CI would run without grunnr.
 	//
 	// Membership is also the gate on being selectable at all, which is why
 	// BenchmarkXxx is deliberately absent: see goTestRunPrefixes.
@@ -105,7 +105,7 @@ func spanContains(row store.SymbolRow, r LineRange) bool {
 // FuzzXxx (its seed corpus) and ExampleXxx (when it has an output comment).
 // All three are selectable when the diff touches them, and all three count
 // toward the suite denominator, because all three are part of what CI runs
-// today without atlas.
+// today without grunnr.
 //
 // BenchmarkXxx is deliberately NOT here. `go test -run '^(BenchmarkFoo)$'`
 // matches no test and runs NOTHING without -bench, so putting a benchmark in

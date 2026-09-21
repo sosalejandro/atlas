@@ -1,6 +1,6 @@
-# atlas flow
+# grunnr flow
 
-`atlas flow` opens the box. Every other verb in atlas describes symbols and
+`grunnr flow` opens the box. Every other verb in grunnr describes symbols and
 the edges *between* them; this one describes what happens *inside* one — the
 branches, the loops, the cyclomatic complexity, and, where the execution data
 can honestly support it, which way each branch actually went.
@@ -26,7 +26,7 @@ unexercised — and the error paths are what production hits.
 
 ### 1. Decision coverage is not statement coverage, and the two are never blended
 
-`atlas cov` answers *did the line run*. `atlas flow` answers *was the branch
+`grunnr cov` answers *did the line run*. `grunnr flow` answers *was the branch
 taken both ways*. They are different questions with different denominators,
 and neither is reported as the other. `flow` never prints a statement
 percentage of its own; `cov` never prints a decision percentage.
@@ -122,7 +122,7 @@ outcome. Go's instrumentation gives one counter for `a && b`. Which operand
 decided the result is not recorded anywhere, and no amount of arithmetic over
 statement counts recovers it.
 
-So `atlas flow` will never print an MC/DC number. What it does print is the
+So `grunnr flow` will never print an MC/DC number. What it does print is the
 enumeration MC/DC would need:
 
 - how many atomic **conditions** exist (the leaves of the `&&`/`||` trees,
@@ -134,8 +134,8 @@ enumeration MC/DC would need:
 
 Both are properties of the **source**, not of your tests. Every surface that
 prints them prints the caveat next to them. If you need a real MC/DC verdict,
-you need condition-level instrumentation that atlas does not have; do not
-report atlas's numbers to an auditor as if it did.
+you need condition-level instrumentation that grunnr does not have; do not
+report grunnr's numbers to an auditor as if it did.
 
 ### 4. `flow.query-in-loop` is a smell, not a proof
 
@@ -146,7 +146,7 @@ a **confidence**, and the grading is explicit:
 
 - start at **medium** when the call matched a repository/query naming
   convention (a `Get…`/`List…`/`Query…`-shaped method on a `db`/`tx`/`repo`
-  receiver), or **high** when atlas followed a real graph edge from the call
+  receiver), or **high** when grunnr followed a real graph edge from the call
   site into a query symbol;
 - **minus one notch** when the loop is not over a collection (a counted
   `for i := 0; i < 3; i++` retry loop is not a per-row loop);
@@ -165,12 +165,12 @@ direct case would make the whole list untrustworthy.
 ## Usage
 
 ```
-atlas flow build [--root <dir>] [--profile <cover.out>]
-atlas flow show <symbol>
-atlas flow findings [--kind <kind>]
+grunnr flow build [--root <dir>] [--profile <cover.out>]
+grunnr flow show <symbol>
+grunnr flow findings [--kind <kind>]
 ```
 
-Run `atlas scan` first: `flow` analyses the functions the store already knows
+Run `grunnr scan` first: `flow` analyses the functions the store already knows
 about, and re-parses the files those symbols name.
 
 ### `build`
@@ -189,9 +189,9 @@ the default `set` mode throws them away and every such outcome becomes
 undecidable.
 
 ```bash
-# Run from: a Go project root, after `atlas scan`
+# Run from: a Go project root, after `grunnr scan`
 go test -covermode=count -coverprofile=cover.out ./...
-atlas flow build --profile cover.out
+grunnr flow build --profile cover.out
 ```
 
 ```
@@ -216,7 +216,7 @@ exact qualified name or a unique substring of one; an ambiguous substring is
 an error rather than a silent first match.
 
 ```bash
-atlas flow show svc.Handle
+grunnr flow show svc.Handle
 ```
 
 ```
@@ -224,7 +224,7 @@ svc.Handle  svc/handler.go:3
   complexity 3   decisions 2   branch arms 4   defers 0
   conditions 2 (2 independently exercisable in principle)
   decision coverage: 50.0% (1 of 2 decidable outcomes taken; 2 UNDETERMINED)
-  (statement coverage is a different question and is reported by `atlas cov`; the two are never blended)
+  (statement coverage is a different question and is reported by `grunnr cov`; the two are never blended)
   MC/DC: …
   blocks:
       0  entry   lines 3-3
@@ -266,7 +266,7 @@ The three kinds are deliberately distinct and must not be merged:
 ## How complexity is counted
 
 Cyclomatic complexity is `1 + Σ (arms − 1)` over every decision, which is
-exactly `E − N + 2` on the graph atlas builds. A test asserts the two agree on
+exactly `E − N + 2` on the graph grunnr builds. A test asserts the two agree on
 the golden fixture; if they ever diverge, the builder has dropped an edge and
 *both* numbers are untrustworthy.
 

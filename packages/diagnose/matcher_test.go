@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // withTempStore opens a fresh on-disk Store for a test. The store is
@@ -20,7 +20,7 @@ import (
 func withTempStore(t *testing.T) *store.Store {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "atlas-state.db")
+	path := filepath.Join(dir, "grunnr-state.db")
 	s, err := store.Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -142,7 +142,7 @@ func errorsNew(s string) error { return nil }
 			{
 				Kind:     shared.AnnFeature,
 				IDs:      []string{"auth.login"},
-				Source:   shared.SourceAtlas,
+				Source:   shared.SourceGrunnr,
 				Position: shared.FilePosition{Path: "src/handler.go", Line: 3},
 				Raw:      "auth.login",
 			},

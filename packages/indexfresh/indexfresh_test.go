@@ -8,15 +8,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/indexfresh"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/indexfresh"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // newStore returns an open store rooted in a fresh temp dir.
 func newStore(t *testing.T) (*store.Store, string) {
 	t.Helper()
 	dir := t.TempDir()
-	s, err := store.Open(context.Background(), filepath.Join(dir, "atlas.db"))
+	s, err := store.Open(context.Background(), filepath.Join(dir, "grunnr.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

@@ -11,7 +11,7 @@ import (
 // Every advisory has a legitimate exception, and a check with no way to say
 // "yes, I know" gets turned off wholesale -- which is why the suppression
 // spellings are documented in docs/commands/sql.md. Each documented form gets
-// a case here, asserting BOTH the codes atlas read off the site and that the
+// a case here, asserting BOTH the codes grunnr read off the site and that the
 // advisory is actually silenced, because reading the directive and honouring
 // it are two different things and only the second one is the feature.
 const suppressionFixture = `package repo
@@ -40,7 +40,7 @@ func (r *R) Unsuppressed(ctx context.Context) ([]int64, error) {
 
 // OnTheCallLine puts the directive after the call itself.
 func (r *R) OnTheCallLine(ctx context.Context) ([]int64, error) {
-	rows, err := r.db.QueryContext(ctx, "SELECT id FROM users") // atlas:sql-ignore sql.unbounded-list
+	rows, err := r.db.QueryContext(ctx, "SELECT id FROM users") // grunnr:sql-ignore sql.unbounded-list
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (r *R) OnTheCallLine(ctx context.Context) ([]int64, error) {
 // InTheBlockAbove puts it in the comment block immediately above the call.
 func (r *R) InTheBlockAbove(ctx context.Context) ([]int64, error) {
 	// The tenants table holds nine rows and always will.
-	// atlas:sql-ignore sql.unbounded-list
+	// grunnr:sql-ignore sql.unbounded-list
 	rows, err := r.db.QueryContext(ctx, "SELECT id FROM tenants")
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (r *R) InTheBlockAbove(ctx context.Context) ([]int64, error) {
 }
 
 // InTheDocComment is knowingly unbounded; there are nine rows.
-// atlas:sql-ignore sql.unbounded-list
+// grunnr:sql-ignore sql.unbounded-list
 func (r *R) InTheDocComment(ctx context.Context) ([]int64, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT id FROM tenants")
 	if err != nil {
@@ -87,7 +87,7 @@ func (r *R) InTheDocComment(ctx context.Context) ([]int64, error) {
 }
 
 // SeveralCodes lists more than one, and says why.
-// atlas:sql-ignore sql.unbounded-list,sql.select-star -- payload is versioned
+// grunnr:sql-ignore sql.unbounded-list,sql.select-star -- payload is versioned
 func (r *R) SeveralCodes(ctx context.Context) ([]int64, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT * FROM users")
 	if err != nil {
@@ -103,7 +103,7 @@ func (r *R) SeveralCodes(ctx context.Context) ([]int64, error) {
 }
 
 // Everything silences the lot.
-// atlas:sql-ignore all
+// grunnr:sql-ignore all
 func (r *R) Everything(ctx context.Context) ([]int64, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT * FROM users")
 	if err != nil {
@@ -124,15 +124,15 @@ SELECT id FROM users;
 
 -- name: BelowTheHeader :many
 -- The set is small and bounded by the tenant.
--- atlas:sql-ignore sql.unbounded-list
+-- grunnr:sql-ignore sql.unbounded-list
 SELECT id FROM users;
 
--- atlas:sql-ignore sql.unbounded-list
+-- grunnr:sql-ignore sql.unbounded-list
 -- name: AboveTheHeader :many
 SELECT id FROM users;
 
 -- name: SeveralCodes :many
--- atlas:sql-ignore sql.unbounded-list,sql.select-star -- knowingly wide
+-- grunnr:sql-ignore sql.unbounded-list,sql.select-star -- knowingly wide
 SELECT * FROM users;
 `
 
@@ -253,5 +253,25 @@ func TestSuppression_AllIsNotPerCode(t *testing.T) {
 	}
 	if ops["R.Unsuppressed"].Suppressed(CodeUnboundedList) {
 		t.Error("a directive leaked from one call site to another")
+	}
+}
+
+// The rename must not un-silence advisories a user deliberately suppressed.
+//
+// `atlas:sql-ignore` is written in the user's own .sql and .go files. Reading
+// only the new spelling would turn every existing suppression back into a
+// noisy advisory, and the report would look like their code got worse rather
+// than like a tool renamed itself.
+func TestSuppress_LegacyAtlasDirectiveStillSilences(t *testing.T) {
+	for _, c := range []struct{ name, comment string }{
+		{"canonical", "-- grunnr:sql-ignore sql.unbounded-list"},
+		{"legacy", "-- atlas:sql-ignore sql.unbounded-list"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := parseDirective(c.comment)
+			if len(got) != 1 || got[0] != "sql.unbounded-list" {
+				t.Errorf("parseDirective(%q) = %v, want [sql.unbounded-list]", c.comment, got)
+			}
+		})
 	}
 }

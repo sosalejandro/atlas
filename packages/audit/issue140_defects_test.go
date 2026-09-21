@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // TestDecisionCoverage_WeightScalesWithTheMeasuredSurface applies the
@@ -40,7 +40,7 @@ func TestDecisionCoverage_WeightScalesWithTheMeasuredSurface(t *testing.T) {
 		ids[0]: store.StatusPass, ids[1]: store.StatusPass,
 		ids[2]: store.StatusFail, ids[3]: store.StatusFail,
 	})
-	// Exactly one of the four surface symbols has ever been through `atlas
+	// Exactly one of the four surface symbols has ever been through `grunnr
 	// flow`, and every outcome it has was taken.
 	seedDecision(t, s, ids[0], 2, 2, 2)
 
@@ -105,7 +105,7 @@ func TestDecisionCoverage_SurfaceSourceIsReportedWithNoCoverageRun(t *testing.T)
 	ids := seedFeature(t, s, seedSpec{
 		FeatureID: "auth.login", Title: "Login", NumSymbols: 2, SymbolFile: "auth/login.go",
 	})
-	// No coverage run at all: `atlas flow measure` read a profile off disk.
+	// No coverage run at all: `grunnr flow measure` read a profile off disk.
 	seedDecision(t, s, ids[0], 4, 4, 2)
 	seedDecision(t, s, ids[1], 4, 4, 2)
 
@@ -207,7 +207,7 @@ func TestDecisionCoverage_SharedSurface_CarriedRunStaysInBothDenominators(t *tes
 		{TestSymbolID: feTest, SymbolID: feImpl, CoveredStmts: 10, TotalStmts: 10},
 	})
 
-	// `atlas flow` measured both impl symbols. The Go one is untested.
+	// `grunnr flow` measured both impl symbols. The Go one is untested.
 	seedDecision(t, s, goImpl, 2, 2, 0)
 	seedDecision(t, s, feImpl, 2, 2, 2)
 

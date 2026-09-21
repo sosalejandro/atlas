@@ -1,9 +1,9 @@
-# atlas doctor
+# grunnr doctor
 
-`atlas doctor` answers the one question no other atlas command can: **is
-atlas's picture of this repo still true?**
+`grunnr doctor` answers the one question no other grunnr command can: **is
+grunnr's picture of this repo still true?**
 
-Every number atlas prints — a coverage percentage, an audit score, a
+Every number grunnr prints — a coverage percentage, an audit score, a
 sprint ranking — is downstream of a scan and an ingest, and both go stale
 silently. A stale index does not error. It answers confidently about a
 repo that no longer exists, and nothing in the output distinguishes that
@@ -27,15 +27,15 @@ Three rules shape the output:
 3. **The command never changes what it is inspecting.** `store.Open`
    applies the embedded migrations to whatever it is handed, so doctor
    verifies from a read-only handle that the file at the state path is
-   already an atlas store before opening it read-write. A 0-byte
-   placeholder, a database an interrupted `atlas init` left half-made, or
+   already an grunnr store before opening it read-write. A 0-byte
+   placeholder, a database an interrupted `grunnr init` left half-made, or
    an unrelated SQLite file is reported, never migrated: a diagnostic
    must not conjure the state it was asked to inspect.
 
 ## Usage
 
 ```
-atlas doctor [flags]
+grunnr doctor [flags]
 ```
 
 ## Flags
@@ -45,7 +45,7 @@ atlas doctor [flags]
 | `--fail-on`                  | `fail`               | Exit non-zero when any check reaches this severity. `warn` or `fail`.             |
 | `--root`                     | repo root or cwd     | Working tree the index is compared against.                                       |
 | `--config` *(global)*        | `.atlas.yaml` lookup | Explicit config path.                                                             |
-| `--db-path` *(global)*       | `.atlas/atlas.db`    | Override the SQLite state path.                                                   |
+| `--db-path` *(global)*       | `.grunnr/grunnr.db`    | Override the SQLite state path.                                                   |
 | `--json` *(global)*          | off                  | Emit the stable JSON envelope instead of human-friendly text.                     |
 | `-v`, `--verbose` *(global)* | off                  | Print the numbers behind each finding (the `details` map).                        |
 
@@ -55,8 +55,8 @@ atlas doctor [flags]
 drops into CI unchanged:
 
 ```yaml
-- run: atlas doctor            # fails the build on any fail-severity check
-- run: atlas doctor --fail-on warn   # a tighter gate, same checks
+- run: grunnr doctor            # fails the build on any fail-severity check
+- run: grunnr doctor --fail-on warn   # a tighter gate, same checks
 ```
 
 `--fail-on` accepts only `warn` and `fail`. `ok` and `n/a` are rejected:
@@ -83,7 +83,7 @@ The load-bearing one. Re-hashes every file in `file_hashes` and compares
 against disk, reporting four counts:
 
 - **changed** — the file is still there with different bytes. Everything
-  atlas says about it is about content it has not read.
+  grunnr says about it is about content it has not read.
 - **missing** — the file is gone. Its symbols are still in the store,
   still scored, still ranked.
 - **unreadable** — the file is still there and its bytes could not be
@@ -92,7 +92,7 @@ against disk, reporting four counts:
 - **unindexed** — a **Go** file on disk with no `file_hashes` row *and*
   no indexed symbols.
 
-`changed` and `missing` invalidate answers atlas has already given, so
+`changed` and `missing` invalidate answers grunnr has already given, so
 they **fail**. `unindexed` only bounds them, so it **warns**.
 `unreadable` also **warns**, and is named in the finding: doctor did not
 prove anything is wrong with those files, only that it could not look —
@@ -121,14 +121,14 @@ Special cases, both reported honestly rather than as `ok`:
 
 - Symbols in the store but **no hash rows at all** (the last scan ran
   `--hash-files=false`): `n/a` — there is nothing to compare against.
-- **Nothing at all** in the store: `fail`, remediation `atlas init`.
+- **Nothing at all** in the store: `fail`, remediation `grunnr init`.
 
 ### `index.edge_provenance`
 
-Every other check here asks whether atlas's picture is stale. This one
+Every other check here asks whether grunnr's picture is stale. This one
 asks whether it was ever solid.
 
-`atlas chain`, change-impact and the audit's impl surface are all walks
+`grunnr chain`, change-impact and the audit's impl surface are all walks
 over the `edges` table, and an edge a type checker resolved and one
 guessed from a lowercased substring are the same row in every column
 except `resolution_tier` (schema §5.5.1, issue #146). This check reports
@@ -140,12 +140,12 @@ that column as a histogram, per language:
         go: 9306 edges (typed=0 name_resolved=6542 syntactic=2764 imported=0), 2686 ambiguous; py: 269 edges (typed=0 name_resolved=5 syntactic=264 imported=0)
 ```
 
-That is `atlas scan` followed by `atlas doctor` against the atlas
+That is `grunnr scan` followed by `grunnr doctor` against the grunnr
 repository itself, on the working tree that introduced the column —
 quoted from the run, not composed, because a fabricated histogram would
 be exactly the confident-looking number this command exists to catch.
 Re-run it and the totals will differ as the repo grows; the shape is
-what to read. `typed=0` in both languages, because nothing atlas ships
+what to read. `typed=0` in both languages, because nothing grunnr ships
 type-checks anything yet, is the baseline the #87 resolver migration
 gets diffed against.
 
@@ -153,7 +153,7 @@ The four tiers, strongest first:
 
 - **`typed`** — a type checker resolved it. Interface dispatch and
   generic instantiation are exact. Nothing produces this yet.
-- **`name_resolved`** — a name was bound to a declaration atlas actually
+- **`name_resolved`** — a name was bound to a declaration grunnr actually
   indexed, by scope rules rather than types.
 - **`syntactic`** — the shape of the source said so and nothing was
   bound across files. The target may not exist, and may be the wrong one
@@ -172,9 +172,9 @@ The check **warns** in exactly one situation: a language whose edges are
 so a change-impact answer over that language is a guess about targets
 that may not exist. It is the only threshold applied and deliberately
 the degenerate one — any share between 0 and 1 would be a constant
-nobody here has measured, and atlas does not ship those. It never fails,
+nobody here has measured, and grunnr does not ship those. It never fails,
 and it carries no `fix:` line, because the tier a language reaches is a
-property of the scanner atlas ships for it and not of anything the user
+property of the scanner grunnr ships for it and not of anything the user
 did.
 
 Tiers with no edges print as `=0` rather than being omitted, and the
@@ -187,7 +187,7 @@ a reader needs to see "went to nothing".
 
 ### `coverage.freshness`
 
-Reads `store.Coverage().LatestFrontier()` — the same runs `atlas health`
+Reads `store.Coverage().LatestFrontier()` — the same runs `grunnr health`
 scores — and warns on either of two independent complaints, reporting
 both when both hold:
 
@@ -228,7 +228,7 @@ figure, so a repo whose coverprofile paths do not reconcile shows
 plausible-looking percentages computed over a fraction of what actually
 ran (issues #85 / #100).
 
-Warns at ≥ 10%, fails at ≥ 33%. Remediation is `atlas cov status --gaps`,
+Warns at ≥ 10%, fails at ≥ 33%. Remediation is `grunnr cov status --gaps`,
 which enumerates the files behind the number.
 
 Zero attributed **and** zero unattributed is `n/a`, not `ok`: pass/fail
@@ -242,8 +242,8 @@ Two silent drifts between the annotation layer and the symbol layer:
 
 - **features with no linked symbols.** `feature_symbols` cascades when a
   symbol is deleted; the `features` row does not. A renamed function
-  leaves an empty shell that still ranks in `atlas sprint` and still
-  scores in `atlas health` — about nothing.
+  leaves an empty shell that still ranks in `grunnr sprint` and still
+  scores in `grunnr health` — about nothing.
 - **anchored annotations naming a feature the store does not have.** An
   annotation that resolves to an indexed symbol is exactly the shape the
   ingest materializes a feature for, so a missing `features` row means
@@ -275,7 +275,7 @@ Ids are extracted with the same rule the ingest uses
 tags/tiers are not mistaken for missing features. A token the rule cannot
 classify is not reported.
 
-Warn, not fail — both findings make atlas's answers incomplete without
+Warn, not fail — both findings make grunnr's answers incomplete without
 making the answers it does give wrong.
 
 The annotation half needs doctor's read-only handle on the state
@@ -300,7 +300,7 @@ migration — the exact bug class doctor exists to close.
 This is the one check written to work with **no open store**, because the
 states it reports are the states in which `store.Open` refuses.
 golang-migrate will not advance a dirty schema, so the moment the flag
-matters is the moment every other atlas command dies in a wall of migrate
+matters is the moment every other grunnr command dies in a wall of migrate
 output. When the store will not open, `doctor` still runs: the schema
 check fails with the actual reason and a way out, and every other check
 reports `n/a` naming that failure rather than repeating it.
@@ -310,13 +310,13 @@ Failure modes:
 - **dirty** — a migration died part-way through. Nothing will advance
   until it is cleared; the state DB is a rebuildable cache, so the
   remediation is to delete it and re-init.
-- **applied > expected** — the store was migrated by a *newer* atlas.
+- **applied > expected** — the store was migrated by a *newer* grunnr.
   This is the quiet direction: `migrate.Up` is a no-op against a schema
   newer than the binary's, so the store opens cleanly and this binary
   then reads tables it was never built against.
 - **applied < expected** — pending migrations have not been applied.
 - **applied = 0** — the file carries no `schema_migrations` table, or an
-  empty one; it is not an atlas store. This is also the verdict for the
+  empty one; it is not an grunnr store. This is also the verdict for the
   0-byte placeholder and the unrelated SQLite file the read-write open is
   guarded against: the file is *reported* as not-a-store rather than
   turned into one.
@@ -331,8 +331,8 @@ honest way to add a line to an illustrative transcript is to have run it.
 ### A typical run
 
 ```
-$ atlas doctor
-atlas doctor — /home/me/repo (db: /home/me/repo/.atlas/atlas.db)
+$ grunnr doctor
+grunnr doctor — /home/me/repo (db: /home/me/repo/.grunnr/grunnr.db)
 
   [ok]   index.freshness
         examines: the recorded file index against the files on disk, plus Go files on disk with no index entry
@@ -344,13 +344,13 @@ atlas doctor — /home/me/repo (db: /home/me/repo/.atlas/atlas.db)
 
   [warn] coverage.attribution
         examines: the share of executed statements the ingest could not charge to a symbol
-        10.7% of executed statements (455 of 4250) could not be charged to a symbol, so every coverage figure atlas reports is understated by that much
-        fix: atlas cov status --gaps
+        10.7% of executed statements (455 of 4250) could not be charged to a symbol, so every coverage figure grunnr reports is understated by that much
+        fix: grunnr cov status --gaps
 
   [warn] feature.linkage
         examines: features with no linked symbols, and annotations that resolve to an indexed symbol yet name a feature the store does not have
         13 annotations resolve to an indexed symbol but name a feature the store does not have
-        fix: atlas scan
+        fix: grunnr scan
 
   [ok]   store.schema
         examines: the applied migration version against the one this binary carries, and the dirty flag
@@ -368,11 +368,11 @@ run exits 1.
 Edit one indexed file without re-scanning:
 
 ```
-$ atlas doctor
+$ grunnr doctor
   [fail] index.freshness
         examines: the recorded file index against the files on disk, plus Go files on disk with no index entry
         the index is stale: of 436 indexed files, 1 changed on disk and 0 no longer exist
-        fix: atlas scan
+        fix: grunnr scan
 ...
   2 ok, 2 warn, 1 fail, 0 n/a — worst: fail
 $ echo $?
@@ -382,16 +382,16 @@ $ echo $?
 ### Nothing ingested yet
 
 ```
-$ atlas doctor
+$ grunnr doctor
   [n/a]  coverage.freshness
         examines: how old the current coverage frontier is, and whether the index moved under it
         no coverage run has been ingested, so there is nothing to assess
-        fix: atlas cov sync --framework go-cover --input coverage.out
+        fix: grunnr cov sync --framework go-cover --input coverage.out
 
   [n/a]  feature.linkage
         examines: features with no linked symbols, and annotations naming a feature the store does not have
         no features are declared in the store, so there is no linkage to check (nothing in this repo carries an @atlas:feature annotation yet)
-        fix: annotate a symbol with @atlas:feature <id>, then: atlas scan
+        fix: annotate a symbol with @atlas:feature <id>, then: grunnr scan
 ```
 
 `n/a` never trips a gate — a repo mid-adoption is not a broken repo.
@@ -402,11 +402,11 @@ $ atlas doctor
 the same state print identically:
 
 ```
-$ atlas doctor -v
+$ grunnr doctor -v
   [fail] index.freshness
         examines: the recorded file index against the files on disk, plus Go files on disk with no index entry
         the index is stale: of 436 indexed files, 1 changed on disk and 0 no longer exist
-        fix: atlas scan
+        fix: grunnr scan
         changed: 1
         changed_files: packages/doctor/coverage.go
         indexed_files: 436
@@ -416,7 +416,7 @@ $ atlas doctor -v
 ```
 
 Sample path lists are capped at 10 entries; the counts beside them stay
-exact. One `atlas scan` fixes all of them at once, so a wall of paths
+exact. One `grunnr scan` fixes all of them at once, so a wall of paths
 would only bury the number that matters.
 
 ## JSON
@@ -429,7 +429,7 @@ would only bury the number that matters.
   "schema_version": "v1",
   "command": "doctor",
   "args": {
-    "db_path": "/home/me/repo/.atlas/atlas.db",
+    "db_path": "/home/me/repo/.grunnr/grunnr.db",
     "fail_on": "fail",
     "root": "/home/me/repo"
   },
@@ -440,7 +440,7 @@ would only bury the number that matters.
         "examines": "the recorded file index against the files on disk, plus Go files on disk with no index entry",
         "severity": "fail",
         "finding": "the index is stale: of 436 indexed files, 1 changed on disk and 0 no longer exist",
-        "remediation": "atlas scan",
+        "remediation": "grunnr scan",
         "details": {
           "changed": 1,
           "changed_files": ["packages/doctor/coverage.go"],
@@ -456,8 +456,8 @@ would only bury the number that matters.
         "name": "coverage.attribution",
         "examines": "the share of executed statements the ingest could not charge to a symbol",
         "severity": "warn",
-        "finding": "10.7% of executed statements (455 of 4250) could not be charged to a symbol, so every coverage figure atlas reports is understated by that much",
-        "remediation": "atlas cov status --gaps",
+        "finding": "10.7% of executed statements (455 of 4250) could not be charged to a symbol, so every coverage figure grunnr reports is understated by that much",
+        "remediation": "grunnr cov status --gaps",
         "details": {
           "fail_above": 0.33,
           "files_unmatched": 13,
@@ -503,7 +503,7 @@ Field notes for consumers:
 ## Cost
 
 `index.freshness` re-hashes every indexed file and walks the tree, which
-is roughly what one `atlas scan` pays to decide what to skip. An mtime
+is roughly what one `grunnr scan` pays to decide what to skip. An mtime
 comparison would be cheaper and would miss a restored-then-edited file —
 doctor being as expensive as a scan is the price of an answer that is not
 itself a guess. `store.schema` additionally migrates one throwaway
@@ -511,7 +511,7 @@ database in a temp dir.
 
 ## Related
 
-- [`atlas cov status --gaps`](cov.md) — the per-file enumeration behind
+- [`grunnr cov status --gaps`](cov.md) — the per-file enumeration behind
   `coverage.attribution`.
-- [`atlas scan`](scan.md) — the fix for a stale index.
-- [`atlas init`](init.md) — the fix for an empty or unreadable store.
+- [`grunnr scan`](scan.md) — the fix for a stale index.
+- [`grunnr init`](init.md) — the fix for an empty or unreadable store.

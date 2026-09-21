@@ -153,7 +153,7 @@ func GenGoProject(r *Rand, opts GoProjectOptions) Project {
 	return p
 }
 
-// addMainCollision emits atlas's own shape: a `package main` in a
+// addMainCollision emits grunnr's own shape: a `package main` in a
 // subdirectory and another at the tree root, both declaring func main. Both
 // compute the short id "main.main"; the second one walked cannot be
 // package-qualified (its package directory is "." so there is no prefix to

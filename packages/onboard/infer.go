@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // Infer derives the provisional capability map and the first-run findings
@@ -109,7 +109,7 @@ func (b *builder) claimRoutes() {
 	for _, r := range b.in.Routes {
 		sym, ok := b.byID[r.HandlerSymbolID]
 		if r.HandlerSymbolID == 0 || !ok || b.claimed[sym.ID] {
-			// Either atlas could not resolve what serves the endpoint, or
+			// Either grunnr could not resolve what serves the endpoint, or
 			// an annotation already speaks for the handler. Both are real,
 			// neither is a proposal: an unresolved handler is reported in
 			// the limits section instead of as a group with nothing in it.
@@ -173,7 +173,7 @@ func (b *builder) claimTestClusters() {
 		}
 		members := b.unclaimedMatching(k.dir, k.word)
 		if len(members) == 0 {
-			// The tests name something atlas cannot point at. Showing the
+			// The tests name something grunnr cannot point at. Showing the
 			// group anyway would be a proposal with nothing behind it.
 			continue
 		}
@@ -278,9 +278,9 @@ func (b *builder) claimDirectories() {
 		// A directory whose own last segment says nothing about the subject
 		// -- the repository root, or a layout segment like src/ or app/ --
 		// names nothing (#177). capabilityIDFromDir would hand back the
-		// literal "root.root", which on cobra sat over 83 symbols; on atlas
+		// literal "root.root", which on cobra sat over 83 symbols; on grunnr
 		// itself the same shape produced "internal.app" over 67. Those become
-		// sized, file-broken-down groupings atlas declines to name.
+		// sized, file-broken-down groupings grunnr declines to name.
 		if !namableDir(d) {
 			b.unnamedGrouping(d, dirs[d])
 			continue
@@ -322,7 +322,7 @@ func (b *builder) claimDirectories() {
 	}
 }
 
-// unnamedGrouping records the leftovers of one directory atlas will not name
+// unnamedGrouping records the leftovers of one directory grunnr will not name
 // (#177).
 //
 // It is the honest answer to a grouping that is real and has no name the code
@@ -330,7 +330,7 @@ func (b *builder) claimDirectories() {
 // is withheld. It is deliberately NOT a merge target and never reachable
 // through capBy -- an unnamed grouping is by definition the leftovers of
 // exactly one directory, and merging two of them would invent the very
-// relationship the refusal says atlas cannot see.
+// relationship the refusal says grunnr cannot see.
 func (b *builder) unnamedGrouping(dir string, rows []store.SymbolRow) {
 	c := &Capability{
 		Provisional: true, Source: SourceDirectory, Dir: dir,
@@ -341,7 +341,7 @@ func (b *builder) unnamedGrouping(dir string, rows []store.SymbolRow) {
 		Kind: SourceDirectory,
 		Detail: fmt.Sprintf(
 			"%d undeclared symbols in %s that no route, no directory name and no "+
-				"corroborated test name covers. Atlas has no honest name for this one.",
+				"corroborated test name covers. Grunnr has no honest name for this one.",
 			len(rows), displayDir(dir)),
 		File: rows[0].FilePath, Line: rows[0].Line,
 	})
@@ -432,7 +432,7 @@ func (b *builder) fileCountsOf(c *Capability) []FileCount {
 
 // attributor answers "which capability issues this query?".
 //
-// Three locators in descending order of precision, because a query atlas
+// Three locators in descending order of precision, because a query grunnr
 // cannot place is a table set that silently disappears from the map, and the
 // data footprint is the one column a directory listing could never give the
 // reader:
@@ -539,7 +539,7 @@ func (b *builder) attachSQL(c *Capability, attr *attributor) {
 	c.Reads, c.Writes = sortedKeys(reads), sortedKeys(writes)
 }
 
-// attachTestEvidence grades how atlas knows this capability is exercised.
+// attachTestEvidence grades how grunnr knows this capability is exercised.
 //
 // A coverage run is consulted for BOTH answers it can give. Reading it only
 // for a positive -- and falling through to colocation when it says nothing
@@ -599,7 +599,7 @@ func (b *builder) attachChurn(c *Capability) {
 // The preference order is "the exported symbol whose name matches the
 // capability", then "the first exported symbol", then "the first symbol at
 // all". Each step is stated in Reasoning because the user is about to let
-// atlas edit their source, and an edit whose target they cannot predict is
+// grunnr edit their source, and an edit whose target they cannot predict is
 // one they should refuse.
 func (b *builder) attachAnchor(c *Capability) {
 	if len(c.SymbolIDs) == 0 {
@@ -617,9 +617,9 @@ func (b *builder) attachAnchor(c *Capability) {
 	// location, and `promote --as` needs a target to write the user's own id
 	// above.
 	if !c.Named {
-		pick, why := rows[0], "first declaration in the group (atlas did not name this grouping)"
+		pick, why := rows[0], "first declaration in the group (grunnr did not name this grouping)"
 		if s, ok := firstMatch(rows, isExported); ok {
-			pick, why = s, "first exported declaration in the group (atlas did not name this grouping)"
+			pick, why = s, "first exported declaration in the group (grunnr did not name this grouping)"
 		}
 		c.Anchor = &Anchor{
 			SymbolID: pick.ID, Qualified: string(pick.QualifiedName),
@@ -719,7 +719,7 @@ func sortCapabilities(caps []Capability) {
 		// Every named proposal outranks every unnamed grouping (#177). The
 		// map is read top-down and a reader who meets an unnamed grouping
 		// first learns nothing they can act on; a reader who meets it last
-		// has already seen what atlas WAS willing to name and reads the
+		// has already seen what grunnr WAS willing to name and reads the
 		// refusal as the boundary it is.
 		if a.Named != z.Named {
 			return a.Named
@@ -771,7 +771,7 @@ func firstMatch(rows []store.SymbolRow, pred func(store.SymbolRow) bool) (store.
 }
 
 // isExported approximates "part of this package's surface" across the
-// languages atlas indexes: Go exports by capitalisation, and TS/Python
+// languages grunnr indexes: Go exports by capitalisation, and TS/Python
 // conventions put a leading underscore on the private ones.
 func isExported(r store.SymbolRow) bool {
 	n := shortName(r.QualifiedName)
@@ -835,7 +835,7 @@ func excludedPath(p string) bool {
 	return false
 }
 
-// isTestPath recognises the test-file conventions of the languages atlas
+// isTestPath recognises the test-file conventions of the languages grunnr
 // indexes. Getting this wrong in either direction is visible: a missed test
 // file becomes a capability, and a production file mistaken for a test
 // disappears from the map entirely.

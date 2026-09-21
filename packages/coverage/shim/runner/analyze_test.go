@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage/shim/runner"
+	"github.com/sosalejandro/grunnr/packages/coverage/shim/runner"
 )
 
 func TestAnalyze(t *testing.T) {
@@ -161,7 +161,7 @@ func TestInitDir_RefusesToTouchAForeignTestMain(t *testing.T) {
 	}
 }
 
-// A stale shim — ours, but from an older atlas — is refreshed rather than
+// A stale shim — ours, but from an older grunnr — is refreshed rather than
 // left to rot, and that is reported as a change, not as a no-op.
 func TestInitDir_RewritesAStaleGeneratedShim(t *testing.T) {
 	dir := t.TempDir()

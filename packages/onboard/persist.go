@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// The provisional map lives in its own directory under .atlas/, beside the
+// The provisional map lives in its own directory under .grunnr/, beside the
 // state DB but not inside it.
 //
 // Keeping it out of SQLite is the point. Every table in the store is read by
@@ -23,14 +23,14 @@ import (
 const (
 	provisionalDir  = "provisional"
 	provisionalFile = "capabilities.json"
-	atlasDir        = ".atlas"
+	grunnrDir       = ".grunnr"
 )
 
 // documentNote is written into every saved map. It is aimed at the person
 // who finds this file six months from now with no idea what wrote it.
-const documentNote = "These capabilities were INFERRED by `atlas onboard`. They are NOT " +
-	"declarations and atlas does not treat them as any part of its registry. " +
-	"Promote one with `atlas onboard promote --id <id> --apply`, which writes an " +
+const documentNote = "These capabilities were INFERRED by `grunnr onboard`. They are NOT " +
+	"declarations and grunnr does not treat them as any part of its registry. " +
+	"Promote one with `grunnr onboard promote --id <id> --apply`, which writes an " +
 	"@atlas:feature annotation into your source; everything else ignores this file."
 
 // ErrNotGenerated is returned by Load when no provisional map exists yet.
@@ -77,7 +77,7 @@ func (d Document) Find(id string) (Capability, bool) {
 
 // Path returns where the provisional map lives for a repository root.
 func Path(root string) string {
-	return filepath.Join(root, atlasDir, provisionalDir, provisionalFile)
+	return filepath.Join(root, grunnrDir, provisionalDir, provisionalFile)
 }
 
 // Save writes the provisional map, creating its directory if needed, and

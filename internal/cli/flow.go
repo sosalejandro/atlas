@@ -14,15 +14,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/cfg"
-	"github.com/sosalejandro/atlas/packages/coverage/gocover"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/cfg"
+	"github.com/sosalejandro/grunnr/packages/coverage/gocover"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newFlowCmd builds `atlas flow` — control flow INSIDE a symbol.
+// newFlowCmd builds `grunnr flow` — control flow INSIDE a symbol.
 //
-// Every other verb in atlas describes symbols and the edges between them.
+// Every other verb in grunnr describes symbols and the edges between them.
 // This one opens the box: the branches, the loops, the cyclomatic complexity,
 // and — where the execution data can honestly support it — which way each
 // branch actually went. That last part is the reason the command exists:
@@ -47,7 +47,7 @@ what a symbol's line range cannot say:
 Three things this command is careful about.
 
 Decision coverage is NOT statement coverage and is never blended
-with it. 'atlas cov' answers "did the line run"; this answers "was
+with it. 'grunnr cov' answers "did the line run"; this answers "was
 the branch taken both ways", and the two are reported separately
 because they are different questions.
 
@@ -182,10 +182,10 @@ func emitFlowBuild(cmd *cobra.Command, f flowBuildFlags, b *flowBuilder) error {
 	}
 	if res.DecisionCoverage != nil {
 		// Said on every run that produces a number, because the single most
-		// likely misreading of this output is that it supersedes `atlas cov`.
+		// likely misreading of this output is that it supersedes `grunnr cov`.
 		warnings = append(warnings,
 			"decision coverage is NOT statement coverage: it answers whether each branch was taken both ways, "+
-				"not whether each line ran. Read it beside `atlas cov`, never instead of it.")
+				"not whether each line ran. Read it beside `grunnr cov`, never instead of it.")
 	}
 	if f.profile != "" && res.DecisionCoverage == nil {
 		warnings = append(warnings, fmt.Sprintf(
@@ -650,7 +650,7 @@ the source condition on each branch), its complexity, its decision
 coverage where that was measured, and its findings.
 
 The symbol may be given exactly or as a unique substring of a
-qualified name. Run 'atlas flow build' first.`,
+qualified name. Run 'grunnr flow build' first.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return runFlowShow(cmd, args[0]) },
 	}
@@ -670,7 +670,7 @@ func runFlowShow(cmd *cobra.Command, query string) error {
 	}
 	flow, err := s.ControlFlow().Get(ctx, sym.ID)
 	if err != nil {
-		return fmt.Errorf("no control flow recorded for %s (run `atlas flow build`): %w", sym.QualifiedName, err)
+		return fmt.Errorf("no control flow recorded for %s (run `grunnr flow build`): %w", sym.QualifiedName, err)
 	}
 	res := flowShowResult{
 		Symbol:  string(sym.QualifiedName),
@@ -737,7 +737,7 @@ func writeFlowShowCoverage(w io.Writer, dc *store.DecisionCoverage, branchArms i
 		// so nobody reads a blank as a zero. A profile that did not cover
 		// this symbol's file leaves exactly this state.
 		fmt.Fprintf(w, "  decision coverage: not measured -- no profile has covered this file "+
-			"(run `atlas flow build --profile cover.out` over a profile that includes it)\n")
+			"(run `grunnr flow build --profile cover.out` over a profile that includes it)\n")
 		return
 	}
 	pct, ok := dc.Percent()
@@ -750,10 +750,10 @@ func writeFlowShowCoverage(w io.Writer, dc *store.DecisionCoverage, branchArms i
 	}
 	if dc.OutcomesTotal != branchArms {
 		fmt.Fprintf(w, "  WARNING: that measurement was taken over a different version of this function "+
-			"(it counted %d outcome(s); this graph has %d). Re-run `atlas flow build --profile ...`.\n",
+			"(it counted %d outcome(s); this graph has %d). Re-run `grunnr flow build --profile ...`.\n",
 			dc.OutcomesTotal, branchArms)
 	}
-	fmt.Fprintf(w, "  (statement coverage is a different question and is reported by `atlas cov`; the two are never blended)\n")
+	fmt.Fprintf(w, "  (statement coverage is a different question and is reported by `grunnr cov`; the two are never blended)\n")
 }
 
 // resolveFlowSymbol accepts an exact qualified name or a unique substring.
@@ -808,7 +808,7 @@ func newFlowFindingsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "findings",
 		Short: "List control-flow findings (N+1 candidates, unreachable code, untested branches)",
-		Long: `findings lists what 'atlas flow build' recorded, highest confidence
+		Long: `findings lists what 'grunnr flow build' recorded, highest confidence
 first.
 
 Every row carries a confidence, and the confidence is the point: a
@@ -854,7 +854,7 @@ func runFlowFindings(cmd *cobra.Command, kind string) error {
 	}
 	w := cmd.OutOrStdout()
 	if len(res.Findings) == 0 {
-		fmt.Fprintf(w, "no control-flow findings (run `atlas flow build` first)\n")
+		fmt.Fprintf(w, "no control-flow findings (run `grunnr flow build` first)\n")
 		return nil
 	}
 	for _, f := range res.Findings {

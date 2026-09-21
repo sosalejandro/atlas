@@ -8,24 +8,24 @@ import (
 	"sort"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/sosalejandro/atlas/packages/doctor"
-	"github.com/sosalejandro/atlas/packages/envelope"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/doctor"
+	"github.com/sosalejandro/grunnr/packages/envelope"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // The routes, and why they are declared through huma rather than registered
 // on a mux by hand.
 //
-// A local API needs a boundary contract somebody can hold atlas to, and the
+// A local API needs a boundary contract somebody can hold grunnr to, and the
 // contract has to be DERIVED rather than written beside the code, or it drifts
 // exactly the way the testreg dashboard drifted from the CLI. huma emits
 // OpenAPI 3.1 and JSON Schema from these Go types, so the description of the
 // API is generated from the thing being described. That is the same principle
-// as the rest of atlas: derived, not typed in.
+// as the rest of grunnr: derived, not typed in.
 //
-// gRPC was considered and rejected for one reason specific to atlas. #101
+// gRPC was considered and rejected for one reason specific to grunnr. #101
 // exists so the HTTP surface "returns the same envelope shape as --json so
 // the two surfaces cannot drift"; a protobuf contract would give the API a
 // second shape generated from a second source, which is that drift in a new
@@ -35,14 +35,14 @@ import (
 // A NOTE ON /api/health, because it deviates from #101 deliberately: that
 // issue describes /api/health as "index trust: scan freshness, unindexed
 // files, collisions", which is doctor's job. It was written before #112
-// renamed `atlas audit` to `atlas health`, so the word now means feature
+// renamed `grunnr audit` to `grunnr health`, so the word now means feature
 // health scores on the CLI. Two surfaces where `health` means different
 // things is precisely the drift this package prevents, so the routes follow
-// the CURRENT verbs: /api/doctor is index trust, matching `atlas doctor`.
+// the CURRENT verbs: /api/doctor is index trust, matching `grunnr doctor`.
 
 // APITitle and APIVersion identify the generated OpenAPI document.
 const (
-	APITitle   = "Atlas local API"
+	APITitle   = "Grunnr local API"
 	APIVersion = envelope.SchemaVersion
 )
 
@@ -75,7 +75,7 @@ func (s *Server) register(api huma.API) {
 		Method:      http.MethodGet,
 		Path:        "/api/doctor",
 		Summary:     "Is this index trustworthy",
-		Description: "Runs the same check set as `atlas doctor`, not a subset. A " +
+		Description: "Runs the same check set as `grunnr doctor`, not a subset. A " +
 			"consumer gating on this must reach the same verdict as one gating on " +
 			"the CLI's exit code, or the two surfaces disagree about whether the " +
 			"index can be trusted at all.",
@@ -102,7 +102,7 @@ func (s *Server) register(api huma.API) {
 		Summary:     "The node/edge neighbourhood of one feature",
 		Description: "Every edge carries the resolution tier that established it. A " +
 			"renderer that draws all edges alike claims a uniform confidence the " +
-			"index does not have, and the tier is the one thing atlas can put on a " +
+			"index does not have, and the tier is the one thing grunnr can put on a " +
 			"diagram that a drawing tool cannot.",
 	}, s.opGraph)
 }
@@ -231,7 +231,7 @@ type edgeView struct {
 	To   shared.SymbolID `json:"to"`
 	Kind string          `json:"kind,omitempty"`
 	// Tier is never omitempty. An edge that does not state how it was
-	// resolved reads as one atlas verified, and packages/store's EdgeRow
+	// resolved reads as one grunnr verified, and packages/store's EdgeRow
 	// makes the same choice for the same reason.
 	Tier      graph.ResolutionTier `json:"tier"`
 	Ambiguous bool                 `json:"ambiguous,omitempty"`

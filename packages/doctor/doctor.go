@@ -1,7 +1,7 @@
-// Package doctor answers one question: is atlas's picture of this repo
+// Package doctor answers one question: is grunnr's picture of this repo
 // still true?
 //
-// Every number atlas prints -- a coverage percentage, an audit score, a
+// Every number grunnr prints -- a coverage percentage, an audit score, a
 // sprint ranking -- is downstream of a scan and an ingest, and both go
 // stale silently. A stale index does not error; it answers confidently
 // about a repo that no longer exists. That is the worst failure mode an
@@ -41,11 +41,11 @@ const (
 	// nothing wrong.
 	SeverityOK Severity = "ok"
 
-	// SeverityWarn means the check found something that degrades atlas's
+	// SeverityWarn means the check found something that degrades grunnr's
 	// answers without invalidating them.
 	SeverityWarn Severity = "warn"
 
-	// SeverityFail means the check found something that makes atlas's
+	// SeverityFail means the check found something that makes grunnr's
 	// answers untrustworthy.
 	SeverityFail Severity = "fail"
 
@@ -105,7 +105,7 @@ func ParseSeverity(s string) (Severity, error) {
 // the --json envelope render directly.
 //
 // Remediation is a concrete command, not advice: "the index is stale" is
-// a diagnosis the user cannot act on, "atlas scan" is one they can. It is
+// a diagnosis the user cannot act on, "grunnr scan" is one they can. It is
 // empty only when there is nothing to do.
 type Result struct {
 	Name        string   `json:"name"`
@@ -160,12 +160,12 @@ type Report struct {
 }
 
 // TrippedBy reports whether this report should fail a gate set at
-// threshold. `atlas doctor` exits non-zero exactly when this is true.
+// threshold. `grunnr doctor` exits non-zero exactly when this is true.
 func (r Report) TrippedBy(threshold Severity) bool {
 	return r.Worst.AtLeast(threshold)
 }
 
-// DefaultChecks is the check set `atlas doctor` runs, ordered so the
+// DefaultChecks is the check set `grunnr doctor` runs, ordered so the
 // report reads outward from the thing everything else depends on: the
 // index is upstream of every coverage number, which is upstream of every
 // audit score. Schema comes last because it is a statement about the
@@ -190,7 +190,7 @@ func DefaultChecks() []Check {
 //
 // A check that returns an error is reported as SeverityFail -- not
 // skipped, and not downgraded to not-applicable. An errored check means
-// atlas could not verify its own state, which from the user's side is
+// grunnr could not verify its own state, which from the user's side is
 // indistinguishable from a broken state; calling that "n/a" would let a
 // broken store exit 0, which is the entire class of bug doctor exists to
 // close.
@@ -250,7 +250,7 @@ func (c *Counts) add(s Severity) {
 
 // maxSamples caps how many example paths a Result carries in Details.
 // The counts beside them stay exact; the list exists to make the finding
-// actionable, not to be an inventory. One `atlas scan` fixes all of them
+// actionable, not to be an inventory. One `grunnr scan` fixes all of them
 // at once, so a wall of 4000 paths would only bury the number that
 // matters.
 const maxSamples = 10

@@ -1,7 +1,7 @@
 package goscan
 
 import (
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Options configures Scan.
@@ -98,7 +98,7 @@ type Options struct {
 	IncludeGenerated bool
 
 	// SkipTests, when true, excludes `_test.go` files from the scan. The
-	// default (zero value: false) is to INCLUDE test files because Atlas's
+	// default (zero value: false) is to INCLUDE test files because Grunnr's
 	// primary use case — annotation-driven feature attribution — relies
 	// on test files being indexed: the canonical place for
 	// `// @atlas:feature` / `// @testreg` is on the test that verifies the
@@ -106,14 +106,14 @@ type Options struct {
 	//
 	// Set SkipTests=true only for pure production graph-only audits where
 	// test funcs would just be noise. Named with inverse polarity
-	// deliberately so the Go zero value (false) matches Atlas's intended
+	// deliberately so the Go zero value (false) matches Grunnr's intended
 	// default of "include tests" without requiring a constructor.
 	SkipTests bool
 
 	// SkipTypedResolution turns off the go/packages-backed resolver and
 	// scans with the AST name heuristics alone (issue #87).
 	//
-	// The default (zero value: false) is to TYPE-CHECK. Everything atlas
+	// The default (zero value: false) is to TYPE-CHECK. Everything grunnr
 	// claims rests on which declaration a call binds to, and a name is
 	// not an answer to that question: two packages in one repo declare
 	// the same `Chat.MarkLoaded`, and no amount of scope preference
@@ -132,14 +132,14 @@ type Options struct {
 	// SkipUnexportedFuncs, when true, excludes unexported plain functions
 	// (package-private `func helper()`) from the index. The default (zero
 	// value: false) is to INCLUDE them because the Go compiler instruments
-	// every function body for coverage: a helper that atlas does not index
+	// every function body for coverage: a helper that grunnr does not index
 	// has no source span, so its executed statements are either dropped or
 	// charged to whichever neighbouring symbol's span swallows them —
 	// exactly the silent under-attribution tracked in issue #85.
 	//
 	// Set SkipUnexportedFuncs=true for graph-only audits where package-
 	// private helpers are noise. Named with inverse polarity deliberately,
-	// like SkipTests, so the zero value matches Atlas's intended default.
+	// like SkipTests, so the zero value matches Grunnr's intended default.
 	SkipUnexportedFuncs bool
 }
 

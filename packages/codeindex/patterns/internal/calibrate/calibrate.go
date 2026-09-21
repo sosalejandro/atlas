@@ -20,7 +20,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/codeindex/patterns"
+	"github.com/sosalejandro/grunnr/packages/codeindex/patterns"
 )
 
 func main() {

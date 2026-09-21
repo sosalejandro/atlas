@@ -23,7 +23,7 @@ func TestIndexFreshness_TreeMatchesIndex_OK(t *testing.T) {
 }
 
 // The load-bearing case: a file edited since its scan means every number
-// downstream is about content atlas has not read.
+// downstream is about content grunnr has not read.
 func TestIndexFreshness_ChangedFile_Fails(t *testing.T) {
 	f := newFixture(t)
 	f.indexFile(t, "pkg/a.go", "package pkg\n\nfunc A() {}\n")
@@ -62,7 +62,7 @@ func TestIndexFreshness_DeletedFile_Fails(t *testing.T) {
 }
 
 // A source file the scan never reached is a hole in the picture, but not
-// a lie about what atlas did read -- warn, not fail.
+// a lie about what grunnr did read -- warn, not fail.
 func TestIndexFreshness_UnindexedGoFile_Warns(t *testing.T) {
 	f := newFixture(t)
 	f.indexFile(t, "pkg/a.go", "package pkg\n\nfunc A() {}\n")
@@ -76,7 +76,7 @@ func TestIndexFreshness_UnindexedGoFile_Warns(t *testing.T) {
 	}
 }
 
-// The third bucket. A file atlas recorded, that is still on disk, whose
+// The third bucket. A file grunnr recorded, that is still on disk, whose
 // bytes it could not re-read is an UNKNOWN -- and an unknown folded into
 // "all N indexed files match the working tree" is an unknown reported as
 // an ok, which is the one substitution this package exists to prevent.
@@ -187,7 +187,7 @@ func TestIndexFreshness_NoIndexAtAll_Fails(t *testing.T) {
 	}
 }
 
-// `atlas scan --hash-files=false` produces symbols with no hashes. There
+// `grunnr scan --hash-files=false` produces symbols with no hashes. There
 // is nothing to compare against, so the honest answer is "cannot tell",
 // never "ok" -- this is the exact lie the check set is built to avoid.
 func TestIndexFreshness_SymbolsButNoHashes_NotApplicable(t *testing.T) {

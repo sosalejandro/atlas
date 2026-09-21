@@ -17,7 +17,7 @@ import (
 // any TestMain it owns the process exit code, and here that code has to
 // survive several m.Run calls rather than just one.
 //
-// With ATLAS_COV_DIR unset it is exactly `os.Exit(m.Run())` — collection is
+// With GRUNNR_COV_DIR unset it is exactly `os.Exit(m.Run())` — collection is
 // opt-in per invocation, so a repo that has committed the shim still runs a
 // perfectly ordinary `go test`.
 func Run(m *testing.M) {
@@ -35,12 +35,12 @@ func run(m *testing.M, getenv func(string) string, stderr io.Writer) int {
 	if err != nil {
 		// A plan we cannot read is not a reason to fail someone's test run;
 		// it costs granularity, and that is what the default gives.
-		fmt.Fprintf(stderr, "atlas shim: %v (continuing per-test)\n", err)
+		fmt.Fprintf(stderr, "grunnr shim: %v (continuing per-test)\n", err)
 	}
 
 	s, err := newSuite(m)
 	if err != nil {
-		fmt.Fprintf(stderr, "atlas shim: %v (running the suite unchanged)\n", err)
+		fmt.Fprintf(stderr, "grunnr shim: %v (running the suite unchanged)\n", err)
 		return m.Run()
 	}
 
@@ -55,7 +55,7 @@ func run(m *testing.M, getenv func(string) string, stderr io.Writer) int {
 	}, s, goCounters{})
 
 	if err := WriteReport(root, rep); err != nil {
-		fmt.Fprintf(stderr, "atlas shim: %v\n", err)
+		fmt.Fprintf(stderr, "grunnr shim: %v\n", err)
 	}
 	return code
 }

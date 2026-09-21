@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/domain"
 	"gopkg.in/yaml.v3"
 )
 

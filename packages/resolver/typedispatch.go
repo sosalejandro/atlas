@@ -19,7 +19,7 @@ import (
 // := range allFuncs { for _, b := range f.Blocks { ... } }`). The dispatch
 // computation underneath it, chautil.LazyCallees, is pure go/types --
 // group every concrete method by types.Func.Id, then for an abstract
-// method I.m keep the ones whose receiver satisfies I. Atlas already
+// method I.m keep the ones whose receiver satisfies I. Grunnr already
 // enumerates its own call sites: the scanner walks the AST and reads
 // p.invokes[call.Lparen]. It was paying for an entire SSA program to find
 // call sites it had in hand.
@@ -38,7 +38,7 @@ import (
 // What is kept is CHA's conservatism, which is the property everything
 // downstream leans on: a call through an OrderRepository reports every
 // type implementing OrderRepository, whether or not the program ever
-// constructs one. Atlas records that over-approximation as an ambiguous
+// constructs one. Grunnr records that over-approximation as an ambiguous
 // edge, which is the honest shape of the answer. The one place this
 // differs from CHA is the universe of concrete types it draws from, and
 // invokeparity_test.go is the account of that difference.
@@ -230,7 +230,7 @@ func deref(t types.Type) types.Type {
 // outer one, and it is the outer type that satisfies the interface: a
 // struct embedding a Reader and a Writer implements Repo while neither
 // half does. recv is the type whose method set contained fn; fn is the
-// declaration atlas indexes.
+// declaration grunnr indexes.
 type concreteMethod struct {
 	recv types.Type
 	fn   *types.Func
@@ -306,7 +306,7 @@ func (idx *dispatchIndex) callees(iface *types.Interface, method *types.Func) []
 // mean reproducing SSA's reachability, which is the thing being removed;
 // being a strict superset of it is both achievable and safe.
 // invokeparity_test.go is the account of the difference and the
-// assertion that it cannot reach atlas's output.
+// assertion that it cannot reach grunnr's output.
 //
 // The cost of the wider universe is not theoretical and it is small:
 // BenchmarkDispatchStage prices the whole index at 30 MB of cumulative

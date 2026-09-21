@@ -29,7 +29,7 @@ func IsValidFeatureID(id FeatureID) bool {
 	return ValidFeatureIDRe.MatchString(string(id))
 }
 
-// SymbolID is the stable identifier Atlas uses to reference a code symbol.
+// SymbolID is the stable identifier Grunnr uses to reference a code symbol.
 //
 // Convention (Go): "ReceiverType.MethodName" for methods, "pkgName.FuncName"
 // for plain functions. Convention (TS): "<file-path>::<exported-name>".
@@ -49,7 +49,7 @@ type FeatureID string
 
 // SymbolKind classifies a Symbol so audit/sprintplan can weight by layer.
 //
-// The set below is the closed enum recognised by Atlas v1. It supersedes
+// The set below is the closed enum recognised by Grunnr v1. It supersedes
 // testreg's `domain.NodeKind` and extends it with codeindex-level kinds the
 // SQLite schema also stores (type, var, const, interface).
 type SymbolKind string
@@ -81,7 +81,7 @@ const (
 	KindTest SymbolKind = "test"
 )
 
-// FilePosition is the only way Atlas refers to a source location.
+// FilePosition is the only way Grunnr refers to a source location.
 //
 //   - Path is **repo-relative** (forward-slash, not absolute) so persisted
 //     state is portable across worktrees and machines.
@@ -121,7 +121,7 @@ type Symbol struct {
 
 // AnnotationKind is the closed enum of @atlas:<kind> values the parser
 // recognises. Adding a new kind is non-breaking (see docs/annotations.md
-// §Forward compatibility) — older Atlas versions emit a one-time advisory
+// §Forward compatibility) — older Grunnr versions emit a one-time advisory
 // warning and skip the annotation.
 type AnnotationKind string
 
@@ -138,10 +138,10 @@ const (
 	// annotations uniformly.
 	AnnAPI AnnotationKind = "api"
 
-	// EDA-pattern kinds (Phase 6e). These elevate Atlas's understanding of
+	// EDA-pattern kinds (Phase 6e). These elevate Grunnr's understanding of
 	// event-driven architectures: bounded contexts, aggregates, sagas,
 	// stream consumers, and the emit/publish split. They are pure
-	// annotation grammar extensions — Atlas does NOT autodetect these
+	// annotation grammar extensions — Grunnr does NOT autodetect these
 	// patterns from source (that is Horizon 2).
 	//
 	// ID rules:
@@ -162,14 +162,15 @@ const (
 
 // AnnotationSource records which grammar produced the annotation.
 //
-//   - "atlas"  — new-style `@atlas:<kind> <id>`
+//   - "grunnr"  — canonical `@grunnr:<kind> <id>`, and the `@atlas:` spelling
+//     it replaced, which is still read (see the parser)
 //   - "testreg" — legacy `@testreg <id>` (still recognised; see
 //     docs/annotations.md §Legacy reader)
-//   - "api"    — `@api METHOD /path` (orthogonal to the @atlas grammar)
+//   - "api"    — `@api METHOD /path` (orthogonal to the @grunnr grammar)
 type AnnotationSource string
 
 const (
-	SourceAtlas   AnnotationSource = "atlas"
+	SourceGrunnr   AnnotationSource = "grunnr"
 	SourceTestreg AnnotationSource = "testreg"
 	SourceAPI     AnnotationSource = "api"
 )

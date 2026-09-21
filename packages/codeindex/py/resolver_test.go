@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // TestResolver_CrossModule end-to-ends every cross-module resolver rule
@@ -263,16 +263,16 @@ func TestResolver_EnclosingModule(t *testing.T) {
 func TestResolver_BoundNameAndQualifiedImport(t *testing.T) {
 	t.Parallel()
 	packageInits := map[string]struct{}{
-		"src.click":     {},
-		"pkg":           {},
-		"pkg.subpkg":    {},
+		"src.click":  {},
+		"pkg":        {},
+		"pkg.subpkg": {},
 	}
 	tests := []struct {
-		name           string
-		callerModule   string
-		rendered       string
-		wantBoundName  string
-		wantQualified  string
+		name          string
+		callerModule  string
+		rendered      string
+		wantBoundName string
+		wantQualified string
 	}{
 		{
 			name:          "absolute import",
@@ -345,7 +345,7 @@ func edgeStringList(edges []graph.Edge) []string {
 // (`from mypkg.db.models import Case`).
 //
 // Before the fix, both import edges in services/api/src/api/deps.py
-// landed pointing at `external:py` stubs because atlas's symbol ids
+// landed pointing at `external:py` stubs because grunnr's symbol ids
 // are path-rooted (`packages.db.src.mypkg.db.models.Case`) and don't
 // match the import target verbatim. After the fix, rule (2) — the
 // canonical-Python-name suffix index — bridges the two name spaces so

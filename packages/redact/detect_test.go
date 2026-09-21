@@ -115,7 +115,7 @@ func TestScan_DetectsHighSignalSecrets(t *testing.T) {
 			// snapshots.index_json holds doc comments as JSON strings, so a
 			// credential quoted in a doc comment arrives with its quotes
 			// backslash-escaped. Missing this would mean the single largest
-			// disclosure atlas creates is also the one the sweep cannot read.
+			// disclosure grunnr creates is also the one the sweep cannot read.
 			name: "assignment inside a JSON-escaped doc comment",
 			text: `{"symbols":[{"id":"cfg.Load",` +
 				`"doc":"apiKey = \"` + stripeShaped + `\" is the fallback"}]}`,
@@ -153,7 +153,7 @@ func TestScan_DetectsHighSignalSecrets(t *testing.T) {
 
 func TestScan_LeavesLegitimateTextAlone(t *testing.T) {
 	// Every entry here appeared, in some form, in a real code index. A
-	// detector that fires on any of them makes `atlas sql` lie about the
+	// detector that fires on any of them makes `grunnr sql` lie about the
 	// query it analysed.
 	cases := []struct {
 		name string
@@ -175,7 +175,7 @@ func TestScan_LeavesLegitimateTextAlone(t *testing.T) {
 		{"header constant", `authHeader = "Authorization"`},
 		{"dsn without credentials", `dsn := "postgres://db.internal:5432/orders?sslmode=require"`},
 		{"dsn with user but no password", `dsn := "postgres://svc_orders@db.internal:5432/orders"`},
-		{"url with path segments", "https://github.com/sosalejandro/atlas/blob/main/README.md"},
+		{"url with path segments", "https://github.com/sosalejandro/grunnr/blob/main/README.md"},
 		{"aws-like but wrong length", "AKIAIOSFODNN7EXAM"},
 		{"go type named token", "type tokenBucket struct { rate int }"},
 		{"json field with a prefixed name", `{"token_type": "Bearer", "expires_in": 3600}`},

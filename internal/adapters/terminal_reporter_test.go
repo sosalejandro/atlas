@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/domain"
 )
 
 // --- fixtures ---
@@ -28,7 +28,7 @@ func newTestReport() *domain.Report {
 				domain.PriorityHigh:     {Total: 2, CoveredUnit: 1, MissingE2E: 2},
 			},
 			ByDomain: map[string]domain.DomainMetrics{
-				"auth": {TotalFeatures: 2, CoveredUnit: 2, CoveredIntegration: 1, CoveredE2E: 1, FailingE2E: 1},
+				"auth":    {TotalFeatures: 2, CoveredUnit: 2, CoveredIntegration: 1, CoveredE2E: 1, FailingE2E: 1},
 				"billing": {TotalFeatures: 2, CoveredUnit: 1, CoveredIntegration: 1},
 			},
 		},
@@ -99,8 +99,8 @@ func TestTerminalReporterRender(t *testing.T) {
 		{"column header Domain", "Domain"},
 		{"column header Unit", "Unit"},
 		{"column header E2E", "E2E"},
-		{"table border top", "\u250c"},     // ┌
-		{"table border bottom", "\u2518"},  // ┘
+		{"table border top", "\u250c"},    // ┌
+		{"table border bottom", "\u2518"}, // ┘
 	}
 
 	for _, c := range checks {

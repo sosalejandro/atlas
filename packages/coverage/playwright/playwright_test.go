@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/coverage"
+	"github.com/sosalejandro/grunnr/packages/coverage"
 )
 
 // goldenReport mirrors the structure of Playwright --reporter=json.

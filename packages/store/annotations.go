@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store/sqlc"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store/sqlc"
 )
 
 // AnnotationRow is one row of the `annotations` table (docs/schema-v1.md §5.11).
@@ -48,10 +48,10 @@ var schemaAnnotationKinds = map[shared.AnnotationKind]bool{
 }
 
 // schemaAnnotationSources is the closed set the §5.11 CHECK constraint
-// accepts. `api` source maps to `atlas` for storage parity (it's not part
+// accepts. `api` source maps to `grunnr` for storage parity (it's not part
 // of the @atlas grammar but the parser also emits it).
 var schemaAnnotationSources = map[shared.AnnotationSource]bool{
-	shared.SourceAtlas:   true,
+	shared.SourceGrunnr:   true,
 	shared.SourceTestreg: true,
 }
 
@@ -92,7 +92,7 @@ func (a *annotationsStore) Upsert(ctx context.Context, row AnnotationRow) error 
 	}
 	src := row.Source
 	if !schemaAnnotationSources[src] {
-		src = shared.SourceAtlas
+		src = shared.SourceGrunnr
 	}
 
 	err := a.q.UpsertAnnotation(ctx, sqlc.UpsertAnnotationParams{

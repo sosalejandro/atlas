@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sosalejandro/atlas/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/domain"
 )
 
 // ANSI color codes

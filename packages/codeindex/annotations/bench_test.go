@@ -10,7 +10,7 @@ import (
 )
 
 // The allocation half of the performance harness for this package (issue
-// #152). `atlas scan` calls ParseRelative once per source file in the tree,
+// #152). `grunnr scan` calls ParseRelative once per source file in the tree,
 // so whatever it allocates per file is multiplied by the file count: on this
 // repository it was 142.09 MB cumulative, 17.7% of a scan's 803 MB, for the
 // job of finding a few hundred comment lines.
@@ -80,7 +80,7 @@ func genGoSource(approxBytes int) []byte {
 	return buf.Bytes()
 }
 
-// BenchmarkParseRelative prices one file, which is the unit `atlas scan`
+// BenchmarkParseRelative prices one file, which is the unit `grunnr scan`
 // multiplies. Run it as:
 //
 //	go test ./packages/codeindex/annotations -run '^$' \

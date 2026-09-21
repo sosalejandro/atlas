@@ -3,13 +3,13 @@
 The TypeScript scanner is a Node.js subprocess that walks each `.ts` /
 `.tsx` file through the TypeScript Compiler API, then returns the
 discovered route / component / hook / api-service symbols and edges to
-the atlas Go orchestrator. Source lives in
+the grunnr Go orchestrator. Source lives in
 [`packages/codeindex/ts/`](../../packages/codeindex/ts/) — the embedded
 `scanner.ts` is what `node` actually runs.
 
 Unlike the Go scanner, the TS scanner is **router-aware**, not a general
 symbol indexer. It only emits symbols reachable from a discovered router
-(React Router, TanStack Router, or Expo Router). If atlas can't find a
+(React Router, TanStack Router, or Expo Router). If grunnr can't find a
 router signal under `--root`, every TS file under that root is silently
 skipped.
 
@@ -20,7 +20,7 @@ skipped.
   project's own `node_modules/`, or via `--node-modules-path
   <some-other-node_modules>`.
 
-The TS scanner is **optional**: if `node` isn't on PATH, atlas emits a
+The TS scanner is **optional**: if `node` isn't on PATH, grunnr emits a
 single warning and continues indexing Go + Python.
 
 ## What gets indexed
@@ -71,7 +71,7 @@ my-web-app/
             └── Button.tsx                     ← indexed if exported from a discovered route
 ```
 
-After `atlas init` this produces something like:
+After `grunnr init` this produces something like:
 
 ```
 symbols:        12  (1 route, 2 pages, 1 hook, 2 services, 6 components)
@@ -84,8 +84,8 @@ annotations:     8  (component-level @atlas:feature markers)
 ### Find a page component
 
 ```
-# Run from: my-web-app/, after `atlas init`
-$ atlas codebase find LoginPage
+# Run from: my-web-app/, after `grunnr init`
+$ grunnr codebase find LoginPage
 LoginPage  apps/web/src/pages/LoginPage.tsx:13  [component]
 ```
 
@@ -93,7 +93,7 @@ LoginPage  apps/web/src/pages/LoginPage.tsx:13  [component]
 
 ```
 # Run from: my-web-app/
-$ atlas chain web.auth.login
+$ grunnr chain web.auth.login
 trace feature web.auth.login (5 nodes)
 route:/login                                              [route]      apps/web/src/router.tsx:142
 LoginPage                                                 [component]  apps/web/src/pages/LoginPage.tsx:13
@@ -110,7 +110,7 @@ to the Go scanner — the next hop, `AuthHandler.Login`, lives in
 
 ```
 # Run from: my-web-app/
-$ atlas codebase pattern api-call
+$ grunnr codebase pattern api-call
 pattern api-call: 7 symbols
   apps/web/src/services/api/auth.ts:14         api-call
   apps/web/src/services/api/auth.ts:46         api-call
@@ -122,9 +122,9 @@ pattern api-call: 7 symbols
 
 ### 1. No router signal → no TS symbols at all
 
-The most common surprise: atlas reports `warning: no router signal
+The most common surprise: grunnr reports `warning: no router signal
 detected (react-router, tanstack, or expo)` and `files_scanned` looks
-correct, but `atlas codebase find LoginPage` returns "symbol not found".
+correct, but `grunnr codebase find LoginPage` returns "symbol not found".
 This happens when the scanner walks an apps/* directory but can't find
 *any* of:
 
@@ -133,26 +133,26 @@ This happens when the scanner walks an apps/* directory but can't find
   `@tanstack/react-router`.
 - An `app/` directory with `expo-router` in `package.json` dependencies.
 
-**Workaround**: if you have a router that atlas doesn't recognise (a
+**Workaround**: if you have a router that grunnr doesn't recognise (a
 custom wrapper, a server-only Next.js app, a Storybook config), the TS
 scanner won't emit anything for that root. Either:
 
 1. Annotate the symbols you care about with `@atlas:feature` directly —
    the annotation parser fires independently of the router walker.
-2. Open an issue at <https://github.com/sosalejandro/atlas/issues> with
+2. Open an issue at <https://github.com/sosalejandro/grunnr/issues> with
    the router shape; new framework signals are additive.
 
 ### 2. `tsconfig.json` is advisory — the scanner uses `ts.createSourceFile` directly
 
 The TS scanner discovers files via filesystem walk, not via `tsconfig.json`
 project references. Setting `"include"` or `"exclude"` in your tsconfig
-does NOT change what atlas indexes. The scanner does forward
+does NOT change what grunnr indexes. The scanner does forward
 `--tsconfig <path>` to the embedded `scanner.ts` (`Options.TsconfigPath`),
 but it's reserved for future type-aware passes — today it has no effect
 on file discovery.
 
 Practical impact: if your monorepo has `tsconfig.json` files at multiple
-levels with non-default `include` patterns, atlas may emit symbols for
+levels with non-default `include` patterns, grunnr may emit symbols for
 files your build excludes, or fail to skip files you'd expect it to. The
 ground truth is the directory layout (`apps/*` + `packages/*` + scanner
 skip rules), not the tsconfig.
@@ -162,12 +162,12 @@ skip rules), not the tsconfig.
 `scanner.ts` imports `typescript`. If the scanned project has no
 `node_modules/` (a slim repo, a backend-mostly monorepo, a fresh clone
 before `pnpm install`), the scanner subprocess crashes with a module
-resolution error and atlas reports zero TS symbols. Three fixes:
+resolution error and grunnr reports zero TS symbols. Three fixes:
 
 1. `npm install` / `pnpm install` in the scanned project before
-   `atlas init`.
+   `grunnr init`.
 2. Pass `--node-modules-path /path/to/some/other/node_modules` —
-   atlas appends it to `NODE_PATH`. A standalone `npm install
+   grunnr appends it to `NODE_PATH`. A standalone `npm install
    typescript` in any directory works.
 3. Configure `.atlas.yaml` to skip TS entirely:
    ```yaml
@@ -180,7 +180,7 @@ resolution error and atlas reports zero TS symbols. Three fixes:
 The scanner's default extensions list is `['.ts', '.tsx']`. The Expo
 file-based-router walker also picks up `.jsx` / `.js` under `app/`, but
 non-Expo projects with `.jsx` route trees won't be discovered. If you're
-on plain JavaScript (no TypeScript) atlas's TS scanner is not the right
+on plain JavaScript (no TypeScript) grunnr's TS scanner is not the right
 tool — open an issue if this matters; today the recommendation is to
 migrate to `.ts`.
 

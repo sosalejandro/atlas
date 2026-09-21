@@ -5,7 +5,7 @@
 //
 // It is deliberately separate from packages/coverage/shim, which is linked
 // into every test binary that opts in and therefore stays stdlib-thin. This
-// package is only ever imported by atlas itself.
+// package is only ever imported by grunnr itself.
 package runner
 
 import (
@@ -48,7 +48,7 @@ type Test struct {
 // TestMain is a package's existing TestMain declaration.
 type TestMain struct {
 	File string
-	// Generated is true when the declaration is one atlas wrote, which is
+	// Generated is true when the declaration is one grunnr wrote, which is
 	// the only kind it may overwrite.
 	Generated bool
 }
@@ -64,7 +64,7 @@ func (a Analysis) TestNames() []string {
 
 // ParallelTests returns the tests that call t.Parallel() in their own body.
 //
-// Such a package cannot be collected per test without atlas quietly running
+// Such a package cannot be collected per test without grunnr quietly running
 // its suite in a shape the developer did not choose: one test at a time,
 // with the concurrency those tests asked for taken away. So it degrades to
 // per-package instead, and says so.
@@ -106,7 +106,7 @@ func Analyze(dir string) (Analysis, error) {
 		path := filepath.Join(dir, name)
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 		if err != nil {
-			// A file atlas cannot parse is one it cannot reason about; the
+			// A file grunnr cannot parse is one it cannot reason about; the
 			// go tool will report it far better than we can, and guessing
 			// here would produce a plan for a package that will not build.
 			return Analysis{}, fmt.Errorf("runner: parse %s: %w", path, err)
@@ -230,7 +230,7 @@ func callsParallel(fn *ast.FuncDecl, param string) bool {
 	return found
 }
 
-// isGenerated reports whether a file carries atlas's generated marker. Read
+// isGenerated reports whether a file carries grunnr's generated marker. Read
 // as bytes rather than from the parsed comments: the marker is a contract
 // with whoever opens the file, not with the parser.
 func isGenerated(path string) bool {

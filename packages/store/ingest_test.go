@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/codeindex/patterns"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/codeindex/patterns"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // buildTestIndex returns a minimal codeindex.Index suitable for asserting
@@ -58,7 +58,7 @@ func buildTestIndex(t *testing.T) *codeindex.Index {
 			{
 				Kind:     shared.AnnFeature,
 				IDs:      []string{"auth.login"},
-				Source:   shared.SourceAtlas,
+				Source:   shared.SourceGrunnr,
 				Position: shared.FilePosition{Path: "src/handler.go", Line: 9},
 				Raw:      "auth.login",
 			},

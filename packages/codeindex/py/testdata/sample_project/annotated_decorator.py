@@ -8,14 +8,14 @@ Two surfaces under test:
    annotation attached to the class AND propagate to every method body
    defined inside the class (the AC #6 class-level propagation).
 
-The helper module shipped at ``assets/python/atlas.py`` provides the
+The helper module shipped at ``assets/python/grunnr.py`` provides the
 no-op ``feature`` decorator; in this fixture we don't import it because
 the scanner reads the decorator name statically.
 """
 
 from __future__ import annotations
 
-import atlas  # noqa: F401 — runtime no-op; scanner reads statically
+import grunnr  # noqa: F401 — runtime no-op; scanner reads statically
 
 
 @atlas.feature("ship-orders")
@@ -30,7 +30,7 @@ class BatchShipper:
 
     The store-side LookupSymbolAtOrAfterLine resolves each propagation
     record to the method's symbol, NOT to the class. That's what makes
-    ``atlas trace ship-orders.batch`` return the method bodies rather
+    ``grunnr trace ship-orders.batch`` return the method bodies rather
     than just the class declaration.
     """
 

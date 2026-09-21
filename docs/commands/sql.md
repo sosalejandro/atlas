@@ -1,6 +1,6 @@
-# atlas sql
+# grunnr sql
 
-`atlas sql` opens up the data access layer. Atlas could already tell you that
+`grunnr sql` opens up the data access layer. Grunnr could already tell you that
 a repository function is covered by a test. What it could not tell you — and
 what actually breaks in production — is that the query inside that function
 has no `LIMIT`, takes a caller-supplied `OFFSET`, and filters on a column no
@@ -14,7 +14,7 @@ does, and turns that shape into advisories with a confidence attached.
 Read this first, because it is the thing the rest of the command is built
 around.
 
-Atlas reads SQL **only where it is statically visible**: a string literal
+Grunnr reads SQL **only where it is statically visible**: a string literal
 passed to a `database/sql` method, a constant or single-assignment local
 holding query text, and the `.sql` files sqlc generates from. A query built by
 a query builder, assembled across functions, or read from configuration is
@@ -28,7 +28,7 @@ exists to avoid, so:
 
 - every verb prints the **resolved fraction** ("42 operations: 38 resolved,
   4 unresolved (90% of the data layer analysed)");
-- `atlas sql list --unresolved` enumerates exactly what was not analysed and
+- `grunnr sql list --unresolved` enumerates exactly what was not analysed and
   why;
 - every check that could not run reports itself under **Checks that did not
   run**, rather than passing by default.
@@ -62,10 +62,10 @@ index is absent.
 ## Usage
 
 ```
-atlas sql scan [path] [flags]     # extract into the Atlas store
-atlas sql list [flags]            # what was recorded
-atlas sql advise [flags]          # what is wrong with it
-atlas sql capabilities [flags]    # which tables each capability touches
+grunnr sql scan [path] [flags]     # extract into the Grunnr store
+grunnr sql list [flags]            # what was recorded
+grunnr sql advise [flags]          # what is wrong with it
+grunnr sql capabilities [flags]    # which tables each capability touches
 ```
 
 `scan` reads the working tree and writes the inventory. `list` and `advise`
@@ -149,7 +149,7 @@ position: `%*s` takes its width from an argument of its own and shifts every
 later verb along, and `%[1]s` names its argument outright and moves the cursor
 for what follows. Zipping them positionally checks the wrong expression, which
 on this check means both missed findings and false ones. Where a format string
-contains a directive Atlas cannot account for at all, it stops claiming to
+contains a directive Grunnr cannot account for at all, it stops claiming to
 know which argument lands in the text and weighs **every** argument — on a
 security check a silent miss is the expensive failure.
 
@@ -169,7 +169,7 @@ missing.
 
 ### What "the schema" means here
 
-`sql_tables` and `sql_indexes` hold what Atlas **read**, not a mirror of a
+`sql_tables` and `sql_indexes` hold what Grunnr **read**, not a mirror of a
 live database, and they are the schema as of the last migration rather than
 the union of everything ever declared:
 
@@ -182,11 +182,11 @@ the union of everything ever declared:
   takes its indexes with it; a renamed one carries its indexes across.
 - **Columns are still additive.** `ALTER TABLE … DROP COLUMN` and
   `RENAME COLUMN` are not applied: the inventory records *index* columns, and
-  rewriting an index definition Atlas never re-read would be a guess dressed
+  rewriting an index definition Grunnr never re-read would be a guess dressed
   as a fact.
 - **`CREATE INDEX CONCURRENTLY`** and `IF NOT EXISTS` are understood. The
   table is anchored on the `ON` keyword rather than on position, so an index
-  spelling Atlas has not met records nothing rather than recording an index
+  spelling Grunnr has not met records nothing rather than recording an index
   against a table that does not exist.
 
 ### Why the schema-wide checks abstain so readily
@@ -208,7 +208,7 @@ comment block above it, or in the enclosing function's doc comment:
 
 ```go
 // AllTenants is knowingly unbounded; there are nine rows.
-// atlas:sql-ignore sql.unbounded-list
+// grunnr:sql-ignore sql.unbounded-list
 func (r *Repo) AllTenants(ctx context.Context) ([]Tenant, error) {
 ```
 
@@ -216,17 +216,17 @@ In a `.sql` file, in the query's comment header:
 
 ```sql
 -- name: ListUsers :many
--- atlas:sql-ignore sql.unbounded-list,sql.select-star
+-- grunnr:sql-ignore sql.unbounded-list,sql.select-star
 SELECT id, email FROM users WHERE tenant_id = $1;
 ```
 
 Multiple codes are comma-separated; `all` silences every code at that site.
 Trailing prose is ignored, so
-`// atlas:sql-ignore sql.select-star -- payload is versioned` reads well.
+`// grunnr:sql-ignore sql.select-star -- payload is versioned` reads well.
 
-**Globally**, per invocation: `atlas sql advise --suppress sql.select-star`.
+**Globally**, per invocation: `grunnr sql advise --suppress sql.select-star`.
 
-## Flags — `atlas sql scan`
+## Flags — `grunnr sql scan`
 
 | Flag | Default | Description |
 | --- | --- | --- |
@@ -239,14 +239,14 @@ The positional `[path]` defaults to the repository root. `vendor`,
 `testdata` for the same reason `_test.go` is, since a query in a fixture is
 not a production data path.
 
-## Flags — `atlas sql list`
+## Flags — `grunnr sql list`
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--unresolved` | `false` | list only what Atlas could not statically resolve |
+| `--unresolved` | `false` | list only what Grunnr could not statically resolve |
 | `--table` | — | list only operations touching this table |
 
-## Flags — `atlas sql advise`
+## Flags — `grunnr sql advise`
 
 | Flag | Default | Description |
 | --- | --- | --- |
@@ -256,7 +256,7 @@ not a production data path.
 An unknown `--min-confidence` is an error rather than a silent default: a CI
 job filtering on a typo'd level would report a clean run forever.
 
-## Flags — `atlas sql capabilities`
+## Flags — `grunnr sql capabilities`
 
 | Flag | Default | Description |
 | --- | --- | --- |
@@ -269,19 +269,19 @@ review, a migration blast radius, or a per-capability ERD is drawn from.
 
 The join is `feature_symbols → sql_operations → sql_operation_tables`, so a
 query reaches a capability only where the symbol it lives in is linked to one
-(`atlas scan` indexes those annotations). The output leads with how many of
+(`grunnr scan` indexes those annotations). The output leads with how many of
 the recorded operations belong to any capability at all, because a rollup over
 a fifth of the inventory should not read like a rollup over all of it.
 
 **The footprint is a lower bound wherever a capability has unresolved
-queries.** Those queries touch tables Atlas could not see, so the row keeps its
+queries.** Those queries touch tables Grunnr could not see, so the row keeps its
 count and the line reads `PARTIAL`. A capability whose queries *all* failed to
 resolve still gets a row with an empty table set rather than being dropped:
 "nothing recorded" and "touches no data" are different answers, and only one
 of them is true.
 
 ```
-$ atlas sql capabilities
+$ grunnr sql capabilities
 
   42 operations: 38 resolved, 4 unresolved (90% of the data layer analysed)
   17 of 42 operations belong to a capability
@@ -298,19 +298,19 @@ $ atlas sql capabilities
 ## Example
 
 ```
-$ atlas sql scan
+$ grunnr sql scan
 
   indexed 42 operations from /src/api
   42 operations: 38 resolved, 4 unresolved (90% of the data layer analysed)
   schema: 17 tables, 31 indexes from db/migrations
 
   Unresolved (recorded, not analysed):
-      3  query text is an expression atlas cannot statically resolve
+      3  query text is an expression grunnr cannot statically resolve
       1  query text is assembled with a formatting call
 
-  next: atlas sql advise
+  next: grunnr sql advise
 
-$ atlas sql advise --min-confidence high
+$ grunnr sql advise --min-confidence high
 
   42 operations: 38 resolved, 4 unresolved (90% of the data layer analysed)
 
@@ -346,12 +346,12 @@ much of the data layer produced it and which checks abstained.
 - Extraction covers Go (`database/sql` call sites) and sqlc `.sql` files.
   Other languages and ORMs are not read; their queries do not appear at all,
   which is a *silence*, not a pass.
-- Where the query argument cannot be resolved to any text, Atlas records the
+- Where the query argument cannot be resolved to any text, Grunnr records the
   call only when the receiver looks like a database handle (`db`, `conn`,
   `tx`, `q`, `queries`, …). Proper type resolution needs a fully buildable
-  target repository, which Atlas cannot assume. A handle under an unusual name
+  target repository, which Grunnr cannot assume. A handle under an unusual name
   is therefore invisible rather than mis-recorded.
-- Atlas is not a query planner and not an APM. It says what a query *is* and
+- Grunnr is not a query planner and not an APM. It says what a query *is* and
   whether an index *could* serve it; it does not estimate cost or read
   `EXPLAIN` output.
 - `capabilities` gives the table set behind a feature, not a drawing of it.

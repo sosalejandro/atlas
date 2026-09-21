@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // The words that started #177, taken from the cobra run recorded in the
 // issue: TestNoFileCompletions, TestGenBashCompletionFile and friends gave
-// atlas provisional:root.no and provisional:root.bash, over nine and six
+// grunnr provisional:root.no and provisional:root.bash, over nine and six
 // symbols respectively. The rule that refuses them is "the word has to head
 // at least two declarations", and these are the exact declarations cobra has.
 func TestNameEarned_RefusesTheModifiersCobraProduced(t *testing.T) {
@@ -121,7 +121,7 @@ func unnamedFixture() Input {
 }
 
 // The repository root is not a capability called "root.root". It is a
-// grouping atlas cannot name, and the honest report of it is its SIZE and its
+// grouping grunnr cannot name, and the honest report of it is its SIZE and its
 // FILES (#177).
 func TestInfer_RepositoryRootBecomesASizedUnnamedGrouping(t *testing.T) {
 	res := Infer(unnamedFixture())
@@ -184,7 +184,7 @@ func TestInfer_RepositoryRootBecomesASizedUnnamedGrouping(t *testing.T) {
 
 // Every named proposal outranks every unnamed grouping. A reader who meets a
 // refusal first has nothing to do with it; one who meets it last has already
-// seen what atlas WAS willing to name.
+// seen what grunnr WAS willing to name.
 func TestInfer_UnnamedGroupingsSortLast(t *testing.T) {
 	res := Infer(unnamedFixture())
 	seenUnnamed := false
@@ -211,7 +211,7 @@ func TestCapability_NamedAndUnnamedInvariants(t *testing.T) {
 	}
 	for _, c := range res.Capabilities {
 		if c.Anchor == nil {
-			t.Fatalf("%s has no anchor; promote --as needs a target even for a grouping atlas would not name", c.Ref())
+			t.Fatalf("%s has no anchor; promote --as needs a target even for a grouping grunnr would not name", c.Ref())
 		}
 		if c.Named {
 			if !validID(c.ID) {
@@ -334,7 +334,7 @@ func TestCapability_Rename(t *testing.T) {
 	// Anchor is a POINTER, so a rename that wrote through it instead of
 	// copying would reach back into the map the caller is still holding --
 	// and the report the user is reading would acquire an annotation for a
-	// grouping atlas refused to name. The value fields are safe by Go's
+	// grouping grunnr refused to name. The value fields are safe by Go's
 	// value receiver; this one is not, which is why it is the one asserted.
 	if u.Anchor.Annotation != "" {
 		t.Errorf("Rename wrote %q through the anchor of the grouping it was called on",
@@ -348,7 +348,7 @@ func TestCapability_Rename(t *testing.T) {
 	}
 }
 
-// Promoting a grouping atlas would not name is a SKIP, not an error: --all
+// Promoting a grouping grunnr would not name is a SKIP, not an error: --all
 // has to keep working and report this per entry rather than aborting.
 func TestPromote_UnnamedGroupingIsSkippedNotWritten(t *testing.T) {
 	root := t.TempDir()
@@ -433,7 +433,7 @@ func TestLimits_CouldNotNameIsStatedWithItsMeasuredSize(t *testing.T) {
 	if l == nil {
 		t.Fatalf("no could-not-name limit; the refusal is only visible under the map: %+v", res.Limits)
 	}
-	// 4 of 6 undeclared symbols are in the grouping atlas would not name.
+	// 4 of 6 undeclared symbols are in the grouping grunnr would not name.
 	for _, want := range []string{"4 of 6", "67%", "1 grouping"} {
 		if !strings.Contains(l.Detail, want) {
 			t.Errorf("could-not-name limit does not say %q: %s", want, l.Detail)
@@ -443,7 +443,7 @@ func TestLimits_CouldNotNameIsStatedWithItsMeasuredSize(t *testing.T) {
 		t.Errorf("could-not-name limit does not say how to name one: %q", l.Fix)
 	}
 
-	// A repository where atlas can name everything must not be told it
+	// A repository where grunnr can name everything must not be told it
 	// refused to name something.
 	clean := Infer(Input{
 		Root:    "/repo",
@@ -463,7 +463,7 @@ func TestLimits_CouldNotNameIsStatedWithItsMeasuredSize(t *testing.T) {
 // count of "capabilities". That was changed, and this test with it: the
 // header says "N named proposals + M unnamed groupings", and a bullet one
 // line later saying "All N+M capabilities below" both contradicted it and
-// called a grouping atlas had just refused to name a capability. Summing
+// called a grouping grunnr had just refused to name a capability. Summing
 // them was chosen deliberately, to avoid under-reporting the map -- the
 // right fix for that is to state BOTH numbers, which is what is asserted
 // now, rather than to merge them under the wrong word.

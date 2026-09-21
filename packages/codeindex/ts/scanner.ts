@@ -1,9 +1,9 @@
 /**
- * Atlas TypeScript AST Scanner
+ * Grunnr TypeScript AST Scanner
  *
  * Phase 2 — ported from testreg's internal/adapters/ts-scanner.ts and
  * extended with TanStack Router + Expo Router (file-based) support. The
- * Atlas Go orchestrator (packages/codeindex/ts/scanner.go) embeds this
+ * Grunnr Go orchestrator (packages/codeindex/ts/scanner.go) embeds this
  * file via go:embed, writes it to a tempfile at runtime, and shells out
  * to node.
  *
@@ -185,12 +185,12 @@ function parseArgs(argv: string[]): CliArgs {
 // ---------------------------------------------------------------------------
 
 function warn(msg: string): void {
-  process.stderr.write(`[atlas-ts] WARN: ${msg}\n`);
+  process.stderr.write(`[grunnr-ts] WARN: ${msg}\n`);
 }
 
 function info(msg: string): void {
   if (process.env.ATLAS_TS_VERBOSE) {
-    process.stderr.write(`[atlas-ts] ${msg}\n`);
+    process.stderr.write(`[grunnr-ts] ${msg}\n`);
   }
 }
 
@@ -1541,11 +1541,11 @@ function main(): void {
     args = parseArgs(process.argv.slice(2));
     INCLUDE_NESTED_REPOS = args.includeNestedRepos;
   } catch (e) {
-    process.stderr.write(`[atlas-ts] usage error: ${(e as Error).message}\n`);
+    process.stderr.write(`[grunnr-ts] usage error: ${(e as Error).message}\n`);
     process.exit(2);
   }
   if (!fs.existsSync(args.root)) {
-    process.stderr.write(`[atlas-ts] project root not found: ${args.root}\n`);
+    process.stderr.write(`[grunnr-ts] project root not found: ${args.root}\n`);
     process.exit(2);
   }
   const startedAt = Date.now();

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // sqlFixture lays out a repository whose data layer contains one of each
@@ -34,7 +34,7 @@ func newSQLFixture(t *testing.T) *sqlFixture {
 			t.Fatal(err)
 		}
 	}
-	if err := os.MkdirAll(filepath.Join(dir, ".atlas"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".grunnr"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	write("db/migrations/0001_init.sql", `
@@ -84,7 +84,7 @@ type builder struct{}
 
 func (b *builder) SQL() string { return "" }
 `)
-	f := &sqlFixture{root: dir, dbPath: filepath.Join(dir, ".atlas", "atlas.db")}
+	f := &sqlFixture{root: dir, dbPath: filepath.Join(dir, ".grunnr", "grunnr.db")}
 	loaded = Config{repoRoot: dir, DBPath: f.dbPath}
 	flags = globalFlags{DBPath: f.dbPath}
 	return f
@@ -117,13 +117,13 @@ func TestSQL_CommandIsRegistered(t *testing.T) {
 					}
 				}
 				if !haveSub {
-					t.Errorf("atlas sql is missing the %q verb", sub)
+					t.Errorf("grunnr sql is missing the %q verb", sub)
 				}
 			}
 		}
 	}
 	if !found {
-		t.Fatal("atlas sql is not registered on the root command")
+		t.Fatal("grunnr sql is not registered on the root command")
 	}
 }
 
@@ -369,7 +369,7 @@ func TestSQL_ListFiltersUnresolved(t *testing.T) {
 }
 
 // seedCapabilities links features to the symbols the fixture's queries live
-// in, the way `atlas scan` does from annotations. It runs before `sql scan`
+// in, the way `grunnr scan` does from annotations. It runs before `sql scan`
 // because the operation rows resolve their symbol link by qualified name at
 // write time.
 func seedCapabilities(t *testing.T, fix *sqlFixture, links map[string]string) {
@@ -509,7 +509,7 @@ func TestSQL_AdviseBeforeScanSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("advise on an empty store should not error: %v", err)
 	}
-	if !strings.Contains(stdout, "atlas sql scan") {
-		t.Errorf("expected the output to point at `atlas sql scan`; got:\n%s", stdout)
+	if !strings.Contains(stdout, "grunnr sql scan") {
+		t.Errorf("expected the output to point at `grunnr sql scan`; got:\n%s", stdout)
 	}
 }

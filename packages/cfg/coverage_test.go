@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/cfg"
-	"github.com/sosalejandro/atlas/packages/coverage/gocover"
+	"github.com/sosalejandro/grunnr/packages/cfg"
+	"github.com/sosalejandro/grunnr/packages/coverage/gocover"
 )
 
 // profileBlocks loads the real `go test -covermode=count` profile committed

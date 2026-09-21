@@ -1,4 +1,4 @@
-"""Main fixture module — covers every node + edge kind atlas extracts.
+"""Main fixture module — covers every node + edge kind grunnr extracts.
 
 The test harness asserts the following symbols exist:
 

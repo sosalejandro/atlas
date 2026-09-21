@@ -30,7 +30,7 @@
 // reports how many of them are independently exercisable IN PRINCIPLE
 // (Analysis.ConditionsIndependent). That number is a property of the source,
 // not a coverage verdict, and no caller may present it as one: a real MC/DC
-// verdict needs condition-level instrumentation that atlas does not have and
+// verdict needs condition-level instrumentation that grunnr does not have and
 // cannot fake. See MCDCNotDerivable, which every surface prints beside it.
 package cfg
 

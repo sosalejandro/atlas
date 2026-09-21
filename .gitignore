@@ -62,7 +62,7 @@ node_modules/
 # including the runs this repo's own docs are recorded from. It is a derived
 # proposal set, regenerated from scratch each time, so it is not committed
 # here — a project that wants its proposals in review can un-ignore it.
-.atlas/provisional/
+.grunnr/provisional/
 
 # Agent worktrees live inside the repo and would otherwise be committed as
 # embedded repositories — and would be matched by ./... in go test and lint.

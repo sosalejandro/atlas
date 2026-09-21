@@ -8,11 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newCodebaseCmd builds the `atlas codebase` group: structural lookups
+// newCodebaseCmd builds the `grunnr codebase` group: structural lookups
 // against the persisted SQLite state.
 func newCodebaseCmd() *cobra.Command {
 	cmd := &cobra.Command{

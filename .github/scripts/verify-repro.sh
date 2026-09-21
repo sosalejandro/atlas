@@ -38,9 +38,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
 
-VERSION="$(atlas_resolve_version "$REPO_ROOT")"
-COMMIT="$(atlas_resolve_commit "$REPO_ROOT")"
-SOURCE_DATE_EPOCH="$(atlas_source_date_epoch "$REPO_ROOT")"
+VERSION="$(grunnr_resolve_version "$REPO_ROOT")"
+COMMIT="$(grunnr_resolve_commit "$REPO_ROOT")"
+SOURCE_DATE_EPOCH="$(grunnr_source_date_epoch "$REPO_ROOT")"
 export VERSION COMMIT SOURCE_DATE_EPOCH
 
 # Which targets to compare. The host target is the default because it is the
@@ -52,11 +52,11 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/build1" "$work/build2" "$work/tmp1" "$work/tmp2"
 
 # Every shipped binary, not just the first one. A reproducibility claim that
-# covers `atlas` and quietly omits `atlas-serve` is worse than none: it is
+# covers `grunnr` and quietly omits `grunnr-serve` is worse than none: it is
 # published for the whole release.
 build_into() {
 	local dist="$1" tmp="$2" procs="$3" root="$4" target cmd
-	for cmd in $ATLAS_COMMANDS; do
+	for cmd in $GRUNNR_COMMANDS; do
 		for target in $TARGETS; do
 			GOOS="${target%%/*}" GOARCH="${target##*/}" \
 				DIST="$dist" TMPDIR="$tmp" GOMAXPROCS="$procs" CMD="$cmd" \
@@ -84,7 +84,7 @@ tar -c -C "$REPO_ROOT" \
 	--exclude=./node_modules \
 	. | tar -x -C "$mirror"
 if [ ! -f "$mirror/go.mod" ]; then
-	atlas_err "second tree at $mirror is missing go.mod; the copy did not work"
+	grunnr_err "second tree at $mirror is missing go.mod; the copy did not work"
 	exit 1
 fi
 
@@ -92,17 +92,17 @@ printf 'build 2: %s\n' "$mirror" >&2
 build_into "$work/build2" "$work/tmp2" 4 "$mirror"
 
 printf '\ncomparing digests\n' >&2
-if atlas_compare_trees "$work/build1" "$work/build2"; then
+if grunnr_compare_trees "$work/build1" "$work/build2"; then
 	printf '\nreproducible: %s at %s, targets [%s]\n' "$VERSION" "$COMMIT" "$TARGETS"
 	printf '  (two builds, one machine, one toolchain: %s — varying output dir,\n' "$(go env GOVERSION)"
 	printf '   TMPDIR, GOMAXPROCS and source path. Not a cross-machine result.)\n'
 	exit 0
 fi
 
-atlas_err ""
-atlas_err "the same commit produced different bytes twice."
-atlas_err "Something in the build depends on the environment rather than on the source."
-atlas_err "Usual suspects: a timestamp not derived from SOURCE_DATE_EPOCH, an absolute"
-atlas_err "path escaping -trimpath, an embedded file whose generator is not deterministic,"
-atlas_err "or a Go env var (GOFLAGS/GOEXPERIMENT/GOAMD64) leaking in from the shell."
+grunnr_err ""
+grunnr_err "the same commit produced different bytes twice."
+grunnr_err "Something in the build depends on the environment rather than on the source."
+grunnr_err "Usual suspects: a timestamp not derived from SOURCE_DATE_EPOCH, an absolute"
+grunnr_err "path escaping -trimpath, an embedded file whose generator is not deterministic,"
+grunnr_err "or a Go env var (GOFLAGS/GOEXPERIMENT/GOAMD64) leaking in from the shell."
 exit 1

@@ -8,16 +8,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// newCodebaseDeadCmd builds the `atlas codebase dead` verb. It scans the
+// newCodebaseDeadCmd builds the `grunnr codebase dead` verb. It scans the
 // indexed graph for symbols whose qualifying incoming-edge count is zero
 // — a triage signal for dead-code sweeps — and surfaces them alongside
 // the inherent-false-positive caveats so consumers don't act on the
 // output as a literal deletion list.
 //
-// Per the issue spec (atlas-internal#20) the command is intentionally
+// Per the issue spec (grunnr-internal#20) the command is intentionally
 // thin: the heavy lifting (kind/scope/path/test predicates) lives in
 // store.Symbols().FindDead so other future verbs ("audit dead",
 // "snapshot drift") can reuse it without re-implementing the SQL.
@@ -211,7 +211,7 @@ type deadCandidateRecord struct {
 //
 // Errors from FindDead bubble up unchanged so the cobra error chain
 // preserves the SQL-level context — a "no such table: edges" failure
-// (i.e. caller forgot to `atlas init`) should surface verbatim.
+// (i.e. caller forgot to `grunnr init`) should surface verbatim.
 func runCodebaseDead(cmd *cobra.Command, args deadCmdArgs) error {
 	ctx := cmd.Context()
 	if ctx == nil {

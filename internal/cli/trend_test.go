@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
-// trendFixture owns a tempdir + .atlas/atlas.db and resets the package
+// trendFixture owns a tempdir + .grunnr/grunnr.db and resets the package
 // singletons, mirroring deadFixture. NOT parallel-safe — see NewRootCmd.
 type trendFixture struct {
 	root   string
@@ -24,10 +24,10 @@ type trendFixture struct {
 func newTrendFixture(t *testing.T) *trendFixture {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".atlas"), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".grunnr"), 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
-	dbPath := filepath.Join(dir, ".atlas", "atlas.db")
+	dbPath := filepath.Join(dir, ".grunnr", "grunnr.db")
 	loaded = Config{repoRoot: dir, DBPath: dbPath}
 	flags = globalFlags{DBPath: dbPath}
 	return &trendFixture{root: dir, dbPath: dbPath}
@@ -51,7 +51,7 @@ func (f *trendFixture) record(t *testing.T, p store.HistoryPoint) {
 	}
 }
 
-// feature registers a feature id so `--feature` accepts it. `atlas trend`
+// feature registers a feature id so `--feature` accepts it. `grunnr trend`
 // validates the id against the features table, so a series test that wants a
 // feature scope has to declare the feature exists.
 func (f *trendFixture) feature(t *testing.T, ids ...string) {
@@ -111,7 +111,7 @@ func TestTrend_RegisteredOnRoot(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("atlas trend is not registered on the root command")
+		t.Fatal("grunnr trend is not registered on the root command")
 	}
 }
 
@@ -119,7 +119,7 @@ func TestTrend_FlagsWired(t *testing.T) {
 	c := newTrendCmd()
 	for _, name := range []string{"feature", "since", "limit", "compare-to", "max-regression", "denominator-tolerance"} {
 		if c.Flags().Lookup(name) == nil {
-			t.Errorf("atlas trend is missing --%s", name)
+			t.Errorf("grunnr trend is missing --%s", name)
 		}
 	}
 	var recordFound bool
@@ -128,13 +128,13 @@ func TestTrend_FlagsWired(t *testing.T) {
 			recordFound = true
 			for _, name := range []string{"commit", "note", "retain"} {
 				if sub.Flags().Lookup(name) == nil {
-					t.Errorf("atlas trend record is missing --%s", name)
+					t.Errorf("grunnr trend record is missing --%s", name)
 				}
 			}
 		}
 	}
 	if !recordFound {
-		t.Error("atlas trend has no `record` subcommand")
+		t.Error("grunnr trend has no `record` subcommand")
 	}
 }
 

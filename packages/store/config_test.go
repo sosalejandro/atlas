@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 func TestConfig_SetGetUpsert(t *testing.T) {

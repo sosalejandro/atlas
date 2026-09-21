@@ -20,8 +20,8 @@ import (
 //
 // On Windows the same file has several equally correct spellings:
 //
-//	C:\src\atlas\load.go        go list, native separators
-//	c:/src/atlas/load.go        a root the operator typed with slashes
+//	C:\src\grunnr\load.go        go list, native separators
+//	c:/src/grunnr/load.go        a root the operator typed with slashes
 //	C:\Users\RUNNER~1\...       an 8.3 short name, as %TEMP% is on CI
 //	C:\Users\runneradmin\...    the long name for that same directory
 //

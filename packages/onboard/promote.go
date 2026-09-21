@@ -48,13 +48,13 @@ var annotationMarkers = []string{"@atlas:feature", "@atlas:contract", "@testreg"
 // over this: Promote resolves its target by line number against the file as
 // it stands, and one insertion moves every line below it.
 func Promote(root string, c Capability, apply bool) (PromoteResult, error) {
-	// A grouping atlas refused to name has no id to write, and inventing one
+	// A grouping grunnr refused to name has no id to write, and inventing one
 	// here would undo the refusal at the last possible moment (#177). A skip
 	// rather than an error, so `--all` still promotes everything it can and
 	// reports this per entry instead of aborting the batch.
 	if !c.Named {
-		return PromoteResult{ID: c.Ref(), Skipped: "unnamed grouping: atlas has no honest " +
-			"name for this. Name it yourself: atlas onboard promote --id unnamed:N --as <your.feature.id>"}, nil
+		return PromoteResult{ID: c.Ref(), Skipped: "unnamed grouping: grunnr has no honest " +
+			"name for this. Name it yourself: grunnr onboard promote --id unnamed:N --as <your.feature.id>"}, nil
 	}
 	if c.Anchor == nil {
 		return PromoteResult{}, fmt.Errorf(
@@ -81,7 +81,7 @@ func Promote(root string, c Capability, apply bool) (PromoteResult, error) {
 		// points somewhere else now, and writing to it would annotate the
 		// wrong declaration.
 		return res, fmt.Errorf(
-			"onboard promote: %s:%d is past the end of the file (%d lines) -- re-run `atlas onboard` to refresh the map",
+			"onboard promote: %s:%d is past the end of the file (%d lines) -- re-run `grunnr onboard` to refresh the map",
 			c.Anchor.FilePath, c.Anchor.Line, len(lines))
 	}
 
@@ -195,7 +195,7 @@ func existingAnnotation(lines []string, declIdx int, comment string) (string, bo
 // and refuses anything that escapes the root.
 //
 // The index never produces such a path, which is the reason the check lives
-// here: promotion is the one code path in atlas that writes to arbitrary
+// here: promotion is the one code path in grunnr that writes to arbitrary
 // source files, and a guard that depends on every caller getting it right is
 // not a guard.
 func resolveInsideRoot(root, rel string) (string, error) {
@@ -212,7 +212,7 @@ func resolveInsideRoot(root, rel string) (string, error) {
 
 // commentPrefix picks the line-comment token for a file's language. The
 // default is "//" because it covers Go, TypeScript, JavaScript, Java, C and
-// Rust; the map names the exceptions atlas can index.
+// Rust; the map names the exceptions grunnr can index.
 func commentPrefix(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".py", ".rb", ".sh", ".yaml", ".yml":

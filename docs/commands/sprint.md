@@ -1,6 +1,6 @@
-# atlas sprint
+# grunnr sprint
 
-`atlas sprint` composes the audit signal with the gap-weighted prioritisation
+`grunnr sprint` composes the audit signal with the gap-weighted prioritisation
 in [`packages/sprintplan/`](../../packages/sprintplan/) and emits a ranked
 backlog: which features to invest engineering time in next.
 
@@ -11,7 +11,7 @@ unset.
 ## Usage
 
 ```
-atlas sprint [flags]
+grunnr sprint [flags]
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ atlas sprint [flags]
 | ----------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------- |
 | `--top`                       | `0` (full backlog)    | Cap output to the top-N items. `0` means "no cap" or "use config default", whichever is more restrictive. |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                                     |
-| `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                           |
+| `--db-path` *(global)*        | `.grunnr/grunnr.db`     | Override the SQLite state path.                                                                           |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                             |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                                                                            |
 
@@ -29,8 +29,8 @@ atlas sprint [flags]
 ### Full sprint backlog
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas sprint
+# Run from: /tmp/grunnr-fixture
+$ grunnr sprint
  1. billing.subscribe                                   priority= 60.00 cost=S
     - Score 0 (critical), 0 linked symbols, cost=S
     - no audit signals available (no coverage, no aggregate, no contract, no annotation source)
@@ -40,7 +40,7 @@ $ atlas sprint
 ```
 
 Two features ranked by priority score. `billing.subscribe` wins because
-it has no audit signals (score 0, classified `critical`) — atlas treats
+it has no audit signals (score 0, classified `critical`) — grunnr treats
 the absence of signal as a higher-priority gap than a healthy feature.
 `auth.login` is in the same backlog but at priority 20 because its score
 is 100 ("healthy") and the recency-decay component picked up a recent
@@ -53,8 +53,8 @@ because the codebase is tiny.
 ### Top-N cap
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas sprint --top 1
+# Run from: /tmp/grunnr-fixture
+$ grunnr sprint --top 1
  1. billing.subscribe                                   priority= 60.00 cost=S
     - Score 0 (critical), 0 linked symbols, cost=S
     - no audit signals available (no coverage, no aggregate, no contract, no annotation source)
@@ -72,7 +72,7 @@ sprint:
   default_top_n: 10
 ```
 
-With that config, `atlas sprint` (no `--top` flag) returns 10 rows. An
+With that config, `grunnr sprint` (no `--top` flag) returns 10 rows. An
 explicit `--top` on the CLI always wins over the config default.
 
 ## How it works

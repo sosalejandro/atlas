@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 func TestSymbols_InsertIdempotent(t *testing.T) {
@@ -361,7 +361,7 @@ func TestSymbols_FindByPattern_EmptyPattern(t *testing.T) {
 // is visible in production.
 func TestSymbols_Insert_KindCollapseEmitsWarn(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "atlas-state.db")
+	path := filepath.Join(dir, "grunnr-state.db")
 	ctx := context.Background()
 
 	buf := &bytes.Buffer{}

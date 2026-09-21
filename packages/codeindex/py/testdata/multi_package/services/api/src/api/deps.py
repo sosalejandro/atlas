@@ -1,6 +1,6 @@
 """Sample API service that imports across the monorepo via the
 canonical Python module path (`mypkg.db.models`), not the path-rooted
-form (`packages.db.src.mypkg.db.models`) that atlas's scanner derives
+form (`packages.db.src.mypkg.db.models`) that grunnr's scanner derives
 from the file's repo-relative location.
 
 Issue #15 fixture: rule (2) — canonical-Python-name suffix match —

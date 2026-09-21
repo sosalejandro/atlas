@@ -14,10 +14,10 @@ import (
 // own node_modules and any caller-supplied fallbacks. The boolean return is
 // true when the module is reachable; the second return is the (deterministic,
 // de-duplicated) list of directories we looked under — surfaced so the
-// no-typescript warning can tell the user where atlas searched.
+// no-typescript warning can tell the user where grunnr searched.
 //
 // The candidate ordering mirrors bridgeTypescript: project-root first
-// (closest-wins for monorepos), caller-supplied paths second (atlas's own
+// (closest-wins for monorepos), caller-supplied paths second (grunnr's own
 // node_modules in tests; an explicit --node-modules-path on the CLI).
 //
 // This is a pure read — no symlinks created, no env mutated. It exists so
@@ -146,7 +146,7 @@ func hasAnyTSExt(name string) bool {
 //	line 1: what happened (scanner did not run)
 //	line 2: why (no typescript module found)
 //	line 3: how big the impact is (N files skipped)
-//	line 4: where atlas looked (so the user can verify their layout)
+//	line 4: where grunnr looked (so the user can verify their layout)
 //	line 5: how to fix it (npm ci or explicit --node-modules-path)
 //	line 6: how to re-run after fixing
 //
@@ -164,6 +164,6 @@ func formatMissingTypescriptWarning(skippedCount int, searched []string) string 
 		}
 	}
 	b.WriteString("       Fix: cd <project>; npm ci  (or pass --node-modules-path <dir>)\n")
-	b.WriteString("       Re-run: atlas scan")
+	b.WriteString("       Re-run: grunnr scan")
 	return b.String()
 }

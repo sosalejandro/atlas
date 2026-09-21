@@ -1,13 +1,13 @@
-// Package shim is the test-side half of atlas's per-test coverage
+// Package shim is the test-side half of grunnr's per-test coverage
 // collection: the library a generated TestMain calls so that a Go suite
 // produces one coverage snapshot per test instead of one per process.
 //
-//	func TestMain(m *testing.M) { shim.Run(m) }   // atlas cov shim init
+//	func TestMain(m *testing.M) { shim.Run(m) }   // grunnr cov shim init
 //
 // Why a shim is needed at all: the Go runtime writes coverage counters once,
 // at process exit, so a whole `go test ./...` run yields a single profile.
-// The per-test evidence atlas derives feature surfaces from (issue #104,
-// `atlas cov sync --per-test`) simply has no producer without this.
+// The per-test evidence grunnr derives feature surfaces from (issue #104,
+// `grunnr cov sync --per-test`) simply has no producer without this.
 //
 // # How it works
 //
@@ -32,9 +32,9 @@
 //
 // # Opt-in, and what "degraded" means
 //
-// The shim is inert unless ATLAS_COV_DIR names an output root: an unset
-// environment is a plain `go test`. `atlas cov run` sets it, along with
-// ATLAS_COV_PLAN — a per-package plan naming the packages that must NOT be
+// The shim is inert unless GRUNNR_COV_DIR names an output root: an unset
+// environment is a plain `go test`. `grunnr cov run` sets it, along with
+// GRUNNR_COV_PLAN — a per-package plan naming the packages that must NOT be
 // collected per test, chiefly the ones whose tests call t.Parallel() and
 // would otherwise be robbed of the concurrency they asked for. Such a
 // package is collected as a single per-package snapshot and reports the

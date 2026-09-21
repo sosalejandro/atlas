@@ -142,7 +142,7 @@ CREATE INDEX IF NOT EXISTS users_email2_idx ON users (email);
 	}
 }
 
-// An index declaration whose table atlas cannot anchor on the ON keyword is
+// An index declaration whose table grunnr cannot anchor on the ON keyword is
 // recorded as nothing at all. Guessing which identifier is the table is what
 // produced the phantom-table rows in the first place.
 func TestParseSchema_IndexWithoutOnIsNotGuessedAt(t *testing.T) {

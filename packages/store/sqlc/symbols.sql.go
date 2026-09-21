@@ -230,7 +230,7 @@ type LookupSymbolAtOrAfterLineParams struct {
 	MaxLookahead interface{} `db:"max_lookahead" json:"max_lookahead"`
 }
 
-// Resolves an annotation at file:line to the symbol it attaches to. Atlas
+// Resolves an annotation at file:line to the symbol it attaches to. Grunnr
 // annotations sit in the comment block immediately above their target
 // (Go: doc comment above the func decl). The "nearest symbol at or after
 // the annotation line, in the same file, within `max_lookahead` rows"

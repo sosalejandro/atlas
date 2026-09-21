@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/sosalejandro/atlas/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // Advisory codes. Each is stable, greppable, and suppressible by name -- both
-// from a source directive (`// atlas:sql-ignore <code>`) and from the command
+// from a source directive (`// grunnr:sql-ignore <code>`) and from the command
 // line.
 const (
 	CodeUnboundedList      = "sql.unbounded-list"
@@ -21,7 +21,7 @@ const (
 	CodeUnusedIndex        = "sql.unused-index"
 )
 
-// Confidence is how sure Atlas is. It is part of every advisory because these
+// Confidence is how sure Grunnr is. It is part of every advisory because these
 // checks reason over a partial, static view: a reader who cannot tell a
 // deterministic fact from a heuristic has no way to triage the list, and will
 // eventually stop reading it.
@@ -32,10 +32,10 @@ const (
 	// ConfidenceHigh: the finding follows from the SQL text or from a
 	// syntactic fact at the call site. If the query runs, the finding holds.
 	ConfidenceHigh Confidence = "high"
-	// ConfidenceMedium: the finding depends on something Atlas inferred --
+	// ConfidenceMedium: the finding depends on something Grunnr inferred --
 	// the row shape, the completeness of the schema scan.
 	ConfidenceMedium Confidence = "medium"
-	// ConfidenceLow: the finding depends on context Atlas cannot see, such as
+	// ConfidenceLow: the finding depends on context Grunnr cannot see, such as
 	// whether a payload crosses a service boundary.
 	ConfidenceLow Confidence = "low"
 )
@@ -56,7 +56,7 @@ type Advisory struct {
 // SkippedCheck records a check that did not run, and why.
 //
 // This type is the honesty requirement in structural form. A missing-index
-// check over a schema Atlas never read has no verdict -- not "pass". Recording
+// check over a schema Grunnr never read has no verdict -- not "pass". Recording
 // the skip lets the command tell the reader which questions were actually
 // answered.
 type SkippedCheck struct {
@@ -70,7 +70,7 @@ type SkippedCheck struct {
 // AdviseOptions tunes advisory generation.
 type AdviseOptions struct {
 	// Suppress silences these codes everywhere, on top of the per-site
-	// `atlas:sql-ignore` directives.
+	// `grunnr:sql-ignore` directives.
 	Suppress []string
 }
 
@@ -136,7 +136,7 @@ func (a *adviser) unbounded(op Operation) {
 	case ScanSingle, ScanExec:
 		return
 	case ScanUnknown:
-		// The call site returns rows but Atlas saw no slice being built, so
+		// The call site returns rows but Grunnr saw no slice being built, so
 		// the result may well be consumed one row at a time.
 		conf = ConfidenceMedium
 	}
@@ -296,7 +296,7 @@ func (a *adviser) orphanTables(touched map[string]bool) {
 			Confidence: ConfidenceMedium,
 			Position:   tbl.Position,
 			Message:    fmt.Sprintf("no query in the scanned sources reads or writes %s", tbl.Name),
-			Remedy:     "confirm the table is still needed, or widen the scan if it is used from code atlas did not read",
+			Remedy:     "confirm the table is still needed, or widen the scan if it is used from code grunnr did not read",
 		})
 	}
 }

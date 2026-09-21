@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sosalejandro/atlas/internal/domain"
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/ports"
 )
 
 // InitRegistryUseCase bootstraps the registry directory with template domain files.

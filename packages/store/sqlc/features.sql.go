@@ -34,7 +34,7 @@ type EnsureFeatureParams struct {
 
 // Inserts a feature row from the ingest path. Pure INSERT OR IGNORE -- if
 // the row already exists with richer metadata (title/owner/kind/etc set
-// by a prior atlas migrate or test harness), the ingest pass MUST NOT
+// by a prior grunnr migrate or test harness), the ingest pass MUST NOT
 // clobber it back to the id-as-title default.
 //
 // Re-ingest of the same annotation produces zero row changes. Use the

@@ -8,9 +8,9 @@ import (
 	"runtime"
 	"testing"
 
-	goscan "github.com/sosalejandro/atlas/packages/codeindex/go"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
+	goscan "github.com/sosalejandro/grunnr/packages/codeindex/go"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
 )
 
 // The scan half of the performance harness (issue #109).
@@ -25,17 +25,17 @@ import (
 // detection over the accumulating edge set — are all superlinear in ways a
 // synthetic tree of identical files does not reproduce. The default corpus
 // is THIS repository, so the benchmark is runnable by anyone who has
-// checked it out; ATLAS_BENCH_ROOT points it at a bigger tree (the issue's
+// checked it out; GRUNNR_BENCH_ROOT points it at a bigger tree (the issue's
 // reference repo, say) without editing code.
 
-// benchRoot resolves the tree to scan: $ATLAS_BENCH_ROOT if set, else the
-// atlas checkout this test file lives in.
+// benchRoot resolves the tree to scan: $GRUNNR_BENCH_ROOT if set, else the
+// grunnr checkout this test file lives in.
 func benchRoot(tb testing.TB) string {
 	tb.Helper()
-	if v := os.Getenv("ATLAS_BENCH_ROOT"); v != "" {
+	if v := os.Getenv("GRUNNR_BENCH_ROOT"); v != "" {
 		abs, err := filepath.Abs(v)
 		if err != nil {
-			tb.Fatalf("ATLAS_BENCH_ROOT=%q: %v", v, err)
+			tb.Fatalf("GRUNNR_BENCH_ROOT=%q: %v", v, err)
 		}
 		return abs
 	}
@@ -44,7 +44,7 @@ func benchRoot(tb testing.TB) string {
 		tb.Fatalf("abs repo root: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(abs, "go.mod")); err != nil {
-		tb.Skipf("no go.mod at %s; set ATLAS_BENCH_ROOT", abs)
+		tb.Skipf("no go.mod at %s; set GRUNNR_BENCH_ROOT", abs)
 	}
 	return abs
 }
@@ -86,7 +86,7 @@ func countGoFiles(tb testing.TB, root string) int {
 }
 
 // BenchmarkIndexProject is the end-to-end orchestrator: every phase, in
-// the order `atlas scan` runs them.
+// the order `grunnr scan` runs them.
 //
 // Its B/op and allocs/op are gated. See maxScanBytesPerOp in
 // test/acceptance/memory_test.go, which runs exactly this benchmark as a
@@ -109,7 +109,7 @@ func BenchmarkIndexProject(b *testing.B) {
 	b.ReportMetric(float64(files), "gofiles")
 }
 
-// BenchmarkGoScan_Typed is phase A as `atlas scan` runs it by default:
+// BenchmarkGoScan_Typed is phase A as `grunnr scan` runs it by default:
 // go/packages type checking plus the AST ladder for what it could not
 // type-check.
 func BenchmarkGoScan_Typed(b *testing.B) {
@@ -178,18 +178,18 @@ func BenchmarkAnnotationWalk(b *testing.B) {
 	}
 }
 
-// benchJobs reads $ATLAS_BENCH_JOBS so a single `go test` invocation can
+// benchJobs reads $GRUNNR_BENCH_JOBS so a single `go test` invocation can
 // sweep the worker count (1, 2, 4, GOMAXPROCS) without recompiling. Unset
 // means the package default.
 func benchJobs(b *testing.B) int {
 	b.Helper()
-	v := os.Getenv("ATLAS_BENCH_JOBS")
+	v := os.Getenv("GRUNNR_BENCH_JOBS")
 	if v == "" {
 		return 0
 	}
 	var n int
 	if _, err := fmt.Sscanf(v, "%d", &n); err != nil {
-		b.Fatalf("ATLAS_BENCH_JOBS=%q: %v", v, err)
+		b.Fatalf("GRUNNR_BENCH_JOBS=%q: %v", v, err)
 	}
 	return n
 }

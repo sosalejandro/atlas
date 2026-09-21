@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
-	"github.com/sosalejandro/atlas/internal/app"
-	"github.com/sosalejandro/atlas/internal/domain"
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/app"
+	"github.com/sosalejandro/grunnr/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/ports"
 	"github.com/spf13/cobra"
 )
 
@@ -203,7 +203,7 @@ func runAllAudit(uc *app.AuditFeatureUseCase, config ports.GraphConfig, out *os.
 		sort.SliceStable(results, func(i, j int) bool {
 			return results[i].HealthScore < results[j].HealthScore
 		})
-	// default: already sorted by health ascending from ExecuteAll
+		// default: already sorted by health ascending from ExecuteAll
 	}
 
 	// Limit results.
@@ -308,10 +308,15 @@ func buildAuditSummary(results []*domain.AuditOutput) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"tiers":       tiers,
-		"total":       len(results),
-		"at_target":   totalAtTarget,
-		"overall_pct": func() float64 { if len(results) == 0 { return 0 }; return float64(totalAtTarget) / float64(len(results)) * 100 }(),
+		"tiers":     tiers,
+		"total":     len(results),
+		"at_target": totalAtTarget,
+		"overall_pct": func() float64 {
+			if len(results) == 0 {
+				return 0
+			}
+			return float64(totalAtTarget) / float64(len(results)) * 100
+		}(),
 	}
 }
 

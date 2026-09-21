@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/sosalejandro/atlas/cmd"
+	"github.com/sosalejandro/grunnr/cmd"
 )
 
 func main() {

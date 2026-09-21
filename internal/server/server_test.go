@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/internal/adapters"
+	"github.com/sosalejandro/grunnr/internal/adapters"
 )
 
 // testdataDir returns the absolute path to testdata/registry.
@@ -83,7 +83,6 @@ func assertNotContains(t *testing.T, rec *httptest.ResponseRecorder, substr stri
 		t.Errorf("response body should NOT contain %q", substr)
 	}
 }
-
 
 // ─── Full page routes ─────────────────────────────────────────────────────────
 

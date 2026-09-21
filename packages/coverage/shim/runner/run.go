@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sosalejandro/atlas/packages/coverage/shim"
+	"github.com/sosalejandro/grunnr/packages/coverage/shim"
 )
 
 // Package is one Go package the suite covers, as `go list` reports it, plus
@@ -30,7 +30,7 @@ type Package struct {
 type Degradation struct {
 	Package string `json:"package"`
 	Reason  string `json:"reason"`
-	// Source is "plan" when atlas decided before the run (a static read of
+	// Source is "plan" when grunnr decided before the run (a static read of
 	// the tests) and "runtime" when the shim decided during it.
 	Source string `json:"source"`
 }
@@ -41,7 +41,7 @@ type Options struct {
 	Dir string
 	// Packages are the patterns whose tests are analysed for the plan.
 	// Defaults to ./... — note this is independent of the packages the
-	// command itself runs, which atlas does not try to parse out of it.
+	// command itself runs, which grunnr does not try to parse out of it.
 	Packages []string
 	// Command is the suite command, e.g. ["go", "test", "./..."].
 	Command []string
@@ -99,7 +99,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	}
 	work, cleanup := opts.Work, func() {}
 	if work == "" {
-		dir, err := os.MkdirTemp("", "atlas-cov-")
+		dir, err := os.MkdirTemp("", "grunnr-cov-")
 		if err != nil {
 			return Result{}, fmt.Errorf("runner: create work dir: %w", err)
 		}
@@ -225,7 +225,7 @@ func PlanFor(pkgs []Package, serialize bool) (shim.Plan, []Degradation, error) {
 }
 
 // mergeDegradations folds the modes the shim chose at runtime into the ones
-// atlas planned. The runtime is the authority — it is the only side that
+// grunnr planned. The runtime is the authority — it is the only side that
 // knows whether the counters could actually be cleared.
 func mergeDegradations(planned []Degradation, reports []shim.Report) []Degradation {
 	out := make([]Degradation, 0, len(planned))

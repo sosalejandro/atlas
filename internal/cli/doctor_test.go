@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // doctorFixture is a throwaway repo root plus its state DB, driven
@@ -25,9 +25,9 @@ type doctorFixture struct {
 func newDoctorFixture(t *testing.T) *doctorFixture {
 	t.Helper()
 	dir := t.TempDir()
-	dbPath := filepath.Join(dir, ".atlas", "atlas.db")
+	dbPath := filepath.Join(dir, ".grunnr", "grunnr.db")
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
 	return &doctorFixture{root: dir, dbPath: dbPath}
 }
@@ -90,7 +90,7 @@ func TestDoctor_FlagsWired(t *testing.T) {
 	c := newDoctorCmd()
 	for _, name := range []string{"fail-on", "root"} {
 		if c.Flags().Lookup(name) == nil {
-			t.Errorf("atlas doctor is missing --%s", name)
+			t.Errorf("grunnr doctor is missing --%s", name)
 		}
 	}
 }
@@ -103,7 +103,7 @@ func TestDoctor_RegisteredOnRoot(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("atlas doctor is not registered on the root command")
+		t.Error("grunnr doctor is not registered on the root command")
 	}
 }
 
@@ -270,7 +270,7 @@ func TestDoctor_UningestedCoverageIsNotApplicableNotOK(t *testing.T) {
 }
 
 // The most useful moment for doctor is when the store will not open at
-// all -- that is when every other atlas command dies in migrate output.
+// all -- that is when every other grunnr command dies in migrate output.
 func TestDoctor_StoreThatWillNotOpenStillReports(t *testing.T) {
 	f := newDoctorFixture(t)
 	f.seedCleanIndex(t)
@@ -293,7 +293,7 @@ func TestDoctor_StoreThatWillNotOpenStillReports(t *testing.T) {
 
 // The stated contract is that a diagnostic must not conjure the state it
 // was asked to inspect -- and "the file exists" is not the same thing as
-// "the file is an atlas store". A 0-byte placeholder (an interrupted
+// "the file is an grunnr store". A 0-byte placeholder (an interrupted
 // init, a stray `touch`) passed the old os.Stat guard, went straight to
 // store.Open, and had the embedded migrations written into it by the
 // command asked whether it was initialised.

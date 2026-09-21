@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build one atlas binary, reproducibly.
+# Build one grunnr binary, reproducibly.
 #
 # This is THE build command. The release workflow calls it, CI's determinism
 # check calls it twice, and docs/install.md tells third parties to call it —
@@ -11,11 +11,11 @@
 #   COMMIT             short SHA to stamp     (default: HEAD)
 #   SOURCE_DATE_EPOCH  build timestamp        (default: HEAD committer date)
 #   GOOS / GOARCH      target                 (default: host)
-#   CMD                which binary to build  (default: atlas; see
-#                      ATLAS_COMMANDS in lib.sh for the full set)
+#   CMD                which binary to build  (default: grunnr; see
+#                      GRUNNR_COMMANDS in lib.sh for the full set)
 #   DIST               output directory       (default: <repo>/dist)
-#   ATLAS_SKIP_TOOLCHAIN_CHECK=1  downgrade the toolchain mismatch to a warning
-#   ATLAS_TOOLCHAIN_PIN           override the pinned Go version (tests only)
+#   GRUNNR_SKIP_TOOLCHAIN_CHECK=1  downgrade the toolchain mismatch to a warning
+#   GRUNNR_TOOLCHAIN_PIN           override the pinned Go version (tests only)
 #
 # Output: $DIST/<cmd>_<version>_<goos>_<goarch>[.exe]
 
@@ -26,9 +26,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
 
-CMD="${CMD:-atlas}"
+CMD="${CMD:-grunnr}"
 if [ ! -d "$REPO_ROOT/cmd/$CMD" ]; then
-	atlas_err "no such command: cmd/$CMD (ATLAS_COMMANDS is: $ATLAS_COMMANDS)"
+	grunnr_err "no such command: cmd/$CMD (GRUNNR_COMMANDS is: $GRUNNR_COMMANDS)"
 	exit 1
 fi
 
@@ -36,16 +36,16 @@ GOOS="${GOOS:-$(go env GOOS)}"
 GOARCH="${GOARCH:-$(go env GOARCH)}"
 DIST="${DIST:-$REPO_ROOT/dist}"
 
-if ! atlas_target_is_shipped "$GOOS" "$GOARCH"; then
-	atlas_err "refusing to build unshipped target ${GOOS}/${GOARCH}"
-	atlas_err "shipped targets: $ATLAS_TARGETS"
+if ! grunnr_target_is_shipped "$GOOS" "$GOARCH"; then
+	grunnr_err "refusing to build unshipped target ${GOOS}/${GOARCH}"
+	grunnr_err "shipped targets: $GRUNNR_TARGETS"
 	exit 1
 fi
 
-version="$(atlas_resolve_version "$REPO_ROOT")"
-commit="$(atlas_resolve_commit "$REPO_ROOT")"
-epoch="$(atlas_source_date_epoch "$REPO_ROOT")"
-build_date="$(atlas_epoch_to_iso "$epoch")"
+version="$(grunnr_resolve_version "$REPO_ROOT")"
+commit="$(grunnr_resolve_commit "$REPO_ROOT")"
+epoch="$(grunnr_source_date_epoch "$REPO_ROOT")"
+build_date="$(grunnr_epoch_to_iso "$epoch")"
 
 # Toolchain pin. Two builds by different Go patch releases are not expected
 # to be byte-identical — the compiler and the runtime both change — so the
@@ -53,20 +53,20 @@ build_date="$(atlas_epoch_to_iso "$epoch")"
 # whatever happens to be on PATH. Downgradable to a warning because a
 # contributor doing a local `make build` should not be blocked by it; the
 # release and verification paths leave it hard.
-pinned="${ATLAS_TOOLCHAIN_PIN:-$(tr -d '[:space:]' <"$SCRIPT_DIR/toolchain.txt")}"
+pinned="${GRUNNR_TOOLCHAIN_PIN:-$(tr -d '[:space:]' <"$SCRIPT_DIR/toolchain.txt")}"
 actual="$(go env GOVERSION)" # e.g. "go1.25.14"
 if [ "$actual" != "go${pinned}" ]; then
 	msg="toolchain mismatch: pinned go${pinned}, found ${actual}. Byte-identical output is only promised for the pinned toolchain (.github/scripts/toolchain.txt)."
-	if [ "${ATLAS_SKIP_TOOLCHAIN_CHECK:-0}" = "1" ]; then
-		atlas_err "warning: $msg"
+	if [ "${GRUNNR_SKIP_TOOLCHAIN_CHECK:-0}" = "1" ]; then
+		grunnr_err "warning: $msg"
 	else
-		atlas_err "$msg"
-		atlas_err "set ATLAS_SKIP_TOOLCHAIN_CHECK=1 to build anyway (output will not match the published digests)"
+		grunnr_err "$msg"
+		grunnr_err "set GRUNNR_SKIP_TOOLCHAIN_CHECK=1 to build anyway (output will not match the published digests)"
 		exit 1
 	fi
 fi
 
-out="$DIST/$(atlas_artifact_name "$version" "$GOOS" "$GOARCH" "$CMD")"
+out="$DIST/$(grunnr_artifact_name "$version" "$GOOS" "$GOARCH" "$CMD")"
 mkdir -p "$DIST"
 
 # Environment hygiene. Every variable below can change generated code, and
@@ -101,11 +101,11 @@ esac
 #
 # -s -w: drop the symbol table and DWARF. Smaller download; also removes a
 # chunk of path-flavoured data from the artifact.
-# The stamp target differs per binary: atlas-serve does not import
+# The stamp target differs per binary: grunnr-serve does not import
 # internal/cli, and -X against a symbol that is not linked in is silently a
 # no-op -- so hardcoding one path would leave the second binary unversioned
-# with nothing to notice. See atlas_ldflags_pkg in lib.sh.
-stamp_pkg="$(atlas_ldflags_pkg "$CMD")"
+# with nothing to notice. See grunnr_ldflags_pkg in lib.sh.
+stamp_pkg="$(grunnr_ldflags_pkg "$CMD")"
 ldflags="-s -w"
 ldflags="$ldflags -X ${stamp_pkg}.Version=${version}"
 ldflags="$ldflags -X ${stamp_pkg}.Commit=${commit}"

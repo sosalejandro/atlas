@@ -7,11 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/churn"
-	"github.com/sosalejandro/atlas/packages/sprintplan"
+	"github.com/sosalejandro/grunnr/packages/churn"
+	"github.com/sosalejandro/grunnr/packages/sprintplan"
 )
 
-// Accepted values for `atlas sprint --rank`.
+// Accepted values for `grunnr sprint --rank`.
 //
 // "gap" is the default and stays the default: it is the ordering every
 // existing script and habit is built on, and a ranking model that changes
@@ -22,7 +22,7 @@ const (
 	rankChurn = "churn"
 )
 
-// newSprintCmd implements `atlas sprint [--top N] [--rank gap|churn]`.
+// newSprintCmd implements `grunnr sprint [--top N] [--rank gap|churn]`.
 func newSprintCmd() *cobra.Command {
 	var top int
 	var rank string
@@ -38,7 +38,7 @@ are applied when --top is unset.
 
 --rank churn multiplies each item's priority by how often its files
 actually change, so code that is broken AND moving sorts above code that
-is merely broken. It is the same model 'atlas hotspots' shows, mined with
+is merely broken. It is the same model 'grunnr hotspots' shows, mined with
 the same flags (--window-days, --half-life-days, --max-files-per-commit,
 --exclude-message, --no-default-exclusions, --no-author-diversity), and
 the churn factor is emitted alongside the priority so the ordering can be
@@ -58,7 +58,7 @@ ranking is unchanged.`,
 	return cmd
 }
 
-// sprintResult is the JSON payload for `atlas sprint`.
+// sprintResult is the JSON payload for `grunnr sprint`.
 type sprintResult struct {
 	Items []sprintplan.SprintItem `json:"items"`
 }
@@ -73,7 +73,7 @@ func runSprint(cmd *cobra.Command, top int, rank string, hf *hotspotsFlags) erro
 		return err
 	}
 
-	// openPlanner is shared with `atlas hotspots` so the two commands
+	// openPlanner is shared with `grunnr hotspots` so the two commands
 	// cannot drift: it is the same store, the same audit wiring, and the
 	// same reconciliation of the churn paths against the indexed ones.
 	s, p, rep, err := openPlanner(ctx, rep)
@@ -116,7 +116,7 @@ func runSprint(cmd *cobra.Command, top int, rank string, hf *hotspotsFlags) erro
 // so "no churn" and "churn we failed to mine" must not look alike: a
 // mining failure is an error, not a silent fall-back to the old ranking.
 //
-// The mining flags are the ones `atlas hotspots` registers, so the promise
+// The mining flags are the ones `grunnr hotspots` registers, so the promise
 // that this is the identical weighting holds all the way down to the
 // tuning. Setting one under --rank gap is rejected: a flag that changes
 // nothing is worse than a missing flag, because the user believes it did.
@@ -151,7 +151,7 @@ func printSprintText(cmd *cobra.Command, items []sprintplan.SprintItem, warnings
 		fmt.Fprintf(cmd.OutOrStdout(), "WARN: %s\n", w)
 	}
 	if len(items) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "sprint: no items in the backlog (run 'atlas init' / 'atlas scan' first)")
+		fmt.Fprintln(cmd.OutOrStdout(), "sprint: no items in the backlog (run 'grunnr init' / 'grunnr scan' first)")
 		return
 	}
 	for i, it := range items {

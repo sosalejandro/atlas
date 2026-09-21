@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/internal/domain"
-	"github.com/sosalejandro/atlas/internal/ports"
+	"github.com/sosalejandro/grunnr/internal/domain"
+	"github.com/sosalejandro/grunnr/internal/ports"
 	"gopkg.in/yaml.v3"
 )
 
@@ -478,13 +478,13 @@ func TestCollectTestFiles_GathersFromAllEntries(t *testing.T) {
 	files := collectTestFiles(f)
 
 	expected := map[string]bool{
-		"service/auth_test.go":                   true,
-		"src/pages/__tests__/Login.test.tsx":      true,
-		"mobile/auth_test.dart":                   true,
-		"integration/auth_test.go":                true,
-		"mobile/integration/auth_test.dart":       true,
-		"e2e/login.spec.ts":                       true,
-		"mobile/e2e/login.yaml":                   true,
+		"service/auth_test.go":               true,
+		"src/pages/__tests__/Login.test.tsx": true,
+		"mobile/auth_test.dart":              true,
+		"integration/auth_test.go":           true,
+		"mobile/integration/auth_test.dart":  true,
+		"e2e/login.spec.ts":                  true,
+		"mobile/e2e/login.yaml":              true,
 	}
 
 	if len(files) != len(expected) {
@@ -809,9 +809,9 @@ func TestGraphqlEntryPoint(t *testing.T) {
 		{"Query.heatmapData", "queryResolver.HeatmapData"},
 		// Edge cases
 		{"", ""},
-		{"Mutation", ""},          // no field name
-		{"Mutation.", ""},         // empty field name
-		{"trainingLogSet", ""},    // no operation type
+		{"Mutation", ""},       // no field name
+		{"Mutation.", ""},      // empty field name
+		{"trainingLogSet", ""}, // no operation type
 	}
 
 	for _, tt := range tests {

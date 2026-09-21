@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/graph"
 )
 
 // TestIsValidEdgeMeta locks in the kind-scoped vocabulary for the

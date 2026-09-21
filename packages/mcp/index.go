@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // GraphIndex is the read side of the feature/symbol graph.
@@ -14,7 +14,7 @@ import (
 // It exists so this package cannot write. *store.Store hands out ports with
 // Upsert / Link / Insert / DeleteByFile on them; a tool holding one of those
 // is one hallucinated call away from corrupting the index that every other
-// atlas answer is derived from. Declaring only the reads makes that
+// grunnr answer is derived from. Declaring only the reads makes that
 // unreachable at the type level instead of by review.
 type GraphIndex interface {
 	ListFeatures(ctx context.Context) ([]store.Feature, error)
@@ -24,8 +24,8 @@ type GraphIndex interface {
 	// ListSymbols returns the whole symbol table. The store exposes no
 	// per-surrogate-id lookup, and every tool here has to turn edge and
 	// coverage rows (which carry ids) into names and spans, so the table is
-	// read once per call and indexed in memory — the same trade `atlas chain`,
-	// `atlas report` and the audit already make.
+	// read once per call and indexed in memory — the same trade `grunnr chain`,
+	// `grunnr report` and the audit already make.
 	ListSymbols(ctx context.Context) ([]store.SymbolRow, error)
 	EdgesOut(ctx context.Context, symbolID int64) ([]store.EdgeRow, error)
 	EdgesIn(ctx context.Context, symbolID int64) ([]store.EdgeRow, error)
@@ -41,7 +41,7 @@ type CoverageIndex interface {
 }
 
 // Scorer is the audit's per-feature read. coverage_for delegates to it rather
-// than recomputing a score, so `atlas health --feature X` and the MCP tool can
+// than recomputing a score, so `grunnr health --feature X` and the MCP tool can
 // never disagree about the same feature on the same frontier.
 type Scorer interface {
 	ScoreFeature(ctx context.Context, id shared.FeatureID) (audit.FeatureHealth, error)
@@ -137,7 +137,7 @@ func (x *StoreIndex) FanIn(ctx context.Context, runID int64) (map[int64]int, err
 // tools/call.
 //
 // It is NOT cached across calls. The store is a re-derivable cache that
-// another process (`atlas scan`) rewrites in place, and an agent that gets a
+// another process (`grunnr scan`) rewrites in place, and an agent that gets a
 // span from a table loaded before that scan is handed a line number that no
 // longer points at the symbol. Paying one table read per call is cheap next to
 // citing a stale location confidently.

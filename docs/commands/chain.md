@@ -1,13 +1,13 @@
-# atlas chain
+# grunnr chain
 
-`atlas chain` walks atlas's call graph starting from the supplied id and
+`grunnr chain` walks grunnr's call graph starting from the supplied id and
 emits the chain as human-readable text (default) or JSON (`--json`). It
 reads from the cached SQLite store by default — orders of magnitude faster
-than the pre-#29 live walk, but stale if `atlas scan` hasn't picked up the
+than the pre-#29 live walk, but stale if `grunnr scan` hasn't picked up the
 last code change. Pass `--fresh` to re-walk the codebase on disk when the
 cached graph looks wrong.
 
-> **Renamed from `atlas trace` (issue #112).** `atlas trace` still works and
+> **Renamed from `grunnr trace` (issue #112).** `grunnr trace` still works and
 > prints a one-line deprecation note on stderr; it is supported for one minor
 > version. "Trace" now means a *runtime* trace — the OTel spans issue #94
 > ingests — and `chain` is the static call path this command walks.
@@ -15,7 +15,7 @@ cached graph looks wrong.
 ## Usage
 
 ```
-atlas chain <id> [flags]
+grunnr chain <id> [flags]
 ```
 
 `<id>` can be:
@@ -29,7 +29,7 @@ atlas chain <id> [flags]
 | `feature:<id>`        | `feature:plans-patient.export`         | Explicit feature lookup — bypasses fuzzy resolution.                                  |
 | `symbol:<qn>`         | `symbol:auth.Login`                    | Explicit symbol lookup.                                                               |
 
-For an unprefixed input, `atlas chain` first tries a feature lookup (the
+For an unprefixed input, `grunnr chain` first tries a feature lookup (the
 strict-regex shape that wins most real-world inputs); a hit dispatches
 through `chainByFeature`. On no-feature, it falls back to symbol resolution.
 When the same id matches BOTH a feature and a symbol's qualified-name
@@ -46,7 +46,7 @@ explicit prefix.
 | `--root`                      | repo root / cwd       | Project root for the `--fresh` re-walk.                                                                           |
 | `--node-modules-path`         | auto-detected         | Absolute path to a `node_modules/` directory the TS scanner can borrow `typescript` from. Repeatable.             |
 | `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path.                                                                                             |
-| `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path.                                                                                   |
+| `--db-path` *(global)*        | `.grunnr/grunnr.db`     | Override the SQLite state path.                                                                                   |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope instead of human-friendly text.                                                     |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output.                                                                                    |
 
@@ -55,8 +55,8 @@ explicit prefix.
 ### Trace by feature id
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas chain auth.login
+# Run from: /tmp/grunnr-fixture
+$ grunnr chain auth.login
 trace feature auth.login (3 nodes)
 AuthHandler.Login  [func] go/auth.go:14
   AuthService.Authenticate  [func] go/auth.go:26
@@ -71,8 +71,8 @@ ref.
 ### Trace by symbol id
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas chain AuthHandler.Login
+# Run from: /tmp/grunnr-fixture
+$ grunnr chain AuthHandler.Login
 trace AuthHandler.Login (confidence 0.00, 3 nodes)
 AuthHandler.Login  [func] go/auth.go:14
   AuthService.Authenticate  [func] go/auth.go:26
@@ -91,7 +91,7 @@ connectors so siblings, descendants, and clipped branches are visually
 distinct:
 
 ```
-$ atlas chain src.click.core.Command.invoke --depth 3
+$ grunnr chain src.click.core.Command.invoke --depth 3
 src.click.core.Command.invoke  [method] src/click/core.py:1294
 ├─ src.click.utils.echo  [func] src/click/utils.py:234
 │   ├─ src.click._compat._find_binary_writer  [func] src/click/_compat.py:192
@@ -117,7 +117,7 @@ When the walk revisits a symbol that's already on the current chain it
 emits a leaf marked `[cycle]` and stops descending:
 
 ```
-$ atlas chain recur.alpha --depth -1
+$ grunnr chain recur.alpha --depth -1
 recur.alpha  [func] recur.py:4
 └─ recur.beta  [func] recur.py:9
     └─ recur.alpha  [cycle]
@@ -139,7 +139,7 @@ refuses to guess:
 
 ```
 # Hypothetical: codebase has both feature `auth.login` and symbol `pkg.auth.login`
-$ atlas chain auth.login
+$ grunnr chain auth.login
 error: ambiguous id "auth.login" — matches feature "auth.login"
        AND symbol suffix "pkg.auth.login". Re-run with feature:<id> or symbol:<qn>.
 ```
@@ -163,5 +163,5 @@ Always prefer the explicit prefix in scripts.
 The cached walk costs single-digit milliseconds even on large codebases
 because the adjacency list lives entirely in SQLite. `--fresh` falls back
 to the pre-cache codepath, which re-parses every file under `--root` — use
-only when you suspect the cache is wrong AND `atlas scan` hasn't caught
+only when you suspect the cache is wrong AND `grunnr scan` hasn't caught
 the drift.

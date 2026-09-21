@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // fixtureModule is the miniature module the shim package owns. Driving the
@@ -23,13 +23,13 @@ const fixtureModule = "../../packages/coverage/shim/testdata/fixture"
 // the same shape the other CLI integration tests use.
 func newCovShimFixture(t *testing.T, root string) string {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "atlas.db")
+	dbPath := filepath.Join(t.TempDir(), "grunnr.db")
 	loaded = Config{repoRoot: root, DBPath: dbPath}
 	flags = globalFlags{DBPath: dbPath}
 	return dbPath
 }
 
-// `atlas cov run` end to end: index the fixture module, run its suite under
+// `grunnr cov run` end to end: index the fixture module, run its suite under
 // the shim, and expect the store to know which production symbol each test
 // executed — including that TestTotal did NOT run Refund.
 func TestCovRun_WritesPerTestEvidence(t *testing.T) {
@@ -154,7 +154,7 @@ func TestCovRun_OutWritesTheSyncLayoutWithoutIngesting(t *testing.T) {
 	}
 }
 
-// `atlas cov shim init` on a module it has never touched, then again.
+// `grunnr cov shim init` on a module it has never touched, then again.
 func TestCovShimInit_IsIdempotent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("shells out to go list")

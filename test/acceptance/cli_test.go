@@ -28,18 +28,18 @@ var atlasBin string
 // TestMain builds the CLI once. Building per test would triple the package's
 // runtime for no additional coverage — the binary is the same binary.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "atlas-acceptance-*")
+	dir, err := os.MkdirTemp("", "grunnr-acceptance-*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "acceptance: temp dir: %v\n", err)
 		os.Exit(1)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	atlasBin = filepath.Join(dir, "atlas")
-	build := exec.Command("go", "build", "-o", atlasBin, "../../cmd/atlas")
+	atlasBin = filepath.Join(dir, "grunnr")
+	build := exec.Command("go", "build", "-o", atlasBin, "../../cmd/grunnr")
 	build.Stdout, build.Stderr = os.Stdout, os.Stderr
 	if err := build.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "acceptance: go build ./cmd/atlas: %v\n", err)
+		fmt.Fprintf(os.Stderr, "acceptance: go build ./cmd/grunnr: %v\n", err)
 		os.Exit(1)
 	}
 	os.Exit(m.Run())
@@ -68,19 +68,19 @@ func runAtlas(t *testing.T, args ...string) envelope {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("atlas %s: %v\nstderr:\n%s", strings.Join(args, " "), err, stderr.String())
+		t.Fatalf("grunnr %s: %v\nstderr:\n%s", strings.Join(args, " "), err, stderr.String())
 	}
 
 	var env envelope
 	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
-		t.Fatalf("atlas %s: output is not a JSON envelope: %v\ngot:\n%s",
+		t.Fatalf("grunnr %s: output is not a JSON envelope: %v\ngot:\n%s",
 			strings.Join(args, " "), err, stdout.String())
 	}
 	if env.SchemaVersion != "v1" {
-		t.Errorf("atlas %s: schema_version = %q, want %q", strings.Join(args, " "), env.SchemaVersion, "v1")
+		t.Errorf("grunnr %s: schema_version = %q, want %q", strings.Join(args, " "), env.SchemaVersion, "v1")
 	}
 	if _, err := time.Parse(time.RFC3339, env.GeneratedAt); err != nil {
-		t.Errorf("atlas %s: generated_at %q is not RFC3339: %v", strings.Join(args, " "), env.GeneratedAt, err)
+		t.Errorf("grunnr %s: generated_at %q is not RFC3339: %v", strings.Join(args, " "), env.GeneratedAt, err)
 	}
 	return env
 }
@@ -95,7 +95,7 @@ func runAtlas(t *testing.T, args ...string) envelope {
 // shared fixture database, and a shared mutable database between tests is how
 // a suite starts depending on its own ordering.
 func TestAcceptance_CLI_TheFixtureEndToEnd(t *testing.T) {
-	db := filepath.Join(t.TempDir(), "atlas.db")
+	db := filepath.Join(t.TempDir(), "grunnr.db")
 
 	// --- scan ------------------------------------------------------------
 	scan := runAtlas(t, "scan", "--root", fixtureDir, "--db-path", db)
@@ -205,7 +205,7 @@ func TestAcceptance_CLI_TheFixtureEndToEnd(t *testing.T) {
 	}
 
 	// --- health ----------------------------------------------------------
-	// Driven under the canonical verb; `atlas health` remains a working alias
+	// Driven under the canonical verb; `grunnr health` remains a working alias
 	// (issue #112) and has its own coverage in internal/cli/renames_test.go.
 	health := runAtlas(t, "health", "--db-path", db)
 	var healthRes struct {
@@ -237,12 +237,12 @@ func TestAcceptance_CLI_TheFixtureEndToEnd(t *testing.T) {
 // TestAcceptance_CLI_ScanOmitsTheIngestFeatureCounts is a characterisation
 // test for a DEFECT, not a specification of desired behaviour.
 //
-// `atlas scan --json` reports features_materialized, feature_symbols_linked
+// `grunnr scan --json` reports features_materialized, feature_symbols_linked
 // AND orphan_annotations_skipped as 0 on every run, including runs where the
 // ingest it describes produced all three. The cause is in
 // internal/cli/scan.go: scanResult embeds initResult but is built field by
 // field from store.IngestStats, and those three fields are never copied, so
-// they keep their zero value. `atlas init` copies all three from the same
+// they keep their zero value. `grunnr init` copies all three from the same
 // stats struct, which is what makes the divergence provable rather than
 // merely suspected.
 //

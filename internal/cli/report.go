@@ -10,16 +10,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sosalejandro/atlas/packages/audit"
-	"github.com/sosalejandro/atlas/packages/diff"
-	"github.com/sosalejandro/atlas/packages/report"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/audit"
+	"github.com/sosalejandro/grunnr/packages/diff"
+	"github.com/sosalejandro/grunnr/packages/report"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // atlasInformationURI is the tool home page SARIF consumers link the alert's
 // tool chip to.
-const atlasInformationURI = "https://github.com/sosalejandro/atlas"
+const atlasInformationURI = "https://github.com/sosalejandro/grunnr"
 
 // The --include producer tokens. Dead-code is deliberately absent from the
 // default set: FindDead's output is a candidate list with documented false
@@ -33,7 +33,7 @@ const (
 
 const defaultInclude = includeAudit + "," + includeCoverage
 
-// reportOpts are the flags shared by every `atlas report` subcommand.
+// reportOpts are the flags shared by every `grunnr report` subcommand.
 type reportOpts struct {
 	include     string
 	warnBelow   float64
@@ -42,8 +42,8 @@ type reportOpts struct {
 	out         string
 }
 
-// newReportCmd builds the `atlas report` verb group: the three formats CI can
-// actually render, from the state atlas already has.
+// newReportCmd builds the `grunnr report` verb group: the three formats CI can
+// actually render, from the state grunnr already has.
 //
 // Splitting by subcommand rather than a `--format` flag on the existing verbs
 // is what lets one collection pass feed all three renderings, and it keeps the
@@ -55,22 +55,22 @@ func newReportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Render findings for CI: SARIF, GitHub annotations, or a sticky PR comment",
-		Long: `report turns atlas's findings into the three formats a pull request
+		Long: `report turns grunnr's findings into the three formats a pull request
 displays, so the output lands where the decision is made instead of in a
 terminal nobody reads on a PR.
 
-  atlas report sarif   SARIF 2.1.0 for github/codeql-action/upload-sarif.
+  grunnr report sarif   SARIF 2.1.0 for github/codeql-action/upload-sarif.
                        Findings appear inline on the Files view and GitHub
                        dedupes them across pushes by fingerprint.
-  atlas report github  ::warning file=,line=:: workflow commands. No upload
+  grunnr report github  ::warning file=,line=:: workflow commands. No upload
                        step and no extra permission, but no dedupe either.
-  atlas report pr      The sticky-comment markdown, including the HTML marker
+  grunnr report pr      The sticky-comment markdown, including the HTML marker
                        a workflow greps for to update the comment in place.
 
-atlas never calls the GitHub API. Pipe the output:
+grunnr never calls the GitHub API. Pipe the output:
 
-  atlas report sarif --out atlas.sarif
-  atlas report pr --base origin/main | gh pr comment --body-file - --edit-last
+  grunnr report sarif --out grunnr.sarif
+  grunnr report pr --base origin/main | gh pr comment --body-file - --edit-last
 
 See docs/commands/report.md for a copy-paste workflow.`,
 	}
@@ -96,7 +96,7 @@ See docs/commands/report.md for a copy-paste workflow.`,
 //
 // `body` carries the rendering itself rather than a re-modelled findings list:
 // the point of the command is the exact bytes CI consumes, and a consumer that
-// re-serialises a structured form would not be uploading what atlas rendered.
+// re-serialises a structured form would not be uploading what grunnr rendered.
 type reportResult struct {
 	Format       string   `json:"format"`
 	Body         string   `json:"body"`
@@ -119,7 +119,7 @@ func newReportSARIFCmd(opts *reportOpts) *cobra.Command {
 			version, _, _ := resolveBuildInfo()
 			var buf bytes.Buffer
 			err = report.RenderSARIF(&buf, report.Tool{
-				Name:            "atlas",
+				Name:            "grunnr",
 				InformationURI:  atlasInformationURI,
 				SemanticVersion: version,
 			}, bundle.findings)
@@ -200,7 +200,7 @@ break the workflow on exactly the commit that introduces it.`,
 	cmd.Flags().StringVar(&head, "head", "",
 		"git ref or snapshot id for the current side (default: the newest snapshot)")
 	cmd.Flags().StringVar(&title, "title", "",
-		"comment heading (default: Atlas report)")
+		"comment heading (default: Grunnr report)")
 	cmd.Flags().IntVar(&maxRows, "max-rows", report.DefaultCommentRows,
 		"findings listed per rule before the section collapses into a count")
 	return cmd
@@ -210,7 +210,7 @@ break the workflow on exactly the commit that introduces it.`,
 // file, --json into the envelope, otherwise stdout.
 //
 // Warnings ride the envelope in --json mode and go to stderr otherwise, never
-// to stdout: `atlas report github` output is parsed line-by-line by the Actions
+// to stdout: `grunnr report github` output is parsed line-by-line by the Actions
 // runner, and a warning printed on stdout would be echoed into the build log as
 // if it were part of the report.
 func emitRendering(cmd *cobra.Command, opts *reportOpts,
@@ -241,10 +241,10 @@ func emitRendering(cmd *cobra.Command, opts *reportOpts,
 		}, res, bundle.warnings)
 	}
 
-	// Diagnostics use the spoken form of the verb ("atlas report sarif"),
+	// Diagnostics use the spoken form of the verb ("grunnr report sarif"),
 	// not the envelope's dotted tag, so a line copied out of a build log is
 	// a command the reader can actually run.
-	label := "atlas " + strings.ReplaceAll(command, ".", " ")
+	label := "grunnr " + strings.ReplaceAll(command, ".", " ")
 	for _, w := range bundle.warnings {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", label, w)
 	}
@@ -377,7 +377,7 @@ func (b *reportBundle) collectAudit(ctx context.Context, s *store.Store, opts *r
 	// "Features below the floor" counts the features, NOT the findings.
 	//
 	// They are different numbers: FromAudit drops every below-floor feature
-	// with no anchor symbol, so len(findings) is the count atlas could
+	// with no anchor symbol, so len(findings) is the count grunnr could
 	// annotate, which is smaller. Putting it under this label under-reports
 	// a compliance number on a PR comment — the one failure this command
 	// cannot be allowed to have — so the shortfall gets its own row rather
@@ -395,7 +395,7 @@ func (b *reportBundle) collectAudit(ctx context.Context, s *store.Store, opts *r
 		// Also as a warning: the summary table is the PR comment's, and
 		// the same fact has to reach `report sarif` and `report github`,
 		// which render no table. Saying it is the difference between
-		// "atlas found nothing" and "atlas had nowhere to put it".
+		// "grunnr found nothing" and "grunnr had nowhere to put it".
 		b.warnings = append(b.warnings, fmt.Sprintf(
 			"%d low-scoring features have no linked symbol to anchor an annotation to; "+
 				"they appear in no format. Add an @atlas:feature annotation to their implementation",
@@ -530,7 +530,7 @@ func (b *reportBundle) collectCoverage(ctx context.Context, s *store.Store, opts
 	}
 	if frontier.Empty() {
 		b.warnings = append(b.warnings,
-			"no coverage has been ingested, so no coverage findings are reported (run `atlas cov sync`)")
+			"no coverage has been ingested, so no coverage findings are reported (run `grunnr cov sync`)")
 		return nil
 	}
 
@@ -562,7 +562,7 @@ func (b *reportBundle) collectCoverage(ctx context.Context, s *store.Store, opts
 	return nil
 }
 
-// collectDead mirrors `atlas codebase dead`'s defaults (import edges, module +
+// collectDead mirrors `grunnr codebase dead`'s defaults (import edges, module +
 // conditional scopes) so the two verbs cannot disagree about what is dead.
 func (b *reportBundle) collectDead(ctx context.Context, s *store.Store) error {
 	candidates, err := s.Symbols().FindDead(ctx, store.DeadCodeFilter{
@@ -584,7 +584,7 @@ func (b *reportBundle) collectDead(ctx context.Context, s *store.Store) error {
 // Every failure here degrades to "no delta section" plus a warning rather than
 // an error: the comment's job is to render on every push, and the pushes with
 // no usable base (a brand-new branch, a repo that has never run
-// `atlas snapshot`) are exactly the ones where a hard failure would be most
+// `grunnr snapshot`) are exactly the ones where a hard failure would be most
 // confusing.
 func resolveDelta(cmd *cobra.Command, base, head string) (*report.Delta, []string) {
 	if base == "" {
@@ -634,7 +634,7 @@ func resolveHeadSnapshotID(ctx context.Context, s *store.Store, head string) (in
 		return 0, []string{fmt.Sprintf("delta skipped: list snapshots: %v", err)}
 	}
 	if len(rows) == 0 {
-		return 0, []string{"delta skipped: no snapshots in the store (run `atlas snapshot --audit`)"}
+		return 0, []string{"delta skipped: no snapshots in the store (run `grunnr snapshot --audit`)"}
 	}
 	// List returns newest-first per the Snapshots port doc.
 	return rows[0].ID, nil
@@ -693,7 +693,7 @@ func missingAuditWarnings(baseRef, headRef string, d diff.AuditDelta) []string {
 	if n := len(d.MissingOnA); n > 0 {
 		out = append(out, fmt.Sprintf(
 			"the delta is partial: %s have no audit score in the base snapshot (%s), so any "+
-				"regression in them is not in the table (e.g. %s); run `atlas snapshot --audit` "+
+				"regression in them is not in the table (e.g. %s); run `grunnr snapshot --audit` "+
 				"on the base ref",
 			pluralFeatures(n), refLabel(baseRef, "base"), d.MissingOnA[0]))
 	}

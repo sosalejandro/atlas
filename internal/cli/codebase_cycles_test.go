@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // cyclesFixture is the per-test scaffolding for the cycles CLI
@@ -26,11 +26,11 @@ type cyclesFixture struct {
 func newCyclesFixture(t *testing.T) *cyclesFixture {
 	t.Helper()
 	dir := t.TempDir()
-	atlasDir := filepath.Join(dir, ".atlas")
-	if err := os.MkdirAll(atlasDir, 0o755); err != nil {
-		t.Fatalf("mkdir .atlas: %v", err)
+	grunnrDir := filepath.Join(dir, ".grunnr")
+	if err := os.MkdirAll(grunnrDir, 0o755); err != nil {
+		t.Fatalf("mkdir .grunnr: %v", err)
 	}
-	dbPath := filepath.Join(atlasDir, "atlas.db")
+	dbPath := filepath.Join(grunnrDir, "grunnr.db")
 	loaded = Config{repoRoot: dir, DBPath: dbPath}
 	flags = globalFlags{DBPath: dbPath}
 	return &cyclesFixture{root: dir, dbPath: dbPath}
@@ -75,7 +75,7 @@ func (f *cyclesFixture) seedImportEdge(t *testing.T, fromQN, fromFile, toQN, toF
 	}
 }
 
-// runCyclesCmd drives `atlas codebase cycles` end-to-end through the
+// runCyclesCmd drives `grunnr codebase cycles` end-to-end through the
 // cobra dispatch tree.
 func runCyclesCmd(t *testing.T, fix *cyclesFixture, args ...string) (string, string, error) {
 	t.Helper()
@@ -210,7 +210,7 @@ func TestCodebaseCycles_InvalidScopeFilter(t *testing.T) {
 
 // TestCodebaseCycles_JSONEnvelope locks in the JSON contract — the
 // envelope must carry schema_version + command + the result with a
-// cycles array and the total_edges count. Atlas's stable JSON-output
+// cycles array and the total_edges count. Grunnr's stable JSON-output
 // promise (architecture.md §6) means breaking this is a public API
 // regression.
 func TestCodebaseCycles_JSONEnvelope(t *testing.T) {

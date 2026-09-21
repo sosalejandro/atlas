@@ -13,7 +13,7 @@
 // what it cost: on a 39-module workspace, 210 production files produced
 // no symbols because their short names collided, and every call through
 // an interface-typed field bound by substring match or not at all.
-// Symbol identity and call resolution are what every other number atlas
+// Symbol identity and call resolution are what every other number grunnr
 // reports is computed FROM, so they are the wrong place to save a
 // second.
 //
@@ -40,9 +40,11 @@
 //     supplied by the caller as PreResolved hooks. Phase 1 ships the
 //     hooks as interfaces; the actual route/sqlcmap/resolver packages
 //     are separate ports landing in later phases.
+//
 //  2. Route discovery — also via an optional Routes hook (Phase 1 has no
 //     in-package router parser; nutrition-v2-go uses Huma + Chi which
 //     is the routeparse/ package's job).
+//
 //  3. Function discovery — walk every .go file (including _test.go by
 //     default; see Options.SkipTests), skipping vendor/, node_modules/,
 //     hidden dirs, and generated code. Register *ast.FuncDecl as
@@ -57,10 +59,11 @@
 //     that has to be countable. Options.IncludeGenerated indexes them
 //     instead.
 //
-//     Test files are scanned by default because Atlas's feature
+//     Test files are scanned by default because Grunnr's feature
 //     attribution relies on `@atlas:feature` / `@testreg` annotations
 //     that conventionally live on the test that verifies the feature.
 //     Set Options.SkipTests=true for pure production graph-only audits.
+//
 //  4. Call graph extraction — walk function bodies; resolve each
 //     ast.CallExpr to a target Node ID. For a type-checked file that is
 //     one go/types lookup (plus, for an interface call, the CHA
@@ -84,7 +87,7 @@
 //     analysis live in packages/resolver, which knows nothing about
 //     SymbolIDs. Identity stays here; types stay there.
 //   - No SQLite persistence (store/ is a tier-2.5 side-channel).
-//   - No yaml/json output formatting (each cmd/atlas verb owns its
+//   - No yaml/json output formatting (each cmd/grunnr verb owns its
 //     JSON shape).
 //   - No frontend / TS awareness (codeindex/ts is its own subpackage).
 //   - No route parsing logic — Routes hook receives []Route from

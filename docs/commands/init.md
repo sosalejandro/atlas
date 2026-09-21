@@ -1,13 +1,13 @@
-# atlas init
+# grunnr init
 
-`atlas init` is the one-time bootstrap step. It performs a fresh scan of the
+`grunnr init` is the one-time bootstrap step. It performs a fresh scan of the
 project at `--root` (default: git toplevel, falling back to cwd), opens the
-SQLite state DB at `.atlas/atlas.db` — creating it if it doesn't exist —
+SQLite state DB at `.grunnr/grunnr.db` — creating it if it doesn't exist —
 applies all pending migrations, and ingests the resulting `codeindex.Index`.
 
 After `init`, every other read-only verb (`audit`, `chain`, `codebase find`,
 `diagnose`, `sprint`) reads from the cached store. Re-scan with
-[`atlas scan`](./scan.md) when source files change; the cache is file-hash
+[`grunnr scan`](./scan.md) when source files change; the cache is file-hash
 keyed and incremental.
 
 Feature membership is materialised directly from `@atlas:feature`,
@@ -17,7 +17,7 @@ no separate "import YAML" step — the code is the registry.
 ## Usage
 
 ```
-atlas init [flags]
+grunnr init [flags]
 ```
 
 ## Flags
@@ -27,9 +27,9 @@ atlas init [flags]
 | `--root`                      | repo root / cwd       | Project root to scan.                                                                                                |
 | `--hash-files`                | `true`                | Compute SHA-256 of every scanned file. Pin to `false` only if hashing dominates wall time on a giant repo.           |
 | `--node-modules-path`         | auto-detected         | Absolute path to a `node_modules/` directory the TS scanner can borrow `typescript` from. Repeatable.                |
-| `--include-generated`         | off                   | Index machine-written files instead of excluding them (see `atlas scan`).                                            |
-| `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path. Without it, atlas searches upward from `--root` for `.atlas.yaml`.                             |
-| `--db-path` *(global)*        | `.atlas/atlas.db`     | Override the SQLite state path. Useful for parallel CI shards (e.g. `.atlas/ci-shard-3.db`).                         |
+| `--include-generated`         | off                   | Index machine-written files instead of excluding them (see `grunnr scan`).                                            |
+| `--config` *(global)*         | `.atlas.yaml` lookup  | Explicit config path. Without it, grunnr searches upward from `--root` for `.atlas.yaml`.                             |
+| `--db-path` *(global)*        | `.grunnr/grunnr.db`     | Override the SQLite state path. Useful for parallel CI shards (e.g. `.grunnr/ci-shard-3.db`).                         |
 | `--json` *(global)*           | off                   | Emit the stable JSON envelope (`{schema_version, command, args, result, generated_at}`) instead of human-friendly text. |
 | `-v`, `--verbose` *(global)*  | off                   | Verbose human-readable output. No effect with `--json`.                                                              |
 
@@ -38,9 +38,9 @@ atlas init [flags]
 ### First run on a fresh project
 
 ```
-# Run from: /tmp/atlas-fixture (a mixed Go + TS + Python project)
-$ atlas init
-Atlas initialised /tmp/atlas-fixture/.atlas/atlas.db (root: /tmp/atlas-fixture)
+# Run from: /tmp/grunnr-fixture (a mixed Go + TS + Python project)
+$ grunnr init
+Grunnr initialised /tmp/grunnr-fixture/.grunnr/grunnr.db (root: /tmp/grunnr-fixture)
   symbols=9 edges=2 annotations=7 file_hashes=4 pattern_matches=0
   features=3 feature_symbols=3 orphan_annotations=1
   files_scanned=4 files_skipped=0 duration=1ms
@@ -63,13 +63,13 @@ symbols when it sees a router boot-call (`createBrowserRouter`,
 
 ### Pointing at an external node_modules
 
-When atlas runs against a polyglot repo whose TS scanner needs the
+When grunnr runs against a polyglot repo whose TS scanner needs the
 `typescript` package but the scanned project has no `node_modules/`,
 forward an external path:
 
 ```
 # Run from: any repo without local node_modules
-$ atlas init --node-modules-path /home/me/some-project/node_modules
+$ grunnr init --node-modules-path /home/me/some-project/node_modules
 ```
 
 The flag is repeatable; the first directory containing a resolvable
@@ -78,14 +78,14 @@ The flag is repeatable; the first directory containing a resolvable
 ### JSON envelope
 
 ```
-# Run from: /tmp/atlas-fixture
-$ atlas init --json
+# Run from: /tmp/grunnr-fixture
+$ grunnr init --json
 {
   "schema_version": "v1",
   "command": "init",
-  "args": {"root": "/tmp/atlas-fixture", "hash_files": true},
+  "args": {"root": "/tmp/grunnr-fixture", "hash_files": true},
   "result": {
-    "db_path": "/tmp/atlas-fixture/.atlas/atlas.db",
+    "db_path": "/tmp/grunnr-fixture/.grunnr/grunnr.db",
     "stats": {
       "symbols": 9, "edges": 2, "annotations": 7, "file_hashes": 4,
       "files_scanned": 4, "files_skipped": 0, "duration_ms": 1
@@ -101,7 +101,7 @@ patch releases per the schema-version contract.
 ## How it works
 
 1. Resolve `--root` (git toplevel → cwd fallback).
-2. Open/create `.atlas/atlas.db`, apply pending schema migrations
+2. Open/create `.grunnr/grunnr.db`, apply pending schema migrations
    (see [`docs/schema-v1.md`](../schema-v1.md)).
 3. Run the multi-language code-index walker:
    - **Go**: AST-walks every `.go` under root (skipping `vendor/`,
@@ -115,7 +115,7 @@ patch releases per the schema-version contract.
 5. Materialise the `features` and `feature_symbols` tables from harvested
    annotations.
 
-Re-running `atlas init` on an existing DB is safe — the schema migrations
+Re-running `grunnr init` on an existing DB is safe — the schema migrations
 are idempotent and the file-hash cache means unchanged files are skipped.
-For routine re-scans, prefer [`atlas scan`](./scan.md), which is the same
+For routine re-scans, prefer [`grunnr scan`](./scan.md), which is the same
 walk minus the schema-migration step.

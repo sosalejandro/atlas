@@ -5,15 +5,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sosalejandro/atlas/packages/codeindex"
-	"github.com/sosalejandro/atlas/packages/codeindex/patterns"
-	"github.com/sosalejandro/atlas/packages/graph"
-	"github.com/sosalejandro/atlas/packages/shared"
-	"github.com/sosalejandro/atlas/packages/store"
+	"github.com/sosalejandro/grunnr/packages/codeindex"
+	"github.com/sosalejandro/grunnr/packages/codeindex/patterns"
+	"github.com/sosalejandro/grunnr/packages/graph"
+	"github.com/sosalejandro/grunnr/packages/shared"
+	"github.com/sosalejandro/grunnr/packages/store"
 )
 
 // TestIntegration_StoreRoundTrip verifies the end-to-end persistence path:
-// build two synthetic atlas Snapshots, write them to a real SQLite store
+// build two synthetic grunnr Snapshots, write them to a real SQLite store
 // via Snapshots.Capture, then load them back via Engine.ComputeFromStore
 // and assert the structured delta surfaces what we put in.
 //
@@ -22,7 +22,7 @@ import (
 // symbol delta surfaces.
 func TestIntegration_StoreRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	s, err := store.Open(context.Background(), filepath.Join(dir, "atlas-state.db"))
+	s, err := store.Open(context.Background(), filepath.Join(dir, "grunnr-state.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestIntegration_StoreRoundTrip(t *testing.T) {
 	idxA.Graph.AddNode(&graph.Node{Symbol: symA2})
 	idxA.Graph.AddEdge("pkg.Foo", "pkg.Bar")
 	idxA.Annotations = []shared.Annotation{
-		{Kind: shared.AnnFeature, IDs: []string{"pkg.foo"}, Source: shared.SourceAtlas, Position: shared.FilePosition{Path: "pkg/foo.go", Line: 9}},
+		{Kind: shared.AnnFeature, IDs: []string{"pkg.foo"}, Source: shared.SourceGrunnr, Position: shared.FilePosition{Path: "pkg/foo.go", Line: 9}},
 	}
 
 	auditA := []FeatureHealth{
@@ -109,7 +109,7 @@ func TestIntegration_StoreRoundTrip(t *testing.T) {
 	idxB.Graph.AddNode(&graph.Node{Symbol: symB3})
 	idxB.Graph.AddEdge("pkg.Foo", "pkg.Baz")
 	idxB.Annotations = []shared.Annotation{
-		{Kind: shared.AnnFeature, IDs: []string{"pkg.foo"}, Source: shared.SourceAtlas, Position: shared.FilePosition{Path: "pkg/foo.go", Line: 9}},
+		{Kind: shared.AnnFeature, IDs: []string{"pkg.foo"}, Source: shared.SourceGrunnr, Position: shared.FilePosition{Path: "pkg/foo.go", Line: 9}},
 	}
 
 	auditB := []FeatureHealth{
@@ -202,7 +202,7 @@ func TestIntegration_StoreRoundTrip(t *testing.T) {
 // clear error when one of the snapshot ids is missing.
 func TestIntegration_ComputeFromStore_NotFound(t *testing.T) {
 	dir := t.TempDir()
-	s, err := store.Open(context.Background(), filepath.Join(dir, "atlas-state.db"))
+	s, err := store.Open(context.Background(), filepath.Join(dir, "grunnr-state.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
