@@ -234,7 +234,7 @@ type LookupSymbolAtOrAfterLineParams struct {
 // annotations sit in the comment block immediately above their target
 // (Go: doc comment above the func decl). The "nearest symbol at or after
 // the annotation line, in the same file, within `max_lookahead` rows"
-// rule is the simplest invariant that captures both `@atlas:feature`
+// rule is the simplest invariant that captures both `@grunnr:feature`
 // (one line above the func) and multi-line doc-block annotations
 // (several lines above).
 //

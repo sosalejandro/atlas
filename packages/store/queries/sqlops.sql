@@ -72,7 +72,7 @@ ORDER BY table_name, name;
 
 -- name: CountSQLOperationsByResolution :many
 -- The honesty counter, straight out of the store: how much of the data layer
--- atlas could actually read.
+-- grunnr could actually read.
 SELECT resolved, COUNT(*) AS total
 FROM sql_operations
 GROUP BY resolved;
