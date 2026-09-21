@@ -58,11 +58,11 @@ type envelope struct {
 	GeneratedAt   string          `json:"generated_at"`
 }
 
-// runAtlas invokes the binary and decodes the envelope, failing the test with
+// runGrunnr invokes the binary and decodes the envelope, failing the test with
 // the command's own stderr when it exits non-zero — the exit code is part of
 // the contract for the gate verbs, and a bare "exit status 1" is not a
 // diagnosis anyone can act on.
-func runAtlas(t *testing.T, args ...string) envelope {
+func runGrunnr(t *testing.T, args ...string) envelope {
 	t.Helper()
 	cmd := exec.Command(atlasBin, append(args, "--json")...)
 	var stdout, stderr bytes.Buffer
@@ -98,7 +98,7 @@ func TestAcceptance_CLI_TheFixtureEndToEnd(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "grunnr.db")
 
 	// --- scan ------------------------------------------------------------
-	scan := runAtlas(t, "scan", "--root", fixtureDir, "--db-path", db)
+	scan := runGrunnr(t, "scan", "--root", fixtureDir, "--db-path", db)
 	if scan.Command != "scan" {
 		t.Errorf("command = %q, want %q", scan.Command, "scan")
 	}
@@ -137,7 +137,7 @@ func TestAcceptance_CLI_TheFixtureEndToEnd(t *testing.T) {
 	}
 
 	// --- cov sync --------------------------------------------------------
-	sync := runAtlas(t, "cov", "sync", "--framework", "go-cover",
+	sync := runGrunnr(t, "cov", "sync", "--framework", "go-cover",
 		"--input", filepath.Join(fixtureDir, profileName), "--db-path", db)
 	if sync.Command != "cov.sync" {
 		t.Errorf("command = %q, want %q", sync.Command, "cov.sync")
@@ -168,7 +168,7 @@ func TestAcceptance_CLI_TheFixtureEndToEnd(t *testing.T) {
 	}
 
 	// --- doctor ----------------------------------------------------------
-	doctor := runAtlas(t, "doctor", "--root", fixtureDir, "--db-path", db)
+	doctor := runGrunnr(t, "doctor", "--root", fixtureDir, "--db-path", db)
 	var doctorRes struct {
 		Checks []struct {
 			Name     string `json:"name"`
@@ -207,7 +207,7 @@ func TestAcceptance_CLI_TheFixtureEndToEnd(t *testing.T) {
 	// --- health ----------------------------------------------------------
 	// Driven under the canonical verb; `grunnr health` remains a working alias
 	// (issue #112) and has its own coverage in internal/cli/renames_test.go.
-	health := runAtlas(t, "health", "--db-path", db)
+	health := runGrunnr(t, "health", "--db-path", db)
 	var healthRes struct {
 		Features []struct {
 			FeatureID string  `json:"feature_id"`
@@ -285,9 +285,9 @@ func Greet() string {
 	}
 
 	var fromInit, fromScan counts
-	decodeResult(t, runAtlas(t, "init", "--root", root,
+	decodeResult(t, runGrunnr(t, "init", "--root", root,
 		"--db-path", filepath.Join(t.TempDir(), "init.db")), &fromInit)
-	decodeResult(t, runAtlas(t, "scan", "--root", root,
+	decodeResult(t, runGrunnr(t, "scan", "--root", root,
 		"--db-path", filepath.Join(t.TempDir(), "scan.db")), &fromScan)
 
 	// The fixture has to exercise all three counters, or this test would pass

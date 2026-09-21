@@ -136,7 +136,7 @@ func newCodebaseBCCmd() *cobra.Command {
 		Use:   "bc <bc-name>",
 		Short: "List annotations/symbols within a bounded context",
 		Long: `bc returns every annotation row inside files that declare
-@atlas:bc <name>. Useful for "what's in this BC" inventories.`,
+@grunnr:bc <name>. Useful for "what's in this BC" inventories.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCodebaseBC(cmd, args[0])
@@ -183,7 +183,7 @@ func newCodebaseAggCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agg <id>",
 		Short: "Aggregate declaration + canonical-service link",
-		Long: `agg returns the @atlas:aggregate declaration for an aggregate id
+		Long: `agg returns the @grunnr:aggregate declaration for an aggregate id
 plus its linked canonical-service site (when one exists).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -236,7 +236,7 @@ func runCodebaseAgg(cmd *cobra.Command, id string) error {
 func newCodebaseConsumerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "consumer [<stream>]",
-		Short: "List @atlas:consumer subscriptions (optionally filtered by stream)",
+		Short: "List @grunnr:consumer subscriptions (optionally filtered by stream)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			stream := ""
@@ -291,7 +291,7 @@ func newCodebaseEmitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "emit <event-name>",
 		Short: "Emit + outbox-publish sites for a named event",
-		Long: `emit groups every @atlas:event-emit and @atlas:outbox-publish
+		Long: `emit groups every @grunnr:event-emit and @grunnr:outbox-publish
 annotation for a given event name. Useful for "where does this event
 fire from" and "is it published to the bus, or staged in the outbox".`,
 		Args: cobra.ExactArgs(1),

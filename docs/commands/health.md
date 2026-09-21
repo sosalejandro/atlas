@@ -133,9 +133,9 @@ runs.
      a passing result. Called `coverage` before issue #112.
    - `decision_coverage` — branch outcomes taken over branch outcomes a
      profile could judge, from [`grunnr flow`](./flow.md). See below.
-   - `annotation_freshness` — how many `@atlas:feature` / `@atlas:contract`
+   - `annotation_freshness` — how many `@grunnr:feature` / `@grunnr:contract`
      sites were last touched inside the freshness window (git blame).
-   - `pattern_compliance` — how many linked `@atlas:aggregate-service`
+   - `pattern_compliance` — how many linked `@grunnr:aggregate-service`
      declarations match the canonical-service pattern.
    - `contract_drift` — how many referenced contracts were updated inside the
      drift window.

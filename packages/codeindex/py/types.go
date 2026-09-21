@@ -29,7 +29,7 @@ type FileMeta struct {
 //   - Comment-style hits on the line above a def/class
 //     (e.g. `# @atlas:feature billing.subscribe`).
 //   - Decorator-style hits using the no-op runtime helper shipped at
-//     `assets/python/grunnr.py` (e.g. `@atlas.feature("billing.subscribe")`
+//     `assets/python/grunnr.py` (e.g. `@grunnr.feature("billing.subscribe")`
 //     or `@feature("billing.subscribe")` when imported as
 //     `from grunnr import feature`).
 //   - Class-level propagation records: when a class carries an annotation,

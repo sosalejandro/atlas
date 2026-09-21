@@ -77,7 +77,7 @@ which columns.
 | `<test symbol>.out` in the directory named by `cov run --out` | `cov run` | One Go coverprofile per test: file paths, line ranges, execution counts. The test's qualified symbol name is the filename. | `0644` |
 | the directory named by `cov run --work` | `cov run` | Go coverage meta and counter files plus grunnr's own plan and report JSON. A temporary directory by default, removed after the run unless `--keep` is passed. | `0755` dirs |
 | your own source files | `migrate-annotations --apply` | Rewritten annotation comments, with the original file mode preserved. | unchanged |
-| your own source files | `onboard promote --apply` | One `@atlas:feature <id>` comment above the anchor declaration. The id is inferred from the index. | unchanged |
+| your own source files | `onboard promote --apply` | One `@grunnr:feature <id>` comment above the anchor declaration. The id is inferred from the index. | unchanged |
 | `atlas_shim_test.go` in each selected package | `cov shim init` | A generated `TestMain` — grunnr's own template plus your package clause, no indexed content. Inert unless `GRUNNR_COV_DIR` is set. A package that already declares a `TestMain` is left alone and reported. | `0644` |
 | `.grunnr/provisional/capabilities.json` | `onboard` | The provisional capability map: package and directory names, symbol names, route paths, table names. No verbatim source text. | default |
 | `$TMPDIR/grunnr-pyscan-*/scanner.py` | the Python scanner | Grunnr's own embedded scanner script. None of your code. | `0600` |
@@ -92,7 +92,7 @@ then the default `.grunnr/grunnr.db` relative to the repository root.
   grammar, preserving the file mode. It writes back what was already there.
 - `cov shim init` writes a generated `TestMain` into each selected package —
   grunnr's own template plus your package clause.
-- `onboard promote --apply` writes one `@atlas:feature <id>` comment above an
+- `onboard promote --apply` writes one `@grunnr:feature <id>` comment above an
   anchor declaration. This is the only repository write that puts something
   grunnr *derived* into your source, and what it puts there is an identifier.
   Without `--apply` it prints the line and touches nothing.
@@ -157,7 +157,7 @@ of it:
 | `sql_operations.suppressions` | The grunnr directives found on the enclosing declaration. |
 | `cfg_edges.condition` | **The source text of every branch condition**, verbatim. |
 | `cfg_findings.detail` | A flow finding's explanation, which quotes source constructs. |
-| `annotations.value` | The argument text of each `@atlas` annotation, verbatim from the comment. |
+| `annotations.value` | The argument text of each `@grunnr` annotation, verbatim from the comment. |
 | `snapshots.index_json` | **The whole serialised index**, including every symbol's **doc comment** and **signature**. Nothing else in the database holds doc comments. |
 | `snapshots.audit_json` | The audit slice at that git ref. |
 | `audit_snapshot_runs.score_json` | Serialised audit scores; carries feature ids and titles. |
@@ -213,7 +213,7 @@ someone typed (`--note`, config values).
   machine beyond paths that appear in the columns above.
 - Anything about *you*: no user id, no email, no machine id, no timing
   telemetry. The only person-shaped value anywhere is `features.owner`,
-  which is the handle you wrote in an `@atlas:owner` annotation.
+  which is the handle you wrote in an `@grunnr:owner` annotation.
 
 ---
 
@@ -236,7 +236,7 @@ and what happens to it afterwards is your decision. Run
 | `grunnr snapshot` | the `snapshots` table | the whole index, doc comments and signatures included |
 | `grunnr cov shim init` | `atlas_shim_test.go` in your packages | nothing from the index: grunnr's own generated `TestMain` |
 | `grunnr migrate-annotations --apply` | your source files, in place | nothing from the index: it rewrites your annotation comments into another grammar |
-| `grunnr onboard promote --apply` | your source files, in place | one inferred feature id, as an `@atlas:feature` comment |
+| `grunnr onboard promote --apply` | your source files, in place | one inferred feature id, as an `@grunnr:feature` comment |
 
 **`grunnr mcp` is the one to think hardest about.** It discloses nothing over
 a network by itself — it speaks JSON-RPC on stdin/stdout to the process that

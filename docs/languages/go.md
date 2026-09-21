@@ -29,9 +29,9 @@ The Go scanner walks every `.go` file under the project root (including
 | ----------------------------------------------------- | --------------- | ---------------------------------------------------------------------------- |
 | Package-level functions                               | `function`      | `func DoThing(...) {...}` — exported **and** package-private (`func helper()`), because the compiler instruments both for coverage. |
 | Methods on a receiver                                 | `function`      | `func (h *Handler) Login(...) {...}` — qualified name includes receiver.    |
-| Struct type declarations                              | `type`          | Carry `@atlas:aggregate` annotations when applicable.                        |
+| Struct type declarations                              | `type`          | Carry `@grunnr:aggregate` annotations when applicable.                        |
 | Interface declarations                                | `type`          |                                                                              |
-| `@atlas:*` annotation comments                        | (annotation)    | Bound to the next declared symbol on the same/following line.                |
+| `@grunnr:*` annotation comments                        | (annotation)    | Bound to the next declared symbol on the same/following line.                |
 | Call-graph edges from one function to another         | `call`          | Type-resolved when the package compiles, including interface dispatch and generics; name-matched otherwise. Each edge records which. |
 | Wire / Fx DI bindings                                 | `dep_inject`    | Wire `wire.Build` sets + Fx `fx.Provide` calls.                              |
 | SQLC method ↔ SQL file mappings                       | `sql_query`     | Joins generated `*.sql.go` methods to their `*.sql` files.                   |
@@ -44,7 +44,7 @@ The scanner skips by default:
 - Generated code — see [Generated code](#generated-code) below.
 
 `_test.go` files are **included** by default — they're where
-`@atlas:feature` lives most often. Pass
+`@grunnr:feature` lives most often. Pass
 `codeindex/go.Options.SkipTests = true` via the library API if a caller
 needs production-only indexing.
 
@@ -339,11 +339,11 @@ A minimal Go project the scanner happily indexes:
 my-go-svc/
 ├── go.mod
 ├── auth/
-│   ├── handler.go          ← @atlas:feature auth.login, @atlas:contract auth.login
-│   ├── service.go          ← @atlas:aggregate identity.auth
-│   └── handler_test.go     ← @atlas:feature auth.login + #real (test belongs to feature)
+│   ├── handler.go          ← @grunnr:feature auth.login, @grunnr:contract auth.login
+│   ├── service.go          ← @grunnr:aggregate identity.auth
+│   └── handler_test.go     ← @grunnr:feature auth.login + #real (test belongs to feature)
 └── billing/
-    ├── handler.go          ← @atlas:feature billing.subscribe
+    ├── handler.go          ← @grunnr:feature billing.subscribe
     └── service.go
 ```
 
@@ -389,7 +389,7 @@ aggregate identity.auth
 ```
 
 When a function in the same file carries
-`// @atlas:aggregate-service identity.auth`, the `service: (none)` line
+`// @grunnr:aggregate-service identity.auth`, the `service: (none)` line
 becomes `service: <file>:<line>` instead.
 
 ### Where do I emit this event?
@@ -424,7 +424,7 @@ The same holds for a call through a function VALUE (`f := s.Do; f()`, a
 a function, and grunnr emits nothing rather than guessing.
 
 Workaround unchanged: annotate the explicit call site with
-`@atlas:contract auth.login` so the audit picks it up even if the trace
+`@grunnr:contract auth.login` so the audit picks it up even if the trace
 chain doesn't reach it.
 
 The one thing that has changed is how you find out. `grunnr chain` showing
@@ -498,7 +498,7 @@ deeper (handler / service).
 
 ## Related
 
-- Annotation grammar (every `@atlas:<kind>` is parsed by the same engine
+- Annotation grammar (every `@grunnr:<kind>` is parsed by the same engine
   across languages): [`docs/annotations.md`](../annotations.md).
 - TypeScript scanner: [`docs/languages/ts.md`](./ts.md).
 - Python scanner: [`docs/languages/py.md`](./py.md).

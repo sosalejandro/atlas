@@ -390,8 +390,8 @@ $ grunnr doctor
 
   [n/a]  feature.linkage
         examines: features with no linked symbols, and annotations naming a feature the store does not have
-        no features are declared in the store, so there is no linkage to check (nothing in this repo carries an @atlas:feature annotation yet)
-        fix: annotate a symbol with @atlas:feature <id>, then: grunnr scan
+        no features are declared in the store, so there is no linkage to check (nothing in this repo carries an @grunnr:feature annotation yet)
+        fix: annotate a symbol with @grunnr:feature <id>, then: grunnr scan
 ```
 
 `n/a` never trips a gate — a repo mid-adoption is not a broken repo.

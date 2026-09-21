@@ -644,7 +644,7 @@ func (b *builder) attachAnchor(c *Capability) {
 	c.Anchor = &Anchor{
 		SymbolID: pick.ID, Qualified: string(pick.QualifiedName),
 		FilePath: pick.FilePath, Line: pick.Line,
-		Reasoning: why, Annotation: "@atlas:feature " + c.ID,
+		Reasoning: why, Annotation: "@grunnr:feature " + c.ID,
 	}
 }
 

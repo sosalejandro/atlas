@@ -217,7 +217,7 @@ func TestCapability_NamedAndUnnamedInvariants(t *testing.T) {
 			if !validID(c.ID) {
 				t.Errorf("named capability id %q is not promotable", c.ID)
 			}
-			if c.Anchor.Annotation != "@atlas:feature "+c.ID {
+			if c.Anchor.Annotation != "@grunnr:feature "+c.ID {
 				t.Errorf("%s would write %q, not its own annotation", c.ID, c.Anchor.Annotation)
 			}
 			continue
@@ -325,7 +325,7 @@ func TestCapability_Rename(t *testing.T) {
 	if !got.Named || got.ID != "billing.checkout" || got.Domain != "billing" {
 		t.Errorf("Rename produced named=%v id=%q domain=%q", got.Named, got.ID, got.Domain)
 	}
-	if got.Anchor.Annotation != "@atlas:feature billing.checkout" {
+	if got.Anchor.Annotation != "@grunnr:feature billing.checkout" {
 		t.Errorf("Rename would write %q", got.Anchor.Annotation)
 	}
 	if got.Ref() != "provisional:billing.checkout" {
@@ -389,7 +389,7 @@ func TestPromote_UnnamedGroupingIsSkippedNotWritten(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(string(after), "@atlas:feature"); n != 1 {
+	if n := strings.Count(string(after), "@grunnr:feature"); n != 1 {
 		t.Errorf("file carries %d annotations, want exactly the named one:\n%s\n(before:\n%s)",
 			n, after, before)
 	}

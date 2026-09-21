@@ -230,13 +230,23 @@ func callsParallel(fn *ast.FuncDecl, param string) bool {
 	return found
 }
 
-// isGenerated reports whether a file carries grunnr's generated marker. Read
-// as bytes rather than from the parsed comments: the marker is a contract
-// with whoever opens the file, not with the parser.
+// isGenerated reports whether a file carries a generated marker grunnr has
+// ever written. Read as bytes rather than from the parsed comments: the
+// marker is a contract with whoever opens the file, not with the parser.
+//
+// Both markers count. What this function answers is "did this tool write the
+// file", and the tool wrote plenty of them under its previous name; a
+// detector that only knows the current spelling stops recognising its own
+// output the moment the product is renamed.
 func isGenerated(path string) bool {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(b), generatedMarker)
+	for _, marker := range []string{generatedMarker, legacyGeneratedMarker} {
+		if strings.Contains(string(b), marker) {
+			return true
+		}
+	}
+	return false
 }

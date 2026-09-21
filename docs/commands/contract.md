@@ -9,7 +9,7 @@ A "contract" is one of:
 - **`huma-op`** — Huma framework operation (Go).
 - **`route`** — HTTP route discovered through the router-parse pipeline
   (Chi, Echo, stdlib, Huma).
-- **`func`** — Plain Go/TS function or method carrying an `@atlas:contract`
+- **`func`** — Plain Go/TS function or method carrying an `@grunnr:contract`
   annotation.
 - **`graphql`** — GraphQL query / mutation / subscription operation.
 
@@ -94,7 +94,7 @@ The `result.contracts` array carries one object per row.
 2. Walk the discovered symbols and apply each extractor:
    - **Huma extractor** — looks for `huma.Register` call sites.
    - **Route extractor** — feeds the router-parse pipeline.
-   - **Func extractor** — picks up `@atlas:contract` annotations.
+   - **Func extractor** — picks up `@grunnr:contract` annotations.
    - **GraphQL extractor** — parses `gqlgen` / `graphql-tools` resolvers.
 3. Emit the union, sorted by file:line.
 

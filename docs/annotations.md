@@ -22,7 +22,7 @@ support — see the [Legacy reader](#legacy-reader-testreg) section).
 ## TL;DR
 
 ```go
-// @atlas:feature auth.login #real            ← new (recommended)
+// @grunnr:feature auth.login #real            ← new (recommended)
 // @testreg auth.login #real                  ← legacy (still works)
 ```
 
@@ -36,7 +36,7 @@ legacy → new when you're ready.
 ## The new grammar
 
 ```
-@atlas:<kind> <id> [<id>...] [<tag>...]
+@grunnr:<kind> <id> [<id>...] [<tag>...]
 ```
 
 Tokens, separated by whitespace:
@@ -50,15 +50,15 @@ Tokens, separated by whitespace:
 ### Parser rules
 
 1. **One annotation per comment line.** The parser extracts the first
-   `@atlas:` match per line. Two annotations on the same line are
+   `@grunnr:` match per line. Two annotations on the same line are
    undefined behavior — split them across two comments.
 2. **Multi-line comments are unwrapped to one logical line.** A `/* ... */`
    block (TS/Go) or `<!-- ... -->` block (Markdown/HTML) is collapsed before
    matching, so an annotation can wrap across lines if you prefer block style.
 3. **Whitespace is the only separator.** Commas in IDs are tolerated for
    testreg backward compat but the new form is strictly space-separated.
-4. **Tags must follow IDs.** `@atlas:feature checkout.cart #real` is fine.
-   `@atlas:feature #real checkout.cart` parses incorrectly — the first
+4. **Tags must follow IDs.** `@grunnr:feature checkout.cart #real` is fine.
+   `@grunnr:feature #real checkout.cart` parses incorrectly — the first
    `#tag` token terminates the ID list.
 5. **IDs are validated by kind:**
    - `feature` / `contract` — strict regex `[a-z0-9_-]+(\.[a-z0-9_-]+)*`. Case-sensitive: ids may contain lowercase letters, digits, underscores, and dashes; dot is the segment separator. `Auth.Login` is rejected (uppercase); `auth.login`, `plans-patient.export-pdf`, and `email-relay.dlq` are all canonical. Both kebab (`plans-patient`) and snake (`plans_patient`) segment shapes are valid — mix them in one id if you want (`plans-patient.export_v2`).
@@ -73,18 +73,18 @@ The closed set of `<kind>` values:
 
 | Kind                 | Purpose                                                          | Example                                              |
 | -------------------- | ---------------------------------------------------------------- | ---------------------------------------------------- |
-| `feature`            | Code (typically a test) belongs to a named feature               | `@atlas:feature auth.login`                          |
-| `contract`           | Function/method is the feature's public API surface              | `@atlas:contract auth.login`                         |
-| `owner`              | Team or person responsible for the code                          | `@atlas:owner platform-team`                         |
-| `deprecated`         | Code scheduled for removal in the named version                  | `@atlas:deprecated v2.0`                             |
-| `since`              | Version the feature was introduced                               | `@atlas:since v1.4.0`                                |
-| `bc`                 | File / package belongs to the named bounded context              | `@atlas:bc identity`                                 |
-| `aggregate`          | Struct is an aggregate root for the named aggregate id           | `@atlas:aggregate meal_prep.batch_session`           |
-| `aggregate-service`  | Function is the canonical service helper for the named aggregate | `@atlas:aggregate-service meal_prep.batch_session`   |
-| `saga`               | Function is one step of a multi-step saga (`step=N` ordering)    | `@atlas:saga meal_prep_flow step=1`                  |
-| `consumer`           | Function subscribes to the named Redis stream                    | `@atlas:consumer stream=meal_prep_events`            |
-| `event-emit`         | Call site records a domain event by name                         | `@atlas:event-emit batch_session_started`            |
-| `outbox-publish`     | Outbox.Append site publishes the event to the bus                | `@atlas:outbox-publish batch_session_started`        |
+| `feature`            | Code (typically a test) belongs to a named feature               | `@grunnr:feature auth.login`                          |
+| `contract`           | Function/method is the feature's public API surface              | `@grunnr:contract auth.login`                         |
+| `owner`              | Team or person responsible for the code                          | `@grunnr:owner platform-team`                         |
+| `deprecated`         | Code scheduled for removal in the named version                  | `@grunnr:deprecated v2.0`                             |
+| `since`              | Version the feature was introduced                               | `@grunnr:since v1.4.0`                                |
+| `bc`                 | File / package belongs to the named bounded context              | `@grunnr:bc identity`                                 |
+| `aggregate`          | Struct is an aggregate root for the named aggregate id           | `@grunnr:aggregate meal_prep.batch_session`           |
+| `aggregate-service`  | Function is the canonical service helper for the named aggregate | `@grunnr:aggregate-service meal_prep.batch_session`   |
+| `saga`               | Function is one step of a multi-step saga (`step=N` ordering)    | `@grunnr:saga meal_prep_flow step=1`                  |
+| `consumer`           | Function subscribes to the named Redis stream                    | `@grunnr:consumer stream=meal_prep_events`            |
+| `event-emit`         | Call site records a domain event by name                         | `@grunnr:event-emit batch_session_started`            |
+| `outbox-publish`     | Outbox.Append site publishes the event to the bus                | `@grunnr:outbox-publish batch_session_started`        |
 
 `feature` is by far the most common — most test files only ever use that one.
 The other annotations exist so a single grammar covers ownership, lifecycle,
@@ -115,7 +115,7 @@ which carry free-form values. Both snake and kebab segments are accepted:
 
 ### Future kinds
 
-Adding a new kind is non-breaking. The parser accepts any `@atlas:<word>`
+Adding a new kind is non-breaking. The parser accepts any `@grunnr:<word>`
 shape; unknown kinds are recorded as advisory entries (a one-time warning per
 unique unknown kind) until a handler is registered. See
 [Forward compatibility](#forward-compatibility).
@@ -125,13 +125,13 @@ unique unknown kind) until a handler is registered. See
 ## Per-language comment syntax
 
 The annotation lives inside any line the language treats as a comment. The
-`@atlas:` token must follow a `@`, so prose mentions of "grunnr:feature" outside
+`@grunnr:` token must follow a `@`, so prose mentions of "grunnr:feature" outside
 a `@` prefix are safely ignored.
 
 ### Go
 
 ```go
-// @atlas:feature auth.login #real
+// @grunnr:feature auth.login #real
 func TestLogin_Success(t *testing.T) {
     // ...
 }
@@ -141,8 +141,8 @@ Method receivers / block comments work the same:
 
 ```go
 /*
-@atlas:contract auth.login
-@atlas:owner platform-team
+@grunnr:contract auth.login
+@grunnr:owner platform-team
 */
 func (h *AuthHandler) Login(ctx context.Context, req LoginReq) (LoginResp, error) {
     // ...
@@ -154,10 +154,10 @@ func (h *AuthHandler) Login(ctx context.Context, req LoginReq) (LoginResp, error
 Both line and block forms parse identically:
 
 ```ts
-// @atlas:feature checkout.cart
+// @grunnr:feature checkout.cart
 test('adds item to cart', async () => { /* ... */ });
 
-/* @atlas:feature checkout.cart #real */
+/* @grunnr:feature checkout.cart #real */
 test.describe('cart e2e', () => { /* ... */ });
 ```
 
@@ -165,8 +165,8 @@ JSDoc blocks count as block comments:
 
 ```ts
 /**
- * @atlas:feature web.dashboard
- * @atlas:owner frontend-team
+ * @grunnr:feature web.dashboard
+ * @grunnr:owner frontend-team
  */
 export function Dashboard() { /* ... */ }
 ```
@@ -176,7 +176,7 @@ export function Dashboard() { /* ... */ }
 Python scanner is **dropped from v0** of Grunnr, but the grammar is reserved:
 
 ```py
-# @atlas:feature analytics.daily_rollup
+# @grunnr:feature analytics.daily_rollup
 def test_daily_rollup():
     ...
 ```
@@ -186,7 +186,7 @@ def test_daily_rollup():
 For docs that themselves participate in a feature (runbooks, ADRs, etc.):
 
 ```md
-<!-- @atlas:feature ops.incident_response #docs -->
+<!-- @grunnr:feature ops.incident_response #docs -->
 
 # Incident Response Runbook
 ```
@@ -202,14 +202,14 @@ A single test or function can belong to multiple features. List the IDs
 space-separated; tags follow:
 
 ```go
-// @atlas:feature checkout.cart checkout.shipping checkout.tax #real
+// @grunnr:feature checkout.cart checkout.shipping checkout.tax #real
 func TestCheckoutE2E_FullFlow(t *testing.T) {
     // exercises 3 features in one test
 }
 ```
 
 ```ts
-// @atlas:feature web.dashboard web.notifications #mocked
+// @grunnr:feature web.dashboard web.notifications #mocked
 test('dashboard renders notifications panel', () => { /* ... */ });
 ```
 
@@ -239,12 +239,33 @@ not reject them.
 Anything starting with `#` is captured. Examples a team might add:
 
 ```go
-// @atlas:feature reports.export #real #pii #nightly
+// @grunnr:feature reports.export #real #pii #nightly
 func TestExportPII_RealDB(t *testing.T) { /* ... */ }
 ```
 
 `grunnr lint --tags` lists tag usage across the codebase and flags any tag
 that appears fewer than 3 times (a common typo signal — `#mockd` vs `#mocked`).
+
+---
+
+## Legacy prefix — `@atlas:`
+
+Grunnr was called Atlas until the rename, and its annotations were spelled
+`@atlas:<kind>`. The parser accepts that prefix, permanently, and produces a
+record identical to the canonical one:
+
+```go
+// @atlas:feature auth.login #real             ← parses as @grunnr:feature auth.login #real
+```
+
+Nothing rewrites it for you and nothing warns about it. That is the point: the
+annotations are in other people's source control, and a tool that forced a
+find-and-replace through someone else's repository to keep reading it would be
+making its rename their problem.
+
+Write `@grunnr:` in new code — it is what `grunnr onboard promote` and
+`grunnr migrate-annotations` emit — and leave the `@atlas:` lines where they
+are unless you want to change them.
 
 ---
 
@@ -255,10 +276,10 @@ annotation to the `feature` kind internally — no behavior difference at scan
 time.
 
 ```go
-// @testreg auth.login                          ← parses as @atlas:feature auth.login
-// @testreg auth.login #real                    ← parses as @atlas:feature auth.login #real
+// @testreg auth.login                          ← parses as @grunnr:feature auth.login
+// @testreg auth.login #real                    ← parses as @grunnr:feature auth.login #real
 // @testreg checkout.cart checkout.shipping #real
-//                                              ← parses as @atlas:feature checkout.cart checkout.shipping #real
+//                                              ← parses as @grunnr:feature checkout.cart checkout.shipping #real
 ```
 
 Multi-id support is preserved. Comma-separated IDs (a quirk the old testreg
@@ -269,7 +290,7 @@ parser tolerated) are also still accepted:
 ```
 
 There is **no plan to remove legacy support**. The 1,110 existing annotations
-in nutrition-v2-go are expected to live alongside new `@atlas:` annotations
+in nutrition-v2-go are expected to live alongside new `@grunnr:` annotations
 indefinitely, until the team chooses to run the migration. The legacy reader
 is part of Grunnr v1 and v2 — removal would be a v3-or-later breaking change
 preceded by deprecation cycles.
@@ -278,7 +299,7 @@ preceded by deprecation cycles.
 
 ## `grunnr migrate-annotations`
 
-Bulk-renames legacy `@testreg` annotations to the new `@atlas:feature` form.
+Bulk-renames legacy `@testreg` annotations to the new `@grunnr:feature` form.
 Sed-based and language-aware: respects per-language comment delimiters, never
 crosses file boundaries, idempotent on already-migrated code.
 
@@ -308,15 +329,15 @@ Found 1,110 legacy annotations across 890 files:
 Sample rewrites:
   src/contexts/auth/login_test.go:42
     - // @testreg auth.login #real
-    + // @atlas:feature auth.login #real
+    + // @grunnr:feature auth.login #real
 
   apps/web-patient/src/features/dashboard/__tests__/dashboard.test.tsx:18
     - // @testreg web.dashboard
-    + // @atlas:feature web.dashboard
+    + // @grunnr:feature web.dashboard
 
   apps/web-patient/e2e/checkout.spec.ts:7
     - // @testreg checkout.cart checkout.shipping #real
-    + // @atlas:feature checkout.cart checkout.shipping #real
+    + // @grunnr:feature checkout.cart checkout.shipping #real
 
 Run with --apply to perform the rewrite.
 ```
@@ -325,7 +346,7 @@ Run with --apply to perform the rewrite.
 
 ```
 $ grunnr migrate-annotations --apply --scope src/contexts/auth
-Migrating @testreg → @atlas:feature in src/contexts/auth/...
+Migrating @testreg → @grunnr:feature in src/contexts/auth/...
 
 Rewrote 87 annotations in 41 files.
 Validation pass: 41/41 files parse cleanly with the new grammar.
@@ -336,7 +357,7 @@ Done.
 
 Re-running `grunnr migrate-annotations --apply` on already-migrated code is a
 no-op. The regex matches only `@testreg ` (with the trailing space), never
-`@atlas:` — so subsequent runs find zero matches and report:
+`@grunnr:` — so subsequent runs find zero matches and report:
 
 ```
 $ grunnr migrate-annotations
@@ -363,25 +384,25 @@ errors. Examples:
 ### Unambiguous (accepted)
 
 ```go
-// @atlas:feature foo.bar #real            ← clear
-// @atlas:feature foo.bar baz.qux #real    ← multi-id, clear
-/* @atlas:owner alice */                   ← block comment, clear
-// some prose then @atlas:feature x.y      ← annotation extracted from tail
+// @grunnr:feature foo.bar #real            ← clear
+// @grunnr:feature foo.bar baz.qux #real    ← multi-id, clear
+/* @grunnr:owner alice */                   ← block comment, clear
+// some prose then @grunnr:feature x.y      ← annotation extracted from tail
 ```
 
 ### Ambiguous (rejected with error)
 
 ```go
-// @atlas feature foo.bar                  ← missing colon between kind and id
-//   error: parser expected '@atlas:<kind>', got '@atlas feature' at line N
+// @grunnr feature foo.bar                 ← missing colon between kind and id
+//   error: parser expected '@grunnr:<kind>', got '@grunnr feature' at line N
 
-// @atlas:feature                          ← no id
-//   error: '@atlas:feature' requires at least one feature id at line N
+// @grunnr:feature                          ← no id
+//   error: '@grunnr:feature' requires at least one feature id at line N
 
-// @atlas:feature foo.bar @atlas:owner alice
+// @grunnr:feature foo.bar @grunnr:owner alice
 //   error: two annotations on one line; split into separate comments at line N
 
-// @atlas:Feature foo.bar                  ← uppercase kind
+// @grunnr:Feature foo.bar                  ← uppercase kind
 //   error: unknown kind 'Feature' — did you mean 'feature'? at line N
 ```
 
@@ -389,8 +410,8 @@ errors. Examples:
 
 ```go
 // Things like grunnr:feature in prose      ← no leading @, ignored
-// see @atlasfeature for details           ← no colon, no space, ignored
-// TODO: write @atlas annotations later    ← no kind after colon, ignored
+// see @grunnrfeature for details          ← no colon, no space, ignored
+// TODO: write @grunnr annotations later   ← no kind after colon, ignored
 ```
 
 The leading `@` is the anchor. Without it, the parser does not engage —
@@ -406,7 +427,7 @@ Adding a new `<kind>` later is **non-breaking** for code already on Grunnr:
    warning, and skip the annotation
 2. Newer Grunnr versions handle the kind natively
 3. No grammar change is required — the parser already accepts any
-   `@atlas:<word>` shape
+   `@grunnr:<word>` shape
 
 ### Kind registration
 
@@ -414,7 +435,7 @@ Kinds are registered in `packages/codeindex/annotations/kinds.go` as a
 versioned map:
 
 ```go
-// Kinds are the closed enum of recognised @atlas:<kind> values.
+// Kinds are the closed enum of recognised @grunnr:<kind> values.
 // Adding a new kind: append to this map, document in docs/annotations.md,
 // bump the parser version, and ship.
 var Kinds = map[string]KindHandler{
@@ -444,7 +465,7 @@ attached to the enclosing feature.
 - **Don't put annotations in CSS, HTML, or JSON files.** Markdown is the only
   non-code exception (runbooks, ADRs, etc.). CSS/HTML carry no testable
   behavior — nothing meaningful for Grunnr to track.
-- **Don't use annotations as comments.** Treat `@atlas:feature` the way you
+- **Don't use annotations as comments.** Treat `@grunnr:feature` the way you
   treat a `//go:build` tag — machine-readable contract, not narrative.
 - **Don't invent new kinds without registering them.** Unknown kinds parse but
   warn; the data is unrecoverable without code changes. Register first.
@@ -458,7 +479,7 @@ ported and extended from testreg's `internal/adapters/annotation_parser.go`.
 
 The extensions on top of the legacy parser:
 
-- New regex matches `@atlas:<kind>\s+(.+)` in addition to `@testreg\s+(.+)`
+- New regex matches `@grunnr:<kind>\s+(.+)` in addition to `@testreg\s+(.+)`
 - Kind dispatch via the `Kinds` map (see [Kind registration](#kind-registration))
 - Stricter ID validation (`[a-z0-9_-]+(\.[a-z0-9_-]+)*`) under the new grammar;
   legacy `@testreg` IDs are not re-validated to preserve the 1,110 existing

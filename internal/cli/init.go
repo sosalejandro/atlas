@@ -35,8 +35,8 @@ codeindex.Index produced by the scan.
 
 After init you can re-run incremental scans with 'grunnr scan'.
 
-Feature membership is materialized directly from @atlas:feature /
-@atlas:contract / @testreg annotations during ingest -- no separate
+Feature membership is materialized directly from @grunnr:feature /
+@grunnr:contract / @testreg annotations during ingest -- no separate
 import step is required. The legacy --import-yaml flag was removed in
 this release (it had no-opped since Phase 7); to ingest YAML registries
 write a one-off importer against the Features port.

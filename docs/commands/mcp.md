@@ -180,7 +180,7 @@ to misread:
 | `reason` | What is missing | Fix |
 | --- | --- | --- |
 | `index-empty` | No symbols at all | `grunnr init` / `grunnr scan` |
-| `no-features-annotated` | Code is indexed; nothing says what it is for | Add `@atlas:feature <id>`, re-scan |
+| `no-features-annotated` | Code is indexed; nothing says what it is for | Add `@grunnr:feature <id>`, re-scan |
 | `feature-has-no-linked-symbols` | The feature exists; nothing is annotated for it | Annotate the implementation, re-scan |
 | `no-coverage-frontier` | No coverage run ingested | `grunnr cov sync` |
 | `no-per-test-evidence` | Coverage exists, but only as a union | `grunnr cov sync --per-test` |

@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the in-memory shape of `.atlas.yaml` plus a few computed
+// Config is the in-memory shape of `.grunnr.yaml` plus a few computed
 // fields. Every field is optional; zero-valued fields fall back to the
 // defaults documented in docs/onboarding.md.
 type Config struct {
@@ -70,7 +70,7 @@ type SprintConfig struct {
 }
 
 // defaultConfig returns the baseline configuration the CLI uses when no
-// `.atlas.yaml` is present. Keep in sync with docs/onboarding.md.
+// `.grunnr.yaml` is present. Keep in sync with docs/onboarding.md.
 func defaultConfig() Config {
 	return Config{
 		DBPath: filepath.Join(stateDir, "grunnr.db"),
@@ -92,7 +92,7 @@ func defaultConfig() Config {
 //
 //  1. If --config (configPath) is non-empty, that file must exist; an
 //     I/O error is fatal.
-//  2. Otherwise look for `.atlas.yaml` at the repo root (the directory
+//  2. Otherwise look for a config file at the repo root (the directory
 //     `git rev-parse --show-toplevel` reports). If git isn't available
 //     OR the binary is not run inside a repo, fall back to cwd.
 //  3. If no config file exists, return the defaults — running without a

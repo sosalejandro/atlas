@@ -14,7 +14,7 @@ import (
 )
 
 // newMigrateAnnotationsCmd implements `grunnr migrate-annotations` — bulk
-// rewrite of `// @testreg <id>` comments to `// @atlas:feature <id>`.
+// rewrite of `// @testreg <id>` comments to `// @grunnr:feature <id>`.
 //
 // --dry-run reports candidate annotations without touching disk.
 // --apply rewrites in place.
@@ -26,10 +26,10 @@ func newMigrateAnnotationsCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "migrate-annotations",
-		Short: "Bulk rewrite @testreg → @atlas:feature across the project",
+		Short: "Bulk rewrite @testreg → @grunnr:feature across the project",
 		Long: `migrate-annotations walks every source file under --root and rewrites
 each '// @testreg <id> [#tag ...]' comment in place to the canonical
-'// @atlas:feature <id> [tag ...]' form, preserving trailing tags
+'// @grunnr:feature <id> [tag ...]' form, preserving trailing tags
 verbatim (the leading '#' is dropped).
 
 The verb refuses to touch:
@@ -212,7 +212,7 @@ func processMigrateFile(absPath, root string, apply bool) (bool, []migrateAnnota
 // It scans line by line, identifies any `// @testreg <id> [...]` payload
 // embedded in the line (`@testreg` can appear after arbitrary leading
 // whitespace + the `//` / `#` comment open), and rewrites the `@testreg`
-// keyword to `@atlas:feature` plus drops `#` from each tag.
+// keyword to `@grunnr:feature` plus drops `#` from each tag.
 func rewriteMigrateAnnotations(src []byte, relPath string) ([]byte, []migrateAnnotationRewrite) {
 	scanner := bufio.NewScanner(strings.NewReader(string(src)))
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -285,7 +285,7 @@ func rewriteLine(line string) (string, bool) {
 	if !strings.HasSuffix(prefix, " ") {
 		prefix += " "
 	}
-	newLine := prefix + "@atlas:feature " + id + tail
+	newLine := prefix + "@grunnr:feature " + id + tail
 	return newLine, true
 }
 

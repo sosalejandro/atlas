@@ -34,7 +34,7 @@ The scanner walks the project root + every direct child of `apps/` and
 | React components reachable from a route                 | `component`   | Indexed only when the route → component chain is statically resolvable.                                                            |
 | Custom hooks (`useFoo`, `useBar`)                       | `hook`        | Looked up in `src/hooks/`, `apps/web/src/hooks/`, similar conventions.                                                              |
 | API service modules (`services/api/*.ts`)               | `service`     | Picked up when the service is imported from a component or hook.                                                                   |
-| `@atlas:*` annotations                                  | (annotation)  | Parsed identically to the Go side — same `@atlas:<kind> <id>` grammar applies.                                                     |
+| `@grunnr:*` annotations                                  | (annotation)  | Parsed identically to the Go side — same `@grunnr:<kind> <id>` grammar applies.                                                     |
 
 Other TS files — pure utility modules, generated types, test files —
 are **not** indexed unless they're transitively reachable from a router.
@@ -76,7 +76,7 @@ After `grunnr init` this produces something like:
 ```
 symbols:        12  (1 route, 2 pages, 1 hook, 2 services, 6 components)
 edges:          15  (route -> page -> hook -> service)
-annotations:     8  (component-level @atlas:feature markers)
+annotations:     8  (component-level @grunnr:feature markers)
 ```
 
 ## Worked queries
@@ -137,7 +137,7 @@ This happens when the scanner walks an apps/* directory but can't find
 custom wrapper, a server-only Next.js app, a Storybook config), the TS
 scanner won't emit anything for that root. Either:
 
-1. Annotate the symbols you care about with `@atlas:feature` directly —
+1. Annotate the symbols you care about with `@grunnr:feature` directly —
    the annotation parser fires independently of the router walker.
 2. Open an issue at <https://github.com/sosalejandro/grunnr/issues> with
    the router shape; new framework signals are additive.

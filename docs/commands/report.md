@@ -172,7 +172,7 @@ reporting a number.
 
 Features with no linked symbol produce no finding — there is no line to hang the
 annotation on — and are reported instead as a warning naming how many were
-skipped. Fix by adding an `@atlas:feature` annotation to the implementation.
+skipped. Fix by adding an `@grunnr:feature` annotation to the implementation.
 
 ### `grunnr/coverage-unattributed`
 

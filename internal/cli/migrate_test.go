@@ -20,37 +20,50 @@ func TestRewriteLine_Cases(t *testing.T) {
 		{
 			name:      "go-double-slash-no-tags",
 			in:        "// @testreg auth.login",
-			wantOut:   "// @atlas:feature auth.login",
+			wantOut:   "// @grunnr:feature auth.login",
 			rewritten: true,
 		},
 		{
 			name:      "go-double-slash-with-tags",
 			in:        "// @testreg auth.login #real #happy-path",
-			wantOut:   "// @atlas:feature auth.login real happy-path",
+			wantOut:   "// @grunnr:feature auth.login real happy-path",
 			rewritten: true,
 		},
 		{
 			name:      "leading-whitespace",
 			in:        "    // @testreg pantry.add-item",
-			wantOut:   "    // @atlas:feature pantry.add-item",
+			wantOut:   "    // @grunnr:feature pantry.add-item",
 			rewritten: true,
 		},
 		{
 			name:      "python-hash",
 			in:        "# @testreg auth.login",
-			wantOut:   "# @atlas:feature auth.login",
+			wantOut:   "# @grunnr:feature auth.login",
 			rewritten: true,
 		},
 		{
 			name:      "block-open",
 			in:        "/* @testreg auth.login */",
-			wantOut:   "/* @atlas:feature auth.login */",
+			wantOut:   "/* @grunnr:feature auth.login */",
 			rewritten: true,
 		},
 		{
+			// The legacy PREFIX is not what this command migrates. It
+			// rewrites @testreg, and an @atlas: line is already an
+			// annotation the parser reads -- rewriting it would push a
+			// cosmetic diff through every file in somebody else's
+			// repository to serve our rename.
 			name:      "already-migrated-no-touch",
 			in:        "// @atlas:feature auth.login",
 			wantOut:   "// @atlas:feature auth.login",
+			rewritten: false,
+		},
+		{
+			// The form this command now EMITS must also be a fixed point,
+			// or a second run doubles every annotation the first wrote.
+			name:      "canonical-prefix-no-touch",
+			in:        "// @grunnr:feature auth.login",
+			wantOut:   "// @grunnr:feature auth.login",
 			rewritten: false,
 		},
 		{
@@ -62,7 +75,7 @@ func TestRewriteLine_Cases(t *testing.T) {
 		{
 			name:      "dashed-id",
 			in:        "// @testreg meal-prep.batch-session",
-			wantOut:   "// @atlas:feature meal-prep.batch-session",
+			wantOut:   "// @grunnr:feature meal-prep.batch-session",
 			rewritten: true,
 		},
 	}
@@ -93,7 +106,7 @@ func TestRewriteMigrateAnnotations_RoundTrip(t *testing.T) {
 	if len(rewrites) != 2 {
 		t.Fatalf("expected 2 rewrites, got %d: %+v", len(rewrites), rewrites)
 	}
-	if !strings.Contains(string(got), "// @atlas:feature auth.login real") {
+	if !strings.Contains(string(got), "// @grunnr:feature auth.login real") {
 		t.Fatalf("missing rewritten line:\n%s", string(got))
 	}
 

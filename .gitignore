@@ -1,8 +1,13 @@
 # Binaries
 testreg
 /testreg
-# Only the top-level `atlas` binary (`go build .`) — anchored so it does
-# NOT match the `cmd/atlas/` package directory.
+# Only the top-level `grunnr` binary (`go build .`) — anchored so it does
+# NOT match the `cmd/grunnr/` package directory.
+#
+# `/atlas` is kept beside it: a working tree that predates the rename still
+# has the old binary sitting at the root, and un-ignoring it the day the
+# constant changed is how a 50 MB executable gets committed by `git add -A`.
+/grunnr
 /atlas
 *.exe
 *.exe~
@@ -55,10 +60,15 @@ node_modules/
 
 # Design canvases: the .dc.html artboards and canvas.json are source and are
 # tracked; the seeded single-file canvas is a 3 MB build artifact.
+#
+# Both spellings: canvases seeded before the rename are named atlas-*, ones
+# seeded after are grunnr-*. Dropping the old pattern would un-ignore a 2.7 MB
+# artifact that is already on disk in every existing checkout.
+.design/**/grunnr-*.html
 .design/**/atlas-*.html
 .design/**/docs-that-fail-ci.html
 
-# `atlas onboard` writes its provisional capability map here on every run,
+# `grunnr onboard` writes its provisional capability map here on every run,
 # including the runs this repo's own docs are recorded from. It is a derived
 # proposal set, regenerated from scratch each time, so it is not committed
 # here — a project that wants its proposals in review can un-ignore it.

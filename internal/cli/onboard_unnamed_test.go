@@ -166,8 +166,8 @@ func TestOnboardPromote_AsNamesAnUnnamedGrouping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), "@atlas:feature") {
-		t.Fatalf("a dry run wrote into the source:\n%s", body)
+	if marker, wrote := anyFeatureAnnotation(string(body)); wrote {
+		t.Fatalf("a dry run wrote %s into the source:\n%s", marker, body)
 	}
 
 	out = runPromote(t, fix, "--id", "unnamed:1", "--as", "demo.lifecycle", "--apply")
@@ -175,7 +175,7 @@ func TestOnboardPromote_AsNamesAnUnnamedGrouping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "// @atlas:feature demo.lifecycle") {
+	if !strings.Contains(string(body), "// @grunnr:feature demo.lifecycle") {
 		t.Errorf("promote --as wrote nothing the scanner will read:\n%s\ncommand output:\n%s", body, out)
 	}
 }
@@ -228,8 +228,8 @@ func TestOnboardPromote_AsIsRefusedOnNamedProposalsAndOnBadIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), "@atlas:feature") {
-		t.Errorf("a refused promote --as still edited the source:\n%s", body)
+	if marker, wrote := anyFeatureAnnotation(string(body)); wrote {
+		t.Errorf("a refused promote --as wrote %s into the source:\n%s", marker, body)
 	}
 }
 
@@ -260,4 +260,20 @@ func promoteOut(t *testing.T, fix *onboardFixture, args ...string) (string, erro
 	root.SetArgs(full)
 	err := root.ExecuteContext(context.Background())
 	return out.String(), err
+}
+
+// anyFeatureAnnotation reports whether src carries a feature annotation in
+// ANY spelling the parser accepts, and which one.
+//
+// The negative assertions above -- "a dry run wrote nothing", "a refused
+// promote wrote nothing" -- are only meaningful if they cover the whole
+// grammar. Naming a single prefix makes them pass whenever promote emits the
+// other one, which is precisely the change that has just been made.
+func anyFeatureAnnotation(src string) (string, bool) {
+	for _, m := range []string{"@grunnr:feature", "@atlas:feature", "@testreg"} {
+		if strings.Contains(src, m) {
+			return m, true
+		}
+	}
+	return "", false
 }

@@ -44,8 +44,8 @@ Two candidates ranked by confidence. The body of `AuthHandler.Login`
 contains the literal substring "Authenticate" twice (the method body calls
 `h.svc.Authenticate(...)` and the comment mentions it), so it edges out
 the actual `Authenticate` method itself. The `[feature=...]` tag is
-populated when the symbol is linked to a feature via `@atlas:feature` or
-`@atlas:contract` — `-` means no feature linkage in the store.
+populated when the symbol is linked to a feature via `@grunnr:feature` or
+`@grunnr:contract` — `-` means no feature linkage in the store.
 
 ### Lower the confidence floor
 

@@ -33,7 +33,7 @@ The following principles are load-bearing. Violating one of them is a
 review-blocking defect, not a style preference.
 
 **Code is the source of truth; derived data is a view.**
-Annotations live in source (`// @atlas:feature auth.login`). The SQLite
+Annotations live in source (`// @grunnr:feature auth.login`). The SQLite
 state is a *cache* — nuke it and Grunnr reconstructs it from a fresh scan.
 There is no hand-maintained YAML registry to drift.
 
@@ -139,7 +139,7 @@ Multi-language annotation parser. Successor to testreg's `annotation_parser.go`.
 Recognises **both** annotation grammars:
 
 ```go
-// @atlas:feature  auth.login   tag1 tag2     // canonical
+// @grunnr:feature  auth.login   tag1 tag2     // canonical
 // @testreg        auth.login   #tag1 #tag2   // legacy, still valid
 ```
 
@@ -438,7 +438,7 @@ grunnr sprint [--top N]        Gap-weighted feature prioritization
 grunnr diff <ref-a> <ref-b>    Snapshot diff between two refs
 grunnr contract <feature>      Extract API contract (req/resp types)
 grunnr diagnose <error-string> Match an error to candidate symbols
-grunnr migrate-annotations     Bulk-rename @testreg → @atlas (--dry-run|--apply)
+grunnr migrate-annotations     Bulk-rename @testreg → @grunnr (--dry-run|--apply)
 ```
 
 Subcommand → packages composed:
@@ -649,9 +649,9 @@ component | endpoint | external`. Drives layer-weighting in `audit/`.
 grammars:
 
 ```
-// @atlas:feature <feature-id> [tag ...]   (canonical, namespaced)
-// @atlas:contract <contract-id>            (future)
-// @atlas:owner    <team>                   (future)
+// @grunnr:feature <feature-id> [tag ...]   (canonical, namespaced)
+// @grunnr:contract <contract-id>            (future)
+// @grunnr:owner    <team>                   (future)
 // @testreg <feature-id> [#tag ...]         (legacy; still recognised)
 // @api METHOD /path                        (handler discovery)
 ```

@@ -28,9 +28,26 @@ type PromoteResult struct {
 // annotationMarkers are the annotation forms that already make a
 // declaration a declared member of something. Finding any of them above the
 // anchor means a human has spoken and promotion must not write over them.
-var annotationMarkers = []string{"@atlas:feature", "@atlas:contract", "@testreg"}
+//
+// Both spellings of the annotation prefix are listed, and the asymmetry with
+// what Promote WRITES is deliberate. Grunnr emits the canonical `@grunnr:`
+// form only, but it must RECOGNISE everything the parser accepts -- and the
+// parser still accepts `@atlas:` (packages/codeindex/annotations/parser.go),
+// because that spelling is in other people's source control and unreadable
+// annotations are not a rename anyone consented to.
+//
+// Listing only one spelling breaks in whichever direction it is wrong: with
+// only `@atlas:` (the state this list was in when the rename landed) a
+// declaration a user had annotated `@grunnr:feature` by hand looks unclaimed,
+// and promotion writes a SECOND annotation above the first. A detector must
+// cover the whole grammar its writer's readers accept.
+var annotationMarkers = []string{
+	"@grunnr:feature", "@grunnr:contract",
+	"@atlas:feature", "@atlas:contract",
+	"@testreg",
+}
 
-// Promote writes the @atlas:feature annotation for one provisional
+// Promote writes the @grunnr:feature annotation for one provisional
 // capability into the source file, above its anchor declaration.
 //
 // This is deliberately the long way round. Promotion could write the
@@ -86,7 +103,7 @@ func Promote(root string, c Capability, apply bool) (PromoteResult, error) {
 	}
 
 	comment := commentPrefix(c.Anchor.FilePath)
-	res.Text = leadingWhitespace(lines[idx]) + comment + " @atlas:feature " + c.ID
+	res.Text = leadingWhitespace(lines[idx]) + comment + " @grunnr:feature " + c.ID
 
 	if marker, found := existingAnnotation(lines, idx, comment); found {
 		res.Skipped = fmt.Sprintf("%s already carries %s -- existing annotations are adopted, never overwritten",

@@ -229,3 +229,76 @@ func equal(a, b []string) bool {
 	}
 	return true
 }
+
+// The upgrade case: a package whose shim was written by the binary back when
+// it was called atlas.
+//
+// Everything about that file is grunnr's own work -- but the marker it
+// carries names the old product, and after the rename the detector only knew
+// the new spelling. Analyze then reported the TestMain as hand-written, and
+// InitDir took the refusal branch: "atlas_shim_test.go already declares
+// TestMain; call shim.Run(m) from it to opt in". Safe, wrong, and entirely
+// plausible to a user who would have had no reason to doubt it.
+//
+// The file must be adopted and refreshed in place. Not renamed to
+// ShimFileName: writing the canonical name while the old file stayed on disk
+// would leave the package with two TestMain declarations and no build.
+func TestInitDir_AdoptsAShimWrittenBeforeTheRename(t *testing.T) {
+	const legacyName = "atlas_shim_test.go"
+	dir := t.TempDir()
+	write(t, dir, "thing.go", "package thing\n")
+	write(t, dir, "thing_test.go", "package thing\n\nimport \"testing\"\n\nfunc TestThing(t *testing.T) {}\n")
+
+	legacy := strings.Replace(string(runner.Generate("thing")),
+		"`grunnr cov shim init`", "`atlas cov shim init`", 1)
+	if !strings.Contains(legacy, "`atlas cov shim init`") {
+		t.Fatal("fixture did not take: the generated marker no longer has the shape this test rewrites")
+	}
+	write(t, dir, legacyName, legacy)
+
+	got, err := runner.InitDir(dir)
+	if err != nil {
+		t.Fatalf("InitDir: %v", err)
+	}
+	if got.Status == runner.StatusSkipped {
+		t.Fatalf("a shim grunnr wrote under its old name was refused as foreign: %s", got.Reason)
+	}
+	if got.Status != runner.StatusUpdated {
+		t.Fatalf("status = %q, want updated", got.Status)
+	}
+	if filepath.Base(got.Path) != legacyName {
+		t.Errorf("shim was written to %s, want the existing %s -- a second file means two TestMain",
+			filepath.Base(got.Path), legacyName)
+	}
+	if _, err := os.Stat(filepath.Join(dir, runner.ShimFileName)); err == nil {
+		t.Errorf("a second shim %s was created beside the legacy one; the package will not compile",
+			runner.ShimFileName)
+	}
+	b, err := os.ReadFile(got.Path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(b) != string(runner.Generate("thing")) {
+		t.Errorf("the adopted shim was not refreshed to the current template:\n%s", b)
+	}
+}
+
+// New packages get the current name. Pinned separately from the adoption case
+// above so that "we kept the old file" can never quietly become "we always
+// write the old name".
+func TestInitDir_NewPackagesGetTheCurrentShimName(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "thing.go", "package thing\n")
+	write(t, dir, "thing_test.go", "package thing\n\nimport \"testing\"\n\nfunc TestThing(t *testing.T) {}\n")
+
+	got, err := runner.InitDir(dir)
+	if err != nil {
+		t.Fatalf("InitDir: %v", err)
+	}
+	if filepath.Base(got.Path) != "grunnr_shim_test.go" {
+		t.Errorf("a fresh package got shim %q, want grunnr_shim_test.go", filepath.Base(got.Path))
+	}
+	if strings.Contains(string(runner.Generate("thing")), "`atlas cov shim init`") {
+		t.Error("the generated marker still names the old product")
+	}
+}

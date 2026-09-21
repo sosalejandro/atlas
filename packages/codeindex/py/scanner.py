@@ -27,7 +27,7 @@ Annotations come in two recognition modes (both supported):
 * **Comment-style** — ``# @atlas:<kind> <id> [tags...]`` on the line
   IMMEDIATELY above a ``def`` / ``class`` declaration. Mirrors Go's
   ``// @atlas:feature ...`` convention.
-* **Decorator-style** — ``@atlas.feature("id")`` (or ``@feature("id")``
+* **Decorator-style** — ``@grunnr.feature("id")`` (or ``@feature("id")``
   when the helper is imported as ``from grunnr import feature``).
   Grunnr treats the decorator as no-op runtime sugar and reads the
   feature id statically.
@@ -266,12 +266,12 @@ def _extract_decorator_annotation(
     node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
     rel_path: str,
 ) -> _Annotation | None:
-    """Inspect ``node.decorator_list`` for a ``@atlas.feature("id")`` or
+    """Inspect ``node.decorator_list`` for a ``@grunnr.feature("id")`` or
     ``@feature("id")`` (when imported as ``from grunnr import feature``)
     decorator.
 
     Returns the annotation on the first match and stops. Multiple
-    ``@atlas.feature(...)`` decorators on the same symbol would all
+    ``@grunnr.feature(...)`` decorators on the same symbol would all
     resolve to the same kind anyway; if a future use case wants
     multi-id-per-symbol, this is the seam to extend.
     """
@@ -328,7 +328,8 @@ def _decorator_atlas_kind(func: ast.expr) -> str | None:
         "outbox_publish": "outbox-publish",
     }
     if isinstance(func, ast.Attribute):
-        # @atlas.feature(...) — value must be ast.Name(id='grunnr').
+        # @grunnr.feature(...) / @atlas.feature(...) — value must be an
+        # ast.Name whose id is either spelling.
         # "atlas" is accepted alongside "grunnr" for the same reason the Go
         # parser still reads `@atlas:` -- the decorator is imported into the
         # USER'S code, and dropping it would silently unlink every annotated

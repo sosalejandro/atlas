@@ -11,7 +11,7 @@ in one of the two and must be reconciled before merge.
 ## 1. Purpose
 
 Grunnr persists **derived state** in a single SQLite database file per project.
-The **source of truth lives in code** — `@atlas:<kind> <id>` annotations,
+The **source of truth lives in code** — `@grunnr:<kind> <id>` annotations,
 Go/TS/SQL source files, test outputs. SQLite is:
 
 - A **cache** for parsed AST data (symbols, edges, file hashes) so subsequent
@@ -138,7 +138,7 @@ worth a follow-up:
 - `internal/domain` and `internal/app` — the legacy testreg port — still name
   their walk `TraceFrom` / `TraceNode`. `packages/graph`, the kernel package a
   public API would expose, was renamed to `ChainFrom` / `ChainNode`.
-- The `@atlas:bc` annotation kind still says `bc`. Renaming an annotation kind
+- The `@grunnr:bc` annotation kind still says `bc`. Renaming an annotation kind
   is a change to authored source in other people's repositories, which is what
   `grunnr migrate-annotations` exists for and what the issue's "taxonomy pass"
   note anticipates.
@@ -288,7 +288,7 @@ Reserved keys (Grunnr v0):
 - `cache.ttl_minutes` — integer. How long a file-hash row is trusted before
   Grunnr re-stats the file. Default `60`.
 - `annotations.legacy_testreg` — `true | false`. When true, `@testreg <id>`
-  is accepted as an alias for `@atlas:feature <id>`. Default `true` until
+  is accepted as an alias for `@grunnr:feature <id>`. Default `true` until
   Phase 9 cutover completes, then settable to `false`.
 
 ### 5.3 `features` — Grunnr's notion of a "feature"
@@ -310,11 +310,11 @@ CREATE TABLE features (
 | Column             | Type      | Notes                                                                                                            |
 | ------------------ | --------- | ---------------------------------------------------------------------------------------------------------------- |
 | `id`               | TEXT PK   | Dotted lowercase, e.g. `auth.login`, `meals.create`, `plans-patient.export-pdf`. Grammar `[a-z0-9_-]+(\.[a-z0-9_-]+)*` — both snake (`meal_prep.batch_session`) and kebab (`email-relay.dlq`) segments are valid; dot is the segment separator. Stable across rescans; what annotations refer to. |
-| `title`            | TEXT      | Human-readable label. From `@atlas:feature <id> title="…"` or the YAML import. Falls back to a humanised `id`.   |
-| `owner`            | TEXT      | Optional. From `@atlas:owner` annotation or YAML. Typically a team handle or maintainer name.                    |
+| `title`            | TEXT      | Human-readable label. From `@grunnr:feature <id> title="…"` or the YAML import. Falls back to a humanised `id`.   |
+| `owner`            | TEXT      | Optional. From `@grunnr:owner` annotation or YAML. Typically a team handle or maintainer name.                    |
 | `kind`             | TEXT      | `feature` (default) — testable product behaviour. `contract` — an API contract surface (no separate test cycle). |
-| `deprecated_since` | TEXT      | Optional. Free-form version/date string from `@atlas:deprecated`. Drives audit warnings.                          |
-| `introduced_in`    | TEXT      | Optional. Free-form version/date string from `@atlas:since`. Useful for changelog generation.                    |
+| `deprecated_since` | TEXT      | Optional. Free-form version/date string from `@grunnr:deprecated`. Drives audit warnings.                          |
+| `introduced_in`    | TEXT      | Optional. Free-form version/date string from `@grunnr:since`. Useful for changelog generation.                    |
 | `created_at`       | TIMESTAMP | First time Grunnr saw this ID.                                                                                    |
 | `updated_at`       | TIMESTAMP | Touched on any metadata change.                                                                                  |
 
@@ -371,7 +371,7 @@ IGNORE` and skip duplicates without writes.
 
 The Go scanner registers a declaration under its **short** id — `Type.Method`
 for methods, `pkg.Func` for plain functions — because that is what
-`@atlas:feature` annotations, `grunnr chain` arguments and stored feature links
+`@grunnr:feature` annotations, `grunnr chain` arguments and stored feature links
 refer to. Short ids are not globally unique: any monorepo where two bounded
 contexts each declare a `Chat` or a `NewAvailabilityService` produces
 collisions. When a short id is already taken by a declaration in a **different
@@ -522,7 +522,7 @@ CREATE TABLE feature_symbols (
 | `feature_id` | TEXT    | FK → `features(id)`. Cascades on delete.                                                                                                           |
 | `symbol_id`  | INTEGER | FK → `symbols(id)`. Cascades on delete.                                                                                                            |
 | `role`       | TEXT    | `test` — symbol is a test that exercises the feature. `impl` — symbol is part of the feature's implementation. `contract` — symbol defines the feature's API surface. |
-| `source`     | TEXT    | `annotation` — derived from an `@atlas:feature` (or legacy `@testreg`) comment. `inferred` — Grunnr walked the graph and concluded membership.       |
+| `source`     | TEXT    | `annotation` — derived from an `@grunnr:feature` (or legacy `@testreg`) comment. `inferred` — Grunnr walked the graph and concluded membership.       |
 
 The composite PK `(feature_id, symbol_id, role)` is the uniqueness
 invariant: a symbol can be both an `impl` and a `test` for the same
@@ -648,7 +648,7 @@ CREATE INDEX coverage_results_feature_idx ON coverage_results(feature_id);
 | `id`          | INTEGER | Surrogate PK.                                                                                                                      |
 | `run_id`      | INTEGER | FK → `coverage_runs(id)`. Cascade so deleting a run removes its results.                                                            |
 | `symbol_id`   | INTEGER | FK → `symbols(id)`. Nullable: Playwright/Maestro tests don't map to a Go symbol. Set to NULL if the symbol is later removed.        |
-| `feature_id`  | TEXT    | FK → `features(id)`. Nullable: legacy tests without an `@atlas:feature` annotation may not map to a feature. Set to NULL on delete. |
+| `feature_id`  | TEXT    | FK → `features(id)`. Nullable: legacy tests without an `@grunnr:feature` annotation may not map to a feature. Set to NULL on delete. |
 | `status`      | TEXT    | `pass`, `fail`, or `skip`.                                                                                                         |
 | `duration_ms` | INTEGER | Per-test runtime. `0` if the framework didn't report it.                                                                           |
 | `message`     | TEXT    | Failure message / skip reason. NULL for `pass`.                                                                                    |
@@ -738,14 +738,14 @@ CHECK set and copies existing rows over.
 | `file_path` | TEXT      | Project-relative path.                                                                                                                      |
 | `line`      | INTEGER   | 1-based line of the comment.                                                                                                                |
 | `kind`      | TEXT      | One of the twelve kinds in the CHECK clause above. Matches Grunnr's annotation grammar verbs from `docs/annotations.md` §Known kinds.        |
-| `value`     | TEXT      | Raw value after the kind keyword. e.g. for `// @atlas:feature auth.login`: `value = "auth.login"`. Tags are part of the raw value string.   |
-| `source`    | TEXT      | `grunnr` for new-style `@atlas:<kind>`, `testreg` for legacy `// @testreg <id>`. Lets the migration tool target only legacy rows.            |
+| `value`     | TEXT      | Raw value after the kind keyword. e.g. for `// @grunnr:feature auth.login`: `value = "auth.login"`. Tags are part of the raw value string.   |
+| `source`    | TEXT      | `grunnr` for new-style `@grunnr:<kind>`, `testreg` for legacy `// @testreg <id>`. Lets the migration tool target only legacy rows.            |
 | `parsed_at` | TIMESTAMP | When the parser saw this annotation.                                                                                                        |
 
 The unique constraint `(file_path, line, kind)` enforces the invariant that
 a single source line can carry at most one annotation of any given kind.
-The same line CAN carry e.g. both `@atlas:feature auth.login` and
-`@atlas:owner @auth-team` if they are on adjacent comment lines (different
+The same line CAN carry e.g. both `@grunnr:feature auth.login` and
+`@grunnr:owner @auth-team` if they are on adjacent comment lines (different
 `line` values), but a single line cannot redeclare the same kind.
 
 This table is the raw extract, before resolution into `feature_symbols`.

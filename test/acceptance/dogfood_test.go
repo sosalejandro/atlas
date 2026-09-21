@@ -151,7 +151,7 @@ func TestDogfood_AtlasMeasuresItself(t *testing.T) {
 
 // dogfoodScan indexes this repo and checks the scan produced a real index.
 func dogfoodScan(t *testing.T, env dogfoodEnv) {
-	env2 := runAtlas(t, "scan", "--root", env.repoRoot, "--db-path", env.db)
+	env2 := runGrunnr(t, "scan", "--root", env.repoRoot, "--db-path", env.db)
 	var res struct {
 		SymbolsInserted int `json:"symbols_inserted"`
 		EdgesInserted   int `json:"edges_inserted"`
@@ -177,7 +177,7 @@ func dogfoodScan(t *testing.T, env dogfoodEnv) {
 // to a symbol is coverage it cannot charge to a FEATURE, so it silently
 // shrinks every per-feature figure the audit reports (issues #85 / #100).
 func dogfoodCovSync(t *testing.T, env dogfoodEnv) {
-	res := runAtlas(t, "cov", "sync", "--framework", "go-cover",
+	res := runGrunnr(t, "cov", "sync", "--framework", "go-cover",
 		"--input", env.profile, "--db-path", env.db)
 	var out struct {
 		Attribution struct {
@@ -227,7 +227,7 @@ func dogfoodCovSync(t *testing.T, env dogfoodEnv) {
 // is not true — which is the one thing it must never be wrong about, because
 // every other verb answers from that picture.
 func dogfoodDoctor(t *testing.T, env dogfoodEnv) {
-	res := runAtlas(t, "doctor", "--root", env.repoRoot, "--db-path", env.db)
+	res := runGrunnr(t, "doctor", "--root", env.repoRoot, "--db-path", env.db)
 	var out struct {
 		Checks []struct {
 			Name        string `json:"name"`
@@ -272,7 +272,7 @@ func dogfoodDoctor(t *testing.T, env dogfoodEnv) {
 // understand. If it cannot resolve its own, the claim does not survive its
 // first customer.
 func dogfoodSQL(t *testing.T, env dogfoodEnv) {
-	res := runAtlas(t, "sql", "scan", "--db-path", env.db)
+	res := runGrunnr(t, "sql", "scan", "--db-path", env.db)
 	var out struct {
 		Operations       int     `json:"operations"`
 		Resolved         int     `json:"resolved"`
@@ -319,7 +319,7 @@ func dogfoodCovDiff(t *testing.T, env dogfoodEnv) {
 		t.Skip("no base ref available (shallow checkout, no origin/main and no HEAD~1); " +
 			"cov diff has nothing to compare against")
 	}
-	res := runAtlas(t, "cov", "diff", "--base", env.base, "--db-path", env.db)
+	res := runGrunnr(t, "cov", "diff", "--base", env.base, "--db-path", env.db)
 	var out struct {
 		Base         string   `json:"base"`
 		ChangedFiles int      `json:"changed_files"`

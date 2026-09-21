@@ -35,7 +35,7 @@ func newOnboardCmd() *cobra.Command {
 		Short: "First run: infer a provisional capability map and report what it makes visible",
 		Long: `onboard scans the project, builds the SQL inventory, reads the HTTP routes,
 mines git history, and derives a PROVISIONAL capability map from all of it —
-without requiring a single @atlas:feature annotation.
+without requiring a single @grunnr:feature annotation.
 
 It then reports what that map made visible: endpoints nothing tests, tables
 written from more than one capability, code under active change with no test
@@ -47,7 +47,7 @@ INFERRED IS NOT DECLARED. Everything onboard proposes is namespaced under
 "provisional:", is written to .grunnr/provisional/capabilities.json, and is
 absent from the features table. Grunnr's registry is worth something only
 because a human wrote every row in it, so the only path from a proposal into
-the registry is 'grunnr onboard promote', which writes an @atlas:feature
+the registry is 'grunnr onboard promote', which writes an @grunnr:feature
 annotation into your source and lets the normal ingest pick it up.
 
 Existing annotations are adopted as they are: a symbol that already belongs
@@ -668,9 +668,9 @@ func newOnboardPromoteCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "promote",
-		Short: "Accept provisional capabilities by writing their @atlas:feature annotations",
+		Short: "Accept provisional capabilities by writing their @grunnr:feature annotations",
 		Long: `promote turns one or more provisional capabilities into real ones by
-writing an '@atlas:feature <id>' annotation above the anchor declaration
+writing an '@grunnr:feature <id>' annotation above the anchor declaration
 each proposal cites. The annotation then reaches the features table through
 the ordinary scan, exactly as a hand-written one would — there is no path
 that writes the registry directly.
@@ -678,7 +678,7 @@ that writes the registry directly.
 The default is a dry run: it prints the file, the line and the exact text it
 would insert. Pass --apply to write.
 
-A declaration that already carries an @atlas:feature, @atlas:contract or
+A declaration that already carries an @grunnr:feature, @grunnr:contract or
 @testreg annotation is skipped with a reason. Existing annotations are
 adopted, never overwritten.
 
